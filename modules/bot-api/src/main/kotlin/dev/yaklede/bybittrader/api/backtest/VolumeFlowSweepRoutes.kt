@@ -4,6 +4,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepCandidate
@@ -11,6 +12,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepResult
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
+import dev.yaklede.bybittrader.engine.backtest.defaultVolumeFlowMarketRegimes
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -58,6 +60,14 @@ data class VolumeFlowSweepRequest(
     val contextVwapLookback: Int = 32,
     val requireContextVwapValues: List<Boolean> = listOf(true),
     val requireContextTrendValues: List<Boolean> = listOf(true, false),
+    val allowedMarketRegimeValues: List<List<String>>? = null,
+    val requireRegimeSideAlignmentValues: List<Boolean> = listOf(false),
+    val minTrendMovePct: Double = 0.003,
+    val minTrendEfficiency: Double = 0.35,
+    val highVolatilityRangePct: Double = 0.006,
+    val requireKeyLevelProximityValues: List<Boolean> = listOf(false),
+    val keyLevelTolerancePctValues: List<Double> = listOf(0.0025),
+    val avoidRangeMiddleValues: List<Boolean> = listOf(false),
     val minBodyRatioValues: List<Double> = listOf(0.45),
     val minRejectionWickRatioValues: List<Double> = listOf(0.25),
     val entryLookaheadM1CandlesValues: List<Int> = listOf(5),
@@ -81,6 +91,7 @@ data class VolumeFlowSweepRequest(
         require(m5Limit in 60..200_000) { "M5 limit must be between 60 and 200000." }
         require(m15Limit in 60..50_000) { "M15 limit must be between 60 and 50000." }
         require(topResults in 1..50) { "Top results must be between 1 and 50." }
+        allowedMarketRegimeValues?.flatten()?.forEach(VolumeFlowMarketRegime::valueOf)
         toSweepConfig()
         return this
     }
@@ -104,6 +115,17 @@ data class VolumeFlowSweepRequest(
             contextVwapLookback = contextVwapLookback,
             requireContextVwapValues = requireContextVwapValues,
             requireContextTrendValues = requireContextTrendValues,
+            allowedMarketRegimeValues =
+                allowedMarketRegimeValues
+                    ?.map { regimes -> regimes.map(VolumeFlowMarketRegime::valueOf).toSet() }
+                    ?: listOf(defaultVolumeFlowMarketRegimes),
+            requireRegimeSideAlignmentValues = requireRegimeSideAlignmentValues,
+            minTrendMovePct = minTrendMovePct,
+            minTrendEfficiency = minTrendEfficiency,
+            highVolatilityRangePct = highVolatilityRangePct,
+            requireKeyLevelProximityValues = requireKeyLevelProximityValues,
+            keyLevelTolerancePctValues = keyLevelTolerancePctValues,
+            avoidRangeMiddleValues = avoidRangeMiddleValues,
             minBodyRatioValues = minBodyRatioValues,
             minRejectionWickRatioValues = minRejectionWickRatioValues,
             entryLookaheadM1CandlesValues = entryLookaheadM1CandlesValues,
@@ -162,6 +184,11 @@ data class VolumeFlowSweepCandidateResponse(
     val requireM5Vwap: Boolean,
     val requireContextVwap: Boolean,
     val requireContextTrend: Boolean,
+    val allowedMarketRegimes: List<String>,
+    val requireRegimeSideAlignment: Boolean,
+    val requireKeyLevelProximity: Boolean,
+    val keyLevelTolerancePct: Double,
+    val avoidRangeMiddle: Boolean,
     val minBodyRatio: Double,
     val minRejectionWickRatio: Double,
     val entryLookaheadM1Candles: Int,
@@ -233,6 +260,11 @@ private fun VolumeFlowSweepCandidate.toResponse(): VolumeFlowSweepCandidateRespo
         requireM5Vwap = requireM5Vwap,
         requireContextVwap = requireContextVwap,
         requireContextTrend = requireContextTrend,
+        allowedMarketRegimes = allowedMarketRegimes.map { it.name },
+        requireRegimeSideAlignment = requireRegimeSideAlignment,
+        requireKeyLevelProximity = requireKeyLevelProximity,
+        keyLevelTolerancePct = keyLevelTolerancePct.roundForApi(),
+        avoidRangeMiddle = avoidRangeMiddle,
         minBodyRatio = minBodyRatio.roundForApi(),
         minRejectionWickRatio = minRejectionWickRatio.roundForApi(),
         entryLookaheadM1Candles = entryLookaheadM1Candles,

@@ -23,6 +23,14 @@ data class VolumeFlowBacktestConfig(
     val contextVwapLookback: Int = 32,
     val requireContextVwap: Boolean = true,
     val requireContextTrend: Boolean = true,
+    val allowedMarketRegimes: Set<VolumeFlowMarketRegime> = defaultVolumeFlowMarketRegimes,
+    val requireRegimeSideAlignment: Boolean = false,
+    val minTrendMovePct: Double = 0.003,
+    val minTrendEfficiency: Double = 0.35,
+    val highVolatilityRangePct: Double = 0.006,
+    val requireKeyLevelProximity: Boolean = false,
+    val keyLevelTolerancePct: Double = 0.0025,
+    val avoidRangeMiddle: Boolean = false,
     val minBodyRatio: Double = 0.45,
     val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
@@ -51,6 +59,19 @@ data class VolumeFlowBacktestConfig(
         require(setupRangeLookback > 1) { "Setup range lookback must be greater than 1." }
         require(m5VwapLookback > 1) { "M5 VWAP lookback must be greater than 1." }
         require(contextVwapLookback > 1) { "Context VWAP lookback must be greater than 1." }
+        require(allowedMarketRegimes.isNotEmpty()) { "Allowed market regimes must not be empty." }
+        require(minTrendMovePct >= 0.0 && minTrendMovePct <= 0.05) {
+            "Minimum trend move percent must be between 0 and 0.05."
+        }
+        require(minTrendEfficiency >= 0.0 && minTrendEfficiency <= 1.0) {
+            "Minimum trend efficiency must be between 0 and 1."
+        }
+        require(highVolatilityRangePct > 0.0 && highVolatilityRangePct <= 0.05) {
+            "High volatility range percent must be between 0 and 0.05."
+        }
+        require(keyLevelTolerancePct >= 0.0 && keyLevelTolerancePct <= 0.02) {
+            "Key level tolerance must be between 0 and 0.02."
+        }
         require(minBodyRatio in 0.0..1.0) { "Minimum body ratio must be between 0 and 1." }
         require(minRejectionWickRatio in 0.0..1.0) { "Minimum rejection wick ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }
@@ -70,6 +91,15 @@ data class VolumeFlowBacktestConfig(
     }
 }
 
+val defaultVolumeFlowMarketRegimes: Set<VolumeFlowMarketRegime> =
+    setOf(
+        VolumeFlowMarketRegime.TREND_UP,
+        VolumeFlowMarketRegime.TREND_DOWN,
+        VolumeFlowMarketRegime.RANGE,
+        VolumeFlowMarketRegime.HIGH_VOLATILITY_CHOP,
+        VolumeFlowMarketRegime.UNKNOWN,
+    )
+
 enum class VolumeFlowSetupMode {
     BREAKOUT_CONTINUATION,
     FAILED_BREAK_REVERSAL,
@@ -86,6 +116,28 @@ enum class VolumeFlowSideMode {
     BOTH,
     LONG_ONLY,
     SHORT_ONLY,
+}
+
+enum class VolumeFlowMarketRegime {
+    TREND_UP,
+    TREND_DOWN,
+    RANGE,
+    HIGH_VOLATILITY_CHOP,
+    UNKNOWN,
+}
+
+enum class VolumeFlowKeyLevelType {
+    RANGE_HIGH,
+    RANGE_LOW,
+    RANGE_MIDDLE,
+    RANGE_INTERIOR,
+    UNKNOWN,
+}
+
+enum class VolumeFlowVolumePattern {
+    BREAKOUT_ACCEPTANCE,
+    FAILED_BREAK,
+    CLIMAX_REVERSAL,
 }
 
 data class VolumeFlowBacktestReport(
@@ -120,11 +172,24 @@ data class VolumeFlowBacktestReport(
     val setupCount: Int,
     val rejectedSetupCount: Int,
     val noTradeReasonCounts: Map<String, Int>,
+    val performanceBySetupMode: List<VolumeFlowTagSummary>,
+    val performanceByMarketRegime: List<VolumeFlowTagSummary>,
+    val performanceByVolumePattern: List<VolumeFlowTagSummary>,
     val trades: List<VolumeFlowBacktestTrade>,
+)
+
+data class VolumeFlowTagSummary(
+    val tag: String,
+    val tradeCount: Int,
+    val netPnl: Double,
+    val winRatePct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
 )
 
 data class VolumeFlowBacktestTrade(
     val side: Side,
+    val setupMode: VolumeFlowSetupMode,
     val setupAt: Instant,
     val entryAt: Instant,
     val exitAt: Instant,
@@ -138,6 +203,10 @@ data class VolumeFlowBacktestTrade(
     val pnl: Double,
     val returnR: Double,
     val exitReason: VolumeFlowExitReason,
+    val marketRegime: VolumeFlowMarketRegime,
+    val keyLevelType: VolumeFlowKeyLevelType,
+    val keyLevelDistancePct: Double,
+    val volumePattern: VolumeFlowVolumePattern,
     val relativeVolume: Double,
     val volumeZScore: Double,
     val setupBodyRatio: Double,

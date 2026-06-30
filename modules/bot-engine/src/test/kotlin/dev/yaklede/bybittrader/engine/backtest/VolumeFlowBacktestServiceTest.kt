@@ -33,6 +33,13 @@ class VolumeFlowBacktestServiceTest :
             result.tradeFrequencyTargetDays shouldBe 1
             result.belowMinTradeDays shouldBe 0
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+            result.trades.single().setupMode shouldBe VolumeFlowSetupMode.BREAKOUT_CONTINUATION
+            result.trades.single().marketRegime shouldBe VolumeFlowMarketRegime.TREND_UP
+            result.trades.single().keyLevelType shouldBe VolumeFlowKeyLevelType.RANGE_HIGH
+            result.trades.single().volumePattern shouldBe VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE
+            result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
+            result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
+            result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
         }
 
         "does not enter when 1m data starts after the setup entry window" {
@@ -132,6 +139,33 @@ class VolumeFlowBacktestServiceTest :
 
             result.tradeCount shouldBe 1
             result.trades.single().side shouldBe Side.SELL
+            result.trades.single().keyLevelType shouldBe VolumeFlowKeyLevelType.RANGE_HIGH
+            result.trades.single().volumePattern shouldBe VolumeFlowVolumePattern.FAILED_BREAK
+        }
+
+        "can reject trades that fight the 15m market regime" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(failedBreakReversalCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            setupMode = VolumeFlowSetupMode.FAILED_BREAK_REVERSAL,
+                            entryMode = VolumeFlowEntryMode.CLOSE_CONFIRMATION,
+                            requireContextVwap = false,
+                            requireContextTrend = false,
+                            requireRegimeSideAlignment = true,
+                            minRejectionWickRatio = 0.25,
+                            targetR = 0.25,
+                        ),
+                )
+
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["MARKET_REGIME_SIDE_MISMATCH"] shouldBe 1
         }
 
         "runs a short trade from volume rejection reversal without requiring a range break" {

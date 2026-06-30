@@ -21,6 +21,14 @@ data class VolumeFlowSweepConfig(
     val contextVwapLookback: Int = 32,
     val requireContextVwapValues: List<Boolean> = listOf(true),
     val requireContextTrendValues: List<Boolean> = listOf(true, false),
+    val allowedMarketRegimeValues: List<Set<VolumeFlowMarketRegime>> = listOf(defaultVolumeFlowMarketRegimes),
+    val requireRegimeSideAlignmentValues: List<Boolean> = listOf(false),
+    val minTrendMovePct: Double = 0.003,
+    val minTrendEfficiency: Double = 0.35,
+    val highVolatilityRangePct: Double = 0.006,
+    val requireKeyLevelProximityValues: List<Boolean> = listOf(false),
+    val keyLevelTolerancePctValues: List<Double> = listOf(0.0025),
+    val avoidRangeMiddleValues: List<Boolean> = listOf(false),
     val minBodyRatioValues: List<Double> = listOf(0.45),
     val minRejectionWickRatioValues: List<Double> = listOf(0.25),
     val entryLookaheadM1CandlesValues: List<Int> = listOf(5),
@@ -52,6 +60,12 @@ data class VolumeFlowSweepConfig(
         require(requireM5VwapValues.isNotEmpty()) { "M5 VWAP requirement values must not be empty." }
         require(requireContextVwapValues.isNotEmpty()) { "Context VWAP requirement values must not be empty." }
         require(requireContextTrendValues.isNotEmpty()) { "Context trend requirement values must not be empty." }
+        require(allowedMarketRegimeValues.isNotEmpty()) { "Allowed market regime values must not be empty." }
+        require(allowedMarketRegimeValues.all { it.isNotEmpty() }) { "Allowed market regime sets must not be empty." }
+        require(requireRegimeSideAlignmentValues.isNotEmpty()) { "Regime side alignment values must not be empty." }
+        require(requireKeyLevelProximityValues.isNotEmpty()) { "Key-level proximity values must not be empty." }
+        require(keyLevelTolerancePctValues.isNotEmpty()) { "Key-level tolerance values must not be empty." }
+        require(avoidRangeMiddleValues.isNotEmpty()) { "Avoid range-middle values must not be empty." }
         require(minBodyRatioValues.isNotEmpty()) { "Minimum body ratio values must not be empty." }
         require(minRejectionWickRatioValues.isNotEmpty()) { "Minimum rejection wick ratio values must not be empty." }
         require(entryLookaheadM1CandlesValues.isNotEmpty()) { "Entry lookahead values must not be empty." }
@@ -80,42 +94,19 @@ data class VolumeFlowSweepConfig(
                                             for (requireM5Vwap in requireM5VwapValues) {
                                                 for (requireContextVwap in requireContextVwapValues) {
                                                     for (requireContextTrend in requireContextTrendValues) {
-                                                        for (minBodyRatio in minBodyRatioValues) {
-                                                            for (minRejectionWickRatio in minRejectionWickRatioValues) {
-                                                                for (entryLookaheadM1Candles in entryLookaheadM1CandlesValues) {
-                                                                    for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
-                                                                        for (targetR in targetRValues) {
-                                                                            for (breakevenTriggerR in breakevenTriggerRValues) {
-                                                                                for (maxHoldM1Candles in maxHoldM1CandlesValues) {
-                                                                                    add(
-                                                                                        VolumeFlowSweepCandidate(
-                                                                                            riskFraction,
-                                                                                            setupMode,
-                                                                                            entryMode,
-                                                                                            sideMode,
-                                                                                            setupTimeframe,
-                                                                                            relativeVolumeThreshold,
-                                                                                            volumeZScoreThreshold,
-                                                                                            setupRangeLookback,
-                                                                                            requireM5Vwap,
-                                                                                            requireContextVwap,
-                                                                                            requireContextTrend,
-                                                                                            minBodyRatio,
-                                                                                            minRejectionWickRatio,
-                                                                                            entryLookaheadM1Candles,
-                                                                                            maxEstimatedFeeR,
-                                                                                            targetR,
-                                                                                            breakevenTriggerR,
-                                                                                            maxHoldM1Candles,
-                                                                                        ),
-                                                                                    )
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
+                                                        addFilteredCandidates(
+                                                            riskFraction = riskFraction,
+                                                            setupMode = setupMode,
+                                                            entryMode = entryMode,
+                                                            sideMode = sideMode,
+                                                            setupTimeframe = setupTimeframe,
+                                                            relativeVolumeThreshold = relativeVolumeThreshold,
+                                                            volumeZScoreThreshold = volumeZScoreThreshold,
+                                                            setupRangeLookback = setupRangeLookback,
+                                                            requireM5Vwap = requireM5Vwap,
+                                                            requireContextVwap = requireContextVwap,
+                                                            requireContextTrend = requireContextTrend,
+                                                        )
                                                     }
                                                 }
                                             }
@@ -129,6 +120,110 @@ data class VolumeFlowSweepConfig(
             }
         }
 
+    private fun MutableList<VolumeFlowSweepCandidate>.addFilteredCandidates(
+        riskFraction: Double,
+        setupMode: VolumeFlowSetupMode,
+        entryMode: VolumeFlowEntryMode,
+        sideMode: VolumeFlowSideMode,
+        setupTimeframe: Timeframe,
+        relativeVolumeThreshold: Double,
+        volumeZScoreThreshold: Double,
+        setupRangeLookback: Int,
+        requireM5Vwap: Boolean,
+        requireContextVwap: Boolean,
+        requireContextTrend: Boolean,
+    ) {
+        for (allowedMarketRegimes in allowedMarketRegimeValues) {
+            for (requireRegimeSideAlignment in requireRegimeSideAlignmentValues) {
+                for (requireKeyLevelProximity in requireKeyLevelProximityValues) {
+                    for (keyLevelTolerancePct in keyLevelTolerancePctValues) {
+                        for (avoidRangeMiddle in avoidRangeMiddleValues) {
+                            addExecutionCandidates(
+                                riskFraction = riskFraction,
+                                setupMode = setupMode,
+                                entryMode = entryMode,
+                                sideMode = sideMode,
+                                setupTimeframe = setupTimeframe,
+                                relativeVolumeThreshold = relativeVolumeThreshold,
+                                volumeZScoreThreshold = volumeZScoreThreshold,
+                                setupRangeLookback = setupRangeLookback,
+                                requireM5Vwap = requireM5Vwap,
+                                requireContextVwap = requireContextVwap,
+                                requireContextTrend = requireContextTrend,
+                                allowedMarketRegimes = allowedMarketRegimes,
+                                requireRegimeSideAlignment = requireRegimeSideAlignment,
+                                requireKeyLevelProximity = requireKeyLevelProximity,
+                                keyLevelTolerancePct = keyLevelTolerancePct,
+                                avoidRangeMiddle = avoidRangeMiddle,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun MutableList<VolumeFlowSweepCandidate>.addExecutionCandidates(
+        riskFraction: Double,
+        setupMode: VolumeFlowSetupMode,
+        entryMode: VolumeFlowEntryMode,
+        sideMode: VolumeFlowSideMode,
+        setupTimeframe: Timeframe,
+        relativeVolumeThreshold: Double,
+        volumeZScoreThreshold: Double,
+        setupRangeLookback: Int,
+        requireM5Vwap: Boolean,
+        requireContextVwap: Boolean,
+        requireContextTrend: Boolean,
+        allowedMarketRegimes: Set<VolumeFlowMarketRegime>,
+        requireRegimeSideAlignment: Boolean,
+        requireKeyLevelProximity: Boolean,
+        keyLevelTolerancePct: Double,
+        avoidRangeMiddle: Boolean,
+    ) {
+        for (minBodyRatio in minBodyRatioValues) {
+            for (minRejectionWickRatio in minRejectionWickRatioValues) {
+                for (entryLookaheadM1Candles in entryLookaheadM1CandlesValues) {
+                    for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
+                        for (targetR in targetRValues) {
+                            for (breakevenTriggerR in breakevenTriggerRValues) {
+                                for (maxHoldM1Candles in maxHoldM1CandlesValues) {
+                                    add(
+                                        VolumeFlowSweepCandidate(
+                                            riskFraction = riskFraction,
+                                            setupMode = setupMode,
+                                            entryMode = entryMode,
+                                            sideMode = sideMode,
+                                            setupTimeframe = setupTimeframe,
+                                            relativeVolumeThreshold = relativeVolumeThreshold,
+                                            volumeZScoreThreshold = volumeZScoreThreshold,
+                                            setupRangeLookback = setupRangeLookback,
+                                            requireM5Vwap = requireM5Vwap,
+                                            requireContextVwap = requireContextVwap,
+                                            requireContextTrend = requireContextTrend,
+                                            allowedMarketRegimes = allowedMarketRegimes,
+                                            requireRegimeSideAlignment = requireRegimeSideAlignment,
+                                            requireKeyLevelProximity = requireKeyLevelProximity,
+                                            keyLevelTolerancePct = keyLevelTolerancePct,
+                                            avoidRangeMiddle = avoidRangeMiddle,
+                                            minBodyRatio = minBodyRatio,
+                                            minRejectionWickRatio = minRejectionWickRatio,
+                                            entryLookaheadM1Candles = entryLookaheadM1Candles,
+                                            maxEstimatedFeeR = maxEstimatedFeeR,
+                                            targetR = targetR,
+                                            breakevenTriggerR = breakevenTriggerR,
+                                            maxHoldM1Candles = maxHoldM1Candles,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun candidateCount(): Int =
         riskFractionValues.size *
             setupModes.size *
@@ -141,6 +236,11 @@ data class VolumeFlowSweepConfig(
             requireM5VwapValues.size *
             requireContextVwapValues.size *
             requireContextTrendValues.size *
+            allowedMarketRegimeValues.size *
+            requireRegimeSideAlignmentValues.size *
+            requireKeyLevelProximityValues.size *
+            keyLevelTolerancePctValues.size *
+            avoidRangeMiddleValues.size *
             minBodyRatioValues.size *
             minRejectionWickRatioValues.size *
             entryLookaheadM1CandlesValues.size *
@@ -162,6 +262,11 @@ data class VolumeFlowSweepCandidate(
     val requireM5Vwap: Boolean,
     val requireContextVwap: Boolean,
     val requireContextTrend: Boolean,
+    val allowedMarketRegimes: Set<VolumeFlowMarketRegime>,
+    val requireRegimeSideAlignment: Boolean,
+    val requireKeyLevelProximity: Boolean,
+    val keyLevelTolerancePct: Double,
+    val avoidRangeMiddle: Boolean,
     val minBodyRatio: Double,
     val minRejectionWickRatio: Double,
     val entryLookaheadM1Candles: Int,
@@ -189,6 +294,14 @@ data class VolumeFlowSweepCandidate(
             contextVwapLookback = config.contextVwapLookback,
             requireContextVwap = requireContextVwap,
             requireContextTrend = requireContextTrend,
+            allowedMarketRegimes = allowedMarketRegimes,
+            requireRegimeSideAlignment = requireRegimeSideAlignment,
+            minTrendMovePct = config.minTrendMovePct,
+            minTrendEfficiency = config.minTrendEfficiency,
+            highVolatilityRangePct = config.highVolatilityRangePct,
+            requireKeyLevelProximity = requireKeyLevelProximity,
+            keyLevelTolerancePct = keyLevelTolerancePct,
+            avoidRangeMiddle = avoidRangeMiddle,
             minBodyRatio = minBodyRatio,
             minRejectionWickRatio = minRejectionWickRatio,
             entryLookaheadM1Candles = entryLookaheadM1Candles,

@@ -94,6 +94,19 @@ class VolumeFlowBacktestService(
 
             val candidate = detectSetup(setupCandles, setupIndex, config, noTradeReasonCounts) ?: continue
             setupCount += 1
+            val marketRegime = classifyMarketRegime(m15Timeline, setupCandle.openedAt, config)
+
+            if (!config.allowedMarketRegimes.contains(marketRegime)) {
+                rejectedSetupCount += 1
+                incrementReason("MARKET_REGIME_REJECTED", noTradeReasonCounts)
+                continue
+            }
+
+            if (config.requireRegimeSideAlignment && !marketRegime.allows(candidate.side)) {
+                rejectedSetupCount += 1
+                incrementReason("MARKET_REGIME_SIDE_MISMATCH", noTradeReasonCounts)
+                continue
+            }
 
             if (!config.sideMode.allows(candidate.side)) {
                 rejectedSetupCount += 1
@@ -147,6 +160,7 @@ class VolumeFlowBacktestService(
             val trade =
                 VolumeFlowBacktestTrade(
                     side = candidate.side,
+                    setupMode = candidate.setupMode,
                     setupAt = setupCandle.openedAt,
                     entryAt = entry.entryAt,
                     exitAt = exit.exitCandle.openedAt,
@@ -160,6 +174,10 @@ class VolumeFlowBacktestService(
                     pnl = pnl,
                     returnR = pnl / riskAmount,
                     exitReason = exit.reason,
+                    marketRegime = marketRegime,
+                    keyLevelType = candidate.keyLevel.type,
+                    keyLevelDistancePct = candidate.keyLevel.distancePct,
+                    volumePattern = candidate.volumePattern,
                     relativeVolume = candidate.relativeVolume,
                     volumeZScore = candidate.volumeZScore,
                     setupBodyRatio = candidate.shape.bodyRatio,
@@ -208,13 +226,48 @@ class VolumeFlowBacktestService(
             return null
         }
         val shape = VolumeFlowIndicators.candleShape(candles[index])
+        val keyLevel = keyLevelContext(candles[index], setupRange, config)
+        if (config.requireKeyLevelProximity && !keyLevel.isNearKeyLevel) {
+            incrementReason("KEY_LEVEL_PROXIMITY_REJECTED", noTradeReasonCounts)
+            return null
+        }
+        if (config.avoidRangeMiddle && keyLevel.type == VolumeFlowKeyLevelType.RANGE_MIDDLE) {
+            incrementReason("RANGE_MIDDLE_REJECTED", noTradeReasonCounts)
+            return null
+        }
         return when (config.setupMode) {
             VolumeFlowSetupMode.BREAKOUT_CONTINUATION ->
-                detectBreakoutContinuation(candles[index], setupRange, shape, relativeVolume, volumeZScore, config, noTradeReasonCounts)
+                detectBreakoutContinuation(
+                    candles[index],
+                    setupRange,
+                    shape,
+                    keyLevel,
+                    relativeVolume,
+                    volumeZScore,
+                    config,
+                    noTradeReasonCounts,
+                )
             VolumeFlowSetupMode.FAILED_BREAK_REVERSAL ->
-                detectFailedBreakReversal(candles[index], setupRange, shape, relativeVolume, volumeZScore, config, noTradeReasonCounts)
+                detectFailedBreakReversal(
+                    candles[index],
+                    setupRange,
+                    shape,
+                    keyLevel,
+                    relativeVolume,
+                    volumeZScore,
+                    config,
+                    noTradeReasonCounts,
+                )
             VolumeFlowSetupMode.VOLUME_REJECTION_REVERSAL ->
-                detectVolumeRejectionReversal(candles[index], shape, relativeVolume, volumeZScore, config, noTradeReasonCounts)
+                detectVolumeRejectionReversal(
+                    candles[index],
+                    shape,
+                    keyLevel,
+                    relativeVolume,
+                    volumeZScore,
+                    config,
+                    noTradeReasonCounts,
+                )
         }
     }
 
@@ -222,6 +275,7 @@ class VolumeFlowBacktestService(
         candle: Candle,
         setupRange: SetupRange,
         shape: CandleShape,
+        keyLevel: KeyLevelContext,
         relativeVolume: Double,
         volumeZScore: Double,
         config: VolumeFlowBacktestConfig,
@@ -261,6 +315,8 @@ class VolumeFlowBacktestService(
             relativeVolume = relativeVolume,
             volumeZScore = volumeZScore,
             shape = shape,
+            keyLevel = keyLevel,
+            volumePattern = VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE,
         )
     }
 
@@ -268,6 +324,7 @@ class VolumeFlowBacktestService(
         candle: Candle,
         setupRange: SetupRange,
         shape: CandleShape,
+        keyLevel: KeyLevelContext,
         relativeVolume: Double,
         volumeZScore: Double,
         config: VolumeFlowBacktestConfig,
@@ -318,12 +375,15 @@ class VolumeFlowBacktestService(
             relativeVolume = relativeVolume,
             volumeZScore = volumeZScore,
             shape = shape,
+            keyLevel = keyLevel,
+            volumePattern = VolumeFlowVolumePattern.FAILED_BREAK,
         )
     }
 
     private fun detectVolumeRejectionReversal(
         candle: Candle,
         shape: CandleShape,
+        keyLevel: KeyLevelContext,
         relativeVolume: Double,
         volumeZScore: Double,
         config: VolumeFlowBacktestConfig,
@@ -354,6 +414,8 @@ class VolumeFlowBacktestService(
             relativeVolume = relativeVolume,
             volumeZScore = volumeZScore,
             shape = shape,
+            keyLevel = keyLevel,
+            volumePattern = VolumeFlowVolumePattern.CLIMAX_REVERSAL,
         )
     }
 
@@ -407,6 +469,44 @@ class VolumeFlowBacktestService(
             low = minOf(low, candles[rangeIndex].low.toDouble())
         }
         return SetupRange(high = high, low = low)
+    }
+
+    private fun keyLevelContext(
+        candle: Candle,
+        setupRange: SetupRange,
+        config: VolumeFlowBacktestConfig,
+    ): KeyLevelContext {
+        val close = candle.close.toDouble()
+        val rangeWidth = setupRange.high - setupRange.low
+        if (close <= 0.0 || rangeWidth <= 0.0) {
+            return KeyLevelContext(
+                type = VolumeFlowKeyLevelType.UNKNOWN,
+                distancePct = Double.POSITIVE_INFINITY,
+                isNearKeyLevel = false,
+            )
+        }
+
+        val touchedHigh = candle.high.toDouble() >= setupRange.high
+        val touchedLow = candle.low.toDouble() <= setupRange.low
+        val highDistancePct = if (touchedHigh) 0.0 else abs(close - setupRange.high) / close
+        val lowDistancePct = if (touchedLow) 0.0 else abs(close - setupRange.low) / close
+        val nearHigh = touchedHigh || highDistancePct <= config.keyLevelTolerancePct
+        val nearLow = touchedLow || lowDistancePct <= config.keyLevelTolerancePct
+        val rangePosition = (close - setupRange.low) / rangeWidth
+
+        val type =
+            when {
+                nearHigh && (!nearLow || highDistancePct <= lowDistancePct) -> VolumeFlowKeyLevelType.RANGE_HIGH
+                nearLow -> VolumeFlowKeyLevelType.RANGE_LOW
+                rangePosition in 0.35..0.65 -> VolumeFlowKeyLevelType.RANGE_MIDDLE
+                else -> VolumeFlowKeyLevelType.RANGE_INTERIOR
+            }
+
+        return KeyLevelContext(
+            type = type,
+            distancePct = minOf(highDistancePct, lowDistancePct),
+            isNearKeyLevel = nearHigh || nearLow,
+        )
     }
 
     private fun localContextAllows(
@@ -470,6 +570,54 @@ class VolumeFlowBacktestService(
         return when (side) {
             Side.BUY -> latest.close > first.close
             Side.SELL -> latest.close < first.close
+        }
+    }
+
+    private fun classifyMarketRegime(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        config: VolumeFlowBacktestConfig,
+    ): VolumeFlowMarketRegime {
+        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback)
+        if (contextCandles.size < 3) return VolumeFlowMarketRegime.UNKNOWN
+
+        val firstClose = contextCandles.first().close.toDouble()
+        val latestClose = contextCandles.last().close.toDouble()
+        if (firstClose <= 0.0 || latestClose <= 0.0) return VolumeFlowMarketRegime.UNKNOWN
+
+        val directionalMovePct = (latestClose - firstClose) / firstClose
+        var totalMovePct = 0.0
+        for (index in 1 until contextCandles.size) {
+            val previousClose = contextCandles[index - 1].close.toDouble()
+            val currentClose = contextCandles[index].close.toDouble()
+            if (previousClose > 0.0) {
+                totalMovePct += abs(currentClose - previousClose) / previousClose
+            }
+        }
+        val trendEfficiency = if (totalMovePct <= 0.0) 0.0 else abs(directionalMovePct) / totalMovePct
+        val averageRangePct =
+            contextCandles
+                .mapNotNull { candle ->
+                    val close = candle.close.toDouble()
+                    if (close <= 0.0) null else (candle.high.toDouble() - candle.low.toDouble()) / close
+                }.average()
+
+        if (
+            averageRangePct.isFinite() &&
+            averageRangePct >= config.highVolatilityRangePct &&
+            trendEfficiency < config.minTrendEfficiency
+        ) {
+            return VolumeFlowMarketRegime.HIGH_VOLATILITY_CHOP
+        }
+        if (abs(directionalMovePct) < config.minTrendMovePct || trendEfficiency < config.minTrendEfficiency) {
+            return VolumeFlowMarketRegime.RANGE
+        }
+
+        val vwap = VolumeFlowIndicators.vwap(contextCandles)
+        return when {
+            directionalMovePct > 0.0 && (vwap == null || latestClose >= vwap) -> VolumeFlowMarketRegime.TREND_UP
+            directionalMovePct < 0.0 && (vwap == null || latestClose <= vwap) -> VolumeFlowMarketRegime.TREND_DOWN
+            else -> VolumeFlowMarketRegime.RANGE
         }
     }
 
@@ -705,6 +853,9 @@ class VolumeFlowBacktestService(
             setupCount = setupCount,
             rejectedSetupCount = rejectedSetupCount,
             noTradeReasonCounts = noTradeReasonCounts,
+            performanceBySetupMode = trades.tagSummaries { it.setupMode.name },
+            performanceByMarketRegime = trades.tagSummaries { it.marketRegime.name },
+            performanceByVolumePattern = trades.tagSummaries { it.volumePattern.name },
             trades = trades,
         )
     }
@@ -728,11 +879,19 @@ private data class SetupCandidate(
     val relativeVolume: Double,
     val volumeZScore: Double,
     val shape: CandleShape,
+    val keyLevel: KeyLevelContext,
+    val volumePattern: VolumeFlowVolumePattern,
 )
 
 private data class SetupRange(
     val high: Double,
     val low: Double,
+)
+
+private data class KeyLevelContext(
+    val type: VolumeFlowKeyLevelType,
+    val distancePct: Double,
+    val isNearKeyLevel: Boolean,
 )
 
 private fun Candle.retestsAndConfirms(
@@ -862,6 +1021,32 @@ private fun VolumeFlowSideMode.allows(side: Side): Boolean =
         VolumeFlowSideMode.LONG_ONLY -> side == Side.BUY
         VolumeFlowSideMode.SHORT_ONLY -> side == Side.SELL
     }
+
+private fun VolumeFlowMarketRegime.allows(side: Side): Boolean =
+    when (this) {
+        VolumeFlowMarketRegime.TREND_UP -> side == Side.BUY
+        VolumeFlowMarketRegime.TREND_DOWN -> side == Side.SELL
+        VolumeFlowMarketRegime.RANGE -> true
+        VolumeFlowMarketRegime.HIGH_VOLATILITY_CHOP -> false
+        VolumeFlowMarketRegime.UNKNOWN -> false
+    }
+
+private fun List<VolumeFlowBacktestTrade>.tagSummaries(selector: (VolumeFlowBacktestTrade) -> String): List<VolumeFlowTagSummary> =
+    groupBy(selector)
+        .toSortedMap()
+        .map { (tag, trades) ->
+            val wins = trades.count { it.pnl > 0.0 }
+            val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
+            val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
+            VolumeFlowTagSummary(
+                tag = tag,
+                tradeCount = trades.size,
+                netPnl = trades.sumOf { it.pnl },
+                winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0,
+                profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
+                expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
+            )
+        }
 
 private fun List<VolumeFlowBacktestTrade>.maxConsecutiveLosses(): Int {
     var current = 0

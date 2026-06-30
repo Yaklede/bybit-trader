@@ -7,8 +7,11 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowTagSummary
+import dev.yaklede.bybittrader.engine.backtest.defaultVolumeFlowMarketRegimes
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -56,6 +59,14 @@ data class VolumeFlowBacktestRequest(
     val contextVwapLookback: Int = 32,
     val requireContextVwap: Boolean = true,
     val requireContextTrend: Boolean = true,
+    val allowedMarketRegimes: List<String>? = null,
+    val requireRegimeSideAlignment: Boolean = false,
+    val minTrendMovePct: Double = 0.003,
+    val minTrendEfficiency: Double = 0.35,
+    val highVolatilityRangePct: Double = 0.006,
+    val requireKeyLevelProximity: Boolean = false,
+    val keyLevelTolerancePct: Double = 0.0025,
+    val avoidRangeMiddle: Boolean = false,
     val minBodyRatio: Double = 0.45,
     val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
@@ -75,6 +86,7 @@ data class VolumeFlowBacktestRequest(
         VolumeFlowSetupMode.valueOf(setupMode)
         VolumeFlowEntryMode.valueOf(entryMode)
         VolumeFlowSideMode.valueOf(sideMode)
+        allowedMarketRegimes?.forEach(VolumeFlowMarketRegime::valueOf)
         val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
         require(parsedSetupTimeframe == Timeframe.M1 || parsedSetupTimeframe == Timeframe.M5) {
             "Setup timeframe must be M1 or M5."
@@ -105,6 +117,14 @@ data class VolumeFlowBacktestRequest(
             contextVwapLookback = contextVwapLookback,
             requireContextVwap = requireContextVwap,
             requireContextTrend = requireContextTrend,
+            allowedMarketRegimes = allowedMarketRegimes?.map(VolumeFlowMarketRegime::valueOf)?.toSet() ?: defaultVolumeFlowMarketRegimes,
+            requireRegimeSideAlignment = requireRegimeSideAlignment,
+            minTrendMovePct = minTrendMovePct,
+            minTrendEfficiency = minTrendEfficiency,
+            highVolatilityRangePct = highVolatilityRangePct,
+            requireKeyLevelProximity = requireKeyLevelProximity,
+            keyLevelTolerancePct = keyLevelTolerancePct,
+            avoidRangeMiddle = avoidRangeMiddle,
             minBodyRatio = minBodyRatio,
             minRejectionWickRatio = minRejectionWickRatio,
             entryLookaheadM1Candles = entryLookaheadM1Candles,
@@ -154,12 +174,26 @@ data class VolumeFlowBacktestResponse(
     val setupCount: Int,
     val rejectedSetupCount: Int,
     val noTradeReasonCounts: Map<String, Int>,
+    val performanceBySetupMode: List<VolumeFlowTagSummaryResponse>,
+    val performanceByMarketRegime: List<VolumeFlowTagSummaryResponse>,
+    val performanceByVolumePattern: List<VolumeFlowTagSummaryResponse>,
     val trades: List<VolumeFlowTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowTagSummaryResponse(
+    val tag: String,
+    val tradeCount: Int,
+    val netPnl: Double,
+    val winRatePct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
 )
 
 @Serializable
 data class VolumeFlowTradeResponse(
     val side: String,
+    val setupMode: String,
     val setupAt: String,
     val entryAt: String,
     val exitAt: String,
@@ -173,6 +207,10 @@ data class VolumeFlowTradeResponse(
     val pnl: Double,
     val returnR: Double,
     val exitReason: String,
+    val marketRegime: String,
+    val keyLevelType: String,
+    val keyLevelDistancePct: Double,
+    val volumePattern: String,
     val relativeVolume: Double,
     val volumeZScore: Double,
     val setupBodyRatio: Double,
@@ -212,12 +250,26 @@ private fun VolumeFlowBacktestReport.toResponse(): VolumeFlowBacktestResponse =
         setupCount = setupCount,
         rejectedSetupCount = rejectedSetupCount,
         noTradeReasonCounts = noTradeReasonCounts,
+        performanceBySetupMode = performanceBySetupMode.map(VolumeFlowTagSummary::toResponse),
+        performanceByMarketRegime = performanceByMarketRegime.map(VolumeFlowTagSummary::toResponse),
+        performanceByVolumePattern = performanceByVolumePattern.map(VolumeFlowTagSummary::toResponse),
         trades = trades.takeLast(20).map(VolumeFlowBacktestTrade::toResponse),
+    )
+
+private fun VolumeFlowTagSummary.toResponse(): VolumeFlowTagSummaryResponse =
+    VolumeFlowTagSummaryResponse(
+        tag = tag,
+        tradeCount = tradeCount,
+        netPnl = netPnl.roundForApi(),
+        winRatePct = winRatePct.roundForApi(),
+        profitFactor = profitFactor?.roundForApi(),
+        expectancyR = expectancyR.roundForApi(),
     )
 
 private fun VolumeFlowBacktestTrade.toResponse(): VolumeFlowTradeResponse =
     VolumeFlowTradeResponse(
         side = side.name,
+        setupMode = setupMode.name,
         setupAt = setupAt.toString(),
         entryAt = entryAt.toString(),
         exitAt = exitAt.toString(),
@@ -231,6 +283,10 @@ private fun VolumeFlowBacktestTrade.toResponse(): VolumeFlowTradeResponse =
         pnl = pnl.roundForApi(),
         returnR = returnR.roundForApi(),
         exitReason = exitReason.name,
+        marketRegime = marketRegime.name,
+        keyLevelType = keyLevelType.name,
+        keyLevelDistancePct = keyLevelDistancePct.roundForApi(),
+        volumePattern = volumePattern.name,
         relativeVolume = relativeVolume.roundForApi(),
         volumeZScore = volumeZScore.roundForApi(),
         setupBodyRatio = setupBodyRatio.roundForApi(),
