@@ -30,7 +30,7 @@ Content-Type: application/json
 
 {
   "symbol": "BTCUSDT",
-  "timeframes": ["M15", "H1"],
+  "timeframes": ["M1", "M5", "M15"],
   "limit": 200
 }
 

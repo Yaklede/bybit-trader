@@ -15,6 +15,8 @@ value class Symbol(
 }
 
 enum class Timeframe {
+    M1,
+    M5,
     M15,
     H1,
 }

@@ -26,18 +26,19 @@ class MarketDataSyncServiceTest :
             val result =
                 service.sync(
                     symbol = Symbol("BTCUSDT"),
-                    timeframes = listOf(Timeframe.M15, Timeframe.H1),
+                    timeframes = listOf(Timeframe.M1, Timeframe.M5, Timeframe.M15),
                     limit = 2,
                 )
 
             feed.requests.shouldContainExactly(
                 listOf(
+                    MarketDataRequest(Symbol("BTCUSDT"), Timeframe.M1, 2),
+                    MarketDataRequest(Symbol("BTCUSDT"), Timeframe.M5, 2),
                     MarketDataRequest(Symbol("BTCUSDT"), Timeframe.M15, 2),
-                    MarketDataRequest(Symbol("BTCUSDT"), Timeframe.H1, 2),
                 ),
             )
-            store.saved.size shouldBe 2
-            result.totalFetchedCandles shouldBe 2
+            store.saved.size shouldBe 3
+            result.totalFetchedCandles shouldBe 3
             result.syncedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
         }
     })

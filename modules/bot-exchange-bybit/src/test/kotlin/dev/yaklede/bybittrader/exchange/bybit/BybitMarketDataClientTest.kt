@@ -80,6 +80,39 @@ class BybitMarketDataClientTest :
                 client.fetchRecentCandles(Symbol("BTCUSDT"), Timeframe.M15, 2)
             }
         }
+
+        "fetchRecentCandles maps low timeframe intervals" {
+            val requestedIntervals = mutableListOf<String?>()
+            val engine =
+                MockEngine { request ->
+                    requestedIntervals += request.url.parameters["interval"]
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "symbol": "BTCUSDT",
+                                "category": "linear",
+                                "list": [
+                                  ["1719748800000", "100", "110", "90", "105", "10.5", "1050"]
+                                ]
+                              },
+                              "time": 1719749900000
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            client.fetchRecentCandles(Symbol("BTCUSDT"), Timeframe.M1, 1)
+            client.fetchRecentCandles(Symbol("BTCUSDT"), Timeframe.M5, 1)
+
+            requestedIntervals.shouldContainExactly(listOf("1", "5"))
+        }
     })
 
 private fun jsonClient(engine: MockEngine): HttpClient =

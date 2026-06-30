@@ -27,7 +27,7 @@ No live or testnet exchange trading is implemented yet.
 export BOT_CONTROL_TOKEN="replace-with-local-operator-token"
 export BOT_DATABASE_PATH="$PWD/data/bybit-trader.sqlite"
 export BOT_SYMBOL="BTCUSDT"
-export BOT_TIMEFRAMES="M15,H1"
+export BOT_TIMEFRAMES="M1,M5,M15"
 export BOT_PAPER_LOOP_ENABLED="false"
 ./gradlew :modules:bot-app:run
 ```
@@ -44,7 +44,7 @@ curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" http://127.0.0.1:8080/status
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","timeframes":["M15"],"limit":200}' \
+  --data '{"symbol":"BTCUSDT","timeframes":["M1","M5","M15"],"limit":200}' \
   http://127.0.0.1:8080/market-data/sync
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \

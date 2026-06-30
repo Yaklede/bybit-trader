@@ -69,7 +69,7 @@ data class MarketDataConfig(
                         ?.map { it.trim() }
                         ?.filter { it.isNotEmpty() }
                         ?.map(Timeframe::valueOf)
-                        ?: listOf(Timeframe.M15, Timeframe.H1),
+                        ?: listOf(Timeframe.M1, Timeframe.M5, Timeframe.M15),
                 bybitPublicBaseUrl = environment["BYBIT_PUBLIC_BASE_URL"] ?: "https://api.bybit.com",
             )
     }

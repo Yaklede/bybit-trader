@@ -62,6 +62,8 @@ class BybitMarketDataException(
 
 private fun Timeframe.toBybitInterval(): String =
     when (this) {
+        Timeframe.M1 -> "1"
+        Timeframe.M5 -> "5"
         Timeframe.M15 -> "15"
         Timeframe.H1 -> "60"
     }

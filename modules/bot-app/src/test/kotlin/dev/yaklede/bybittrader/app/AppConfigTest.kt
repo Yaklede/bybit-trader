@@ -11,11 +11,11 @@ class AppConfigTest :
 
             config.runtimeMode shouldBe RuntimeMode.PAPER
             config.marketData.symbol.value shouldBe "BTCUSDT"
-            config.marketData.timeframes.map { it.name } shouldBe listOf("M15", "H1")
+            config.marketData.timeframes.map { it.name } shouldBe listOf("M1", "M5", "M15")
             config.api.host shouldBe "127.0.0.1"
             config.api.port shouldBe 8080
             config.paperLoop.enabled shouldBe false
-            config.paperLoop.timeframe.name shouldBe "M15"
+            config.paperLoop.timeframe.name shouldBe "M1"
         }
 
         "testnet mode requires private exchange credentials" {
