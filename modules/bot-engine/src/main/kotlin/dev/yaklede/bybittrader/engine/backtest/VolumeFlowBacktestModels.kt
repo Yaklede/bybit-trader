@@ -6,11 +6,11 @@ import java.time.Instant
 
 data class VolumeFlowBacktestConfig(
     val initialEquity: Double = 10_000.0,
-    val riskFraction: Double = 0.0025,
+    val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
     val volumeLookback: Int = 20,
-    val relativeVolumeThreshold: Double = 7.0,
+    val relativeVolumeThreshold: Double = 5.0,
     val volumeZScoreThreshold: Double = 1.5,
     val setupRangeLookback: Int = 12,
     val contextVwapLookback: Int = 32,
@@ -20,7 +20,7 @@ data class VolumeFlowBacktestConfig(
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
-    val maxHoldM1Candles: Int = 15,
+    val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double = 1.0,
     val dailyStopPct: Double = 1.0,
     val maxTradesPerDay: Int = 5,
