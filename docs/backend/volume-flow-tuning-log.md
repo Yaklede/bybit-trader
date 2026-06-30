@@ -8,8 +8,8 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `37.12981%` over 365 observed calendar days, which is about
-`0.10172%` simple average return per observed day. The target is not met.
+below returns `40.94073%` across 366 observed days, which is about `0.112%`
+simple average return per observed day. The target is not met.
 
 ## Baseline
 
@@ -29,7 +29,9 @@ Baseline result:
 
 ## Current Candidate
 
-The current best candidate adds:
+The current best candidate is stored at
+`config/volume-flow-composite-current.json`. Relative to the original three-leg
+baseline, it adds:
 
 - `trend_down_retest_runner`: relaxed M5 `TREND_DOWN` retest leg using
   `RUNNER` exit, `relativeVolumeThreshold=3.5`,
@@ -38,28 +40,33 @@ The current best candidate adds:
 - `range_failed_break_loose`: relaxed M5 `RANGE` failed-break leg using
   `relativeVolumeThreshold=2.5`, `targetR=0.8`, `minBodyRatio=0.35`,
   `minDirectionalCloseStrength=0.6`, `minRejectionWickRatio=0.2`.
+- `chop_failed_break`: M5 `HIGH_VOLATILITY_CHOP` failed-break leg using
+  `relativeVolumeThreshold=2.0`, `targetR=0.8`, `minBodyRatio=0.15`,
+  `minDirectionalCloseStrength=0.7`, `minRejectionWickRatio=0.2`.
 
 Candidate result:
 
 | Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days |
 | --- | --- | --- | --- | --- | --- |
-| `37.12981%` | `2.10462%` | `29` | `8.42085` | `0.55443R` | `29` |
+| `40.94073%` | `2.10462%` | `32` | `9.12199` | `0.54553R` | `30` |
 
 Per-leg accepted performance:
 
 | Leg | Trades | Net PnL | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: |
-| `trend_down_retest` | 11 | `1813.03547` | `9.56224` | `0.75567R` |
-| `trend_down_close` | 5 | `242.80777` | `14.71319` | `0.20631R` |
-| `range_failed_break` | 9 | `369.93765` | `2.66562` | `0.17512R` |
-| `trend_down_retest_runner` | 1 | `1031.50000` | n/a | `4.06695R` |
-| `range_failed_break_loose` | 3 | `255.70061` | `6.24096` | `0.36381R` |
+| `trend_down_retest` | 11 | `1819.06204` | `9.51345` | `0.75567R` |
+| `trend_down_close` | 5 | `245.99218` | `14.71631` | `0.20631R` |
+| `range_failed_break` | 9 | `375.34234` | `2.68826` | `0.17512R` |
+| `trend_down_retest_runner` | 1 | `1060.16596` | n/a | `4.06695R` |
+| `range_failed_break_loose` | 3 | `258.58777` | `6.15682` | `0.36381R` |
+| `chop_failed_break` | 3 | `334.92260` | n/a | `0.45958R` |
 
-Risk note: the added runner leg contributes one accepted trade in this replay:
+Risk note: the runner leg still contributes one accepted trade in this replay:
 `2026-06-25T13:30:00Z`, short side, `+4.06695R`, exit reason
-`TRAILING_STOP`. This improves the annual replay but should be treated as a
-candidate, not a production-ready strategy, until walk-forward and monthly
-stability checks are added.
+`TRAILING_STOP`. The new `chop_failed_break` leg contributes three accepted
+trades, all winners in this sample. This improves the annual replay but should
+still be treated as a candidate, not a production-ready strategy, until
+walk-forward validation is added.
 
 Monthly accepted PnL:
 
@@ -70,11 +77,11 @@ Monthly accepted PnL:
 | `2025-11` | `62.69` | 2 |
 | `2025-12` | `791.07` | 8 |
 | `2026-01` | `271.54` | 3 |
-| `2026-02` | `258.85` | 3 |
-| `2026-03` | `613.51` | 3 |
-| `2026-04` | `287.43` | 3 |
-| `2026-05` | `-128.41` | 1 |
-| `2026-06` | `1125.39` | 4 |
+| `2026-02` | `435.62` | 5 |
+| `2026-03` | `622.69` | 3 |
+| `2026-04` | `291.73` | 3 |
+| `2026-05` | `-130.33` | 1 |
+| `2026-06` | `1318.15` | 5 |
 
 ## Rejected Paths
 
@@ -88,172 +95,18 @@ Monthly accepted PnL:
   results, so they were rejected before composite adoption.
 - M5 `TREND_UP` long breakout had negative train-period results, so it remains
   excluded.
+- M5 `RANGE` breakout continuation was rejected because the best checked
+  variants were negative in both train and test periods. The strongest sampled
+  variant had train `-5.23514%`, test `-5.07923%`, and weak profit factors.
+- M5 `TREND_DOWN` close-confirmation runner variants looked good as standalone
+  legs but added no accepted composite trades because their signals overlapped
+  existing positions.
 
 ## Reproduction Body
 
-POST this body to `/backtests/volume-flow/composite/run` on a local server that
-uses the 1-year runtime database:
-
-```json
-{
-  "symbol": "BTCUSDT",
-  "m1Limit": 525600,
-  "m5Limit": 105120,
-  "m15Limit": 35040,
-  "initialEquity": 10000.0,
-  "dailyTargetPct": null,
-  "dailyStopPct": 1.0,
-  "minTradesPerDay": 1,
-  "maxTradesPerDay": 5,
-  "maxConsecutiveLosses": 3,
-  "legs": [
-    {
-      "id": "trend_down_retest",
-      "riskFraction": 0.02,
-      "setupMode": "BREAKOUT_CONTINUATION",
-      "entryMode": "RETEST_CONFIRMATION",
-      "sideMode": "BOTH",
-      "setupTimeframe": "M5",
-      "relativeVolumeThreshold": 5.0,
-      "volumeZScoreThreshold": 1.5,
-      "setupRangeLookback": 12,
-      "requireM5Vwap": false,
-      "requireContextVwap": true,
-      "requireContextTrend": true,
-      "allowedMarketRegimes": ["TREND_DOWN"],
-      "requireRegimeSideAlignment": true,
-      "requireKeyLevelProximity": true,
-      "keyLevelTolerancePct": 0.0025,
-      "avoidRangeMiddle": true,
-      "minBodyRatio": 0.45,
-      "minDirectionalCloseStrength": 0.70,
-      "minEntryRiskPct": 0.008,
-      "maxEntryRiskPct": 0.015,
-      "targetR": 1.2,
-      "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 30
-    },
-    {
-      "id": "trend_down_close",
-      "riskFraction": 0.02,
-      "setupMode": "BREAKOUT_CONTINUATION",
-      "entryMode": "CLOSE_CONFIRMATION",
-      "sideMode": "BOTH",
-      "setupTimeframe": "M5",
-      "relativeVolumeThreshold": 3.5,
-      "volumeZScoreThreshold": 0.5,
-      "setupRangeLookback": 8,
-      "requireM5Vwap": false,
-      "requireContextVwap": true,
-      "requireContextTrend": true,
-      "allowedMarketRegimes": ["TREND_DOWN"],
-      "requireRegimeSideAlignment": true,
-      "requireKeyLevelProximity": true,
-      "keyLevelTolerancePct": 0.0025,
-      "avoidRangeMiddle": true,
-      "minBodyRatio": 0.55,
-      "minDirectionalCloseStrength": 0.70,
-      "minEntryRiskPct": 0.008,
-      "maxEntryRiskPct": 0.015,
-      "targetR": 1.2,
-      "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 15
-    },
-    {
-      "id": "range_failed_break",
-      "riskFraction": 0.02,
-      "setupMode": "FAILED_BREAK_REVERSAL",
-      "entryMode": "CLOSE_CONFIRMATION",
-      "sideMode": "BOTH",
-      "setupTimeframe": "M5",
-      "relativeVolumeThreshold": 3.5,
-      "volumeZScoreThreshold": 0.5,
-      "setupRangeLookback": 12,
-      "requireM5Vwap": false,
-      "requireContextVwap": false,
-      "requireContextTrend": false,
-      "allowedMarketRegimes": ["RANGE"],
-      "requireRegimeSideAlignment": false,
-      "requireKeyLevelProximity": true,
-      "keyLevelTolerancePct": 0.0025,
-      "avoidRangeMiddle": true,
-      "minBodyRatio": 0.25,
-      "minDirectionalCloseStrength": 0.70,
-      "minRejectionWickRatio": 0.25,
-      "entryLookaheadM1Candles": 5,
-      "minEntryRiskPct": 0.008,
-      "maxEntryRiskPct": 0.015,
-      "targetR": 1.0,
-      "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 30
-    },
-    {
-      "id": "trend_down_retest_runner",
-      "riskFraction": 0.02,
-      "setupMode": "BREAKOUT_CONTINUATION",
-      "entryMode": "RETEST_CONFIRMATION",
-      "sideMode": "BOTH",
-      "setupTimeframe": "M5",
-      "relativeVolumeThreshold": 3.5,
-      "volumeZScoreThreshold": 0.5,
-      "setupRangeLookback": 8,
-      "requireM5Vwap": false,
-      "requireContextVwap": true,
-      "requireContextTrend": true,
-      "allowedMarketRegimes": ["TREND_DOWN"],
-      "requireRegimeSideAlignment": true,
-      "requireKeyLevelProximity": true,
-      "keyLevelTolerancePct": 0.0025,
-      "avoidRangeMiddle": true,
-      "minBodyRatio": 0.45,
-      "minDirectionalCloseStrength": 0.70,
-      "minRejectionWickRatio": 0.25,
-      "entryLookaheadM1Candles": 5,
-      "minEntryRiskPct": 0.008,
-      "maxEntryRiskPct": 0.015,
-      "maxEstimatedFeeR": 0.2,
-      "targetR": 1.2,
-      "exitMode": "RUNNER",
-      "runnerTrailActivationR": 0.8,
-      "runnerTrailDistanceR": 0.75,
-      "breakevenTriggerR": null,
-      "maxHoldM1Candles": 30
-    },
-    {
-      "id": "range_failed_break_loose",
-      "riskFraction": 0.02,
-      "setupMode": "FAILED_BREAK_REVERSAL",
-      "entryMode": "CLOSE_CONFIRMATION",
-      "sideMode": "BOTH",
-      "setupTimeframe": "M5",
-      "relativeVolumeThreshold": 2.5,
-      "volumeZScoreThreshold": 0.5,
-      "setupRangeLookback": 12,
-      "requireM5Vwap": false,
-      "requireContextVwap": false,
-      "requireContextTrend": false,
-      "allowedMarketRegimes": ["RANGE"],
-      "requireRegimeSideAlignment": false,
-      "requireKeyLevelProximity": true,
-      "keyLevelTolerancePct": 0.0025,
-      "avoidRangeMiddle": true,
-      "minBodyRatio": 0.35,
-      "minDirectionalCloseStrength": 0.60,
-      "minRejectionWickRatio": 0.20,
-      "entryLookaheadM1Candles": 5,
-      "minEntryRiskPct": 0.008,
-      "maxEntryRiskPct": 0.015,
-      "maxEstimatedFeeR": 0.2,
-      "targetR": 0.8,
-      "exitMode": "FIXED_TARGET",
-      "runnerTrailActivationR": 1.0,
-      "runnerTrailDistanceR": 0.5,
-      "breakevenTriggerR": null,
-      "maxHoldM1Candles": 30
-    }
-  ]
-}
-```
+POST `config/volume-flow-composite-current.json` to
+`/backtests/volume-flow/composite/run` on a local server that uses the 1-year
+runtime database.
 
 ## Tuning Gate
 

@@ -150,6 +150,13 @@ Content-Type: application/json
   "maxConsecutiveLosses": 3
 }
 
+### Run the current composite volume-flow candidate
+POST http://localhost:8080/backtests/volume-flow/composite/run
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+< ../../../config/volume-flow-composite-current.json
+
 ### Sweep multi-timeframe volume-flow backtest parameters
 POST http://localhost:8080/backtests/volume-flow/sweep
 Authorization: Bearer {{controlCredential}}
