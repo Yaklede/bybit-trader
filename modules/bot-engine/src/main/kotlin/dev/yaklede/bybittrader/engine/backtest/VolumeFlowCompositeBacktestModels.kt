@@ -76,7 +76,22 @@ data class VolumeFlowCompositeBacktestReport(
     val performanceBySetupMode: List<VolumeFlowTagSummary>,
     val performanceByMarketRegime: List<VolumeFlowTagSummary>,
     val performanceByVolumePattern: List<VolumeFlowTagSummary>,
+    val monthlyPerformance: List<VolumeFlowPeriodSummary>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
+)
+
+data class VolumeFlowPeriodSummary(
+    val period: String,
+    val tradeCount: Int,
+    val wins: Int,
+    val losses: Int,
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val netPnl: Double,
+    val returnPct: Double,
+    val maxDrawdownPct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
 )
 
 data class VolumeFlowCompositeBacktestTrade(

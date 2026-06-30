@@ -11,6 +11,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowPeriodSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowTagSummary
@@ -211,7 +212,23 @@ data class VolumeFlowCompositeBacktestResponse(
     val performanceBySetupMode: List<VolumeFlowTagSummaryResponse>,
     val performanceByMarketRegime: List<VolumeFlowTagSummaryResponse>,
     val performanceByVolumePattern: List<VolumeFlowTagSummaryResponse>,
+    val monthlyPerformance: List<VolumeFlowPeriodSummaryResponse>,
     val trades: List<VolumeFlowCompositeTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowPeriodSummaryResponse(
+    val period: String,
+    val tradeCount: Int,
+    val wins: Int,
+    val losses: Int,
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val netPnl: Double,
+    val returnPct: Double,
+    val maxDrawdownPct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
 )
 
 @Serializable
@@ -281,7 +298,23 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(): VolumeFlowCompositeB
         performanceBySetupMode = performanceBySetupMode.map(VolumeFlowTagSummary::toCompositeResponse),
         performanceByMarketRegime = performanceByMarketRegime.map(VolumeFlowTagSummary::toCompositeResponse),
         performanceByVolumePattern = performanceByVolumePattern.map(VolumeFlowTagSummary::toCompositeResponse),
+        monthlyPerformance = monthlyPerformance.map(VolumeFlowPeriodSummary::toResponse),
         trades = trades.takeLast(50).map(VolumeFlowCompositeBacktestTrade::toResponse),
+    )
+
+private fun VolumeFlowPeriodSummary.toResponse(): VolumeFlowPeriodSummaryResponse =
+    VolumeFlowPeriodSummaryResponse(
+        period = period,
+        tradeCount = tradeCount,
+        wins = wins,
+        losses = losses,
+        startingEquity = startingEquity.roundForApi(),
+        endingEquity = endingEquity.roundForApi(),
+        netPnl = netPnl.roundForApi(),
+        returnPct = returnPct.roundForApi(),
+        maxDrawdownPct = maxDrawdownPct.roundForApi(),
+        profitFactor = profitFactor?.roundForApi(),
+        expectancyR = expectancyR.roundForApi(),
     )
 
 private fun VolumeFlowTagSummary.toCompositeResponse(): VolumeFlowTagSummaryResponse =

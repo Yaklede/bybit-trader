@@ -18,7 +18,8 @@ Milestone 1 is the operational backend shell:
 - Paper evaluation endpoint that records strategy signals, paper market orders,
   fills, positions, and performance snapshots without private Bybit order calls.
 - Volume-flow composite backtest endpoint that replays multiple strategy legs on
-  one equity curve with overlap, daily stop, and trade-count controls.
+  one equity curve with overlap, daily stop, trade-count controls, and monthly
+  performance summaries.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -103,11 +104,16 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
-- Latest local 1-year BTCUSDT volume-flow tuning snapshot: the single
-  `TREND_DOWN` breakout leg returned `20.27258%` with `1.00983%` max drawdown
-  over 13 trades; the composite
-  `trend_down_retest + trend_down_close + range_failed_break` replay returned
-  `26.83583%` with `2.10462%` max drawdown over 26 trades.
+- Latest local 1-year BTCUSDT volume-flow tuning snapshot: the current
+  five-leg composite candidate
+  `trend_down_retest + trend_down_close + range_failed_break +
+  trend_down_retest_runner + range_failed_break_loose` replay returned
+  `37.12981%` with `2.10462%` max drawdown over 29 trades. The previous
+  three-leg composite returned `26.83583%` with `2.10462%` max drawdown over
+  26 trades. The current candidate is still below the daily `0.5%` to `2%`
+  objective, at roughly `0.10172%` simple average return per observed
+  calendar day. See `docs/backend/volume-flow-tuning-log.md` for the
+  reproduction body and rejected tuning paths.
   Source note: measured on
   `build/runtime-test/bybit-trader-1y-backtest.sqlite` covering
   `2025-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading

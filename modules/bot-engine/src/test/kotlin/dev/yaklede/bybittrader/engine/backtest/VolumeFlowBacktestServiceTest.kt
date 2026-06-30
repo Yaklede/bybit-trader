@@ -271,6 +271,7 @@ class VolumeFlowBacktestServiceTest :
             result.skippedSignalCount shouldBe 1
             result.noTradeReasonCounts["OVERLAPPING_POSITION"] shouldBe 1
             result.performanceByLeg.single().tag shouldBe "primary"
+            result.monthlyPerformance.single().tradeCount shouldBe 1
             (result.finalEquity > result.initialEquity) shouldBe true
         }
     })

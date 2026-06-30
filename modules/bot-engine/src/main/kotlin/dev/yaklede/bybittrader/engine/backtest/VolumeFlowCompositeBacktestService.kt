@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
@@ -246,6 +247,7 @@ class VolumeFlowCompositeBacktestService(
             performanceBySetupMode = trades.compositeTagSummaries { it.setupMode.name },
             performanceByMarketRegime = trades.compositeTagSummaries { it.marketRegime.name },
             performanceByVolumePattern = trades.compositeTagSummaries { it.volumePattern.name },
+            monthlyPerformance = trades.monthlyPerformance(config.initialEquity),
             trades = trades,
         )
     }
@@ -307,6 +309,8 @@ private fun observedDaysBetween(
 
 private fun Instant.utcDate(): LocalDate = atZone(ZoneOffset.UTC).toLocalDate()
 
+private fun Instant.utcYearMonth(): String = YearMonth.from(atZone(ZoneOffset.UTC)).toString()
+
 private fun mergeReasonCounts(
     target: MutableMap<String, Int>,
     source: Map<String, Int>,
@@ -354,4 +358,57 @@ private fun List<VolumeFlowCompositeBacktestTrade>.maxCompositeConsecutiveLosses
         }
     }
     return max
+}
+
+private fun List<VolumeFlowCompositeBacktestTrade>.monthlyPerformance(initialEquity: Double): List<VolumeFlowPeriodSummary> {
+    var equity = initialEquity
+    val states = linkedMapOf<String, CompositePeriodBacktestState>()
+    forEach { trade ->
+        val period = trade.exitAt.utcYearMonth()
+        val state = states.getOrPut(period) { CompositePeriodBacktestState(period, equity) }
+        equity += trade.pnl
+        state.record(trade, equity)
+    }
+    return states.values.map(CompositePeriodBacktestState::toSummary)
+}
+
+private class CompositePeriodBacktestState(
+    private val period: String,
+    private val startingEquity: Double,
+) {
+    private var endingEquity: Double = startingEquity
+    private var peakEquity: Double = startingEquity
+    private var maxDrawdownPct: Double = 0.0
+    private val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
+
+    fun record(
+        trade: VolumeFlowCompositeBacktestTrade,
+        currentEquity: Double,
+    ) {
+        trades += trade
+        endingEquity = currentEquity
+        peakEquity = maxOf(peakEquity, endingEquity)
+        maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - endingEquity) / peakEquity) * 100.0)
+    }
+
+    fun toSummary(): VolumeFlowPeriodSummary {
+        val wins = trades.count { it.pnl > 0.0 }
+        val losses = trades.count { it.pnl < 0.0 }
+        val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
+        val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
+        val netPnl = endingEquity - startingEquity
+        return VolumeFlowPeriodSummary(
+            period = period,
+            tradeCount = trades.size,
+            wins = wins,
+            losses = losses,
+            startingEquity = startingEquity,
+            endingEquity = endingEquity,
+            netPnl = netPnl,
+            returnPct = if (startingEquity <= 0.0) 0.0 else (netPnl / startingEquity) * 100.0,
+            maxDrawdownPct = maxDrawdownPct,
+            profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
+            expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
+        )
+    }
 }
