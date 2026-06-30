@@ -22,3 +22,14 @@ Content-Type: application/json
 {
   "reason": "manual operator resume"
 }
+
+### Sync recent public Bybit market candles
+POST http://localhost:8080/market-data/sync
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframes": ["M15", "H1"],
+  "limit": 200
+}

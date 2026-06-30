@@ -12,6 +12,7 @@ dependencies {
     implementation(project(":modules:bot-alerts"))
     implementation(project(":modules:bot-domain"))
     implementation(project(":modules:bot-engine"))
+    implementation(project(":modules:bot-exchange-bybit"))
     implementation(project(":modules:bot-ledger"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.ktor.client.cio)

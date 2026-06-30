@@ -1,7 +1,11 @@
 package dev.yaklede.bybittrader.app
 
+import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.domain.Timeframe
+
 data class AppConfig(
     val runtimeMode: RuntimeMode,
+    val marketData: MarketDataConfig,
     val api: ApiConfig,
     val database: DatabaseConfig,
     val alerts: AlertsConfig,
@@ -25,6 +29,7 @@ data class AppConfig(
 
             return AppConfig(
                 runtimeMode = runtimeMode,
+                marketData = MarketDataConfig.fromEnvironment(environment),
                 api =
                     ApiConfig(
                         host = environment["BOT_API_HOST"] ?: "127.0.0.1",
@@ -38,6 +43,32 @@ data class AppConfig(
                 alerts = AlertsConfig.fromEnvironment(environment),
             )
         }
+    }
+}
+
+data class MarketDataConfig(
+    val symbol: Symbol,
+    val timeframes: List<Timeframe>,
+    val bybitPublicBaseUrl: String,
+) {
+    init {
+        require(timeframes.isNotEmpty()) { "At least one market data timeframe is required." }
+        require(bybitPublicBaseUrl.isNotBlank()) { "Bybit public base URL must not be blank." }
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): MarketDataConfig =
+            MarketDataConfig(
+                symbol = Symbol(environment["BOT_SYMBOL"] ?: "BTCUSDT"),
+                timeframes =
+                    environment["BOT_TIMEFRAMES"]
+                        ?.split(",")
+                        ?.map { it.trim() }
+                        ?.filter { it.isNotEmpty() }
+                        ?.map(Timeframe::valueOf)
+                        ?: listOf(Timeframe.M15, Timeframe.H1),
+                bybitPublicBaseUrl = environment["BYBIT_PUBLIC_BASE_URL"] ?: "https://api.bybit.com",
+            )
     }
 }
 

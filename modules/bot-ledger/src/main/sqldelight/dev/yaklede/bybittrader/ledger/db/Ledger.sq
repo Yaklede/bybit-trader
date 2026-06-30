@@ -18,6 +18,9 @@ CREATE TABLE marketCandles (
   source_timestamp TEXT NOT NULL
 );
 
+CREATE UNIQUE INDEX marketCandles_symbol_timeframe_openedAt_idx
+ON marketCandles(symbol, timeframe, opened_at);
+
 CREATE TABLE signals (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   strategy TEXT NOT NULL,
@@ -142,3 +145,24 @@ VALUES (?, ?, ?, ?, ?, ?);
 countAlertEvents:
 SELECT COUNT(*)
 FROM alertEvents;
+
+upsertMarketCandle:
+INSERT OR REPLACE INTO marketCandles(
+  symbol,
+  timeframe,
+  opened_at,
+  open,
+  high,
+  low,
+  close,
+  volume,
+  source_timestamp
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectRecentMarketCandles:
+SELECT symbol, timeframe, opened_at, open, high, low, close, volume
+FROM marketCandles
+WHERE symbol = ? AND timeframe = ?
+ORDER BY opened_at DESC
+LIMIT ?;

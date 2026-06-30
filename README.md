@@ -9,7 +9,8 @@ Milestone 1 is the operational backend shell:
 - Kotlin/JVM Gradle multi-module project.
 - Ktor server with public health and private status/control APIs.
 - SQLDelight + SQLite event ledger for bot state, control events, alerts, and
-  future trading records.
+  public market candles, and future trading records.
+- Bybit public REST kline sync through a protected operator endpoint.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -19,7 +20,9 @@ No live or testnet exchange trading is implemented yet.
 
 ```bash
 export BOT_CONTROL_TOKEN="replace-with-local-operator-token"
-export BOT_DATABASE_PATH="data/bybit-trader.sqlite"
+export BOT_DATABASE_PATH="$PWD/data/bybit-trader.sqlite"
+export BOT_SYMBOL="BTCUSDT"
+export BOT_TIMEFRAMES="M15,H1"
 ./gradlew :modules:bot-app:run
 ```
 
@@ -28,6 +31,11 @@ Smoke test:
 ```bash
 curl http://127.0.0.1:8080/health
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" http://127.0.0.1:8080/status
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","timeframes":["M15"],"limit":200}' \
+  http://127.0.0.1:8080/market-data/sync
 ```
 
 Run verification before committing:

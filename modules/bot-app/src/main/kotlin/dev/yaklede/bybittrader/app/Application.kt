@@ -11,6 +11,8 @@ import dev.yaklede.bybittrader.alerts.NoopAlertSink
 import dev.yaklede.bybittrader.alerts.TelegramAlertSink
 import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.engine.control.BotControlService
+import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
@@ -19,6 +21,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.engine.embeddedServer
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import io.ktor.client.engine.cio.CIO as ClientCIO
@@ -28,11 +31,20 @@ fun main() {
     val config = AppConfig.fromEnvironment()
     val database = openLedgerDatabase(Path.of(config.database.path))
     val ledger = SqlDelightLedger(database)
-    val alertClient = createAlertHttpClient()
+    val httpClient = createJsonHttpClient()
     val alertingService =
         AlertingService(
-            sink = createAlertSink(config.alerts, alertClient),
+            sink = createAlertSink(config.alerts, httpClient),
             recorder = ledger,
+        )
+    val marketDataSyncService =
+        MarketDataSyncService(
+            marketDataFeed =
+                BybitMarketDataClient(
+                    httpClient = httpClient,
+                    baseUrl = config.marketData.bybitPublicBaseUrl,
+                ),
+            candleStore = ledger,
         )
     val controlService =
         BotControlService(
@@ -61,7 +73,7 @@ fun main() {
                     ),
                 )
             }
-            alertClient.close()
+            httpClient.close()
         },
     )
 
@@ -70,6 +82,7 @@ fun main() {
             configureApi(
                 stateStore = ledger,
                 controlService = controlService,
+                marketDataSyncService = marketDataSyncService,
                 controlCredential = config.api.controlCredential,
             )
         }
@@ -87,10 +100,14 @@ private fun openLedgerDatabase(path: Path): LedgerDatabase {
     return createLedgerDatabase(driver)
 }
 
-private fun createAlertHttpClient(): HttpClient =
+private fun createJsonHttpClient(): HttpClient =
     HttpClient(ClientCIO) {
         install(ContentNegotiation) {
-            json()
+            json(
+                Json {
+                    ignoreUnknownKeys = true
+                },
+            )
         }
     }
 
