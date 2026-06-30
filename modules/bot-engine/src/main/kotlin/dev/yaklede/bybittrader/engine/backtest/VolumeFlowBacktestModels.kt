@@ -35,6 +35,8 @@ data class VolumeFlowBacktestConfig(
     val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
     val entryRetestTolerancePct: Double = 0.0015,
+    val minEntryRiskPct: Double? = null,
+    val maxEntryRiskPct: Double? = null,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
     val exitMode: VolumeFlowExitMode = VolumeFlowExitMode.FIXED_TARGET,
@@ -79,6 +81,15 @@ data class VolumeFlowBacktestConfig(
         require(minRejectionWickRatio in 0.0..1.0) { "Minimum rejection wick ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }
         require(entryRetestTolerancePct in 0.0..0.02) { "Entry retest tolerance must be between 0 and 0.02." }
+        require(minEntryRiskPct == null || minEntryRiskPct in 0.0..0.05) {
+            "Minimum entry risk percent must be null or between 0 and 0.05."
+        }
+        require(maxEntryRiskPct == null || maxEntryRiskPct in 0.0..0.05) {
+            "Maximum entry risk percent must be null or between 0 and 0.05."
+        }
+        require(minEntryRiskPct == null || maxEntryRiskPct == null || minEntryRiskPct <= maxEntryRiskPct) {
+            "Minimum entry risk percent must be less than or equal to maximum entry risk percent."
+        }
         require(maxEstimatedFeeR > 0.0 && maxEstimatedFeeR <= 5.0) {
             "Max estimated fee R must be between 0 and 5."
         }

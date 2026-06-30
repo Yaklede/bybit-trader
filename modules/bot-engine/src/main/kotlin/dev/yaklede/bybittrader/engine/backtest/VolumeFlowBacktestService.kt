@@ -139,6 +139,17 @@ class VolumeFlowBacktestService(
                 incrementReason("INVALID_RISK_DISTANCE", noTradeReasonCounts)
                 continue
             }
+            val entryRiskPct = riskPerUnit / entry.entryPrice
+            if (config.minEntryRiskPct != null && entryRiskPct < config.minEntryRiskPct) {
+                rejectedSetupCount += 1
+                incrementReason("ENTRY_RISK_TOO_SMALL", noTradeReasonCounts)
+                continue
+            }
+            if (config.maxEntryRiskPct != null && entryRiskPct > config.maxEntryRiskPct) {
+                rejectedSetupCount += 1
+                incrementReason("ENTRY_RISK_TOO_LARGE", noTradeReasonCounts)
+                continue
+            }
             val estimatedFeeR = estimatedRoundTripFeeR(entry, config)
             if (estimatedFeeR > config.maxEstimatedFeeR) {
                 rejectedSetupCount += 1

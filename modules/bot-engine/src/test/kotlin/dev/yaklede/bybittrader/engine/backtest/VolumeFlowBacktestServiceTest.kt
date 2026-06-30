@@ -84,6 +84,23 @@ class VolumeFlowBacktestServiceTest :
             result.noTradeReasonCounts["ESTIMATED_FEE_R_TOO_HIGH"] shouldBe 1
         }
 
+        "can reject entries when the stop distance is outside configured bounds" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxEntryRiskPct = 0.01),
+                )
+
+            result.setupCount shouldBe 1
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["ENTRY_RISK_TOO_LARGE"] shouldBe 1
+        }
+
         "can require m5 vwap alignment before entering volume flow trades" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
 

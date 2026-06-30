@@ -33,6 +33,8 @@ data class VolumeFlowSweepConfig(
     val minRejectionWickRatioValues: List<Double> = listOf(0.25),
     val entryLookaheadM1CandlesValues: List<Int> = listOf(5),
     val entryRetestTolerancePct: Double = 0.0015,
+    val minEntryRiskPctValues: List<Double?> = listOf(null),
+    val maxEntryRiskPctValues: List<Double?> = listOf(null),
     val maxEstimatedFeeRValues: List<Double> = listOf(0.2),
     val targetRValues: List<Double> = listOf(1.0, 1.2),
     val exitModes: List<VolumeFlowExitMode> = listOf(VolumeFlowExitMode.FIXED_TARGET),
@@ -72,6 +74,8 @@ data class VolumeFlowSweepConfig(
         require(minBodyRatioValues.isNotEmpty()) { "Minimum body ratio values must not be empty." }
         require(minRejectionWickRatioValues.isNotEmpty()) { "Minimum rejection wick ratio values must not be empty." }
         require(entryLookaheadM1CandlesValues.isNotEmpty()) { "Entry lookahead values must not be empty." }
+        require(minEntryRiskPctValues.isNotEmpty()) { "Minimum entry risk values must not be empty." }
+        require(maxEntryRiskPctValues.isNotEmpty()) { "Maximum entry risk values must not be empty." }
         require(maxEstimatedFeeRValues.isNotEmpty()) { "Max estimated fee R values must not be empty." }
         require(targetRValues.isNotEmpty()) { "Target R values must not be empty." }
         require(exitModes.isNotEmpty()) { "Exit modes must not be empty." }
@@ -190,43 +194,49 @@ data class VolumeFlowSweepConfig(
         for (minBodyRatio in minBodyRatioValues) {
             for (minRejectionWickRatio in minRejectionWickRatioValues) {
                 for (entryLookaheadM1Candles in entryLookaheadM1CandlesValues) {
-                    for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
-                        for (targetR in targetRValues) {
-                            for (exitMode in exitModes) {
-                                for (runnerTrailActivationR in runnerTrailActivationRValues) {
-                                    for (runnerTrailDistanceR in runnerTrailDistanceRValues) {
-                                        for (breakevenTriggerR in breakevenTriggerRValues) {
-                                            for (maxHoldM1Candles in maxHoldM1CandlesValues) {
-                                                add(
-                                                    VolumeFlowSweepCandidate(
-                                                        riskFraction = riskFraction,
-                                                        setupMode = setupMode,
-                                                        entryMode = entryMode,
-                                                        sideMode = sideMode,
-                                                        setupTimeframe = setupTimeframe,
-                                                        relativeVolumeThreshold = relativeVolumeThreshold,
-                                                        volumeZScoreThreshold = volumeZScoreThreshold,
-                                                        setupRangeLookback = setupRangeLookback,
-                                                        requireM5Vwap = requireM5Vwap,
-                                                        requireContextVwap = requireContextVwap,
-                                                        requireContextTrend = requireContextTrend,
-                                                        allowedMarketRegimes = allowedMarketRegimes,
-                                                        requireRegimeSideAlignment = requireRegimeSideAlignment,
-                                                        requireKeyLevelProximity = requireKeyLevelProximity,
-                                                        keyLevelTolerancePct = keyLevelTolerancePct,
-                                                        avoidRangeMiddle = avoidRangeMiddle,
-                                                        minBodyRatio = minBodyRatio,
-                                                        minRejectionWickRatio = minRejectionWickRatio,
-                                                        entryLookaheadM1Candles = entryLookaheadM1Candles,
-                                                        maxEstimatedFeeR = maxEstimatedFeeR,
-                                                        targetR = targetR,
-                                                        exitMode = exitMode,
-                                                        runnerTrailActivationR = runnerTrailActivationR,
-                                                        runnerTrailDistanceR = runnerTrailDistanceR,
-                                                        breakevenTriggerR = breakevenTriggerR,
-                                                        maxHoldM1Candles = maxHoldM1Candles,
-                                                    ),
-                                                )
+                    for (minEntryRiskPct in minEntryRiskPctValues) {
+                        for (maxEntryRiskPct in maxEntryRiskPctValues) {
+                            for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
+                                for (targetR in targetRValues) {
+                                    for (exitMode in exitModes) {
+                                        for (runnerTrailActivationR in runnerTrailActivationRValues) {
+                                            for (runnerTrailDistanceR in runnerTrailDistanceRValues) {
+                                                for (breakevenTriggerR in breakevenTriggerRValues) {
+                                                    for (maxHoldM1Candles in maxHoldM1CandlesValues) {
+                                                        add(
+                                                            VolumeFlowSweepCandidate(
+                                                                riskFraction = riskFraction,
+                                                                setupMode = setupMode,
+                                                                entryMode = entryMode,
+                                                                sideMode = sideMode,
+                                                                setupTimeframe = setupTimeframe,
+                                                                relativeVolumeThreshold = relativeVolumeThreshold,
+                                                                volumeZScoreThreshold = volumeZScoreThreshold,
+                                                                setupRangeLookback = setupRangeLookback,
+                                                                requireM5Vwap = requireM5Vwap,
+                                                                requireContextVwap = requireContextVwap,
+                                                                requireContextTrend = requireContextTrend,
+                                                                allowedMarketRegimes = allowedMarketRegimes,
+                                                                requireRegimeSideAlignment = requireRegimeSideAlignment,
+                                                                requireKeyLevelProximity = requireKeyLevelProximity,
+                                                                keyLevelTolerancePct = keyLevelTolerancePct,
+                                                                avoidRangeMiddle = avoidRangeMiddle,
+                                                                minBodyRatio = minBodyRatio,
+                                                                minRejectionWickRatio = minRejectionWickRatio,
+                                                                entryLookaheadM1Candles = entryLookaheadM1Candles,
+                                                                minEntryRiskPct = minEntryRiskPct,
+                                                                maxEntryRiskPct = maxEntryRiskPct,
+                                                                maxEstimatedFeeR = maxEstimatedFeeR,
+                                                                targetR = targetR,
+                                                                exitMode = exitMode,
+                                                                runnerTrailActivationR = runnerTrailActivationR,
+                                                                runnerTrailDistanceR = runnerTrailDistanceR,
+                                                                breakevenTriggerR = breakevenTriggerR,
+                                                                maxHoldM1Candles = maxHoldM1Candles,
+                                                            ),
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -259,6 +269,8 @@ data class VolumeFlowSweepConfig(
             minBodyRatioValues.size *
             minRejectionWickRatioValues.size *
             entryLookaheadM1CandlesValues.size *
+            minEntryRiskPctValues.size *
+            maxEntryRiskPctValues.size *
             maxEstimatedFeeRValues.size *
             targetRValues.size *
             exitModes.size *
@@ -288,6 +300,8 @@ data class VolumeFlowSweepCandidate(
     val minBodyRatio: Double,
     val minRejectionWickRatio: Double,
     val entryLookaheadM1Candles: Int,
+    val minEntryRiskPct: Double?,
+    val maxEntryRiskPct: Double?,
     val maxEstimatedFeeR: Double,
     val targetR: Double,
     val exitMode: VolumeFlowExitMode,
@@ -327,6 +341,8 @@ data class VolumeFlowSweepCandidate(
             minRejectionWickRatio = minRejectionWickRatio,
             entryLookaheadM1Candles = entryLookaheadM1Candles,
             entryRetestTolerancePct = config.entryRetestTolerancePct,
+            minEntryRiskPct = minEntryRiskPct,
+            maxEntryRiskPct = maxEntryRiskPct,
             maxEstimatedFeeR = maxEstimatedFeeR,
             targetR = targetR,
             exitMode = exitMode,

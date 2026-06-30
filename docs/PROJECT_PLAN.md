@@ -189,8 +189,8 @@ Acceptance criteria:
 - Example inputs: relative volume expansion, volume z-score, candle body and
   close location, local range breakout or failed breakout, VWAP side, estimated
   fee-to-risk ratio.
-- Position management: fixed stop, optional fixed target, optional runner
-  trailing exit, daily stop lock, optional daily target lock, and
+- Position management: fixed stop, entry risk-width bounds, optional fixed
+  target, optional runner trailing exit, daily stop lock, optional daily target lock, and
   consecutive-loss lock.
 - Constraint: trade frequency is diagnostic only; a passing result must show
   repeatable compounded net return after fees, slippage, and drawdown.

@@ -353,6 +353,9 @@ Done when:
 - Volume-flow exits can be tested as either fixed target exits or runner exits
   that trail an already-profitable move; daily target lock is optional so
   compounded return can be measured without forcing a one-day profit cap.
+- Volume-flow entry quality can be bounded by entry risk width, so setups with
+  a stop distance that is too small for noise or too large for controlled risk
+  can be excluded before sizing.
 - Volume-flow sweep ranking prioritizes compounded net return,
   return-to-drawdown ratio, profit factor, and positive expectancy over trade
   frequency, and it must penalize candidates that only work in either the
