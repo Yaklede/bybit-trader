@@ -1,0 +1,306 @@
+schema: opendock.lock/v1
+docks:
+  - id: opendock/backend-ultrawork
+    name: opendock/backend-ultrawork
+    requested: 1.2.6
+    version: 1.2.6
+    checksum: b1de815027502a9869d24a87fcbe372ebd33f2fee1308781e0c1d9ea2fcc996d
+    signature: v7mZDZyMM2ptP3AfN1jyjZ4mIaIbAAx5AJfyMM0620F5FbDYuYBc1Hl2q9wSrxAxXhMMed2abHhrPTTE7CYLAw==
+    platform: macos
+    workdir: .opendock/workdirs/opendock__backend-ultrawork__70dcca06ddf2
+    files:
+      - path: AGENTS.md
+        mode: managed_block
+        checksum: 2ad680a5d01858b8906881cbca8c645691a4bc51bb136ecb7a6eabd28816c22e
+        markerId: files:AGENTS.md
+        source: files
+      - path: CLAUDE.md
+        mode: managed_block
+        checksum: 2ad680a5d01858b8906881cbca8c645691a4bc51bb136ecb7a6eabd28816c22e
+        markerId: files:CLAUDE.md
+        source: files
+      - path: GEMINI.md
+        mode: managed_block
+        checksum: 2ad680a5d01858b8906881cbca8c645691a4bc51bb136ecb7a6eabd28816c22e
+        markerId: files:GEMINI.md
+        source: files
+      - path: README.md
+        mode: managed_block
+        checksum: 59aacaac5489451dee2a7a049a2bb4bb4a4aac9e14cd733d61aa04f81f648548
+        markerId: files:README.md
+        source: files
+      - path: HARNESS.md
+        mode: managed_block
+        checksum: e5cf8f181c026a8585ca9dbaa7b15e8c4e990494a496e426421e935bdda11754
+        markerId: files:HARNESS.md
+        source: files
+      - path: .opendock/harness/opendock__backend-ultrawork/check.mjs
+        mode: managed_file
+        checksum: 67008b533f46ce65f78199d674cf1af79de71e10f4ea5a8a8a6279b6e58d57fa
+        source: files
+      - path: .opendock/harness/opendock__backend-ultrawork/check.sh
+        mode: managed_file
+        checksum: cb11968f4776d54fe2fc69930fff7c227850e3e3c0c18fb1d5b48928be043607
+        source: files
+      - path: .opendock/harness/opendock__backend-ultrawork/check.ps1
+        mode: managed_file
+        checksum: 1d3f0fad0d350942cb03d2618614332e89c8152ab5536a2a53c82c66b8532777
+        source: files
+      - path: .agents/skills/opendock-backend-ultrawork/SKILL.md
+        mode: managed_file
+        checksum: 7bebe62b897e151d78b7cd480aaba1bd5bc78658957661fb09fb2d15f67a8ba3
+        source: files
+      - path: .cursor/rules/opendock-backend-ultrawork.mdc
+        mode: managed_file
+        checksum: 0f5fe18626f31636116f74cea53ab35cbfe26979f612f8486d44021633bedc3a
+        source: files
+      - path: .agents/workflows/opendock-backend-ultrawork/quality-gate.md
+        mode: managed_file
+        checksum: 1c14df1af7f3cbfd6edce2feb7764706e369905496203c1127dea69644f17e4f
+        source: files
+      - path: .claude/commands/opendock-backend-ultrawork/quality-gate.md
+        mode: managed_file
+        checksum: 1c14df1af7f3cbfd6edce2feb7764706e369905496203c1127dea69644f17e4f
+        source: files
+      - path: .agents/hooks/opendock-backend-ultrawork/hook.json
+        mode: managed_file
+        checksum: 535e4231f3dd80f3c40eeb9622143c50099fc7ae95e1a25b2e7f19eaee49c88e
+        source: files
+  - id: opendock/business-ultrawork
+    name: opendock/business-ultrawork
+    requested: 1.2.6
+    version: 1.2.6
+    checksum: 4e895d5dd8d293907a65ff9df71e8388f194f723268f1731553850ca2cdca14b
+    signature: npf+lU5fGM2EcRHGBZ5g4RfXQ3ALewwSdRrtkuEOZVd1k67rCYHrpAruoRRYj4gXr1hnxdmmJ8t+DwGPGw7gAw==
+    platform: macos
+    workdir: .opendock/workdirs/opendock__business-ultrawork__5d94e3452006
+    files:
+      - path: AGENTS.md
+        mode: managed_block
+        checksum: 57574fdc6d084f66dd605e4104bc25aaa8e0f98cedf130acc25bf915418b3f8d
+        markerId: files:AGENTS.md
+        source: files
+      - path: CLAUDE.md
+        mode: managed_block
+        checksum: 57574fdc6d084f66dd605e4104bc25aaa8e0f98cedf130acc25bf915418b3f8d
+        markerId: files:CLAUDE.md
+        source: files
+      - path: GEMINI.md
+        mode: managed_block
+        checksum: 57574fdc6d084f66dd605e4104bc25aaa8e0f98cedf130acc25bf915418b3f8d
+        markerId: files:GEMINI.md
+        source: files
+      - path: README.md
+        mode: managed_block
+        checksum: ffbc6a63249d0197e378ba593594722511c4313b15362a8bb655dd64865a1a65
+        markerId: files:README.md
+        source: files
+      - path: HARNESS.md
+        mode: managed_block
+        checksum: a71a5775ddae08988c3038bacf8b659de6423598e6803f65031ddd814d937e60
+        markerId: files:HARNESS.md
+        source: files
+      - path: .opendock/harness/opendock__business-ultrawork/check.mjs
+        mode: managed_file
+        checksum: af89ae91837ede47ff8a58908c61ebdccc6085875b0a585a621072a5a8e0d59a
+        source: files
+      - path: .opendock/harness/opendock__business-ultrawork/check.sh
+        mode: managed_file
+        checksum: cb11968f4776d54fe2fc69930fff7c227850e3e3c0c18fb1d5b48928be043607
+        source: files
+      - path: .opendock/harness/opendock__business-ultrawork/check.ps1
+        mode: managed_file
+        checksum: 1d3f0fad0d350942cb03d2618614332e89c8152ab5536a2a53c82c66b8532777
+        source: files
+      - path: .agents/skills/opendock-business-ultrawork/SKILL.md
+        mode: managed_file
+        checksum: 1cc9517b7c292f0c1372eab3e0c7d2a07a7fe01d7dc30fab76f1cd8ee879be9e
+        source: files
+      - path: .cursor/rules/opendock-business-ultrawork.mdc
+        mode: managed_file
+        checksum: c6becba362679ef9bb79d458c468fb48df0c80630d64bb9a3bbddb3bcd732ea1
+        source: files
+      - path: .agents/workflows/opendock-business-ultrawork/quality-gate.md
+        mode: managed_file
+        checksum: 3a8baf12010cab4b8795b5d1ace81f03de58d1f7374109881561214faab56248
+        source: files
+      - path: .claude/commands/opendock-business-ultrawork/quality-gate.md
+        mode: managed_file
+        checksum: 3a8baf12010cab4b8795b5d1ace81f03de58d1f7374109881561214faab56248
+        source: files
+      - path: .agents/hooks/opendock-business-ultrawork/hook.json
+        mode: managed_file
+        checksum: 2f60b8c0fbd68d83f6ca772e452d89419e876f23ee71521991e435a4503b8b5f
+        source: files
+  - id: wooyongdev/backend-engineering-kit
+    name: wooyongdev/backend-engineering-kit
+    requested: 1.0.3
+    version: 1.0.3
+    checksum: cab7ad5690ef6c7c0eb6ddcb378c0c55476156ede1eee318959fe89b0706621d
+    signature: 5myuyCtcgIBGKViBFVCrmIoyVpupJ0VY3xBzA4HwZTcmv0Ie/H1NlijXdQekgBOi7U+rYuUUZEWZ54cAOyQrAg==
+    platform: macos
+    workdir: .opendock/workdirs/wooyongdev__backend-engineering-kit__d8ade7feb423
+    files:
+      - path: .agents/skills/.DS_Store
+        mode: managed_file
+        checksum: d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3
+        source: files
+      - path: .agents/skills/backend-implement/agents/openai.yaml
+        mode: managed_file
+        checksum: a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94
+        source: files
+      - path: .agents/skills/backend-implement/references/run-artifacts.md
+        mode: managed_file
+        checksum: 7fdbc6c672d7547b3c822e176d83ae75eedfadb6bc36eab0737f429f0e1c46c5
+        source: files
+      - path: .agents/skills/backend-implement/references/subagent-workflow.md
+        mode: managed_file
+        checksum: cb438a470ce3f3615911c626679f4936ac2993f5c04db9e05a2bb341786d9b6e
+        source: files
+      - path: .agents/skills/backend-implement/SKILL.md
+        mode: managed_file
+        checksum: b8e3d7468e13500403ce893a7cef969ff40b7bc896d9e0a0273ca1763445c4bc
+        source: files
+      - path: .agents/skills/backend-rules-derive-from-code/agents/openai.yaml
+        mode: managed_file
+        checksum: a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94
+        source: files
+      - path: .agents/skills/backend-rules-derive-from-code/references/backend-rule-writing-guide.md
+        mode: managed_file
+        checksum: acce523ccc4292b0271b7bf8d0ba06b441fafcde5fb4c815a780fc6f5138d515
+        source: files
+      - path: .agents/skills/backend-rules-derive-from-code/references/codebase-analysis-guide.md
+        mode: managed_file
+        checksum: b4ff2644889e7b4504c7c69348e09c6fad6967ec232b88c02da745a15f8977c4
+        source: files
+      - path: .agents/skills/backend-rules-derive-from-code/SKILL.md
+        mode: managed_file
+        checksum: 634855b8241627118b5b61fa45ecf50501ca1b38301739935b9d27be5a0f8d92
+        source: files
+      - path: .agents/skills/backend-tech-design-write/agents/openai.yaml
+        mode: managed_file
+        checksum: 7a91e672c2853d90c9ce1c788608101c5e2854464653ccd7d1c9ab19cb2ff57b
+        source: files
+      - path: .agents/skills/backend-tech-design-write/references/backend-tdd-template.md
+        mode: managed_file
+        checksum: 3e3c0a0e8a91ff18cf38917c06e5ab9ab4190e446c790e0c7a7c51617c706057
+        source: files
+      - path: .agents/skills/backend-tech-design-write/references/backend-tdd-workflow.md
+        mode: managed_file
+        checksum: e1434446e4aa592d80266721aa0c36b2e3eb9606c58d35e8e06e418c48cad6a9
+        source: files
+      - path: .agents/skills/backend-tech-design-write/references/README.md
+        mode: managed_file
+        checksum: d3eeb78b1a81668c2884bf411b8416262f18a80bf2cd5e470523c7cc1d7d19bc
+        source: files
+      - path: .agents/skills/backend-tech-design-write/SKILL.md
+        mode: managed_file
+        checksum: 7938b5a92e6d9e16891bc671c138e16bb13e9b2e8354b7dc1ad3adefc3e1ffcf
+        source: files
+      - path: .codex/.DS_Store
+        mode: managed_file
+        checksum: 6e0bb07422ffa530fc4311632b8aafbead43daa93c60794fea1debcacaf418d9
+        source: files
+      - path: .codex/agents/.DS_Store
+        mode: managed_file
+        checksum: d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3
+        source: files
+      - path: .codex/agents/backend-architecture-reviewer.toml
+        mode: managed_file
+        checksum: 0a5cb9c84325200eebd191f5e83dd88988682e7aee63d97bf99ee3197875fd55
+        source: files
+      - path: .codex/agents/backend-implementation-engineer.toml
+        mode: managed_file
+        checksum: 29951a99c3e79078100a11f80203eb1409d0f46f5f549074099795cfcdc816d8
+        source: files
+      - path: .codex/agents/backend-technical-design-writer.toml
+        mode: managed_file
+        checksum: 2204ec6a589ce6d8d0697b47b466d6d6551bb5c5f57238ae33e8051aa2095727
+        source: files
+      - path: docs/.DS_Store
+        mode: managed_file
+        checksum: 270a572d4d712a56b818d7ae6dc6696846b7f219405e2f77a6a33cd2ed81b419
+        source: files
+      - path: docs/backend/adr/README.md
+        mode: managed_block
+        checksum: d52770c59ddcefbdbb49d04360642e0a6e5c06e41a4c9aa9100cebf209bddb4e
+        markerId: files:docs/backend/adr/README.md
+        source: files
+      - path: docs/backend/api-specs/README.md
+        mode: managed_block
+        checksum: 9a7de8993b399fdde31e5825d13b8e7a52b8fc2bdafe291c2d7c0bc3dd7cd8f5
+        markerId: files:docs/backend/api-specs/README.md
+        source: files
+      - path: docs/backend/README.md
+        mode: managed_block
+        checksum: 7a6b7f1e654b309f97d7dc38af68318cd7c7bb93df24610a0504b726c59e182c
+        markerId: files:docs/backend/README.md
+        source: files
+      - path: docs/backend/tdd/README.md
+        mode: managed_block
+        checksum: b9d7c990f673d75236e2d0f4c966829d5c6df38a22d86efe92dfbc363924f860
+        markerId: files:docs/backend/tdd/README.md
+        source: files
+      - path: docs/README.md
+        mode: managed_block
+        checksum: 5fc0e93a32a06d3329cc7bc395e036579efc2c21a2fd4743582758d9ee3fe5da
+        markerId: files:docs/README.md
+        source: files
+      - path: docs/rules/.DS_Store
+        mode: managed_file
+        checksum: 05cd310f8bb5b560feae0b1976b083158d7656a11dd4f533be20d4ef917fc718
+        source: files
+      - path: docs/rules/backend/.DS_Store
+        mode: managed_file
+        checksum: d65165279105ca6773180500688df4bdc69a2c7b771752f0a46ef120b7fd8ec3
+        source: files
+      - path: docs/rules/backend/API_RULES.md
+        mode: managed_block
+        checksum: 987ad070d55e325bbc51e4b91cf232c17ddf2135ddabab38544b2251eade864b
+        markerId: files:docs/rules/backend/API_RULES.md
+        source: files
+      - path: docs/rules/backend/ARCHITECTURE_RULES.md
+        mode: managed_block
+        checksum: 17382ab052c8e4a3d13434d34b7be057981b2db26fbbbee2944d0b685a9adb21
+        markerId: files:docs/rules/backend/ARCHITECTURE_RULES.md
+        source: files
+      - path: docs/rules/backend/CODING_RULES.md
+        mode: managed_block
+        checksum: 2d1af1753f302800d4c07ebf82b6571491d5bad00c77eafd93765222da4ec597
+        markerId: files:docs/rules/backend/CODING_RULES.md
+        source: files
+      - path: docs/rules/backend/DATA_RULES.md
+        mode: managed_block
+        checksum: 45f65d1c23f8c6feef099ef7eea99fbcadbc0f7a2ce284f1671d238ba99f7688
+        markerId: files:docs/rules/backend/DATA_RULES.md
+        source: files
+      - path: docs/rules/backend/OPERATIONS_RULES.md
+        mode: managed_block
+        checksum: 7c7bc9b2bcfad1fa722f2685e4c4101c86c7bd09e46e2236aa9e4ef67ad2fe29
+        markerId: files:docs/rules/backend/OPERATIONS_RULES.md
+        source: files
+      - path: docs/rules/backend/PACKAGE_STRUCTURE.md
+        mode: managed_block
+        checksum: 758e36119098768fe06edf364340c7fe32f2ce641c30168bb447e48913b6420d
+        markerId: files:docs/rules/backend/PACKAGE_STRUCTURE.md
+        source: files
+      - path: docs/rules/backend/README.md
+        mode: managed_block
+        checksum: 2c4db909b507cba2d20536736608440bd91a847d857884e305512731bb7f30fd
+        markerId: files:docs/rules/backend/README.md
+        source: files
+      - path: docs/rules/backend/SECURITY_RULES.md
+        mode: managed_block
+        checksum: bde291b342a57298c84c793a255e20c51b82b3306661f1f3ee325a5b19440f40
+        markerId: files:docs/rules/backend/SECURITY_RULES.md
+        source: files
+      - path: docs/rules/backend/TESTING_RULES.md
+        mode: managed_block
+        checksum: b7245d478873ecfdcfc6c5c7b1f5f7f0496bd8112bd4e475b04601c284ea7a15
+        markerId: files:docs/rules/backend/TESTING_RULES.md
+        source: files
+      - path: docs/rules/README.md
+        mode: managed_block
+        checksum: 1d94da8536f0d6e135a753bdd0ce1f4f108f3ea8446d4d6d67db1f7d380b6a6d
+        markerId: files:docs/rules/README.md
+        source: files

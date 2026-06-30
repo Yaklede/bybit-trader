@@ -1,0 +1,20 @@
+schema: opendock.project/v1
+docks:
+  - id: opendock/backend-ultrawork
+    name: opendock/backend-ultrawork
+    requested: 1.2.6
+    version: 1.2.6
+    platform: macos
+    workdir: .opendock/workdirs/opendock__backend-ultrawork__70dcca06ddf2
+  - id: opendock/business-ultrawork
+    name: opendock/business-ultrawork
+    requested: 1.2.6
+    version: 1.2.6
+    platform: macos
+    workdir: .opendock/workdirs/opendock__business-ultrawork__5d94e3452006
+  - id: wooyongdev/backend-engineering-kit
+    name: wooyongdev/backend-engineering-kit
+    requested: 1.0.3
+    version: 1.0.3
+    platform: macos
+    workdir: .opendock/workdirs/wooyongdev__backend-engineering-kit__d8ade7feb423
