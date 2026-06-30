@@ -8,7 +8,7 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `49.20519%` across 366 observed days, which is about `0.134%`
+below returns `51.80084%` across 366 observed days, which is about `0.142%`
 simple average return per observed day. The target is not met.
 
 ## Baseline
@@ -48,73 +48,69 @@ baseline, it adds:
   `volumeZScoreThreshold=0.5`, `minBodyRatio=0.65`,
   `minDirectionalCloseStrength=0.7`, `targetR=0.8`, and
   `riskFraction=0.02`.
-- `m1_trend_down_breakout_scalp`: M1 `TREND_DOWN` breakout-continuation scalp
-  using close confirmation, `relativeVolumeThreshold=3.0`,
-  `volumeZScoreThreshold=0.5`, `minBodyRatio=0.65`,
-  `minDirectionalCloseStrength=0.6`, `targetR=0.8`, and
-  `riskFraction=0.01375`.
+- `m1_chop_volume_rejection_scalp`: M1 `HIGH_VOLATILITY_CHOP`
+  volume-rejection reversal scalp using close confirmation,
+  `relativeVolumeThreshold=2.0`, `volumeZScoreThreshold=0.5`,
+  `minBodyRatio=0.15`, `minDirectionalCloseStrength=0.7`, `targetR=0.8`, and
+  `riskFraction=0.02`.
 
 Candidate result:
 
 | Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
 | --- | --- | --- | --- | --- | --- | --- |
-| `49.20519%` | `2.43591%` | `57` | `4.01493` | `0.36326R` | `52` | `0.15574` |
+| `51.80084%` | `2.43591%` | `52` | `4.87126` | `0.40831R` | `47` | `0.14208` |
 
 Per-leg accepted performance:
 
 | Leg | Trades | Net PnL | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: |
-| `trend_down_retest` | 11 | `1879.11685` | `9.43190` | `0.75567R` |
-| `trend_down_close` | 5 | `259.11936` | `14.89340` | `0.20631R` |
-| `range_failed_break` | 9 | `393.02789` | `2.73322` | `0.17512R` |
-| `trend_down_retest_runner` | 1 | `1122.33180` | n/a | `4.06695R` |
-| `range_failed_break_loose` | 3 | `275.44410` | `6.14330` | `0.36381R` |
-| `chop_failed_break` | 3 | `353.44593` | n/a | `0.45958R` |
-| `m1_trend_up_breakout_scalp` | 13 | `484.14926` | `1.91080` | `0.16886R` |
-| `m1_trend_down_breakout_scalp` | 12 | `153.88370` | `1.26593` | `0.08780R` |
+| `trend_down_retest` | 11 | `1902.24639` | `9.35888` | `0.75567R` |
+| `trend_down_close` | 5 | `262.81403` | `14.95637` | `0.20631R` |
+| `range_failed_break` | 9 | `396.45175` | `2.71162` | `0.17512R` |
+| `trend_down_retest_runner` | 1 | `1141.85646` | n/a | `4.06695R` |
+| `range_failed_break_loose` | 3 | `277.70229` | `6.09721` | `0.36381R` |
+| `chop_failed_break` | 3 | `358.81454` | n/a | `0.45958R` |
+| `m1_trend_up_breakout_scalp` | 13 | `489.34706` | `1.91057` | `0.16886R` |
+| `m1_chop_volume_rejection_scalp` | 7 | `350.85138` | `2.30830` | `0.22573R` |
 
 Risk note: the runner leg still contributes one accepted trade in this replay:
 `2026-06-25T13:30:00Z`, short side, `+4.06695R`, exit reason
-`TRAILING_STOP`. The two M1 scalp legs add 25 trades and improve `WF1` from one
-accepted trade to six accepted trades. A risk grid showed the best conservative
-blend was asymmetric: `m1_trend_up_breakout_scalp` at `0.02` and
-`m1_trend_down_breakout_scalp` at `0.01375`. This improves net return from the
-previous asymmetric candidate's `49.02336%` to `49.20519%` while keeping total
-profit factor above `4.0`. The trade-off is that `WF2` profit factor weakens
-from `2.87804` to `2.78650`, so this is a return-target adjustment rather than
-a WF2 quality fix.
+`TRAILING_STOP`. Replacing the weaker `m1_trend_down_breakout_scalp` with
+`m1_chop_volume_rejection_scalp` reduces accepted trades from 57 to 52 but
+improves net return from `49.20519%` to `51.80084%`, total profit factor from
+`4.01493` to `4.87126`, and `WF2` profit factor from `2.78650` to `4.75927`.
+This is a quality improvement, not just a risk increase.
 
 Monthly accepted PnL:
 
 | Month | PnL | Trades |
 | --- | ---: | ---: |
 | `2025-07` | `205.03` | 2 |
-| `2025-08` | `401.94` | 3 |
-| `2025-09` | `-115.57` | 1 |
-| `2025-10` | `216.21` | 3 |
-| `2025-11` | `-106.42` | 3 |
-| `2025-12` | `955.00` | 11 |
-| `2026-01` | `509.51` | 7 |
-| `2026-02` | `405.06` | 9 |
-| `2026-03` | `925.06` | 6 |
-| `2026-04` | `387.88` | 5 |
-| `2026-05` | `-139.19` | 1 |
-| `2026-06` | `1276.00` | 6 |
+| `2025-08` | `300.36` | 2 |
+| `2025-10` | `121.05` | 2 |
+| `2025-11` | `198.60` | 3 |
+| `2025-12` | `1049.37` | 10 |
+| `2026-01` | `198.23` | 4 |
+| `2026-02` | `518.87` | 11 |
+| `2026-03` | `934.02` | 6 |
+| `2026-04` | `496.83` | 4 |
+| `2026-05` | `-141.60` | 1 |
+| `2026-06` | `1299.33` | 7 |
 
 Walk-forward accepted PnL:
 
 | Window | Return | PnL | Trades | Profit factor | Max drawdown |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `WF1:2025-06-30..2025-09-29` | `4.91398%` | `491.40` | 6 | `5.25186` | `1.08959%` |
-| `WF2:2025-09-29..2025-12-29` | `10.14919%` | `1064.79` | 17 | `2.78650` | `1.99444%` |
-| `WF3:2025-12-29..2026-03-31` | `15.91905%` | `1839.64` | 22 | `4.77930` | `2.43591%` |
-| `WF4:2026-03-31..2026-06-30` | `11.38185%` | `1524.69` | 12 | `4.51564` | `1.87877%` |
+| `WF1:2025-06-30..2025-09-29` | `5.05392%` | `505.39` | 4 | n/a | `0.00000%` |
+| `WF2:2025-09-29..2025-12-29` | `13.03150%` | `1369.01` | 15 | `4.75927` | `1.40377%` |
+| `WF3:2025-12-29..2026-03-31` | `13.90491%` | `1651.13` | 21 | `3.62879` | `2.43591%` |
+| `WF4:2026-03-31..2026-06-30` | `12.23284%` | `1654.56` | 12 | `5.78435` | `1.25159%` |
 
-Walk-forward note: all four windows remain profitable and `WF1` trade count
-improves from `1` to `6`. The latest risk rebalance improves annual return but
-does not fix `WF2`; `WF2` profit factor is still only `2.78650`, so the next
-useful tuning loop should improve October to December trade quality without
-removing the added July to September coverage.
+Walk-forward note: all four windows remain profitable. The replacement fixes
+the previous `WF2` quality issue, but the new weak point is `WF3` profit factor
+`3.62879`, driven mostly by January to February losses. The next useful tuning
+loop should improve January to March trade quality without removing the stronger
+October to December coverage.
 
 ## Rejected Paths
 
@@ -124,9 +120,9 @@ removing the added July to September coverage.
 - Earlier broad M1 trend-down breakout close-confirmation variants increased
   trade count but lowered composite net return to `25.11653%`, raised max
   drawdown to `3.95224%`, and added a weak leg with only `1.06242` profit
-  factor. The accepted `m1_trend_down_breakout_scalp` is a later, tighter M1
-  variant with `minBodyRatio=0.65`, `relativeVolumeThreshold=3.0`, and
-  `riskFraction=0.01375`.
+  factor. The later tighter `m1_trend_down_breakout_scalp` reached `49.20519%`
+  at the composite level, but was replaced because `m1_chop_volume_rejection_scalp`
+  improved return and profit factor with fewer trades.
 - M1 range failed-break and M5 volume rejection had negative train-period
   results, so they were rejected before composite adoption.
 - M5 `TREND_UP` long breakout still remains excluded. The best checked M5
@@ -135,8 +131,9 @@ removing the added July to September coverage.
   factor on the added leg.
 - A more aggressive `m1_trend_up_breakout_scalp` at `riskFraction=0.02` returned
   `47.14192%` with `2.43591%` max drawdown and `5.52380` profit factor. It was
-  not selected by itself because the paired asymmetric M1 up/down configuration
-  returned more (`49.20519%`) while keeping profit factor above `4.0`.
+  not selected by itself because the paired M1 trend-up and chop-rejection
+  configuration returned more (`51.80084%`) while keeping profit factor above
+  `4.0`.
 - A fully max-risk M1 up/down configuration (`0.02` and `0.02`) returned
   `50.09672%`, but was rejected because max drawdown rose to `2.81584%` and
   total profit factor dropped to `3.62961`.
