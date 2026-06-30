@@ -8,7 +8,7 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `74.67127%` across 366 observed days, which is about `0.20402%`
+below returns `142.28953%` across 366 observed days, which is about `0.38877%`
 simple average return per observed day. The target is not met.
 
 ## Baseline
@@ -35,7 +35,8 @@ baseline, it retunes `trend_down_retest` to catch earlier M5 trend-down retests
 with `relativeVolumeThreshold=3.5`, `setupRangeLookback=8`, and
 `minBodyRatio=0.55`. The latest tuning loop also extends selected time exits
 after full-trade analysis showed that most losses were `TIME` exits rather than
-hard stops. It adds:
+hard stops, and now models up to `3` concurrent composite positions with a
+`3`-trade daily cap. It adds:
 
 - `trend_down_retest_runner`: relaxed M5 `TREND_DOWN` retest leg using
   `RUNNER` exit, `relativeVolumeThreshold=3.5`,
@@ -81,66 +82,76 @@ updates two M1 legs:
 - `m1_trend_down_breakout_assist`: `riskFraction=0.0125 -> 0.02` and
   `maxHoldM1Candles=20 -> 25`.
 
+The latest execution-model retune adds:
+
+- `maxConcurrentPositions=3`: allows the bot to use futures-style concurrent
+  opportunities instead of forcing one BTCUSDT position across every leg.
+- `maxTradesPerDay=3`: keeps the previous `1` to `5` trade/day business target
+  range but caps this concurrent candidate at a tighter daily entry limit.
+
 Candidate result:
 
 | Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
 | --- | --- | --- | --- | --- | --- | --- |
-| `74.67127%` | `2.28970%` | `64` | `5.96458` | `0.44218R` | `55` | `0.17486` |
+| `142.28953%` | `3.74029%` | `101` | `6.05988` | `0.45069R` | `55` | `0.27596` |
 
 Per-leg accepted performance:
 
 | Leg | Trades | Net PnL | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: |
-| `trend_down_retest` | 14 | `2512.72` | `11.18803` | `0.73816R` |
-| `trend_down_close` | 2 | `188.77` | n/a | `0.34430R` |
-| `range_failed_break` | 9 | `684.41` | `4.48110` | `0.26689R` |
-| `trend_down_retest_runner` | 1 | `1313.89` | n/a | `4.06695R` |
-| `range_failed_break_loose` | 3 | `413.66` | n/a | `0.46982R` |
-| `chop_failed_break` | 3 | `401.58` | n/a | `0.45958R` |
-| `m1_trend_up_breakout_scalp` | 13 | `522.47` | `1.89158` | `0.16886R` |
-| `m1_chop_volume_rejection_scalp` | 7 | `624.15` | `3.48371` | `0.35730R` |
-| `m1_trend_down_breakout_assist` | 12 | `805.48` | `4.60321` | `0.27693R` |
+| `trend_down_retest` | 15 | `3395.72` | `11.59014` | `0.76250R` |
+| `trend_down_close` | 17 | `3119.63` | `10.67288` | `0.59903R` |
+| `range_failed_break` | 9 | `878.20` | `5.00457` | `0.26689R` |
+| `trend_down_retest_runner` | 15 | `3554.54` | `10.24950` | `0.71980R` |
+| `range_failed_break_loose` | 9 | `435.45` | `2.70555` | `0.13699R` |
+| `chop_failed_break` | 3 | `519.70` | n/a | `0.45958R` |
+| `m1_trend_up_breakout_scalp` | 13 | `599.58` | `1.83199` | `0.16886R` |
+| `m1_chop_volume_rejection_scalp` | 8 | `775.62` | `3.38171` | `0.32114R` |
+| `m1_trend_down_breakout_assist` | 12 | `950.50` | `4.60415` | `0.27693R` |
 
 Risk note: the runner leg still contributes one accepted trade in this replay:
 `2026-06-25T13:30:00Z`, short side, `+4.06695R`, exit reason
-`TRAILING_STOP`. The latest accepted loops improve the annual candidate from
-`52.32671%` to `56.78605%`, then to `68.72947%`, and now to `74.67127%`, while
-keeping max drawdown at `2.28970%`. The final accepted change does raise the
-assist leg to max configured risk, but only after the assist exit retune lifted
-its composite leg profit factor above `4.6` and all four walk-forward windows
-remained profitable.
+`TRAILING_STOP` in the single-position replay. The latest accepted loops improve
+the annual candidate from `52.32671%` to `56.78605%`, then to `68.72947%`,
+`74.67127%`, and now to `142.28953%`. The final change raises max drawdown from
+`2.28970%` to `3.74029%`, so it is only valid under the explicit concurrent
+position assumption. The `maxConcurrentPositions=5` variant returned
+`149.85199%`, but was rejected because max drawdown rose to `4.80814%`, the
+worst monthly return fell to `-4.19265%`, and max consecutive losses reached
+`6`.
 
 Monthly accepted PnL:
 
 | Month | PnL | Trades |
 | --- | ---: | ---: |
 | `2025-07` | `205.03` | 2 |
-| `2025-08` | `406.06` | 3 |
-| `2025-09` | `-126.58` | 1 |
-| `2025-10` | `216.91` | 3 |
-| `2025-11` | `267.53` | 4 |
-| `2025-12` | `1600.84` | 11 |
-| `2026-01` | `618.03` | 7 |
-| `2026-02` | `1071.84` | 13 |
-| `2026-03` | `1057.76` | 6 |
-| `2026-04` | `531.55` | 5 |
-| `2026-05` | `-169.61` | 1 |
-| `2026-06` | `1787.76` | 8 |
+| `2025-08` | `835.41` | 5 |
+| `2025-09` | `-131.70` | 1 |
+| `2025-10` | `566.83` | 5 |
+| `2025-11` | `405.51` | 6 |
+| `2025-12` | `3566.32` | 24 |
+| `2026-01` | `1074.32` | 10 |
+| `2026-02` | `1653.60` | 16 |
+| `2026-03` | `1928.01` | 8 |
+| `2026-04` | `1475.85` | 9 |
+| `2026-05` | `-672.82` | 3 |
+| `2026-06` | `3322.60` | 12 |
 
 Walk-forward accepted PnL:
 
 | Window | Return | PnL | Trades | Profit factor | Max drawdown |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `WF1:2025-06-30..2025-09-29` | `4.84509%` | `484.51` | 6 | `4.82769` | `1.19290%` |
-| `WF2:2025-09-29..2025-12-29` | `19.88921%` | `2085.29` | 18 | `6.75118` | `1.09857%` |
-| `WF3:2025-12-29..2026-03-31` | `21.85903%` | `2747.63` | 26 | `5.49824` | `2.28970%` |
-| `WF4:2026-03-31..2026-06-30` | `14.03433%` | `2149.70` | 14 | `6.31982` | `1.70575%` |
+| `WF1:2025-06-30..2025-09-29` | `9.08739%` | `908.74` | 8 | `7.89999` | `1.19290%` |
+| `WF2:2025-09-29..2025-12-29` | `41.60565%` | `4538.65` | 35 | `7.78209` | `2.17775%` |
+| `WF3:2025-12-29..2026-03-31` | `30.14055%` | `4655.93` | 34 | `5.95610` | `2.28970%` |
+| `WF4:2026-03-31..2026-06-30` | `20.52214%` | `4125.63` | 24 | `4.84937` | `3.74029%` |
 
 Walk-forward note: all four windows remain profitable and all measurable
-profit-factor windows now clear `4.8`. `WF3` still owns the worst drawdown at
-`2.28970%`, but it also improves to the strongest return window. The remaining
-business gap is frequency: 64 accepted trades across 366 observed days still
-averages only `0.17486` trades per observed day.
+profit-factor windows now clear `4.8`. `WF4` owns the worst drawdown at
+`3.74029%`. The remaining business gap is frequency and daily return: 101
+accepted trades across 366 observed days averages only `0.27596` trades per
+observed day, and the simple average return is still `0.38877%` per observed
+day.
 
 ## Rejected Paths
 
@@ -207,16 +218,19 @@ averages only `0.17486` trades per observed day.
 
 POST `config/volume-flow-composite-current.json` to
 `/backtests/volume-flow/composite/run` on a local server that uses the 1-year
-runtime database. Add `"tradeLimit":10000` to the request body when the full
-accepted trade list is needed for loss analysis; the default response still
-returns the most recent 50 trades.
+runtime database. The current config includes `"maxConcurrentPositions":3`;
+omitting that field falls back to the single-position default of `1`. Add
+`"tradeLimit":10000` to the request body when the full accepted trade list is
+needed for loss analysis; the default response still returns the most recent 50
+trades.
 
 ## Tuning Gate
 
-The composite backtest response now returns `monthlyPerformance`,
-`walkForwardPerformance`, and a request-scoped `tradeLimit`, so the next tuning
-loop can reject candidates that only improve the annual total through one or two
-isolated trades.
+The composite backtest response returns `monthlyPerformance` and
+`walkForwardPerformance`; the request also accepts scoped `tradeLimit` and
+`maxConcurrentPositions`, so the next tuning loop can reject candidates that
+only improve the annual total through one or two isolated trades or through
+unbounded overlapping risk.
 
 Do not raise per-trade risk by itself just to force the daily target. A risk
 increase is only acceptable when paired with an exit-quality or setup-quality

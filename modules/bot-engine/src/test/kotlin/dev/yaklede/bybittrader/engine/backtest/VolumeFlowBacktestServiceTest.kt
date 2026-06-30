@@ -276,6 +276,37 @@ class VolumeFlowBacktestServiceTest :
             result.walkForwardPerformance.sumOf { it.tradeCount } shouldBe 1
             (result.finalEquity > result.initialEquity) shouldBe true
         }
+
+        "composite backtest can admit overlapping positions when concurrency is configured" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+            val legConfig = testVolumeFlowConfig()
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            maxConcurrentPositions = 2,
+                            legs =
+                                listOf(
+                                    VolumeFlowCompositeBacktestLeg("primary", legConfig),
+                                    VolumeFlowCompositeBacktestLeg("duplicate", legConfig),
+                                ),
+                        ),
+                )
+
+            result.signalCount shouldBe 2
+            result.tradeCount shouldBe 2
+            result.skippedSignalCount shouldBe 0
+            result.noTradeReasonCounts["OVERLAPPING_POSITION"] shouldBe null
+            result.performanceByLeg.map { it.tag } shouldBe listOf("duplicate", "primary")
+            result.monthlyPerformance.single().tradeCount shouldBe 2
+            result.walkForwardPerformance.sumOf { it.tradeCount } shouldBe 2
+            (result.finalEquity > result.initialEquity) shouldBe true
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =

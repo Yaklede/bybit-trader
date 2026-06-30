@@ -7,8 +7,9 @@
   "dailyTargetPct": null,
   "dailyStopPct": 1.0,
   "minTradesPerDay": 1,
-  "maxTradesPerDay": 5,
+  "maxTradesPerDay": 3,
   "maxConsecutiveLosses": 3,
+  "maxConcurrentPositions": 3,
   "legs": [
     {
       "id": "trend_down_retest",

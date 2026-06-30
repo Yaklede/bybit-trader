@@ -80,79 +80,12 @@ class VolumeFlowCompositeBacktestService(
                     }
                 }.sortedWith(compareBy<CompositeSignal> { it.trade.setupAt }.thenBy { it.trade.entryAt })
 
-        var equity = config.initialEquity
-        var peakEquity = equity
-        var maxDrawdownPct = 0.0
-        var blockedUntil = Instant.MIN
-        var consecutiveLosses = 0
-        val noTradeReasonCounts = mutableMapOf<String, Int>()
-        legReports.forEach { legReport ->
-            mergeReasonCounts(noTradeReasonCounts, legReport.report.noTradeReasonCounts)
-        }
-        val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
-        val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
-
-        for (signal in signals) {
-            val sourceTrade = signal.trade
-            if (!sourceTrade.setupAt.isAfter(blockedUntil)) {
-                incrementCompositeReason("OVERLAPPING_POSITION", noTradeReasonCounts)
-                continue
-            }
-            val dayState =
-                dailyStates.getOrPut(sourceTrade.setupAt.utcDate()) {
-                    CompositeDailyBacktestState(startingEquity = equity)
-                }
-            if (dayState.blocksNewEntries()) {
-                incrementCompositeReason(dayState.lockReason ?: "DAILY_LOCK", noTradeReasonCounts)
-                continue
-            }
-
-            val riskPerUnit = abs(sourceTrade.entryPrice - sourceTrade.stopPrice)
-            if (riskPerUnit <= 0.0) {
-                incrementCompositeReason("INVALID_RISK_DISTANCE", noTradeReasonCounts)
-                continue
-            }
-            val riskAmount = equity * signal.riskFraction
-            val quantity = riskAmount / riskPerUnit
-            val quantityScale = if (sourceTrade.quantity <= 0.0) 0.0 else quantity / sourceTrade.quantity
-            val grossPnl = sourceTrade.grossPnl * quantityScale
-            val fees = sourceTrade.fees * quantityScale
-            val pnl = grossPnl - fees
-            equity += pnl
-            peakEquity = maxOf(peakEquity, equity)
-            maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
-            consecutiveLosses = if (pnl < 0.0) consecutiveLosses + 1 else 0
-
-            trades +=
-                VolumeFlowCompositeBacktestTrade(
-                    legId = signal.legId,
-                    side = sourceTrade.side,
-                    setupMode = sourceTrade.setupMode,
-                    setupAt = sourceTrade.setupAt,
-                    entryAt = sourceTrade.entryAt,
-                    exitAt = sourceTrade.exitAt,
-                    entryPrice = sourceTrade.entryPrice,
-                    stopPrice = sourceTrade.stopPrice,
-                    targetPrice = sourceTrade.targetPrice,
-                    exitPrice = sourceTrade.exitPrice,
-                    quantity = quantity,
-                    grossPnl = grossPnl,
-                    fees = fees,
-                    pnl = pnl,
-                    returnR = if (riskAmount <= 0.0) 0.0 else pnl / riskAmount,
-                    exitReason = sourceTrade.exitReason,
-                    marketRegime = sourceTrade.marketRegime,
-                    keyLevelType = sourceTrade.keyLevelType,
-                    keyLevelDistancePct = sourceTrade.keyLevelDistancePct,
-                    volumePattern = sourceTrade.volumePattern,
-                    relativeVolume = sourceTrade.relativeVolume,
-                    volumeZScore = sourceTrade.volumeZScore,
-                    setupBodyRatio = sourceTrade.setupBodyRatio,
-                    setupCloseLocation = sourceTrade.setupCloseLocation,
-                )
-            dayState.recordTrade(pnl, equity, config, consecutiveLosses)
-            blockedUntil = sourceTrade.exitAt
-        }
+        val simulationResult =
+            simulateCompositeSignals(
+                config = config,
+                signals = signals,
+                legReports = legReports,
+            )
 
         return buildCompositeReport(
             symbol = symbol,
@@ -160,14 +93,14 @@ class VolumeFlowCompositeBacktestService(
             m5Candles = m5Candles,
             m15Candles = m15Candles,
             config = config,
-            finalEquity = equity,
-            maxDrawdownPct = maxDrawdownPct,
+            finalEquity = simulationResult.finalEquity,
+            maxDrawdownPct = simulationResult.maxDrawdownPct,
             setupCount = legReports.sumOf { it.report.setupCount },
             rejectedSetupCount = legReports.sumOf { it.report.rejectedSetupCount },
             signalCount = signals.size,
-            noTradeReasonCounts = noTradeReasonCounts.toSortedMap(),
-            dailyStates = dailyStates,
-            trades = trades,
+            noTradeReasonCounts = simulationResult.noTradeReasonCounts.toSortedMap(),
+            dailyStates = simulationResult.dailyStates,
+            trades = simulationResult.trades,
         )
     }
 
@@ -262,6 +195,203 @@ class VolumeFlowCompositeBacktestService(
         )
     }
 }
+
+private fun simulateCompositeSignals(
+    config: VolumeFlowCompositeBacktestConfig,
+    signals: List<CompositeSignal>,
+    legReports: List<LegSignalReport>,
+): CompositeSimulationResult {
+    val noTradeReasonCounts = mutableMapOf<String, Int>()
+    legReports.forEach { legReport ->
+        mergeReasonCounts(noTradeReasonCounts, legReport.report.noTradeReasonCounts)
+    }
+
+    return if (config.maxConcurrentPositions == 1) {
+        simulateSinglePositionComposite(config, signals, noTradeReasonCounts)
+    } else {
+        simulateConcurrentComposite(config, signals, noTradeReasonCounts)
+    }
+}
+
+private fun simulateSinglePositionComposite(
+    config: VolumeFlowCompositeBacktestConfig,
+    signals: List<CompositeSignal>,
+    noTradeReasonCounts: MutableMap<String, Int>,
+): CompositeSimulationResult {
+    var equity = config.initialEquity
+    var peakEquity = equity
+    var maxDrawdownPct = 0.0
+    var blockedUntil = Instant.MIN
+    var consecutiveLosses = 0
+    val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
+    val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
+
+    for (signal in signals) {
+        val sourceTrade = signal.trade
+        if (!sourceTrade.setupAt.isAfter(blockedUntil)) {
+            incrementCompositeReason("OVERLAPPING_POSITION", noTradeReasonCounts)
+            continue
+        }
+        val dayState =
+            dailyStates.getOrPut(sourceTrade.setupAt.utcDate()) {
+                CompositeDailyBacktestState(startingEquity = equity)
+            }
+        if (dayState.blocksNewEntries()) {
+            incrementCompositeReason(dayState.lockReason ?: "DAILY_LOCK", noTradeReasonCounts)
+            continue
+        }
+
+        val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
+        equity += trade.pnl
+        peakEquity = maxOf(peakEquity, equity)
+        maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
+        consecutiveLosses = if (trade.pnl < 0.0) consecutiveLosses + 1 else 0
+
+        trades += trade
+        dayState.recordTrade(trade.pnl, equity, config, consecutiveLosses)
+        blockedUntil = sourceTrade.exitAt
+    }
+
+    return CompositeSimulationResult(
+        finalEquity = equity,
+        maxDrawdownPct = maxDrawdownPct,
+        noTradeReasonCounts = noTradeReasonCounts,
+        dailyStates = dailyStates,
+        trades = trades,
+    )
+}
+
+private fun simulateConcurrentComposite(
+    config: VolumeFlowCompositeBacktestConfig,
+    signals: List<CompositeSignal>,
+    noTradeReasonCounts: MutableMap<String, Int>,
+): CompositeSimulationResult {
+    var equity = config.initialEquity
+    var peakEquity = equity
+    var maxDrawdownPct = 0.0
+    var consecutiveLosses = 0
+    val openTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
+    val closedTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
+    val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
+    val acceptedEntriesByDay = mutableMapOf<LocalDate, Int>()
+
+    fun closeTrade(trade: VolumeFlowCompositeBacktestTrade) {
+        equity += trade.pnl
+        peakEquity = maxOf(peakEquity, equity)
+        maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
+        consecutiveLosses = if (trade.pnl < 0.0) consecutiveLosses + 1 else 0
+        closedTrades += trade
+        dailyStates
+            .getOrPut(trade.setupAt.utcDate()) {
+                CompositeDailyBacktestState(startingEquity = equity)
+            }.recordTrade(trade.pnl, equity, config, consecutiveLosses)
+    }
+
+    fun closeMaturedTrades(setupAt: Instant) {
+        val maturedTrades =
+            openTrades
+                .filter { trade -> trade.exitAt.isBefore(setupAt) }
+                .sortedBy { trade -> trade.exitAt }
+        if (maturedTrades.isEmpty()) return
+
+        openTrades.removeAll(maturedTrades.toSet())
+        maturedTrades.forEach(::closeTrade)
+    }
+
+    for (signal in signals) {
+        val sourceTrade = signal.trade
+        closeMaturedTrades(sourceTrade.setupAt)
+
+        if (openTrades.size >= config.maxConcurrentPositions) {
+            incrementCompositeReason("OVERLAPPING_POSITION", noTradeReasonCounts)
+            continue
+        }
+
+        val setupDay = sourceTrade.setupAt.utcDate()
+        val dayState =
+            dailyStates.getOrPut(setupDay) {
+                CompositeDailyBacktestState(startingEquity = equity)
+            }
+        if (dayState.blocksNewEntries()) {
+            incrementCompositeReason(dayState.lockReason ?: "DAILY_LOCK", noTradeReasonCounts)
+            continue
+        }
+        if ((acceptedEntriesByDay[setupDay] ?: 0) >= config.maxTradesPerDay) {
+            incrementCompositeReason("MAX_TRADES_PER_DAY", noTradeReasonCounts)
+            continue
+        }
+
+        val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
+        acceptedEntriesByDay[setupDay] = (acceptedEntriesByDay[setupDay] ?: 0) + 1
+        openTrades += trade
+    }
+
+    openTrades
+        .sortedBy { trade -> trade.exitAt }
+        .forEach(::closeTrade)
+
+    return CompositeSimulationResult(
+        finalEquity = equity,
+        maxDrawdownPct = maxDrawdownPct,
+        noTradeReasonCounts = noTradeReasonCounts,
+        dailyStates = dailyStates,
+        trades = closedTrades,
+    )
+}
+
+private fun CompositeSignal.toCompositeTrade(
+    equity: Double,
+    noTradeReasonCounts: MutableMap<String, Int>,
+): VolumeFlowCompositeBacktestTrade? {
+    val sourceTrade = trade
+    val riskPerUnit = abs(sourceTrade.entryPrice - sourceTrade.stopPrice)
+    if (riskPerUnit <= 0.0) {
+        incrementCompositeReason("INVALID_RISK_DISTANCE", noTradeReasonCounts)
+        return null
+    }
+
+    val riskAmount = equity * riskFraction
+    val quantity = riskAmount / riskPerUnit
+    val quantityScale = if (sourceTrade.quantity <= 0.0) 0.0 else quantity / sourceTrade.quantity
+    val grossPnl = sourceTrade.grossPnl * quantityScale
+    val fees = sourceTrade.fees * quantityScale
+    val pnl = grossPnl - fees
+
+    return VolumeFlowCompositeBacktestTrade(
+        legId = legId,
+        side = sourceTrade.side,
+        setupMode = sourceTrade.setupMode,
+        setupAt = sourceTrade.setupAt,
+        entryAt = sourceTrade.entryAt,
+        exitAt = sourceTrade.exitAt,
+        entryPrice = sourceTrade.entryPrice,
+        stopPrice = sourceTrade.stopPrice,
+        targetPrice = sourceTrade.targetPrice,
+        exitPrice = sourceTrade.exitPrice,
+        quantity = quantity,
+        grossPnl = grossPnl,
+        fees = fees,
+        pnl = pnl,
+        returnR = if (riskAmount <= 0.0) 0.0 else pnl / riskAmount,
+        exitReason = sourceTrade.exitReason,
+        marketRegime = sourceTrade.marketRegime,
+        keyLevelType = sourceTrade.keyLevelType,
+        keyLevelDistancePct = sourceTrade.keyLevelDistancePct,
+        volumePattern = sourceTrade.volumePattern,
+        relativeVolume = sourceTrade.relativeVolume,
+        volumeZScore = sourceTrade.volumeZScore,
+        setupBodyRatio = sourceTrade.setupBodyRatio,
+        setupCloseLocation = sourceTrade.setupCloseLocation,
+    )
+}
+
+private data class CompositeSimulationResult(
+    val finalEquity: Double,
+    val maxDrawdownPct: Double,
+    val noTradeReasonCounts: Map<String, Int>,
+    val dailyStates: Map<LocalDate, CompositeDailyBacktestState>,
+    val trades: List<VolumeFlowCompositeBacktestTrade>,
+)
 
 private data class LegSignalReport(
     val leg: VolumeFlowCompositeBacktestLeg,

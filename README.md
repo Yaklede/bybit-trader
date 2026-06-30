@@ -76,7 +76,9 @@ curl -X POST \
   --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"initialEquity":10000.0,"dailyTargetPct":null,"dailyStopPct":1.0,"maxConsecutiveLosses":3,"legs":[{"id":"trend_down_retest","riskFraction":0.02,"setupMode":"BREAKOUT_CONTINUATION","entryMode":"RETEST_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"setupRangeLookback":12,"requireM5Vwap":false,"requireContextVwap":true,"requireContextTrend":true,"allowedMarketRegimes":["TREND_DOWN"],"requireRegimeSideAlignment":true,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.45,"minDirectionalCloseStrength":0.70,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.2,"exitMode":"FIXED_TARGET","maxHoldM1Candles":30},{"id":"trend_down_close","riskFraction":0.02,"setupMode":"BREAKOUT_CONTINUATION","entryMode":"CLOSE_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":3.5,"volumeZScoreThreshold":0.5,"setupRangeLookback":8,"requireM5Vwap":false,"requireContextVwap":true,"requireContextTrend":true,"allowedMarketRegimes":["TREND_DOWN"],"requireRegimeSideAlignment":true,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.55,"minDirectionalCloseStrength":0.70,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.2,"exitMode":"FIXED_TARGET","maxHoldM1Candles":15},{"id":"range_failed_break","riskFraction":0.02,"setupMode":"FAILED_BREAK_REVERSAL","entryMode":"CLOSE_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":3.5,"volumeZScoreThreshold":0.5,"setupRangeLookback":12,"requireM5Vwap":false,"requireContextVwap":false,"requireContextTrend":false,"allowedMarketRegimes":["RANGE"],"requireRegimeSideAlignment":false,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.25,"minDirectionalCloseStrength":0.70,"minRejectionWickRatio":0.25,"entryLookaheadM1Candles":5,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.0,"exitMode":"FIXED_TARGET","maxHoldM1Candles":30}]}' \
   http://127.0.0.1:8080/backtests/volume-flow/composite/run
 # Add "tradeLimit":10000 to the composite body when full accepted-trade
-# output is needed for tuning analysis. The default returns the latest 50.
+# output is needed for tuning analysis. Set "maxConcurrentPositions" when
+# testing concurrent futures-style execution; the default is 1.
+# The default response returns the latest 50 trades.
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
@@ -109,12 +111,13 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Latest local 1-year BTCUSDT volume-flow tuning snapshot: the current
   nine-leg composite candidate in `config/volume-flow-composite-current.json`
   keeps the M5/M1 time-exit retune, raises the validated M1 trend-down assist
-  risk after its exit-quality retune, and relaxes the M1 chop volume-rejection
-  wick gate. The replay returned `74.67127%` with `2.28970%` max drawdown over
-  64 trades. The previous accepted candidate returned `68.72947%` with
-  `2.28970%` max drawdown over 63 trades. The current candidate is still below
-  the daily `0.5%` to `2%` objective, at roughly `0.20402%` simple average
-  return per observed calendar day across 366 observed days. See
+  risk after its exit-quality retune, relaxes the M1 chop volume-rejection wick
+  gate, and allows up to 3 concurrent composite positions with a 3-trade daily
+  cap. The replay returned `142.28953%` with `3.74029%` max drawdown over 101
+  trades. The previous accepted single-position candidate returned `74.67127%`
+  with `2.28970%` max drawdown over 64 trades. The current candidate is still
+  below the daily `0.5%` to `2%` objective, at roughly `0.38877%` simple
+  average return per observed calendar day across 366 observed days. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
   tuning paths.
   Source note: measured on

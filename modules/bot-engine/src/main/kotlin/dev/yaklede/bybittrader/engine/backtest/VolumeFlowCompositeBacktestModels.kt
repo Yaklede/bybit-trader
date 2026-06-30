@@ -11,6 +11,7 @@ data class VolumeFlowCompositeBacktestConfig(
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
+    val maxConcurrentPositions: Int = 1,
     val legs: List<VolumeFlowCompositeBacktestLeg>,
 ) {
     init {
@@ -23,6 +24,7 @@ data class VolumeFlowCompositeBacktestConfig(
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
         require(minTradesPerDay <= maxTradesPerDay) { "Min trades per day must be less than or equal to max trades per day." }
         require(maxConsecutiveLosses > 0) { "Max consecutive losses must be positive." }
+        require(maxConcurrentPositions in 1..10) { "Max concurrent positions must be between 1 and 10." }
         require(legs.isNotEmpty()) { "Composite volume-flow legs must not be empty." }
         require(legs.size <= 10) { "Composite volume-flow legs must be less than or equal to 10." }
         require(legs.map { it.id }.distinct().size == legs.size) { "Composite volume-flow leg ids must be unique." }

@@ -371,6 +371,7 @@ class ApiModuleTest :
                                   "m1Limit":80,
                                   "m5Limit":30,
                                   "m15Limit":30,
+                                  "maxConcurrentPositions":2,
                                   "tradeLimit":0,
                                   "legs":[
                                     {
