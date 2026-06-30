@@ -1,0 +1,144 @@
+CREATE TABLE botState (
+  id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+  mode TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  heartbeat_at TEXT
+);
+
+CREATE TABLE marketCandles (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  open TEXT NOT NULL,
+  high TEXT NOT NULL,
+  low TEXT NOT NULL,
+  close TEXT NOT NULL,
+  volume TEXT NOT NULL,
+  source_timestamp TEXT NOT NULL
+);
+
+CREATE TABLE signals (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  strategy TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  grade TEXT NOT NULL,
+  reason_codes TEXT NOT NULL,
+  accepted INTEGER NOT NULL,
+  rejection_reason TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE orders (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  exchange_order_id TEXT,
+  client_order_id TEXT NOT NULL UNIQUE,
+  signal_id INTEGER,
+  side TEXT NOT NULL,
+  order_type TEXT NOT NULL,
+  order_status TEXT NOT NULL,
+  intended_risk TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE fills (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  fill_price TEXT NOT NULL,
+  quantity TEXT NOT NULL,
+  fee TEXT NOT NULL,
+  liquidity_role TEXT,
+  filled_at TEXT NOT NULL
+);
+
+CREATE TABLE positions (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  quantity TEXT NOT NULL,
+  entry_price TEXT NOT NULL,
+  realized_pnl TEXT NOT NULL,
+  unrealized_pnl TEXT NOT NULL,
+  captured_at TEXT NOT NULL
+);
+
+CREATE TABLE controlEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  action TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  previous_mode TEXT NOT NULL,
+  new_mode TEXT NOT NULL,
+  reason TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE alertEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  sink TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  delivery_status TEXT NOT NULL,
+  failure_reason TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE performanceSnapshots (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  period TEXT NOT NULL,
+  net_pnl TEXT NOT NULL,
+  profit_factor TEXT,
+  expectancy TEXT,
+  max_drawdown TEXT,
+  captured_at TEXT NOT NULL
+);
+
+selectBotState:
+SELECT mode, updated_at, heartbeat_at
+FROM botState
+WHERE id = 1;
+
+insertBotState:
+INSERT INTO botState(id, mode, updated_at, heartbeat_at)
+VALUES (1, ?, ?, ?);
+
+updateBotState:
+UPDATE botState
+SET
+  mode = ?,
+  updated_at = ?,
+  heartbeat_at = ?
+WHERE id = 1;
+
+insertControlEvent:
+INSERT INTO controlEvents(
+  action,
+  actor,
+  previous_mode,
+  new_mode,
+  reason,
+  created_at
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectRecentControlEvents:
+SELECT id, action, actor, previous_mode, new_mode, reason, created_at
+FROM controlEvents
+ORDER BY id DESC
+LIMIT ?;
+
+insertAlertEvent:
+INSERT INTO alertEvents(
+  sink,
+  severity,
+  title,
+  delivery_status,
+  failure_reason,
+  created_at
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+countAlertEvents:
+SELECT COUNT(*)
+FROM alertEvents;

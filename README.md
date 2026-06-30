@@ -4,8 +4,40 @@ Initial public repository placeholder for a Bybit trading automation project.
 
 ## Status
 
-This repository has been created as an initial scaffold. Implementation details,
-setup instructions, and usage notes will be added later.
+Milestone 1 is the operational backend shell:
+
+- Kotlin/JVM Gradle multi-module project.
+- Ktor server with public health and private status/control APIs.
+- SQLDelight + SQLite event ledger for bot state, control events, alerts, and
+  future trading records.
+- Telegram and Discord webhook alert sink wiring, disabled unless configured.
+- Paper mode starts without Bybit private credentials.
+
+No live or testnet exchange trading is implemented yet.
+
+## Local Run
+
+```bash
+export BOT_CONTROL_TOKEN="replace-with-local-operator-token"
+export BOT_DATABASE_PATH="data/bybit-trader.sqlite"
+./gradlew :modules:bot-app:run
+```
+
+Smoke test:
+
+```bash
+curl http://127.0.0.1:8080/health
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" http://127.0.0.1:8080/status
+```
+
+Run verification before committing:
+
+```bash
+./gradlew format
+./gradlew test lint build
+node .opendock/harness/opendock__backend-ultrawork/check.mjs
+node .opendock/harness/opendock__business-ultrawork/check.mjs
+```
 
 ## Notes
 

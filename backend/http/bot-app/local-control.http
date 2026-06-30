@@ -1,0 +1,24 @@
+### Health is public
+GET http://localhost:8080/health
+
+### Status requires bearer auth
+GET http://localhost:8080/status
+Authorization: Bearer {{controlCredential}}
+
+### Pause all trading
+POST http://localhost:8080/control/pause-all
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "reason": "manual operator pause"
+}
+
+### Resume through reconciliation mode
+POST http://localhost:8080/control/resume
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "reason": "manual operator resume"
+}
