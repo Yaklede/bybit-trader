@@ -12,6 +12,7 @@ import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
@@ -314,6 +315,8 @@ class ApiModuleTest :
                               "m1Limit":80,
                               "m5Limit":30,
                               "m15Limit":30,
+                              "setupMode":"BREAKOUT_CONTINUATION",
+                              "entryMode":"RETEST_CONFIRMATION",
                               "setupTimeframe":"M5",
                               "volumeLookback":3,
                               "relativeVolumeThreshold":2.0,
@@ -322,11 +325,66 @@ class ApiModuleTest :
                               "requireM5Vwap":true,
                               "m5VwapLookback":3,
                               "contextVwapLookback":3,
+                              "requireContextVwap":true,
                               "minBodyRatio":0.4,
+                              "minRejectionWickRatio":0.25,
                               "entryLookaheadM1Candles":3,
                               "entryRetestTolerancePct":0.01,
                               "targetR":0.5,
                               "maxHoldM1Candles":5
+                            }
+                            """.trimIndent(),
+                        )
+                    }.status shouldBe HttpStatusCode.OK
+            }
+        }
+
+        "authorized volume flow sweep request returns ranked candidates" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val candleStore = InMemoryMarketCandleStore(volumeFlowSweepApiCandles())
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        volumeFlowSweepService = VolumeFlowSweepService(candleStore),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/backtests/volume-flow/sweep") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody(
+                            """
+                            {
+                              "symbol":"BTCUSDT",
+                              "m1Limit":160,
+                              "m5Limit":80,
+                              "m15Limit":80,
+                              "riskFractionValues":[0.0025],
+                              "setupModes":["BREAKOUT_CONTINUATION","FAILED_BREAK_REVERSAL"],
+                              "entryModes":["RETEST_CONFIRMATION"],
+                              "setupTimeframes":["M5"],
+                              "volumeLookback":3,
+                              "relativeVolumeThresholdValues":[2.0],
+                              "volumeZScoreThresholdValues":[0.5],
+                              "setupRangeLookbackValues":[3],
+                              "requireM5VwapValues":[false],
+                              "contextVwapLookback":3,
+                              "requireContextVwapValues":[true,false],
+                              "requireContextTrendValues":[false],
+                              "minRejectionWickRatioValues":[0.25],
+                              "entryLookaheadM1CandlesValues":[3],
+                              "targetRValues":[0.5],
+                              "maxHoldM1CandlesValues":[5],
+                              "maxCandidates":4,
+                              "topResults":1
                             }
                             """.trimIndent(),
                         )
@@ -587,10 +645,13 @@ private fun sweepApiCandles(): List<Candle> =
 
 private fun volumeFlowApiCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
+private fun volumeFlowSweepApiCandles(): List<Candle> =
+    volumeFlowSweepM1Candles() + volumeFlowSweepM5Candles() + volumeFlowSweepM15Candles()
+
 private fun volumeFlowM1Candles(): List<Candle> =
     (0 until 80).map { index ->
         when (index) {
-            61 ->
+            65 ->
                 apiCandle(
                     index = index,
                     timeframe = Timeframe.M1,
@@ -601,7 +662,46 @@ private fun volumeFlowM1Candles(): List<Candle> =
                     close = "112.9",
                     volume = "30",
                 )
-            62 ->
+            66 ->
+                apiCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "112.9",
+                    high = "118.0",
+                    low = "112.8",
+                    close = "117.5",
+                    volume = "40",
+                )
+            else ->
+                apiCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "105",
+                    high = "106",
+                    low = "104",
+                    close = "105",
+                    volume = "10",
+                )
+        }
+    }
+
+private fun volumeFlowSweepM1Candles(): List<Candle> =
+    (0 until 160).map { index ->
+        when (index) {
+            65, 125 ->
+                apiCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "112.0",
+                    high = "113.0",
+                    low = "111.8",
+                    close = "112.9",
+                    volume = "30",
+                )
+            66, 126 ->
                 apiCandle(
                     index = index,
                     timeframe = Timeframe.M1,
@@ -660,8 +760,57 @@ private fun volumeFlowM5Candles(): List<Candle> =
         }
     }
 
+private fun volumeFlowSweepM5Candles(): List<Candle> =
+    (0 until 80).map { index ->
+        if (index == 12 || index == 24) {
+            apiCandle(
+                index = index,
+                timeframe = Timeframe.M5,
+                seconds = 300L,
+                open = "105",
+                high = "112",
+                low = "104",
+                close = "111.5",
+                volume = "60",
+            )
+        } else {
+            val close = 100 + index.coerceAtMost(10)
+            val volume =
+                when (index % 3) {
+                    0 -> "8"
+                    1 -> "10"
+                    else -> "12"
+                }
+            apiCandle(
+                index = index,
+                timeframe = Timeframe.M5,
+                seconds = 300L,
+                open = close.toString(),
+                high = (close + 1).toString(),
+                low = (close - 1).toString(),
+                close = close.toString(),
+                volume = volume,
+            )
+        }
+    }
+
 private fun volumeFlowM15Candles(): List<Candle> =
     (0 until 30).map { index ->
+        val close = 100 + index.coerceAtMost(5)
+        apiCandle(
+            index = index,
+            timeframe = Timeframe.M15,
+            seconds = 900L,
+            open = close.toString(),
+            high = (close + 2).toString(),
+            low = (close - 2).toString(),
+            close = close.toString(),
+            volume = "20",
+        )
+    }
+
+private fun volumeFlowSweepM15Candles(): List<Candle> =
+    (0 until 80).map { index ->
         val close = 100 + index.coerceAtMost(5)
         apiCandle(
             index = index,

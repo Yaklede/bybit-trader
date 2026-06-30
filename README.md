@@ -64,8 +64,13 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"riskFraction":0.0075,"setupTimeframe":"M5","relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"requireM5Vwap":false,"requireContextTrend":true,"maxEstimatedFeeR":0.2,"targetR":1.2,"maxHoldM1Candles":30,"dailyTargetPct":1.0,"dailyStopPct":1.0,"minTradesPerDay":1,"maxTradesPerDay":5}' \
+  --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"riskFraction":0.0075,"setupMode":"BREAKOUT_CONTINUATION","entryMode":"RETEST_CONFIRMATION","sideMode":"BOTH","setupTimeframe":"M5","relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"requireM5Vwap":false,"requireContextVwap":true,"requireContextTrend":true,"maxEstimatedFeeR":0.2,"targetR":1.2,"breakevenTriggerR":null,"maxHoldM1Candles":30,"dailyTargetPct":1.0,"dailyStopPct":1.0,"minTradesPerDay":1,"maxTradesPerDay":5}' \
   http://127.0.0.1:8080/backtests/volume-flow/run
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"riskFractionValues":[0.0025],"setupModes":["BREAKOUT_CONTINUATION","FAILED_BREAK_REVERSAL"],"entryModes":["RETEST_CONFIRMATION","CLOSE_CONFIRMATION"],"sideModes":["BOTH"],"setupTimeframes":["M5","M1"],"relativeVolumeThresholdValues":[3.0,5.0,7.0],"volumeZScoreThresholdValues":[1.0,1.5],"setupRangeLookbackValues":[8,12],"requireM5VwapValues":[false,true],"requireContextVwapValues":[true],"requireContextTrendValues":[false,true],"targetRValues":[1.0,1.2],"breakevenTriggerRValues":[null],"maxHoldM1CandlesValues":[15,30],"maxCandidates":1000,"topResults":10}' \
+  http://127.0.0.1:8080/backtests/volume-flow/sweep
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \

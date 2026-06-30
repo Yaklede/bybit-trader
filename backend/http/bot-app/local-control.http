@@ -111,6 +111,9 @@ Content-Type: application/json
   "riskFraction": 0.0075,
   "feeRate": 0.0006,
   "slippageRate": 0.0002,
+  "setupMode": "BREAKOUT_CONTINUATION",
+  "entryMode": "RETEST_CONFIRMATION",
+  "sideMode": "BOTH",
   "setupTimeframe": "M5",
   "volumeLookback": 20,
   "relativeVolumeThreshold": 5.0,
@@ -119,18 +122,50 @@ Content-Type: application/json
   "requireM5Vwap": false,
   "m5VwapLookback": 12,
   "contextVwapLookback": 32,
+  "requireContextVwap": true,
   "requireContextTrend": true,
   "minBodyRatio": 0.45,
+  "minRejectionWickRatio": 0.25,
   "entryLookaheadM1Candles": 5,
   "entryRetestTolerancePct": 0.0015,
   "maxEstimatedFeeR": 0.2,
   "targetR": 1.2,
+  "breakevenTriggerR": null,
   "maxHoldM1Candles": 30,
   "dailyTargetPct": 1.0,
   "dailyStopPct": 1.0,
   "minTradesPerDay": 1,
   "maxTradesPerDay": 5,
   "maxConsecutiveLosses": 3
+}
+
+### Sweep multi-timeframe volume-flow backtest parameters
+POST http://localhost:8080/backtests/volume-flow/sweep
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "m1Limit": 525600,
+  "m5Limit": 105120,
+  "m15Limit": 35040,
+  "riskFractionValues": [0.0025],
+  "setupModes": ["BREAKOUT_CONTINUATION", "FAILED_BREAK_REVERSAL"],
+  "entryModes": ["RETEST_CONFIRMATION", "CLOSE_CONFIRMATION"],
+  "sideModes": ["BOTH"],
+  "setupTimeframes": ["M5", "M1"],
+  "relativeVolumeThresholdValues": [3.0, 5.0, 7.0],
+  "volumeZScoreThresholdValues": [1.0, 1.5],
+  "setupRangeLookbackValues": [8, 12],
+  "requireM5VwapValues": [false, true],
+  "requireContextVwapValues": [true],
+  "requireContextTrendValues": [false, true],
+  "minRejectionWickRatioValues": [0.25],
+  "targetRValues": [1.0, 1.2],
+  "breakevenTriggerRValues": [null],
+  "maxHoldM1CandlesValues": [15, 30],
+  "maxCandidates": 1000,
+  "topResults": 10
 }
 
 ### Evaluate one paper trading cycle over stored candles

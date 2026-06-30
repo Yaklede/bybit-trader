@@ -6,6 +6,9 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestTrade
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -40,6 +43,9 @@ data class VolumeFlowBacktestRequest(
     val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val setupMode: String = "BREAKOUT_CONTINUATION",
+    val entryMode: String = "RETEST_CONFIRMATION",
+    val sideMode: String = "BOTH",
     val setupTimeframe: String = "M5",
     val volumeLookback: Int = 20,
     val relativeVolumeThreshold: Double = 5.0,
@@ -48,12 +54,15 @@ data class VolumeFlowBacktestRequest(
     val requireM5Vwap: Boolean = false,
     val m5VwapLookback: Int = 12,
     val contextVwapLookback: Int = 32,
+    val requireContextVwap: Boolean = true,
     val requireContextTrend: Boolean = true,
     val minBodyRatio: Double = 0.45,
+    val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
+    val breakevenTriggerR: Double? = null,
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double = 1.0,
     val dailyStopPct: Double = 1.0,
@@ -63,6 +72,9 @@ data class VolumeFlowBacktestRequest(
 ) {
     fun validated(): VolumeFlowBacktestRequest {
         Symbol(symbol)
+        VolumeFlowSetupMode.valueOf(setupMode)
+        VolumeFlowEntryMode.valueOf(entryMode)
+        VolumeFlowSideMode.valueOf(sideMode)
         val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
         require(parsedSetupTimeframe == Timeframe.M1 || parsedSetupTimeframe == Timeframe.M5) {
             "Setup timeframe must be M1 or M5."
@@ -80,6 +92,9 @@ data class VolumeFlowBacktestRequest(
             riskFraction = riskFraction,
             feeRate = feeRate,
             slippageRate = slippageRate,
+            setupMode = VolumeFlowSetupMode.valueOf(setupMode),
+            entryMode = VolumeFlowEntryMode.valueOf(entryMode),
+            sideMode = VolumeFlowSideMode.valueOf(sideMode),
             setupTimeframe = Timeframe.valueOf(setupTimeframe),
             volumeLookback = volumeLookback,
             relativeVolumeThreshold = relativeVolumeThreshold,
@@ -88,12 +103,15 @@ data class VolumeFlowBacktestRequest(
             requireM5Vwap = requireM5Vwap,
             m5VwapLookback = m5VwapLookback,
             contextVwapLookback = contextVwapLookback,
+            requireContextVwap = requireContextVwap,
             requireContextTrend = requireContextTrend,
             minBodyRatio = minBodyRatio,
+            minRejectionWickRatio = minRejectionWickRatio,
             entryLookaheadM1Candles = entryLookaheadM1Candles,
             entryRetestTolerancePct = entryRetestTolerancePct,
             maxEstimatedFeeR = maxEstimatedFeeR,
             targetR = targetR,
+            breakevenTriggerR = breakevenTriggerR,
             maxHoldM1Candles = maxHoldM1Candles,
             dailyTargetPct = dailyTargetPct,
             dailyStopPct = dailyStopPct,

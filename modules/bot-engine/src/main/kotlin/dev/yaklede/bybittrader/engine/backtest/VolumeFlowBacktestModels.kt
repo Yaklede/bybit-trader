@@ -10,6 +10,9 @@ data class VolumeFlowBacktestConfig(
     val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val setupMode: VolumeFlowSetupMode = VolumeFlowSetupMode.BREAKOUT_CONTINUATION,
+    val entryMode: VolumeFlowEntryMode = VolumeFlowEntryMode.RETEST_CONFIRMATION,
+    val sideMode: VolumeFlowSideMode = VolumeFlowSideMode.BOTH,
     val setupTimeframe: Timeframe = Timeframe.M5,
     val volumeLookback: Int = 20,
     val relativeVolumeThreshold: Double = 5.0,
@@ -18,12 +21,15 @@ data class VolumeFlowBacktestConfig(
     val requireM5Vwap: Boolean = false,
     val m5VwapLookback: Int = 12,
     val contextVwapLookback: Int = 32,
+    val requireContextVwap: Boolean = true,
     val requireContextTrend: Boolean = true,
     val minBodyRatio: Double = 0.45,
+    val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
+    val breakevenTriggerR: Double? = null,
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double = 1.0,
     val dailyStopPct: Double = 1.0,
@@ -46,12 +52,14 @@ data class VolumeFlowBacktestConfig(
         require(m5VwapLookback > 1) { "M5 VWAP lookback must be greater than 1." }
         require(contextVwapLookback > 1) { "Context VWAP lookback must be greater than 1." }
         require(minBodyRatio in 0.0..1.0) { "Minimum body ratio must be between 0 and 1." }
+        require(minRejectionWickRatio in 0.0..1.0) { "Minimum rejection wick ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }
         require(entryRetestTolerancePct in 0.0..0.02) { "Entry retest tolerance must be between 0 and 0.02." }
         require(maxEstimatedFeeR > 0.0 && maxEstimatedFeeR <= 5.0) {
             "Max estimated fee R must be between 0 and 5."
         }
         require(targetR > 0.0) { "Target R must be positive." }
+        require(breakevenTriggerR == null || breakevenTriggerR > 0.0) { "Breakeven trigger R must be positive." }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
         require(dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) { "Daily target percent must be between 0 and 10." }
         require(dailyStopPct > 0.0 && dailyStopPct <= 10.0) { "Daily stop percent must be between 0 and 10." }
@@ -60,6 +68,24 @@ data class VolumeFlowBacktestConfig(
         require(minTradesPerDay <= maxTradesPerDay) { "Min trades per day must be less than or equal to max trades per day." }
         require(maxConsecutiveLosses > 0) { "Max consecutive losses must be positive." }
     }
+}
+
+enum class VolumeFlowSetupMode {
+    BREAKOUT_CONTINUATION,
+    FAILED_BREAK_REVERSAL,
+    VOLUME_REJECTION_REVERSAL,
+}
+
+enum class VolumeFlowEntryMode {
+    RETEST_CONFIRMATION,
+    CLOSE_CONFIRMATION,
+    SETUP_CLOSE_CONFIRMATION,
+}
+
+enum class VolumeFlowSideMode {
+    BOTH,
+    LONG_ONLY,
+    SHORT_ONLY,
 }
 
 data class VolumeFlowBacktestReport(

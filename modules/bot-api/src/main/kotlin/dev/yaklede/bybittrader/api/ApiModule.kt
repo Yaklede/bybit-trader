@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api
 import dev.yaklede.bybittrader.api.backtest.configureBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureMeanReversionSweepRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowBacktestRoutes
+import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowSweepRoutes
 import dev.yaklede.bybittrader.api.control.configureControlRoutes
 import dev.yaklede.bybittrader.api.health.configureHealthRoutes
 import dev.yaklede.bybittrader.api.market.configureMarketDataRoutes
@@ -12,6 +13,7 @@ import dev.yaklede.bybittrader.api.status.configureStatusRoutes
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
@@ -36,6 +38,7 @@ fun Application.configureApi(
     backtestService: BacktestService,
     meanReversionSweepService: MeanReversionSweepService,
     volumeFlowBacktestService: VolumeFlowBacktestService,
+    volumeFlowSweepService: VolumeFlowSweepService? = null,
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
     controlCredential: String?,
@@ -70,6 +73,7 @@ fun Application.configureApi(
         configureBacktestRoutes(backtestService)
         configureMeanReversionSweepRoutes(meanReversionSweepService)
         configureVolumeFlowBacktestRoutes(volumeFlowBacktestService)
+        volumeFlowSweepService?.let(::configureVolumeFlowSweepRoutes)
         paperTradingService?.let(::configurePaperTradingRoutes)
     }
 }

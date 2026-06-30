@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Candle
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
@@ -91,6 +92,70 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 1
             result.noTradeReasonCounts["M5_CONTEXT_REJECTED"] shouldBe null
         }
+
+        "can enter after setup candle close without waiting for a later 1m confirmation" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(entryMode = VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().entryAt shouldBe Instant.parse("2026-06-30T01:05:00Z")
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+        }
+
+        "runs a short trade from failed breakout reversal and close confirmation" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(failedBreakReversalCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            setupMode = VolumeFlowSetupMode.FAILED_BREAK_REVERSAL,
+                            entryMode = VolumeFlowEntryMode.CLOSE_CONFIRMATION,
+                            requireContextVwap = false,
+                            requireContextTrend = false,
+                            minRejectionWickRatio = 0.25,
+                            targetR = 0.25,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().side shouldBe Side.SELL
+        }
+
+        "runs a short trade from volume rejection reversal without requiring a range break" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(failedBreakReversalCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            setupMode = VolumeFlowSetupMode.VOLUME_REJECTION_REVERSAL,
+                            entryMode = VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION,
+                            requireContextVwap = false,
+                            requireContextTrend = false,
+                            minRejectionWickRatio = 0.25,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().side shouldBe Side.SELL
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =
@@ -125,10 +190,13 @@ private class InMemoryVolumeFlowCandleStore(
 
 private fun volumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
+private fun failedBreakReversalCandles(): List<Candle> =
+    failedBreakReversalM1Candles() + failedBreakReversalM5Candles() + volumeFlowM15Candles()
+
 private fun volumeFlowM1Candles(): List<Candle> =
     (0 until 80).map { index ->
         when (index) {
-            61 ->
+            65 ->
                 volumeFlowCandle(
                     index = index,
                     timeframe = Timeframe.M1,
@@ -139,7 +207,7 @@ private fun volumeFlowM1Candles(): List<Candle> =
                     close = "112.9",
                     volume = "30",
                 )
-            62 ->
+            66 ->
                 volumeFlowCandle(
                     index = index,
                     timeframe = Timeframe.M1,
@@ -195,6 +263,60 @@ private fun volumeFlowM5Candles(): List<Candle> =
                 close = close.toString(),
                 volume = volume,
             )
+        }
+    }
+
+private fun failedBreakReversalM1Candles(): List<Candle> =
+    (0 until 80).map { index ->
+        when (index) {
+            65 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "110.8",
+                    high = "111.1",
+                    low = "109.0",
+                    close = "109.1",
+                    volume = "30",
+                )
+            66 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "109.1",
+                    high = "109.2",
+                    low = "106.0",
+                    close = "106.2",
+                    volume = "40",
+                )
+            else ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "110",
+                    high = "111",
+                    low = "109",
+                    close = "110",
+                    volume = "10",
+                )
+        }
+    }
+
+private fun failedBreakReversalM5Candles(): List<Candle> =
+    volumeFlowM5Candles().map { candle ->
+        if (candle.openedAt == Instant.parse("2026-06-30T01:00:00Z")) {
+            candle.copy(
+                open = BigDecimal("112"),
+                high = BigDecimal("114"),
+                low = BigDecimal("106"),
+                close = BigDecimal("108"),
+                volume = BigDecimal("60"),
+            )
+        } else {
+            candle
         }
     }
 

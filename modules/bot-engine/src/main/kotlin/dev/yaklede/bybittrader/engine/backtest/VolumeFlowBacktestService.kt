@@ -38,7 +38,7 @@ class VolumeFlowBacktestService(
             "Not enough M15 candles for context VWAP detection."
         }
 
-        return runBacktest(
+        return runLoadedCandles(
             symbol = symbol,
             m1Candles = m1Candles,
             m5Candles = m5Candles,
@@ -47,7 +47,7 @@ class VolumeFlowBacktestService(
         )
     }
 
-    private fun runBacktest(
+    internal fun runLoadedCandles(
         symbol: Symbol,
         m1Candles: List<Candle>,
         m5Candles: List<Candle>,
@@ -94,6 +94,12 @@ class VolumeFlowBacktestService(
 
             val candidate = detectSetup(setupCandles, setupIndex, config, noTradeReasonCounts) ?: continue
             setupCount += 1
+
+            if (!config.sideMode.allows(candidate.side)) {
+                rejectedSetupCount += 1
+                incrementReason("SIDE_NOT_ALLOWED", noTradeReasonCounts)
+                continue
+            }
 
             if (!localContextAllows(m5Timeline, setupCandle.openedAt, candidate.side, config)) {
                 rejectedSetupCount += 1
@@ -142,7 +148,7 @@ class VolumeFlowBacktestService(
                 VolumeFlowBacktestTrade(
                     side = candidate.side,
                     setupAt = setupCandle.openedAt,
-                    entryAt = entry.entryCandle.openedAt,
+                    entryAt = entry.entryAt,
                     exitAt = exit.exitCandle.openedAt,
                     entryPrice = entry.entryPrice,
                     stopPrice = entry.stopPrice,
@@ -196,12 +202,42 @@ class VolumeFlowBacktestService(
             incrementReason("VOLUME_ZSCORE_LOW", noTradeReasonCounts)
             return null
         }
-        val side = breakoutSideAt(candles, index, config.setupRangeLookback)
+        val setupRange = setupRangeAt(candles, index, config.setupRangeLookback)
+        if (setupRange == null) {
+            incrementReason("NO_SETUP_RANGE", noTradeReasonCounts)
+            return null
+        }
+        val shape = VolumeFlowIndicators.candleShape(candles[index])
+        return when (config.setupMode) {
+            VolumeFlowSetupMode.BREAKOUT_CONTINUATION ->
+                detectBreakoutContinuation(candles[index], setupRange, shape, relativeVolume, volumeZScore, config, noTradeReasonCounts)
+            VolumeFlowSetupMode.FAILED_BREAK_REVERSAL ->
+                detectFailedBreakReversal(candles[index], setupRange, shape, relativeVolume, volumeZScore, config, noTradeReasonCounts)
+            VolumeFlowSetupMode.VOLUME_REJECTION_REVERSAL ->
+                detectVolumeRejectionReversal(candles[index], shape, relativeVolume, volumeZScore, config, noTradeReasonCounts)
+        }
+    }
+
+    private fun detectBreakoutContinuation(
+        candle: Candle,
+        setupRange: SetupRange,
+        shape: CandleShape,
+        relativeVolume: Double,
+        volumeZScore: Double,
+        config: VolumeFlowBacktestConfig,
+        noTradeReasonCounts: MutableMap<String, Int>,
+    ): SetupCandidate? {
+        val close = candle.close.toDouble()
+        val side =
+            when {
+                close > setupRange.high -> Side.BUY
+                close < setupRange.low -> Side.SELL
+                else -> null
+            }
         if (side == null) {
             incrementReason("NO_RANGE_BREAKOUT", noTradeReasonCounts)
             return null
         }
-        val shape = VolumeFlowIndicators.candleShape(candles[index])
         if (shape.direction != side) {
             incrementReason("CANDLE_DIRECTION_MISMATCH", noTradeReasonCounts)
             return null
@@ -215,7 +251,106 @@ class VolumeFlowBacktestService(
             return null
         }
         return SetupCandidate(
+            setupMode = VolumeFlowSetupMode.BREAKOUT_CONTINUATION,
             side = side,
+            entryLevel =
+                when (side) {
+                    Side.BUY -> candle.high.toDouble()
+                    Side.SELL -> candle.low.toDouble()
+                },
+            relativeVolume = relativeVolume,
+            volumeZScore = volumeZScore,
+            shape = shape,
+        )
+    }
+
+    private fun detectFailedBreakReversal(
+        candle: Candle,
+        setupRange: SetupRange,
+        shape: CandleShape,
+        relativeVolume: Double,
+        volumeZScore: Double,
+        config: VolumeFlowBacktestConfig,
+        noTradeReasonCounts: MutableMap<String, Int>,
+    ): SetupCandidate? {
+        val high = candle.high.toDouble()
+        val low = candle.low.toDouble()
+        val close = candle.close.toDouble()
+        val side =
+            when {
+                high > setupRange.high && close <= setupRange.high -> Side.SELL
+                low < setupRange.low && close >= setupRange.low -> Side.BUY
+                else -> null
+            }
+        if (side == null) {
+            incrementReason("NO_FAILED_BREAK", noTradeReasonCounts)
+            return null
+        }
+        if (shape.direction != side) {
+            incrementReason("CANDLE_DIRECTION_MISMATCH", noTradeReasonCounts)
+            return null
+        }
+        if (shape.bodyRatio < config.minBodyRatio) {
+            incrementReason("BODY_TOO_SMALL", noTradeReasonCounts)
+            return null
+        }
+        val rejectionWickRatio =
+            when (side) {
+                Side.BUY -> shape.lowerWickRatio
+                Side.SELL -> shape.upperWickRatio
+            }
+        if (rejectionWickRatio < config.minRejectionWickRatio) {
+            incrementReason("REJECTION_WICK_TOO_SMALL", noTradeReasonCounts)
+            return null
+        }
+        if (!shape.closesStronglyFor(side)) {
+            incrementReason("WEAK_CLOSE_LOCATION", noTradeReasonCounts)
+            return null
+        }
+        return SetupCandidate(
+            setupMode = VolumeFlowSetupMode.FAILED_BREAK_REVERSAL,
+            side = side,
+            entryLevel =
+                when (side) {
+                    Side.BUY -> setupRange.low
+                    Side.SELL -> setupRange.high
+                },
+            relativeVolume = relativeVolume,
+            volumeZScore = volumeZScore,
+            shape = shape,
+        )
+    }
+
+    private fun detectVolumeRejectionReversal(
+        candle: Candle,
+        shape: CandleShape,
+        relativeVolume: Double,
+        volumeZScore: Double,
+        config: VolumeFlowBacktestConfig,
+        noTradeReasonCounts: MutableMap<String, Int>,
+    ): SetupCandidate? {
+        val side =
+            when {
+                shape.upperWickRatio >= config.minRejectionWickRatio && shape.closeLocation <= 0.30 -> Side.SELL
+                shape.lowerWickRatio >= config.minRejectionWickRatio && shape.closeLocation >= 0.70 -> Side.BUY
+                else -> null
+            }
+        if (side == null) {
+            incrementReason("NO_VOLUME_REJECTION", noTradeReasonCounts)
+            return null
+        }
+        if (shape.direction != side) {
+            incrementReason("CANDLE_DIRECTION_MISMATCH", noTradeReasonCounts)
+            return null
+        }
+        if (shape.bodyRatio < config.minBodyRatio) {
+            incrementReason("BODY_TOO_SMALL", noTradeReasonCounts)
+            return null
+        }
+        return SetupCandidate(
+            setupMode = VolumeFlowSetupMode.VOLUME_REJECTION_REVERSAL,
+            side = side,
+            entryLevel = candle.close.toDouble(),
             relativeVolume = relativeVolume,
             volumeZScore = volumeZScore,
             shape = shape,
@@ -259,11 +394,11 @@ class VolumeFlowBacktestService(
         return (candles[index].volume.toDouble() - average) / standardDeviation
     }
 
-    private fun breakoutSideAt(
+    private fun setupRangeAt(
         candles: List<Candle>,
         index: Int,
         lookback: Int,
-    ): Side? {
+    ): SetupRange? {
         if (index < lookback) return null
         var high = Double.NEGATIVE_INFINITY
         var low = Double.POSITIVE_INFINITY
@@ -271,12 +406,7 @@ class VolumeFlowBacktestService(
             high = maxOf(high, candles[rangeIndex].high.toDouble())
             low = minOf(low, candles[rangeIndex].low.toDouble())
         }
-        val close = candles[index].close.toDouble()
-        return when {
-            close > high -> Side.BUY
-            close < low -> Side.SELL
-            else -> null
-        }
+        return SetupRange(high = high, low = low)
     }
 
     private fun localContextAllows(
@@ -300,32 +430,40 @@ class VolumeFlowBacktestService(
         setupAt: Instant,
         side: Side,
         config: VolumeFlowBacktestConfig,
-    ): Boolean =
-        vwapSideAllows(
+    ): Boolean {
+        if (!config.requireContextVwap && !config.requireContextTrend) return true
+        return vwapSideAllows(
             timeline = m15Timeline,
             setupAt = setupAt,
             side = side,
             lookback = config.contextVwapLookback,
+            requireVwap = config.requireContextVwap,
             requireTrend = config.requireContextTrend,
         )
+    }
 
     private fun vwapSideAllows(
         timeline: CandleTimeline,
         setupAt: Instant,
         side: Side,
         lookback: Int,
+        requireVwap: Boolean = true,
         requireTrend: Boolean,
     ): Boolean {
         val contextCandles = timeline.takeLastAtOrBefore(setupAt, lookback)
         if (contextCandles.size < lookback) return false
-        val vwap = VolumeFlowIndicators.vwap(contextCandles) ?: return false
         val latest = contextCandles.last()
-        val vwapAllows =
-            when (side) {
-                Side.BUY -> latest.close.toDouble() >= vwap
-                Side.SELL -> latest.close.toDouble() <= vwap
+        if (requireVwap) {
+            val vwap = VolumeFlowIndicators.vwap(contextCandles) ?: return false
+            val vwapAllows =
+                when (side) {
+                    Side.BUY -> latest.close.toDouble() >= vwap
+                    Side.SELL -> latest.close.toDouble() <= vwap
+                }
+            if (!vwapAllows) {
+                return false
             }
-        if (!vwapAllows) return false
+        }
         if (!requireTrend) return true
 
         val first = contextCandles.first()
@@ -356,29 +494,50 @@ class VolumeFlowBacktestService(
         config: VolumeFlowBacktestConfig,
     ): EntryPlan? {
         val m1Candles = m1Timeline.candles
-        val startIndex = m1Timeline.firstIndexAfter(setupCandle.openedAt)
+        val setupClosedAt = setupCandle.openedAt.plusSeconds(config.setupTimeframe.seconds())
+        val startIndex = m1Timeline.firstIndexAtOrAfter(setupClosedAt)
         if (startIndex < 0) return null
-        val breakoutLevel =
-            when (candidate.side) {
-                Side.BUY -> setupCandle.high.toDouble()
-                Side.SELL -> setupCandle.low.toDouble()
-            }
+        if (config.entryMode == VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION) {
+            val entryIndex = startIndex - 1
+            if (entryIndex < 0) return null
+            val rawEntryPrice = setupCandle.close.toDouble()
+            val entryPrice =
+                when (candidate.side) {
+                    Side.BUY -> rawEntryPrice * (1.0 + config.slippageRate)
+                    Side.SELL -> rawEntryPrice * (1.0 - config.slippageRate)
+                }
+            val stopPrice =
+                when (candidate.side) {
+                    Side.BUY -> setupCandle.low.toDouble()
+                    Side.SELL -> setupCandle.high.toDouble()
+                }
+            val riskPerUnit = abs(entryPrice - stopPrice)
+            val targetPrice =
+                when (candidate.side) {
+                    Side.BUY -> entryPrice + (riskPerUnit * config.targetR)
+                    Side.SELL -> entryPrice - (riskPerUnit * config.targetR)
+                }
+            return EntryPlan(
+                side = candidate.side,
+                entryAt = setupClosedAt,
+                entryIndex = entryIndex,
+                entryCandle = m1Candles[entryIndex],
+                entryPrice = entryPrice,
+                stopPrice = stopPrice,
+                targetPrice = targetPrice,
+            )
+        }
         val endIndex = minOf(startIndex + config.entryLookaheadM1Candles, m1Candles.lastIndex)
-        val latestEntryAt = setupCandle.openedAt.plusSeconds(config.entryLookaheadM1Candles.toLong() * 60L)
+        val latestEntryAt = setupClosedAt.plusSeconds(config.entryLookaheadM1Candles.toLong() * 60L)
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
             if (candle.openedAt.isAfter(latestEntryAt)) return null
             val shape = VolumeFlowIndicators.candleShape(candle)
-            val retestAccepted =
-                when (candidate.side) {
-                    Side.BUY ->
-                        candle.low.toDouble() <= breakoutLevel * (1.0 + config.entryRetestTolerancePct) &&
-                            candle.close.toDouble() > breakoutLevel
-                    Side.SELL ->
-                        candle.high.toDouble() >= breakoutLevel * (1.0 - config.entryRetestTolerancePct) &&
-                            candle.close.toDouble() < breakoutLevel
-                }
-            if (shape.direction == candidate.side && shape.closesStronglyFor(candidate.side) && retestAccepted) {
+            if (
+                shape.direction == candidate.side &&
+                shape.closesStronglyFor(candidate.side) &&
+                entryTriggerAccepted(candle, candidate, config)
+            ) {
                 val rawEntryPrice = candle.close.toDouble()
                 val entryPrice =
                     when (candidate.side) {
@@ -398,6 +557,7 @@ class VolumeFlowBacktestService(
                     }
                 return EntryPlan(
                     side = candidate.side,
+                    entryAt = candle.openedAt,
                     entryIndex = index,
                     entryCandle = candle,
                     entryPrice = entryPrice,
@@ -409,6 +569,17 @@ class VolumeFlowBacktestService(
         return null
     }
 
+    private fun entryTriggerAccepted(
+        candle: Candle,
+        candidate: SetupCandidate,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean =
+        when (config.entryMode) {
+            VolumeFlowEntryMode.RETEST_CONFIRMATION -> candle.retestsAndConfirms(candidate, config)
+            VolumeFlowEntryMode.CLOSE_CONFIRMATION -> candle.closesBeyond(candidate)
+            VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION -> false
+        }
+
     private fun simulateExit(
         m1Candles: List<Candle>,
         entry: EntryPlan,
@@ -416,17 +587,19 @@ class VolumeFlowBacktestService(
     ): ExitPlan {
         val startIndex = minOf(entry.entryIndex + 1, m1Candles.lastIndex)
         val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles, m1Candles.lastIndex)
+        val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
+        var stopPrice = entry.stopPrice
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
             val stopHit =
                 when (entry.side) {
-                    Side.BUY -> candle.low.toDouble() <= entry.stopPrice
-                    Side.SELL -> candle.high.toDouble() >= entry.stopPrice
+                    Side.BUY -> candle.low.toDouble() <= stopPrice
+                    Side.SELL -> candle.high.toDouble() >= stopPrice
                 }
             if (stopHit) {
                 return ExitPlan(
                     exitCandle = candle,
-                    exitPrice = entry.stopPrice.withExitSlippage(entry.side, config),
+                    exitPrice = stopPrice.withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.STOP,
                 )
             }
@@ -441,6 +614,17 @@ class VolumeFlowBacktestService(
                     exitPrice = entry.targetPrice.withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.TARGET,
                 )
+            }
+            val breakevenTriggerR = config.breakevenTriggerR
+            if (breakevenTriggerR != null && initialRiskPerUnit > 0.0) {
+                val breakevenTouched =
+                    when (entry.side) {
+                        Side.BUY -> candle.high.toDouble() >= entry.entryPrice + (initialRiskPerUnit * breakevenTriggerR)
+                        Side.SELL -> candle.low.toDouble() <= entry.entryPrice - (initialRiskPerUnit * breakevenTriggerR)
+                    }
+                if (breakevenTouched) {
+                    stopPrice = entry.entryPrice
+                }
             }
         }
         val exitCandle = m1Candles[endIndex]
@@ -538,14 +722,41 @@ class VolumeFlowBacktestService(
 }
 
 private data class SetupCandidate(
+    val setupMode: VolumeFlowSetupMode,
     val side: Side,
+    val entryLevel: Double,
     val relativeVolume: Double,
     val volumeZScore: Double,
     val shape: CandleShape,
 )
 
+private data class SetupRange(
+    val high: Double,
+    val low: Double,
+)
+
+private fun Candle.retestsAndConfirms(
+    candidate: SetupCandidate,
+    config: VolumeFlowBacktestConfig,
+): Boolean =
+    when (candidate.side) {
+        Side.BUY ->
+            low.toDouble() <= candidate.entryLevel * (1.0 + config.entryRetestTolerancePct) &&
+                close.toDouble() > candidate.entryLevel
+        Side.SELL ->
+            high.toDouble() >= candidate.entryLevel * (1.0 - config.entryRetestTolerancePct) &&
+                close.toDouble() < candidate.entryLevel
+    }
+
+private fun Candle.closesBeyond(candidate: SetupCandidate): Boolean =
+    when (candidate.side) {
+        Side.BUY -> close.toDouble() > candidate.entryLevel
+        Side.SELL -> close.toDouble() < candidate.entryLevel
+    }
+
 private data class EntryPlan(
     val side: Side,
+    val entryAt: Instant,
     val entryIndex: Int,
     val entryCandle: Candle,
     val entryPrice: Double,
@@ -564,9 +775,9 @@ private class CandleTimeline(
 ) {
     private val openedAt = candles.map { it.openedAt }
 
-    fun firstIndexAfter(time: Instant): Int {
+    fun firstIndexAtOrAfter(time: Instant): Int {
         val index = openedAt.binarySearch(time)
-        val nextIndex = if (index >= 0) index + 1 else -index - 1
+        val nextIndex = if (index >= 0) index else -index - 1
         return if (nextIndex <= candles.lastIndex) nextIndex else -1
     }
 
@@ -630,12 +841,27 @@ private fun Double.withExitSlippage(
 
 private fun Instant.utcDate(): LocalDate = atZone(ZoneOffset.UTC).toLocalDate()
 
+private fun Timeframe.seconds(): Long =
+    when (this) {
+        Timeframe.M1 -> 60L
+        Timeframe.M5 -> 300L
+        Timeframe.M15 -> 900L
+        Timeframe.H1 -> 3_600L
+    }
+
 private fun incrementReason(
     reason: String,
     counts: MutableMap<String, Int>,
 ) {
     counts[reason] = (counts[reason] ?: 0) + 1
 }
+
+private fun VolumeFlowSideMode.allows(side: Side): Boolean =
+    when (this) {
+        VolumeFlowSideMode.BOTH -> true
+        VolumeFlowSideMode.LONG_ONLY -> side == Side.BUY
+        VolumeFlowSideMode.SHORT_ONLY -> side == Side.SELL
+    }
 
 private fun List<VolumeFlowBacktestTrade>.maxConsecutiveLosses(): Int {
     var current = 0
