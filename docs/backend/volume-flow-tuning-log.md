@@ -8,7 +8,7 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `68.72947%` across 366 observed days, which is about `0.188%`
+below returns `74.67127%` across 366 observed days, which is about `0.20402%`
 simple average return per observed day. The target is not met.
 
 ## Baseline
@@ -56,13 +56,13 @@ hard stops. It adds:
   volume-rejection reversal scalp using close confirmation,
   `relativeVolumeThreshold=2.0`, `volumeZScoreThreshold=0.5`,
   `setupRangeLookback=6`, `minBodyRatio=0.15`,
-  `minDirectionalCloseStrength=0.7`, `targetR=0.8`,
-  `maxHoldM1Candles=20`, and `riskFraction=0.02`.
-- `m1_trend_down_breakout_assist`: low-risk M1 `TREND_DOWN`
+  `minDirectionalCloseStrength=0.7`, `minRejectionWickRatio=0.20`,
+  `targetR=1.0`, `maxHoldM1Candles=20`, and `riskFraction=0.02`.
+- `m1_trend_down_breakout_assist`: M1 `TREND_DOWN`
   breakout-continuation assist using close confirmation,
   `relativeVolumeThreshold=3.0`, `volumeZScoreThreshold=0.5`,
   `minBodyRatio=0.65`, `minDirectionalCloseStrength=0.6`, `targetR=0.6`,
-  `maxHoldM1Candles=20`, and `riskFraction=0.0125`.
+  `maxHoldM1Candles=25`, and `riskFraction=0.02`.
 
 The accepted time-exit retune changes these existing hold windows:
 
@@ -73,66 +73,74 @@ The accepted time-exit retune changes these existing hold windows:
 - `m1_chop_volume_rejection_scalp`: `maxHoldM1Candles=10 -> 20`.
 - `m1_trend_down_breakout_assist`: `maxHoldM1Candles=10 -> 20`.
 
+The latest accepted volume-flow retune keeps the same nine-leg structure but
+updates two M1 legs:
+
+- `m1_chop_volume_rejection_scalp`: `minRejectionWickRatio=0.25 -> 0.20`
+  and `targetR=0.8 -> 1.0`.
+- `m1_trend_down_breakout_assist`: `riskFraction=0.0125 -> 0.02` and
+  `maxHoldM1Candles=20 -> 25`.
+
 Candidate result:
 
 | Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
 | --- | --- | --- | --- | --- | --- | --- |
-| `68.72947%` | `2.28970%` | `63` | `5.93627` | `0.43774R` | `55` | `0.17213` |
+| `74.67127%` | `2.28970%` | `64` | `5.96458` | `0.44218R` | `55` | `0.17486` |
 
 Per-leg accepted performance:
 
 | Leg | Trades | Net PnL | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: |
-| `trend_down_retest` | 14 | `2466.75720` | `11.29885` | `0.73816R` |
-| `trend_down_close` | 2 | `182.83345` | n/a | `0.34430R` |
-| `range_failed_break` | 9 | `663.50483` | `4.40823` | `0.26689R` |
-| `trend_down_retest_runner` | 1 | `1269.19482` | n/a | `4.06695R` |
-| `range_failed_break_loose` | 3 | `397.98197` | n/a | `0.46982R` |
-| `chop_failed_break` | 3 | `387.32061` | n/a | `0.45958R` |
-| `m1_trend_up_breakout_scalp` | 13 | `513.22812` | `1.90105` | `0.16886R` |
-| `m1_chop_volume_rejection_scalp` | 7 | `597.39918` | `3.46163` | `0.33755R` |
-| `m1_trend_down_breakout_assist` | 11 | `394.72718` | `3.70605` | `0.24903R` |
+| `trend_down_retest` | 14 | `2512.72` | `11.18803` | `0.73816R` |
+| `trend_down_close` | 2 | `188.77` | n/a | `0.34430R` |
+| `range_failed_break` | 9 | `684.41` | `4.48110` | `0.26689R` |
+| `trend_down_retest_runner` | 1 | `1313.89` | n/a | `4.06695R` |
+| `range_failed_break_loose` | 3 | `413.66` | n/a | `0.46982R` |
+| `chop_failed_break` | 3 | `401.58` | n/a | `0.45958R` |
+| `m1_trend_up_breakout_scalp` | 13 | `522.47` | `1.89158` | `0.16886R` |
+| `m1_chop_volume_rejection_scalp` | 7 | `624.15` | `3.48371` | `0.35730R` |
+| `m1_trend_down_breakout_assist` | 12 | `805.48` | `4.60321` | `0.27693R` |
 
 Risk note: the runner leg still contributes one accepted trade in this replay:
 `2026-06-25T13:30:00Z`, short side, `+4.06695R`, exit reason
-`TRAILING_STOP`. The two latest accepted loops improve the annual candidate from
-`52.32671%` to `56.78605%`, then to `68.72947%`, while reducing max drawdown
-from `2.43591%` to `2.28970%`. The latest change is not a risk increase: it
-keeps all risk fractions unchanged and only adjusts time exits after the full
-trade list showed that the main drag was premature or unproductive `TIME`
-exits.
+`TRAILING_STOP`. The latest accepted loops improve the annual candidate from
+`52.32671%` to `56.78605%`, then to `68.72947%`, and now to `74.67127%`, while
+keeping max drawdown at `2.28970%`. The final accepted change does raise the
+assist leg to max configured risk, but only after the assist exit retune lifted
+its composite leg profit factor above `4.6` and all four walk-forward windows
+remained profitable.
 
 Monthly accepted PnL:
 
 | Month | PnL | Trades |
 | --- | ---: | ---: |
 | `2025-07` | `205.03` | 2 |
-| `2025-08` | `366.42` | 3 |
-| `2025-09` | `-79.42` | 1 |
-| `2025-10` | `181.00` | 3 |
-| `2025-11` | `187.50` | 4 |
-| `2025-12` | `1543.54` | 11 |
-| `2026-01` | `480.50` | 7 |
-| `2026-02` | `831.67` | 12 |
-| `2026-03` | `1017.45` | 6 |
-| `2026-04` | `545.16` | 5 |
-| `2026-05` | `-163.51` | 1 |
-| `2026-06` | `1757.59` | 8 |
+| `2025-08` | `406.06` | 3 |
+| `2025-09` | `-126.58` | 1 |
+| `2025-10` | `216.91` | 3 |
+| `2025-11` | `267.53` | 4 |
+| `2025-12` | `1600.84` | 11 |
+| `2026-01` | `618.03` | 7 |
+| `2026-02` | `1071.84` | 13 |
+| `2026-03` | `1057.76` | 6 |
+| `2026-04` | `531.55` | 5 |
+| `2026-05` | `-169.61` | 1 |
+| `2026-06` | `1787.76` | 8 |
 
 Walk-forward accepted PnL:
 
 | Window | Return | PnL | Trades | Profit factor | Max drawdown |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `WF1:2025-06-30..2025-09-29` | `4.92035%` | `492.03` | 6 | `7.19553` | `0.75125%` |
-| `WF2:2025-09-29..2025-12-29` | `18.22377%` | `1912.04` | 18 | `6.31248` | `1.09857%` |
-| `WF3:2025-12-29..2026-03-31` | `18.78115%` | `2329.63` | 25 | `4.94701` | `2.28970%` |
-| `WF4:2026-03-31..2026-06-30` | `14.51936%` | `2139.24` | 14 | `6.89684` | `1.48738%` |
+| `WF1:2025-06-30..2025-09-29` | `4.84509%` | `484.51` | 6 | `4.82769` | `1.19290%` |
+| `WF2:2025-09-29..2025-12-29` | `19.88921%` | `2085.29` | 18 | `6.75118` | `1.09857%` |
+| `WF3:2025-12-29..2026-03-31` | `21.85903%` | `2747.63` | 26 | `5.49824` | `2.28970%` |
+| `WF4:2026-03-31..2026-06-30` | `14.03433%` | `2149.70` | 14 | `6.31982` | `1.70575%` |
 
 Walk-forward note: all four windows remain profitable and all measurable
-profit-factor windows now clear `4.9`. `WF3` still owns the worst drawdown at
-`2.28970%`, but it is no longer the weak profit-factor window. The remaining
-business gap is frequency: 63 accepted trades across 366 observed days still
-averages only `0.17213` trades per observed day.
+profit-factor windows now clear `4.8`. `WF3` still owns the worst drawdown at
+`2.28970%`, but it also improves to the strongest return window. The remaining
+business gap is frequency: 64 accepted trades across 366 observed days still
+averages only `0.17486` trades per observed day.
 
 ## Rejected Paths
 
@@ -156,11 +164,10 @@ averages only `0.17213` trades per observed day.
   not selected by itself because the paired M1 trend-up and chop-rejection
   configuration plus trend-down assist returned more (`56.78605%`)
   while keeping profit factor above `4.0`.
-- Risk-only `m1_trend_down_breakout_assist` increases were rejected despite
-  small annual-return gains. The accepted assist change pairs
-  `riskFraction=0.0125` with `targetR=0.6` and `maxHoldM1Candles=10`, improving
-  the leg profit factor from `1.07729` to `1.80223` before the higher risk is
-  allowed into the composite.
+- Earlier risk-only `m1_trend_down_breakout_assist` increases were rejected
+  because the assist leg did not yet have enough exit quality. After the later
+  exit retune, raising assist risk to `0.02` and extending hold to `25` improved
+  the composite to `72.66798%` while keeping max drawdown at `2.28970%`.
 - A fully max-risk M1 up/down configuration (`0.02` and `0.02`) returned
   `50.09672%`, but was rejected because max drawdown rose to `2.81584%` and
   total profit factor dropped to `3.62961`.
@@ -178,6 +185,17 @@ averages only `0.17213` trades per observed day.
   adding trades or raising risk. A near variant with `range_failed_break_loose`
   left at `30` returned `67.65894%`; the accepted `20`-candle loose range hold
   improved the final composite to `68.72947%`.
+- Replacing the M1 chop volume-rejection scalp with `targetR=1.0` and
+  `minRejectionWickRatio=0.20` beat both the prior `0.25` wick candidate
+  (`73.28826%`) and the looser `targetR=0.8` variant (`74.04605%`). A separate
+  10th loose-chop add-on also returned `74.67127%`, but it was rejected because
+  the incremental leg contributed exactly one accepted trade. The accepted path
+  is the replacement, not a new isolated add-on.
+- `m1_trend_up_breakout_scalp` at `targetR=0.9` and `maxHoldM1Candles=20`
+  returned a slightly higher `74.76617%`, but was rejected because profit
+  factor fell from `5.96458` to `5.47715` and max drawdown rose from
+  `2.28970%` to `2.44460%` for only `0.09490` percentage points of annual
+  return.
 - M5 `RANGE` breakout continuation was rejected because the best checked
   variants were negative in both train and test periods. The strongest sampled
   variant had train `-5.23514%`, test `-5.07923%`, and weak profit factors.

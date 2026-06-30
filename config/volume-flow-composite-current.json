@@ -238,12 +238,12 @@
       "avoidRangeMiddle": true,
       "minBodyRatio": 0.15,
       "minDirectionalCloseStrength": 0.70,
-      "minRejectionWickRatio": 0.25,
+      "minRejectionWickRatio": 0.20,
       "entryLookaheadM1Candles": 5,
       "minEntryRiskPct": 0.008,
       "maxEntryRiskPct": 0.015,
       "maxEstimatedFeeR": 0.2,
-      "targetR": 0.8,
+      "targetR": 1.0,
       "exitMode": "FIXED_TARGET",
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
@@ -252,7 +252,7 @@
     },
     {
       "id": "m1_trend_down_breakout_assist",
-      "riskFraction": 0.0125,
+      "riskFraction": 0.02,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -280,7 +280,7 @@
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 20
+      "maxHoldM1Candles": 25
     }
   ]
 }
