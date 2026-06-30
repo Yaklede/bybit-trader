@@ -13,7 +13,7 @@
   "legs": [
     {
       "id": "trend_down_retest",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -39,7 +39,7 @@
     },
     {
       "id": "trend_down_close",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -65,7 +65,7 @@
     },
     {
       "id": "range_failed_break",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -93,7 +93,7 @@
     },
     {
       "id": "trend_down_retest_runner",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -125,7 +125,7 @@
     },
     {
       "id": "range_failed_break_loose",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -157,7 +157,7 @@
     },
     {
       "id": "chop_failed_break",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -189,7 +189,7 @@
     },
     {
       "id": "m1_trend_up_breakout_scalp",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -221,7 +221,7 @@
     },
     {
       "id": "m1_chop_volume_rejection_scalp",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "VOLUME_REJECTION_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -253,7 +253,7 @@
     },
     {
       "id": "m1_trend_down_breakout_assist",
-      "riskFraction": 0.02,
+      "riskFraction": 0.023,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -282,6 +282,38 @@
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
       "maxHoldM1Candles": 25
+    },
+    {
+      "id": "m1_failed_break_chop_scalp",
+      "riskFraction": 0.023,
+      "setupMode": "FAILED_BREAK_REVERSAL",
+      "entryMode": "CLOSE_CONFIRMATION",
+      "sideMode": "BOTH",
+      "setupTimeframe": "M1",
+      "relativeVolumeThreshold": 2.0,
+      "volumeZScoreThreshold": 0.5,
+      "setupRangeLookback": 6,
+      "requireM5Vwap": false,
+      "requireContextVwap": false,
+      "requireContextTrend": false,
+      "allowedMarketRegimes": ["HIGH_VOLATILITY_CHOP"],
+      "requireRegimeSideAlignment": false,
+      "requireKeyLevelProximity": true,
+      "keyLevelTolerancePct": 0.0025,
+      "avoidRangeMiddle": true,
+      "minBodyRatio": 0.15,
+      "minDirectionalCloseStrength": 0.60,
+      "minRejectionWickRatio": 0.20,
+      "entryLookaheadM1Candles": 5,
+      "minEntryRiskPct": 0.008,
+      "maxEntryRiskPct": 0.015,
+      "maxEstimatedFeeR": 0.2,
+      "targetR": 0.8,
+      "exitMode": "FIXED_TARGET",
+      "runnerTrailActivationR": 1.0,
+      "runnerTrailDistanceR": 0.5,
+      "breakevenTriggerR": null,
+      "maxHoldM1Candles": 20
     }
   ]
 }

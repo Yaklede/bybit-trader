@@ -109,15 +109,15 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
 - Latest local 1-year BTCUSDT volume-flow tuning snapshot: the current
-  nine-leg composite candidate in `config/volume-flow-composite-current.json`
-  keeps the M5/M1 time-exit retune, raises the validated M1 trend-down assist
-  risk after its exit-quality retune, relaxes the M1 chop volume-rejection wick
-  gate, and allows up to 3 concurrent composite positions with a 3-trade daily
-  cap. The replay returned `142.28953%` with `3.74029%` max drawdown over 101
-  trades. The previous accepted single-position candidate returned `74.67127%`
-  with `2.28970%` max drawdown over 64 trades. The current candidate is still
-  below the daily `0.5%` to `2%` objective, at roughly `0.38877%` simple
-  average return per observed calendar day across 366 observed days. See
+  ten-leg composite candidate in `config/volume-flow-composite-current.json`
+  keeps the M5/M1 time-exit retune, adds an M1 high-volatility-chop failed-break
+  scalp, raises validated volume-flow backtest risk sizing to `0.023`, and
+  allows up to 3 concurrent composite positions with a 3-trade daily cap. The
+  replay returned `189.22322%` with `4.29784%` max drawdown over 103 trades.
+  That is roughly `0.51700%` simple average return per observed calendar day
+  across 366 observed days, clearing the lower bound of the daily `0.5%` to
+  `2%` objective on a cumulative backtest-average basis. It still has sparse
+  active days (`55`) and is not evidence of steady daily profit. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
   tuning paths.
   Source note: measured on

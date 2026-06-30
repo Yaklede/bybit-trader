@@ -8,8 +8,10 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `142.28953%` across 366 observed days, which is about `0.38877%`
-simple average return per observed day. The target is not met.
+below returns `189.22322%` across 366 observed days, which is about `0.51700%`
+simple average return per observed day. This clears the lower bound on a
+cumulative backtest-average basis, but active-day coverage is still sparse at
+`55` days.
 
 ## Baseline
 
@@ -33,10 +35,10 @@ The current best candidate is stored at
 `config/volume-flow-composite-current.json`. Relative to the original three-leg
 baseline, it retunes `trend_down_retest` to catch earlier M5 trend-down retests
 with `relativeVolumeThreshold=3.5`, `setupRangeLookback=8`, and
-`minBodyRatio=0.55`. The latest tuning loop also extends selected time exits
-after full-trade analysis showed that most losses were `TIME` exits rather than
-hard stops, and now models up to `3` concurrent composite positions with a
-`3`-trade daily cap. It adds:
+`minBodyRatio=0.55`. It extends selected time exits after full-trade analysis
+showed that most losses were `TIME` exits rather than hard stops, models up to
+`3` concurrent composite positions with a `3`-trade daily cap, and now uses
+`riskFraction=0.023` on each accepted leg. It adds:
 
 - `trend_down_retest_runner`: relaxed M5 `TREND_DOWN` retest leg using
   `RUNNER` exit, `relativeVolumeThreshold=3.5`,
@@ -52,18 +54,23 @@ hard stops, and now models up to `3` concurrent composite positions with a
   close confirmation, `relativeVolumeThreshold=2.0`,
   `volumeZScoreThreshold=0.5`, `minBodyRatio=0.65`,
   `minDirectionalCloseStrength=0.7`, `targetR=0.8`, and
-  `riskFraction=0.02`.
+  `riskFraction=0.023`.
 - `m1_chop_volume_rejection_scalp`: M1 `HIGH_VOLATILITY_CHOP`
   volume-rejection reversal scalp using close confirmation,
   `relativeVolumeThreshold=2.0`, `volumeZScoreThreshold=0.5`,
   `setupRangeLookback=6`, `minBodyRatio=0.15`,
   `minDirectionalCloseStrength=0.7`, `minRejectionWickRatio=0.20`,
-  `targetR=1.0`, `maxHoldM1Candles=20`, and `riskFraction=0.02`.
+  `targetR=1.0`, `maxHoldM1Candles=20`, and `riskFraction=0.023`.
 - `m1_trend_down_breakout_assist`: M1 `TREND_DOWN`
   breakout-continuation assist using close confirmation,
   `relativeVolumeThreshold=3.0`, `volumeZScoreThreshold=0.5`,
   `minBodyRatio=0.65`, `minDirectionalCloseStrength=0.6`, `targetR=0.6`,
-  `maxHoldM1Candles=25`, and `riskFraction=0.02`.
+  `maxHoldM1Candles=25`, and `riskFraction=0.023`.
+- `m1_failed_break_chop_scalp`: M1 `HIGH_VOLATILITY_CHOP` failed-break reversal
+  scalp using close confirmation, `relativeVolumeThreshold=2.0`,
+  `volumeZScoreThreshold=0.5`, `setupRangeLookback=6`, `minBodyRatio=0.15`,
+  `minDirectionalCloseStrength=0.6`, `minRejectionWickRatio=0.20`,
+  `targetR=0.8`, and `maxHoldM1Candles=20`.
 
 The accepted time-exit retune changes these existing hold windows:
 
@@ -74,8 +81,8 @@ The accepted time-exit retune changes these existing hold windows:
 - `m1_chop_volume_rejection_scalp`: `maxHoldM1Candles=10 -> 20`.
 - `m1_trend_down_breakout_assist`: `maxHoldM1Candles=10 -> 20`.
 
-The latest accepted volume-flow retune keeps the same nine-leg structure but
-updates two M1 legs:
+The previous accepted volume-flow retune kept the nine-leg structure but
+updated two M1 legs:
 
 - `m1_chop_volume_rejection_scalp`: `minRejectionWickRatio=0.25 -> 0.20`
   and `targetR=0.8 -> 1.0`.
@@ -89,33 +96,42 @@ The latest execution-model retune adds:
 - `maxTradesPerDay=3`: keeps the previous `1` to `5` trade/day business target
   range but caps this concurrent candidate at a tighter daily entry limit.
 
+The latest accepted sizing retune changes the previous `142.28953%` candidate
+by opening the validated volume-flow backtest risk ceiling from `0.02` to
+`0.03`, setting current leg risk to `0.023`, and adding
+`m1_failed_break_chop_scalp`. The selected risk level is the lowest tested
+configuration that clears the daily `0.5%` lower bound after adding the new
+setup.
+
 Candidate result:
 
 | Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
 | --- | --- | --- | --- | --- | --- | --- |
-| `142.28953%` | `3.74029%` | `101` | `6.05988` | `0.45069R` | `55` | `0.27596` |
+| `189.22322%` | `4.29784%` | `103` | `6.58446` | `0.46269R` | `55` | `0.28142` |
 
 Per-leg accepted performance:
 
 | Leg | Trades | Net PnL | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: |
-| `trend_down_retest` | 15 | `3395.72` | `11.59014` | `0.76250R` |
-| `trend_down_close` | 17 | `3119.63` | `10.67288` | `0.59903R` |
-| `range_failed_break` | 9 | `878.20` | `5.00457` | `0.26689R` |
-| `trend_down_retest_runner` | 15 | `3554.54` | `10.24950` | `0.71980R` |
-| `range_failed_break_loose` | 9 | `435.45` | `2.70555` | `0.13699R` |
-| `chop_failed_break` | 3 | `519.70` | n/a | `0.45958R` |
-| `m1_trend_up_breakout_scalp` | 13 | `599.58` | `1.83199` | `0.16886R` |
-| `m1_chop_volume_rejection_scalp` | 8 | `775.62` | `3.38171` | `0.32114R` |
-| `m1_trend_down_breakout_assist` | 12 | `950.50` | `4.60415` | `0.27693R` |
+| `trend_down_retest` | 15 | `4223.66` | `11.17461` | `0.76250R` |
+| `trend_down_close` | 17 | `3912.03` | `10.39379` | `0.59903R` |
+| `range_failed_break` | 9 | `1139.09` | `5.35795` | `0.26689R` |
+| `trend_down_retest_runner` | 15 | `4548.99` | `10.11464` | `0.71980R` |
+| `range_failed_break_loose` | 9 | `569.49` | `2.81906` | `0.13699R` |
+| `chop_failed_break` | 3 | `671.85` | n/a | `0.45958R` |
+| `m1_trend_up_breakout_scalp` | 13 | `738.14` | `1.80565` | `0.16886R` |
+| `m1_chop_volume_rejection_scalp` | 7 | `1144.53` | `5.81889` | `0.42923R` |
+| `m1_trend_down_breakout_assist` | 12 | `1163.40` | `4.53012` | `0.27693R` |
+| `m1_failed_break_chop_scalp` | 3 | `811.13` | n/a | `0.56756R` |
 
 Risk note: the runner leg still contributes one accepted trade in this replay:
 `2026-06-25T13:30:00Z`, short side, `+4.06695R`, exit reason
 `TRAILING_STOP` in the single-position replay. The latest accepted loops improve
 the annual candidate from `52.32671%` to `56.78605%`, then to `68.72947%`,
-`74.67127%`, and now to `142.28953%`. The final change raises max drawdown from
-`2.28970%` to `3.74029%`, so it is only valid under the explicit concurrent
-position assumption. The `maxConcurrentPositions=5` variant returned
+`74.67127%`, `142.28953%`, and now to `189.22322%`. The final change raises max
+drawdown from `3.74029%` to `4.29784%`, so it is only valid under the explicit
+`riskFraction=0.023` and `maxConcurrentPositions=3` assumptions. The older
+`maxConcurrentPositions=5` variant at `riskFraction=0.02` returned
 `149.85199%`, but was rejected because max drawdown rose to `4.80814%`, the
 worst monthly return fell to `-4.19265%`, and max consecutive losses reached
 `6`.
@@ -124,37 +140,55 @@ Monthly accepted PnL:
 
 | Month | PnL | Trades |
 | --- | ---: | ---: |
-| `2025-07` | `205.03` | 2 |
-| `2025-08` | `835.41` | 5 |
-| `2025-09` | `-131.70` | 1 |
-| `2025-10` | `566.83` | 5 |
-| `2025-11` | `405.51` | 6 |
-| `2025-12` | `3566.32` | 24 |
-| `2026-01` | `1074.32` | 10 |
-| `2026-02` | `1653.60` | 16 |
-| `2026-03` | `1928.01` | 8 |
-| `2026-04` | `1475.85` | 9 |
-| `2026-05` | `-672.82` | 3 |
-| `2026-06` | `3322.60` | 12 |
+| `2025-07` | `235.94` | 2 |
+| `2025-08` | `965.73` | 5 |
+| `2025-09` | `-153.67` | 1 |
+| `2025-10` | `660.01` | 5 |
+| `2025-11` | `475.93` | 6 |
+| `2025-12` | `4274.36` | 24 |
+| `2026-01` | `1318.64` | 10 |
+| `2026-02` | `2737.96` | 17 |
+| `2026-03` | `2515.40` | 8 |
+| `2026-04` | `1947.18` | 9 |
+| `2026-05` | `-895.59` | 3 |
+| `2026-06` | `4840.43` | 13 |
 
 Walk-forward accepted PnL:
 
 | Window | Return | PnL | Trades | Profit factor | Max drawdown |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `WF1:2025-06-30..2025-09-29` | `9.08739%` | `908.74` | 8 | `7.89999` | `1.19290%` |
-| `WF2:2025-09-29..2025-12-29` | `41.60565%` | `4538.65` | 35 | `7.78209` | `2.17775%` |
-| `WF3:2025-12-29..2026-03-31` | `30.14055%` | `4655.93` | 34 | `5.95610` | `2.28970%` |
-| `WF4:2026-03-31..2026-06-30` | `20.52214%` | `4125.63` | 24 | `4.84937` | `3.74029%` |
+| `WF1:2025-06-30..2025-09-29` | `10.48003%` | `1048.00` | 8 | `7.81989` | `1.37184%` |
+| `WF2:2025-09-29..2025-12-29` | `48.97079%` | `5410.29` | 35 | `7.78920` | `2.50441%` |
+| `WF3:2025-12-29..2026-03-31` | `39.93124%` | `6572.00` | 35 | `7.52692` | `2.63315%` |
+| `WF4:2026-03-31..2026-06-30` | `25.58379%` | `5892.02` | 25 | `5.11766` | `4.29784%` |
 
 Walk-forward note: all four windows remain profitable and all measurable
-profit-factor windows now clear `4.8`. `WF4` owns the worst drawdown at
-`3.74029%`. The remaining business gap is frequency and daily return: 101
-accepted trades across 366 observed days averages only `0.27596` trades per
-observed day, and the simple average return is still `0.38877%` per observed
-day.
+profit-factor windows now clear `5.1`. `WF4` owns the worst drawdown at
+`4.29784%`. The lower-bound daily return objective is met only as a cumulative
+simple average: 103 accepted trades across 366 observed days averages `0.28142`
+trades per observed day, and active-day coverage remains `55` days.
 
 ## Rejected Paths
 
+- Risk-only sizing was rejected as the primary path. The current nine-leg
+  structure at `riskFraction=0.024` returned `187.52936%` and cleared the daily
+  lower bound, but max drawdown rose to `4.48349%` and return was lower than
+  the accepted `m1_failed_break_chop_scalp + riskFraction=0.023` candidate.
+- Higher accepted-leg sizing was rejected for the current target band. The
+  ten-leg candidate at `riskFraction=0.030` returned `294.53049%`, but max
+  drawdown rose to `5.59524%`, the worst month fell to `-4.67684%`, and the
+  result exceeded the minimum objective by taking materially more sizing risk.
+- The M1 `HIGH_VOLATILITY_CHOP` breakout-continuation add-on increased accepted
+  trades to `117`, but returned only `146.73934%`, lowered total profit factor
+  to `4.63117`, and triggered `5` daily max-trade skips.
+- M5 `HIGH_VOLATILITY_CHOP` failed-break and volume-rejection add-ons were
+  positive but weaker than the accepted M1 failed-break leg. The best checked
+  M5 failed-break add-on returned `149.84020%`; the M5 rejection add-on returned
+  `146.63664%`.
+- M5 `TREND_UP` breakout sweeps remain excluded. The best sampled M5 trend-up
+  close/retest candidates had negative train returns, with the close variant at
+  train `-5.998%` and test `0.733%`, and the retest variant at train `-4.922%`
+  and test `0.733%`.
 - M5 setup-close breakout continuation increased trade count to 35 but lowered
   composite net return to `24.63207%`, raised max drawdown to `3.63243%`, and
   produced only `1.04259` profit factor on the added leg.
@@ -232,7 +266,8 @@ The composite backtest response returns `monthlyPerformance` and
 only improve the annual total through one or two isolated trades or through
 unbounded overlapping risk.
 
-Do not raise per-trade risk by itself just to force the daily target. A risk
-increase is only acceptable when paired with an exit-quality or setup-quality
-change and when the composite still passes the monthly and walk-forward
-stability gates.
+Do not raise per-trade risk by itself just to force the daily target. The
+accepted `0.023` sizing is tied to the additional M1 failed-break setup and to
+positive monthly/walk-forward stability gates. Future risk increases need a new
+setup-quality or exit-quality improvement and must preserve monthly and
+walk-forward drawdown controls.

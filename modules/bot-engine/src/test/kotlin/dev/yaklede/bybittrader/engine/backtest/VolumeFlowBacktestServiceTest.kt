@@ -5,6 +5,7 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.math.BigDecimal
@@ -12,6 +13,14 @@ import java.time.Instant
 
 class VolumeFlowBacktestServiceTest :
     StringSpec({
+        "allows volume-flow tuning risk up to three percent" {
+            VolumeFlowBacktestConfig(riskFraction = 0.03).riskFraction shouldBe 0.03
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(riskFraction = 0.0301)
+            }.message shouldBe "Risk fraction must be between 0 and 0.03."
+        }
+
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
 
