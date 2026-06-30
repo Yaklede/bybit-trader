@@ -12,6 +12,7 @@ import dev.yaklede.bybittrader.alerts.TelegramAlertSink
 import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
+import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
@@ -59,6 +60,7 @@ fun main() {
             candleStore = ledger,
             runner = BacktestRunner(MeanReversionStrategy()),
         )
+    val meanReversionSweepService = MeanReversionSweepService(candleStore = ledger)
 
     runBlocking {
         alertingService.send(
@@ -92,6 +94,7 @@ fun main() {
                 controlService = controlService,
                 marketDataSyncService = marketDataSyncService,
                 backtestService = backtestService,
+                meanReversionSweepService = meanReversionSweepService,
                 controlCredential = config.api.controlCredential,
             )
         }

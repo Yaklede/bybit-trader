@@ -44,6 +44,11 @@ curl -X POST \
   -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200,"fundingRatePer8h":0.0,"partialTakeProfitR":1.0,"partialTakeProfitFraction":0.5,"breakevenAfterPartialTakeProfit":true,"atrTrailingMultiplier":0.0}' \
   http://127.0.0.1:8080/backtests/run
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200,"oversoldRsiValues":[25.0,30.0,35.0],"overboughtRsiValues":[65.0,70.0,75.0],"topResults":5}' \
+  http://127.0.0.1:8080/backtests/mean-reversion/sweep
 ```
 
 Run verification before committing:

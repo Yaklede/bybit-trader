@@ -10,6 +10,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
+import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
@@ -48,6 +49,7 @@ class ApiModuleTest :
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -65,6 +67,7 @@ class ApiModuleTest :
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -86,6 +89,7 @@ class ApiModuleTest :
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -111,6 +115,7 @@ class ApiModuleTest :
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(store),
                         backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -145,6 +150,7 @@ class ApiModuleTest :
                                 candleStore = InMemoryMarketCandleStore(),
                             ),
                         backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -171,6 +177,7 @@ class ApiModuleTest :
                                 candleStore = InMemoryMarketCandleStore(backtestCandles()),
                                 runner = BacktestRunner(AlwaysBuyApiStrategy()),
                             ),
+                        meanReversionSweepService = testMeanReversionSweepService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -180,6 +187,43 @@ class ApiModuleTest :
                         bearerAuth("test-control-credential")
                         header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                         setBody("""{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":30}""")
+                    }.status shouldBe HttpStatusCode.OK
+            }
+        }
+
+        "authorized mean reversion sweep request returns top results" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val candleStore = InMemoryMarketCandleStore(sweepApiCandles())
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = MeanReversionSweepService(candleStore),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/backtests/mean-reversion/sweep") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody(
+                            """
+                            {
+                              "symbol":"BTCUSDT",
+                              "timeframe":"M15",
+                              "candleLimit":80,
+                              "oversoldRsiValues":[30.0],
+                              "overboughtRsiValues":[70.0],
+                              "bollingerStdDevValues":[2.0],
+                              "atrStopMultiplierValues":[1.2],
+                              "topResults":1
+                            }
+                            """.trimIndent(),
+                        )
                     }.status shouldBe HttpStatusCode.OK
             }
         }
@@ -216,6 +260,9 @@ private fun testBacktestService(store: InMemoryMarketCandleStore = InMemoryMarke
         candleStore = store,
         runner = BacktestRunner(NoTradeApiStrategy()),
     )
+
+private fun testMeanReversionSweepService(store: InMemoryMarketCandleStore = InMemoryMarketCandleStore()): MeanReversionSweepService =
+    MeanReversionSweepService(candleStore = store)
 
 private class StaticMarketDataFeed : MarketDataFeed {
     override suspend fun fetchRecentCandles(
@@ -303,6 +350,21 @@ private fun backtestCandles(): List<Candle> =
             open = BigDecimal(close),
             high = BigDecimal(close + 10),
             low = BigDecimal(close - 1),
+            close = BigDecimal(close),
+            volume = BigDecimal("10"),
+        )
+    }
+
+private fun sweepApiCandles(): List<Candle> =
+    (0 until 90).map { index ->
+        val close = 100 + ((index % 20) - 10)
+        Candle(
+            symbol = Symbol("BTCUSDT"),
+            timeframe = Timeframe.M15,
+            openedAt = Instant.parse("2026-06-30T00:00:00Z").plusSeconds(index * 900L),
+            open = BigDecimal(close),
+            high = BigDecimal(close + 3),
+            low = BigDecimal(close - 3),
             close = BigDecimal(close),
             volume = BigDecimal("10"),
         )

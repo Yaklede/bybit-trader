@@ -180,4 +180,4 @@ private fun BacktestResult.toResponse(): BacktestRunResponse =
             },
     )
 
-private fun Double.roundForApi(): Double = round(this * 100_000.0) / 100_000.0
+internal fun Double.roundForApi(): Double = round(this * 100_000.0) / 100_000.0

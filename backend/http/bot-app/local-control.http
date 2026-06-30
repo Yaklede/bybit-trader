@@ -55,3 +55,31 @@ Content-Type: application/json
   "atrTrailingMultiplier": 0.0,
   "maxHoldCandles": 16
 }
+
+### Sweep mean reversion parameters with train/test split
+POST http://localhost:8080/backtests/mean-reversion/sweep
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframe": "M15",
+  "candleLimit": 500,
+  "initialEquity": 10000.0,
+  "riskFraction": 0.005,
+  "feeRate": 0.0006,
+  "slippageRate": 0.0002,
+  "fundingRatePer8h": 0.0,
+  "partialTakeProfitR": 1.0,
+  "partialTakeProfitFraction": 0.5,
+  "breakevenAfterPartialTakeProfit": true,
+  "atrTrailingPeriod": 14,
+  "atrTrailingMultiplier": 0.0,
+  "maxHoldCandles": 16,
+  "trainRatio": 0.6,
+  "oversoldRsiValues": [25.0, 30.0, 35.0],
+  "overboughtRsiValues": [65.0, 70.0, 75.0],
+  "bollingerStdDevValues": [1.8, 2.0, 2.2],
+  "atrStopMultiplierValues": [1.0, 1.2, 1.5],
+  "topResults": 10
+}
