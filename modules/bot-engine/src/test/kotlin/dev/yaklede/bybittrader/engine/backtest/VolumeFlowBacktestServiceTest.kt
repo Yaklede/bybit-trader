@@ -50,6 +50,23 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 0
             result.noTradeReasonCounts["NO_M1_RETEST_TRIGGER"] shouldBe 1
         }
+
+        "rejects trades when estimated fees are too large relative to risk" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxEstimatedFeeR = 0.01),
+                )
+
+            result.setupCount shouldBe 1
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["ESTIMATED_FEE_R_TOO_HIGH"] shouldBe 1
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =

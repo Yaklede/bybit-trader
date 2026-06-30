@@ -10,15 +10,17 @@ data class VolumeFlowBacktestConfig(
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
     val volumeLookback: Int = 20,
-    val relativeVolumeThreshold: Double = 2.0,
+    val relativeVolumeThreshold: Double = 7.0,
     val volumeZScoreThreshold: Double = 1.5,
     val setupRangeLookback: Int = 12,
     val contextVwapLookback: Int = 32,
+    val requireContextTrend: Boolean = true,
     val minBodyRatio: Double = 0.45,
     val entryLookaheadM1Candles: Int = 5,
     val entryRetestTolerancePct: Double = 0.0015,
-    val targetR: Double = 1.5,
-    val maxHoldM1Candles: Int = 30,
+    val maxEstimatedFeeR: Double = 0.2,
+    val targetR: Double = 1.2,
+    val maxHoldM1Candles: Int = 15,
     val dailyTargetPct: Double = 1.0,
     val dailyStopPct: Double = 1.0,
     val maxTradesPerDay: Int = 5,
@@ -37,6 +39,9 @@ data class VolumeFlowBacktestConfig(
         require(minBodyRatio in 0.0..1.0) { "Minimum body ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }
         require(entryRetestTolerancePct in 0.0..0.02) { "Entry retest tolerance must be between 0 and 0.02." }
+        require(maxEstimatedFeeR > 0.0 && maxEstimatedFeeR <= 5.0) {
+            "Max estimated fee R must be between 0 and 5."
+        }
         require(targetR > 0.0) { "Target R must be positive." }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
         require(dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) { "Daily target percent must be between 0 and 10." }

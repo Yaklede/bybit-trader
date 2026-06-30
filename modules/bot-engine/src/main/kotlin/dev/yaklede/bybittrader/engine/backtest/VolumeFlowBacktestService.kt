@@ -102,6 +102,12 @@ class VolumeFlowBacktestService(
                 incrementReason("INVALID_RISK_DISTANCE", noTradeReasonCounts)
                 continue
             }
+            val estimatedFeeR = estimatedRoundTripFeeR(entry, config)
+            if (estimatedFeeR > config.maxEstimatedFeeR) {
+                rejectedSetupCount += 1
+                incrementReason("ESTIMATED_FEE_R_TOO_HIGH", noTradeReasonCounts)
+                continue
+            }
 
             val riskAmount = equity * config.riskFraction
             val quantity = riskAmount / riskPerUnit
@@ -210,10 +216,33 @@ class VolumeFlowBacktestService(
         if (contextCandles.size < config.contextVwapLookback) return false
         val vwap = VolumeFlowIndicators.vwap(contextCandles) ?: return false
         val latest = contextCandles.last()
+        val vwapAllows =
+            when (side) {
+                Side.BUY -> latest.close.toDouble() >= vwap
+                Side.SELL -> latest.close.toDouble() <= vwap
+            }
+        if (!vwapAllows) return false
+        if (!config.requireContextTrend) return true
+
+        val first = contextCandles.first()
         return when (side) {
-            Side.BUY -> latest.close.toDouble() >= vwap
-            Side.SELL -> latest.close.toDouble() <= vwap
+            Side.BUY -> latest.close > first.close
+            Side.SELL -> latest.close < first.close
         }
+    }
+
+    private fun estimatedRoundTripFeeR(
+        entry: EntryPlan,
+        config: VolumeFlowBacktestConfig,
+    ): Double {
+        val riskPerUnit = abs(entry.entryPrice - entry.stopPrice)
+        if (riskPerUnit <= 0.0) return Double.POSITIVE_INFINITY
+        val estimatedExitPrice =
+            when (entry.side) {
+                Side.BUY -> maxOf(entry.entryPrice, entry.targetPrice)
+                Side.SELL -> minOf(entry.entryPrice, entry.targetPrice)
+            }
+        return ((entry.entryPrice + estimatedExitPrice) * config.feeRate) / riskPerUnit
     }
 
     private fun findEntry(
