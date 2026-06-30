@@ -19,7 +19,9 @@ Milestone 1 is the operational backend shell:
   fills, positions, and performance snapshots without private Bybit order calls.
 - Volume-flow composite backtest endpoint that replays multiple strategy legs on
   one equity curve with overlap, daily stop, trade-count controls, and monthly
-  and walk-forward performance summaries.
+  and walk-forward performance summaries. Volume-flow responses include
+  `compoundDailyReturnPct` so daily targets are evaluated on a compounding
+  basis.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -114,10 +116,11 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
   scalp, raises validated volume-flow backtest risk sizing to `0.023`, and
   allows up to 3 concurrent composite positions with a 3-trade daily cap. The
   replay returned `189.22322%` with `4.29784%` max drawdown over 103 trades.
-  That is roughly `0.51700%` simple average return per observed calendar day
-  across 366 observed days, clearing the lower bound of the daily `0.5%` to
-  `2%` objective on a cumulative backtest-average basis. It still has sparse
-  active days (`55`) and is not evidence of steady daily profit. See
+  That is `0.29059%` compound daily return across 366 observed days, so it does
+  not meet the daily `0.5%` to `2%` compounding objective. A `0.5%` compound
+  daily target over the same 366 days requires about `520.55260%` net return.
+  It also has sparse active days (`55`) and is not evidence of steady daily
+  profit. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
   tuning paths.
   Source note: measured on

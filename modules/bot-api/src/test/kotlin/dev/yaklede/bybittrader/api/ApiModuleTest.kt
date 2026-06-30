@@ -307,38 +307,41 @@ class ApiModuleTest :
                     )
                 }
 
-                client
-                    .post("/backtests/volume-flow/run") {
-                        bearerAuth("test-control-credential")
-                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                        setBody(
-                            """
-                            {
-                              "symbol":"BTCUSDT",
-                              "m1Limit":80,
-                              "m5Limit":30,
-                              "m15Limit":30,
-                              "setupMode":"BREAKOUT_CONTINUATION",
-                              "entryMode":"RETEST_CONFIRMATION",
-                              "setupTimeframe":"M5",
-                              "volumeLookback":3,
-                              "relativeVolumeThreshold":2.0,
-                              "volumeZScoreThreshold":0.5,
-                              "setupRangeLookback":3,
-                              "requireM5Vwap":true,
-                              "m5VwapLookback":3,
-                              "contextVwapLookback":3,
-                              "requireContextVwap":true,
-                              "minBodyRatio":0.4,
-                              "minRejectionWickRatio":0.25,
-                              "entryLookaheadM1Candles":3,
-                              "entryRetestTolerancePct":0.01,
-                              "targetR":0.5,
-                              "maxHoldM1Candles":5
-                            }
-                            """.trimIndent(),
-                        )
-                    }.status shouldBe HttpStatusCode.OK
+                val response =
+                    client
+                        .post("/backtests/volume-flow/run") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """
+                                {
+                                  "symbol":"BTCUSDT",
+                                  "m1Limit":80,
+                                  "m5Limit":30,
+                                  "m15Limit":30,
+                                  "setupMode":"BREAKOUT_CONTINUATION",
+                                  "entryMode":"RETEST_CONFIRMATION",
+                                  "setupTimeframe":"M5",
+                                  "volumeLookback":3,
+                                  "relativeVolumeThreshold":2.0,
+                                  "volumeZScoreThreshold":0.5,
+                                  "setupRangeLookback":3,
+                                  "requireM5Vwap":true,
+                                  "m5VwapLookback":3,
+                                  "contextVwapLookback":3,
+                                  "requireContextVwap":true,
+                                  "minBodyRatio":0.4,
+                                  "minRejectionWickRatio":0.25,
+                                  "entryLookaheadM1Candles":3,
+                                  "entryRetestTolerancePct":0.01,
+                                  "targetR":0.5,
+                                  "maxHoldM1Candles":5
+                                }
+                                """.trimIndent(),
+                            )
+                        }
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"compoundDailyReturnPct":"""
             }
         }
 
@@ -399,7 +402,9 @@ class ApiModuleTest :
                             )
                         }
                 response.status shouldBe HttpStatusCode.OK
-                response.bodyAsText() shouldContain """"trades":[]"""
+                val body = response.bodyAsText()
+                body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"trades":[]"""
             }
         }
 
@@ -420,39 +425,42 @@ class ApiModuleTest :
                     )
                 }
 
-                client
-                    .post("/backtests/volume-flow/sweep") {
-                        bearerAuth("test-control-credential")
-                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                        setBody(
-                            """
-                            {
-                              "symbol":"BTCUSDT",
-                              "m1Limit":160,
-                              "m5Limit":80,
-                              "m15Limit":80,
-                              "riskFractionValues":[0.0025],
-                              "setupModes":["BREAKOUT_CONTINUATION","FAILED_BREAK_REVERSAL"],
-                              "entryModes":["RETEST_CONFIRMATION"],
-                              "setupTimeframes":["M5"],
-                              "volumeLookback":3,
-                              "relativeVolumeThresholdValues":[2.0],
-                              "volumeZScoreThresholdValues":[0.5],
-                              "setupRangeLookbackValues":[3],
-                              "requireM5VwapValues":[false],
-                              "contextVwapLookback":3,
-                              "requireContextVwapValues":[true,false],
-                              "requireContextTrendValues":[false],
-                              "minRejectionWickRatioValues":[0.25],
-                              "entryLookaheadM1CandlesValues":[3],
-                              "targetRValues":[0.5],
-                              "maxHoldM1CandlesValues":[5],
-                              "maxCandidates":4,
-                              "topResults":1
-                            }
-                            """.trimIndent(),
-                        )
-                    }.status shouldBe HttpStatusCode.OK
+                val response =
+                    client
+                        .post("/backtests/volume-flow/sweep") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """
+                                {
+                                  "symbol":"BTCUSDT",
+                                  "m1Limit":160,
+                                  "m5Limit":80,
+                                  "m15Limit":80,
+                                  "riskFractionValues":[0.0025],
+                                  "setupModes":["BREAKOUT_CONTINUATION","FAILED_BREAK_REVERSAL"],
+                                  "entryModes":["RETEST_CONFIRMATION"],
+                                  "setupTimeframes":["M5"],
+                                  "volumeLookback":3,
+                                  "relativeVolumeThresholdValues":[2.0],
+                                  "volumeZScoreThresholdValues":[0.5],
+                                  "setupRangeLookbackValues":[3],
+                                  "requireM5VwapValues":[false],
+                                  "contextVwapLookback":3,
+                                  "requireContextVwapValues":[true,false],
+                                  "requireContextTrendValues":[false],
+                                  "minRejectionWickRatioValues":[0.25],
+                                  "entryLookaheadM1CandlesValues":[3],
+                                  "targetRValues":[0.5],
+                                  "maxHoldM1CandlesValues":[5],
+                                  "maxCandidates":4,
+                                  "topResults":1
+                                }
+                                """.trimIndent(),
+                            )
+                        }
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"compoundDailyReturnPct":"""
             }
         }
 

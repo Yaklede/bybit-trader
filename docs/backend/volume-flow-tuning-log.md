@@ -8,10 +8,10 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `189.22322%` across 366 observed days, which is about `0.51700%`
-simple average return per observed day. This clears the lower bound on a
-cumulative backtest-average basis, but active-day coverage is still sparse at
-`55` days.
+below returns `189.22322%` across 366 observed days, which is `0.29059%`
+compound daily return. This does not meet the lower bound. A `0.5%` compound
+daily return over the same 366 observed days requires about `520.55260%` net
+return, and active-day coverage is still sparse at `55` days.
 
 ## Baseline
 
@@ -99,15 +99,14 @@ The latest execution-model retune adds:
 The latest accepted sizing retune changes the previous `142.28953%` candidate
 by opening the validated volume-flow backtest risk ceiling from `0.02` to
 `0.03`, setting current leg risk to `0.023`, and adding
-`m1_failed_break_chop_scalp`. The selected risk level is the lowest tested
-configuration that clears the daily `0.5%` lower bound after adding the new
-setup.
+`m1_failed_break_chop_scalp`. This is the best risk-adjusted candidate from the
+latest loop, not a completed daily compounding target.
 
 Candidate result:
 
-| Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
-| --- | --- | --- | --- | --- | --- | --- |
-| `189.22322%` | `4.29784%` | `103` | `6.58446` | `0.46269R` | `55` | `0.28142` |
+| Net return | Compound daily return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `189.22322%` | `0.29059%` | `4.29784%` | `103` | `6.58446` | `0.46269R` | `55` | `0.28142` |
 
 Per-leg accepted performance:
 
@@ -164,20 +163,19 @@ Walk-forward accepted PnL:
 
 Walk-forward note: all four windows remain profitable and all measurable
 profit-factor windows now clear `5.1`. `WF4` owns the worst drawdown at
-`4.29784%`. The lower-bound daily return objective is met only as a cumulative
-simple average: 103 accepted trades across 366 observed days averages `0.28142`
-trades per observed day, and active-day coverage remains `55` days.
+`4.29784%`. The lower-bound daily return objective is not met on a compounding
+basis: 103 accepted trades across 366 observed days produce `0.29059%`
+compound daily return, with only `55` active days.
 
 ## Rejected Paths
 
 - Risk-only sizing was rejected as the primary path. The current nine-leg
-  structure at `riskFraction=0.024` returned `187.52936%` and cleared the daily
-  lower bound, but max drawdown rose to `4.48349%` and return was lower than
-  the accepted `m1_failed_break_chop_scalp + riskFraction=0.023` candidate.
+  structure at `riskFraction=0.024` returned `187.52936%`, which is only
+  `0.28898%` compound daily return, while max drawdown rose to `4.48349%`.
 - Higher accepted-leg sizing was rejected for the current target band. The
-  ten-leg candidate at `riskFraction=0.030` returned `294.53049%`, but max
-  drawdown rose to `5.59524%`, the worst month fell to `-4.67684%`, and the
-  result exceeded the minimum objective by taking materially more sizing risk.
+  ten-leg candidate at `riskFraction=0.030` returned `294.53049%`, which is
+  still only `0.37571%` compound daily return, while max drawdown rose to
+  `5.59524%` and the worst month fell to `-4.67684%`.
 - The M1 `HIGH_VOLATILITY_CHOP` breakout-continuation add-on increased accepted
   trades to `117`, but returned only `146.73934%`, lowered total profit factor
   to `4.63117`, and triggered `5` daily max-trade skips.
@@ -260,14 +258,16 @@ trades.
 
 ## Tuning Gate
 
-The composite backtest response returns `monthlyPerformance` and
-`walkForwardPerformance`; the request also accepts scoped `tradeLimit` and
-`maxConcurrentPositions`, so the next tuning loop can reject candidates that
-only improve the annual total through one or two isolated trades or through
-unbounded overlapping risk.
+The composite backtest response returns `compoundDailyReturnPct`,
+`monthlyPerformance`, and `walkForwardPerformance`; the request also accepts
+scoped `tradeLimit` and `maxConcurrentPositions`, so the next tuning loop can
+reject candidates that only improve the annual total through one or two
+isolated trades or through unbounded overlapping risk.
 
 Do not raise per-trade risk by itself just to force the daily target. The
 accepted `0.023` sizing is tied to the additional M1 failed-break setup and to
-positive monthly/walk-forward stability gates. Future risk increases need a new
-setup-quality or exit-quality improvement and must preserve monthly and
-walk-forward drawdown controls.
+positive monthly/walk-forward stability gates, but it does not complete the
+compound daily target. Future risk increases need a new setup-quality or
+exit-quality improvement and must preserve monthly and walk-forward drawdown
+controls. The daily target gate must use `compoundDailyReturnPct`, not
+`netReturnPct / observedDays`.

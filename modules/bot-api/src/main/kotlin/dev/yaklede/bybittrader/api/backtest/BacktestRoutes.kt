@@ -11,6 +11,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
+import kotlin.math.pow
 import kotlin.math.round
 
 fun Route.configureBacktestRoutes(backtestService: BacktestService) {
@@ -181,3 +182,13 @@ private fun BacktestResult.toResponse(): BacktestRunResponse =
     )
 
 internal fun Double.roundForApi(): Double = round(this * 100_000.0) / 100_000.0
+
+internal fun compoundDailyReturnPct(
+    netReturnPct: Double,
+    observedDays: Int,
+): Double {
+    if (observedDays <= 0) return 0.0
+    val returnFactor = 1.0 + (netReturnPct / 100.0)
+    if (returnFactor <= 0.0) return -100.0
+    return (returnFactor.pow(1.0 / observedDays) - 1.0) * 100.0
+}
