@@ -15,6 +15,7 @@ import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
@@ -61,6 +62,13 @@ fun main() {
             runner = BacktestRunner(MeanReversionStrategy()),
         )
     val meanReversionSweepService = MeanReversionSweepService(candleStore = ledger)
+    val paperTradingService =
+        PaperTradingService(
+            stateStore = ledger,
+            candleStore = ledger,
+            paperTradingStore = ledger,
+            strategy = MeanReversionStrategy(),
+        )
 
     runBlocking {
         alertingService.send(
@@ -95,6 +103,8 @@ fun main() {
                 marketDataSyncService = marketDataSyncService,
                 backtestService = backtestService,
                 meanReversionSweepService = meanReversionSweepService,
+                paperTradingService = paperTradingService,
+                paperTradingReportStore = ledger,
                 controlCredential = config.api.controlCredential,
             )
         }

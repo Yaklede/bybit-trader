@@ -5,6 +5,7 @@ import dev.yaklede.bybittrader.api.backtest.configureMeanReversionSweepRoutes
 import dev.yaklede.bybittrader.api.control.configureControlRoutes
 import dev.yaklede.bybittrader.api.health.configureHealthRoutes
 import dev.yaklede.bybittrader.api.market.configureMarketDataRoutes
+import dev.yaklede.bybittrader.api.paper.configurePaperTradingRoutes
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
@@ -13,6 +14,9 @@ import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.paper.EmptyPaperTradingReportStore
+import dev.yaklede.bybittrader.engine.paper.PaperTradingReportStore
+import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -29,6 +33,8 @@ fun Application.configureApi(
     marketDataSyncService: MarketDataSyncService,
     backtestService: BacktestService,
     meanReversionSweepService: MeanReversionSweepService,
+    paperTradingService: PaperTradingService? = null,
+    paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
     controlCredential: String?,
 ) {
     install(ContentNegotiation) {
@@ -55,11 +61,12 @@ fun Application.configureApi(
     configureControlAuthentication(controlCredential)
     routing {
         configureHealthRoutes()
-        configureStatusRoutes(stateStore)
+        configureStatusRoutes(stateStore, paperTradingReportStore)
         configureControlRoutes(controlService)
         configureMarketDataRoutes(marketDataSyncService)
         configureBacktestRoutes(backtestService)
         configureMeanReversionSweepRoutes(meanReversionSweepService)
+        paperTradingService?.let(::configurePaperTradingRoutes)
     }
 }
 

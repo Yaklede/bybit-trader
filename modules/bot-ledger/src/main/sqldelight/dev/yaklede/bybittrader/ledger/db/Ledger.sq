@@ -146,6 +146,102 @@ countAlertEvents:
 SELECT COUNT(*)
 FROM alertEvents;
 
+insertSignal:
+INSERT INTO signals(
+  strategy,
+  symbol,
+  side,
+  score,
+  grade,
+  reason_codes,
+  accepted,
+  rejection_reason,
+  created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+insertOrder:
+INSERT INTO orders(
+  exchange_order_id,
+  client_order_id,
+  signal_id,
+  side,
+  order_type,
+  order_status,
+  intended_risk,
+  created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+insertFill:
+INSERT INTO fills(
+  order_id,
+  fill_price,
+  quantity,
+  fee,
+  liquidity_role,
+  filled_at
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+insertPosition:
+INSERT INTO positions(
+  symbol,
+  side,
+  quantity,
+  entry_price,
+  realized_pnl,
+  unrealized_pnl,
+  captured_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+insertPerformanceSnapshot:
+INSERT INTO performanceSnapshots(
+  period,
+  net_pnl,
+  profit_factor,
+  expectancy,
+  max_drawdown,
+  captured_at
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+lastInsertRowId:
+SELECT last_insert_rowid();
+
+selectLatestPerformanceSnapshot:
+SELECT id, period, net_pnl, profit_factor, expectancy, max_drawdown, captured_at
+FROM performanceSnapshots
+ORDER BY id DESC
+LIMIT 1;
+
+selectRecentSignals:
+SELECT id, strategy, symbol, side, score, grade, reason_codes, accepted, rejection_reason, created_at
+FROM signals
+ORDER BY id DESC
+LIMIT ?;
+
+selectRecentTrades:
+SELECT
+  orders.id AS order_id,
+  orders.client_order_id,
+  orders.signal_id,
+  orders.side,
+  orders.order_type,
+  orders.order_status,
+  orders.intended_risk,
+  orders.created_at AS order_created_at,
+  fills.id AS fill_id,
+  fills.fill_price,
+  fills.quantity,
+  fills.fee,
+  fills.filled_at
+FROM orders
+LEFT JOIN fills ON fills.order_id = orders.id
+ORDER BY orders.id DESC
+LIMIT ?;
+
 upsertMarketCandle:
 INSERT OR REPLACE INTO marketCandles(
   symbol,

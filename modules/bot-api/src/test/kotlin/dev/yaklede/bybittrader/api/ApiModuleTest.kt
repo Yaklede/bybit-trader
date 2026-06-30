@@ -20,6 +20,14 @@ import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
+import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
+import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
+import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
+import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
+import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
+import dev.yaklede.bybittrader.engine.paper.PaperTradingService
+import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
 import dev.yaklede.bybittrader.strategy.StrategyDecision
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.kotest.core.spec.style.StringSpec
@@ -227,6 +235,46 @@ class ApiModuleTest :
                     }.status shouldBe HttpStatusCode.OK
             }
         }
+
+        "authorized paper evaluate request records a paper fill" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val paperStore = InMemoryPaperTradingStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        paperTradingService =
+                            PaperTradingService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                paperTradingStore = paperStore,
+                                strategy = AlwaysBuyApiStrategy(),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                            ),
+                        paperTradingReportStore = paperStore,
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/paper/evaluate") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody("""{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":30}""")
+                    }.status shouldBe HttpStatusCode.OK
+
+                paperStore.orders.size shouldBe 1
+                paperStore.fills.size shouldBe 1
+                client
+                    .get("/signals/recent?limit=5") {
+                        bearerAuth("test-control-credential")
+                    }.status shouldBe HttpStatusCode.OK
+            }
+        }
     })
 
 private class InMemoryStateStore : BotStateStore {
@@ -310,6 +358,71 @@ private class FailingMarketDataFeed : MarketDataFeed {
         timeframe: Timeframe,
         limit: Int,
     ): List<Candle> = throw MarketDataException("provider failed with raw details")
+}
+
+private class InMemoryPaperTradingStore : PaperTradingStore {
+    val signals = mutableListOf<PaperSignalRecord>()
+    val orders = mutableListOf<PaperOrderRecord>()
+    val fills = mutableListOf<PaperFillRecord>()
+    val positions = mutableListOf<PaperPositionRecord>()
+    val performanceSnapshots = mutableListOf<PaperPerformanceSnapshot>()
+
+    override suspend fun recordSignal(signal: PaperSignalRecord): Long {
+        val id = signals.size + 1L
+        signals += signal.copy(id = id)
+        return id
+    }
+
+    override suspend fun recordOrder(order: PaperOrderRecord): Long {
+        val id = orders.size + 1L
+        orders += order.copy(id = id)
+        return id
+    }
+
+    override suspend fun recordFill(fill: PaperFillRecord): Long {
+        val id = fills.size + 1L
+        fills += fill.copy(id = id)
+        return id
+    }
+
+    override suspend fun recordPosition(position: PaperPositionRecord): Long {
+        val id = positions.size + 1L
+        positions += position.copy(id = id)
+        return id
+    }
+
+    override suspend fun recordPerformanceSnapshot(snapshot: PaperPerformanceSnapshot): Long {
+        val id = performanceSnapshots.size + 1L
+        performanceSnapshots += snapshot.copy(id = id)
+        return id
+    }
+
+    override suspend fun latestPerformanceSummary(): PaperPerformanceSnapshot? = performanceSnapshots.lastOrNull()
+
+    override suspend fun recentSignals(limit: Int): List<PaperSignalRecord> = signals.asReversed().take(limit)
+
+    override suspend fun recentTrades(limit: Int): List<PaperTradeRecord> =
+        orders
+            .asReversed()
+            .take(limit)
+            .map { order ->
+                val fill = fills.firstOrNull { it.orderId == order.id }
+                PaperTradeRecord(
+                    orderId = order.id,
+                    clientOrderId = order.clientOrderId,
+                    signalId = order.signalId,
+                    side = order.side,
+                    orderType = order.orderType,
+                    orderStatus = order.orderStatus,
+                    intendedRisk = order.intendedRisk,
+                    orderCreatedAt = order.createdAt,
+                    fillId = fill?.id,
+                    fillPrice = fill?.fillPrice,
+                    quantity = fill?.quantity,
+                    fee = fill?.fee,
+                    filledAt = fill?.filledAt,
+                )
+            }
 }
 
 private class NoTradeApiStrategy : TradingStrategy {

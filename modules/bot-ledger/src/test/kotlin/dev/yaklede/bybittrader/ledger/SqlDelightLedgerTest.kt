@@ -7,9 +7,17 @@ import dev.yaklede.bybittrader.alerts.AlertSeverity
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.ControlAction
+import dev.yaklede.bybittrader.domain.OrderStatus
+import dev.yaklede.bybittrader.domain.OrderType
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
+import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
+import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
+import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
+import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -97,6 +105,76 @@ class SqlDelightLedgerTest :
                 .selectRecentMarketCandles("BTCUSDT", "M15", 10)
                 .executeAsList()
                 .size shouldBe 2
+        }
+
+        "records and reads paper trading audit events" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val database = createLedgerDatabase(driver)
+            val ledger = SqlDelightLedger(database = database)
+            val createdAt = Instant.parse("2026-06-30T00:04:00Z")
+
+            val signalId =
+                ledger.recordSignal(
+                    PaperSignalRecord(
+                        strategy = "mean-reversion-v1",
+                        symbol = Symbol("BTCUSDT"),
+                        side = Side.BUY,
+                        score = 88,
+                        grade = "A",
+                        reasonCodes = listOf("TEST_EDGE"),
+                        accepted = true,
+                        rejectionReason = null,
+                        createdAt = createdAt,
+                    ),
+                )
+            val orderId =
+                ledger.recordOrder(
+                    PaperOrderRecord(
+                        clientOrderId = "paper-test-1",
+                        signalId = signalId,
+                        side = Side.BUY,
+                        orderType = OrderType.MARKET,
+                        orderStatus = OrderStatus.FILLED,
+                        intendedRisk = BigDecimal("50"),
+                        createdAt = createdAt,
+                    ),
+                )
+            ledger.recordFill(
+                PaperFillRecord(
+                    orderId = orderId,
+                    fillPrice = BigDecimal("100"),
+                    quantity = BigDecimal("0.5"),
+                    fee = BigDecimal("0.03"),
+                    liquidityRole = "PAPER",
+                    filledAt = createdAt,
+                ),
+            )
+            ledger.recordPosition(
+                PaperPositionRecord(
+                    symbol = Symbol("BTCUSDT"),
+                    side = Side.BUY,
+                    quantity = BigDecimal("0.5"),
+                    entryPrice = BigDecimal("100"),
+                    realizedPnl = BigDecimal("-0.03"),
+                    unrealizedPnl = BigDecimal.ZERO,
+                    capturedAt = createdAt,
+                ),
+            )
+            ledger.recordPerformanceSnapshot(
+                PaperPerformanceSnapshot(
+                    period = "paper-runtime",
+                    netPnl = BigDecimal("-0.03"),
+                    profitFactor = null,
+                    expectancy = null,
+                    maxDrawdown = BigDecimal.ZERO,
+                    capturedAt = createdAt,
+                ),
+            )
+
+            ledger.recentSignals(10).single().id shouldBe signalId
+            ledger.recentTrades(10).single().orderId shouldBe orderId
+            ledger.latestPerformanceSummary()?.netPnl shouldBe BigDecimal("-0.03")
         }
     })
 

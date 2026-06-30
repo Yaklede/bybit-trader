@@ -83,3 +83,26 @@ Content-Type: application/json
   "atrStopMultiplierValues": [1.0, 1.2, 1.5],
   "topResults": 10
 }
+
+### Evaluate one paper trading cycle over stored candles
+POST http://localhost:8080/paper/evaluate
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframe": "M15",
+  "candleLimit": 200
+}
+
+### Recent paper signals
+GET http://localhost:8080/signals/recent?limit=10
+Authorization: Bearer {{controlCredential}}
+
+### Recent paper trades
+GET http://localhost:8080/trades/recent?limit=10
+Authorization: Bearer {{controlCredential}}
+
+### Latest paper performance summary
+GET http://localhost:8080/performance/summary
+Authorization: Bearer {{controlCredential}}

@@ -14,6 +14,8 @@ Milestone 1 is the operational backend shell:
 - Backtest endpoint over stored candles with fee, slippage, funding, partial
   take-profit, breakeven stop, ATR trailing, drawdown, expectancy, no-trade
   reasons, and estimated monthly return metrics.
+- Paper evaluation endpoint that records strategy signals, paper market orders,
+  fills, positions, and performance snapshots without private Bybit order calls.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -49,6 +51,15 @@ curl -X POST \
   -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200,"oversoldRsiValues":[25.0,30.0,35.0],"overboughtRsiValues":[65.0,70.0,75.0],"topResults":5}' \
   http://127.0.0.1:8080/backtests/mean-reversion/sweep
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200}' \
+  http://127.0.0.1:8080/paper/evaluate
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/signals/recent?limit=10"
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/trades/recent?limit=10"
 ```
 
 Run verification before committing:
