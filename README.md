@@ -105,12 +105,13 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
 - Latest local 1-year BTCUSDT volume-flow tuning snapshot: the current
-  eight-leg composite candidate in `config/volume-flow-composite-current.json`
-  adds `m1_trend_up_breakout_scalp + m1_chop_volume_rejection_scalp` to the
-  prior six-leg set. The replay returned `51.80084%` with `2.43591%` max
-  drawdown over 52 trades. The previous asymmetric eight-leg candidate returned
-  `49.20519%` with `2.43591%` max drawdown over 57 trades. The current candidate
-  is still below the daily `0.5%` to `2%` objective, at roughly `0.142%` simple
+  nine-leg composite candidate in `config/volume-flow-composite-current.json`
+  adds `m1_trend_up_breakout_scalp + m1_chop_volume_rejection_scalp +
+  m1_trend_down_breakout_assist` to the prior six-leg set. The replay returned
+  `52.32671%` with `2.43591%` max drawdown over 63 trades. The previous
+  eight-leg candidate returned `51.80084%` with `2.43591%` max drawdown over 52
+  trades. The current candidate is still below the daily `0.5%` to `2%`
+  objective, at roughly `0.143%` simple
   average return per
   observed calendar day across 366 observed days. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected

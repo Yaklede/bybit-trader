@@ -8,7 +8,7 @@ Source note: measured against
 backtest outputs, not live-trading return guarantees.
 
 Target note: the current daily objective is `0.5%` to `2%`. The best candidate
-below returns `51.80084%` across 366 observed days, which is about `0.142%`
+below returns `52.32671%` across 366 observed days, which is about `0.143%`
 simple average return per observed day. The target is not met.
 
 ## Baseline
@@ -53,25 +53,31 @@ baseline, it adds:
   `relativeVolumeThreshold=2.0`, `volumeZScoreThreshold=0.5`,
   `minBodyRatio=0.15`, `minDirectionalCloseStrength=0.7`, `targetR=0.8`, and
   `riskFraction=0.02`.
+- `m1_trend_down_breakout_assist`: low-risk M1 `TREND_DOWN`
+  breakout-continuation assist using close confirmation,
+  `relativeVolumeThreshold=3.0`, `volumeZScoreThreshold=0.5`,
+  `minBodyRatio=0.65`, `minDirectionalCloseStrength=0.6`, `targetR=0.8`, and
+  `riskFraction=0.009`.
 
 Candidate result:
 
 | Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
 | --- | --- | --- | --- | --- | --- | --- |
-| `51.80084%` | `2.43591%` | `52` | `4.87126` | `0.40831R` | `47` | `0.14208` |
+| `52.32671%` | `2.43591%` | `63` | `4.02808` | `0.34352R` | `55` | `0.17213` |
 
 Per-leg accepted performance:
 
 | Leg | Trades | Net PnL | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: |
-| `trend_down_retest` | 11 | `1902.24639` | `9.35888` | `0.75567R` |
-| `trend_down_close` | 5 | `262.81403` | `14.95637` | `0.20631R` |
-| `range_failed_break` | 9 | `396.45175` | `2.71162` | `0.17512R` |
-| `trend_down_retest_runner` | 1 | `1141.85646` | n/a | `4.06695R` |
-| `range_failed_break_loose` | 3 | `277.70229` | `6.09721` | `0.36381R` |
-| `chop_failed_break` | 3 | `358.81454` | n/a | `0.45958R` |
-| `m1_trend_up_breakout_scalp` | 13 | `489.34706` | `1.91057` | `0.16886R` |
-| `m1_chop_volume_rejection_scalp` | 7 | `350.85138` | `2.30830` | `0.22573R` |
+| `trend_down_retest` | 11 | `1904.43667` | `9.35033` | `0.75567R` |
+| `trend_down_close` | 5 | `264.46454` | `14.84701` | `0.20631R` |
+| `range_failed_break` | 9 | `400.06949` | `2.73548` | `0.17512R` |
+| `trend_down_retest_runner` | 1 | `1145.81206` | n/a | `4.06695R` |
+| `range_failed_break_loose` | 3 | `281.92456` | `6.12730` | `0.36381R` |
+| `chop_failed_break` | 3 | `362.05588` | n/a | `0.45958R` |
+| `m1_trend_up_breakout_scalp` | 13 | `490.43388` | `1.90553` | `0.16886R` |
+| `m1_chop_volume_rejection_scalp` | 7 | `353.78903` | `2.31175` | `0.22573R` |
+| `m1_trend_down_breakout_assist` | 11 | `29.68443` | `1.07729` | `0.03719R` |
 
 Risk note: the runner leg still contributes one accepted trade in this replay:
 `2026-06-25T13:30:00Z`, short side, `+4.06695R`, exit reason
@@ -79,38 +85,43 @@ Risk note: the runner leg still contributes one accepted trade in this replay:
 `m1_chop_volume_rejection_scalp` reduces accepted trades from 57 to 52 but
 improves net return from `49.20519%` to `51.80084%`, total profit factor from
 `4.01493` to `4.87126`, and `WF2` profit factor from `2.78650` to `4.75927`.
-This is a quality improvement, not just a risk increase.
+This is a quality improvement, not just a risk increase. The later
+`m1_trend_down_breakout_assist` addition pushes annual return to `52.32671%`
+and restores `WF3` profit factor above `4.0`, but it is a weak standalone leg
+(`1.07729` profit factor), so risk is capped at `0.009`.
 
 Monthly accepted PnL:
 
 | Month | PnL | Trades |
 | --- | ---: | ---: |
 | `2025-07` | `205.03` | 2 |
-| `2025-08` | `300.36` | 2 |
-| `2025-10` | `121.05` | 2 |
-| `2025-11` | `198.60` | 3 |
-| `2025-12` | `1049.37` | 10 |
-| `2026-01` | `198.23` | 4 |
-| `2026-02` | `518.87` | 11 |
-| `2026-03` | `934.02` | 6 |
-| `2026-04` | `496.83` | 4 |
-| `2026-05` | `-141.60` | 1 |
-| `2026-06` | `1299.33` | 7 |
+| `2025-08` | `366.85` | 3 |
+| `2025-09` | `-75.40` | 1 |
+| `2025-10` | `183.37` | 3 |
+| `2025-11` | `86.71` | 4 |
+| `2025-12` | `995.39` | 11 |
+| `2026-01` | `406.62` | 7 |
+| `2026-02` | `602.08` | 12 |
+| `2026-03` | `947.31` | 6 |
+| `2026-04` | `434.07` | 5 |
+| `2026-05` | `-142.91` | 1 |
+| `2026-06` | `1223.56` | 8 |
 
 Walk-forward accepted PnL:
 
 | Window | Return | PnL | Trades | Profit factor | Max drawdown |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `WF1:2025-06-30..2025-09-29` | `5.05392%` | `505.39` | 4 | n/a | `0.00000%` |
-| `WF2:2025-09-29..2025-12-29` | `13.03150%` | `1369.01` | 15 | `4.75927` | `1.40377%` |
-| `WF3:2025-12-29..2026-03-31` | `13.90491%` | `1651.13` | 21 | `3.62879` | `2.43591%` |
-| `WF4:2026-03-31..2026-06-30` | `12.23284%` | `1654.56` | 12 | `5.78435` | `1.25159%` |
+| `WF1:2025-06-30..2025-09-29` | `4.96483%` | `496.48` | 6 | `7.58489` | `0.71319%` |
+| `WF2:2025-09-29..2025-12-29` | `12.05610%` | `1265.47` | 18 | `3.43398` | `1.78155%` |
+| `WF3:2025-12-29..2026-03-31` | `16.62998%` | `1956.01` | 25 | `4.08717` | `2.43591%` |
+| `WF4:2026-03-31..2026-06-30` | `11.04181%` | `1514.71` | 14 | `4.03464` | `2.17832%` |
 
-Walk-forward note: all four windows remain profitable. The replacement fixes
-the previous `WF2` quality issue, but the new weak point is `WF3` profit factor
-`3.62879`, driven mostly by January to February losses. The next useful tuning
-loop should improve January to March trade quality without removing the stronger
-October to December coverage.
+Walk-forward note: all four windows remain profitable; `WF1` has no accepted
+losses, and the three measurable profit-factor windows clear `3.4`. The binding
+constraints are `WF2` profit factor `3.43398`, `WF4` profit factor `4.03464`,
+and the low standalone quality of `m1_trend_down_breakout_assist`. The next
+useful tuning loop should improve February and June trade quality without
+relying on more risk.
 
 ## Rejected Paths
 
@@ -132,8 +143,12 @@ October to December coverage.
 - A more aggressive `m1_trend_up_breakout_scalp` at `riskFraction=0.02` returned
   `47.14192%` with `2.43591%` max drawdown and `5.52380` profit factor. It was
   not selected by itself because the paired M1 trend-up and chop-rejection
-  configuration returned more (`51.80084%`) while keeping profit factor above
-  `4.0`.
+  configuration plus low-risk trend-down assist returned more (`52.32671%`)
+  while keeping profit factor above `4.0`.
+- Higher-risk `m1_trend_down_breakout_assist` variants were rejected despite
+  higher annual return. `riskFraction=0.00925` returned `52.34036%`, but `WF4`
+  profit factor was only `4.00086`; `riskFraction=0.01` returned `52.38103%`
+  but dropped total profit factor below `4.0`.
 - A fully max-risk M1 up/down configuration (`0.02` and `0.02`) returned
   `50.09672%`, but was rejected because max drawdown rose to `2.81584%` and
   total profit factor dropped to `3.62961`.
