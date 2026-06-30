@@ -156,6 +156,12 @@ turning the strategy into a higher-risk version of the same sparse signal set.
 - A standalone M5 trend-down retest retune returned `53.71427%`, but its total
   profit factor was `3.99367`; it was only accepted after the simultaneous M1
   chop-rejection and assist changes lifted total profit factor to `4.43173`.
+- The first 10th-leg search on top of the `56.78605%` candidate did not produce
+  a robust addition. The only positive add-on was M1 `TREND_DOWN`
+  volume-rejection at `riskFraction=0.0075`, which lifted the composite to
+  `57.39298%` with `4.46439` profit factor, but it added exactly one accepted
+  trade across the full year. It remains rejected as an isolated-trade
+  improvement until a broader variant proves repeatable.
 - M5 `RANGE` breakout continuation was rejected because the best checked
   variants were negative in both train and test periods. The strongest sampled
   variant had train `-5.23514%`, test `-5.07923%`, and weak profit factors.
