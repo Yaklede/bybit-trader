@@ -34,7 +34,7 @@
       "maxEntryRiskPct": 0.015,
       "targetR": 1.2,
       "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 30
+      "maxHoldM1Candles": 35
     },
     {
       "id": "trend_down_close",
@@ -60,7 +60,7 @@
       "maxEntryRiskPct": 0.015,
       "targetR": 1.2,
       "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 15
+      "maxHoldM1Candles": 20
     },
     {
       "id": "range_failed_break",
@@ -88,7 +88,7 @@
       "maxEntryRiskPct": 0.015,
       "targetR": 1.0,
       "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 30
+      "maxHoldM1Candles": 35
     },
     {
       "id": "trend_down_retest_runner",
@@ -152,7 +152,7 @@
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 30
+      "maxHoldM1Candles": 20
     },
     {
       "id": "chop_failed_break",
@@ -248,7 +248,7 @@
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 10
+      "maxHoldM1Candles": 20
     },
     {
       "id": "m1_trend_down_breakout_assist",
@@ -280,7 +280,7 @@
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 10
+      "maxHoldM1Candles": 20
     }
   ]
 }
