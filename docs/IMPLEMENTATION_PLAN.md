@@ -342,6 +342,8 @@ Done when:
   and funding cost placeholders are represented.
 - Report includes net PnL, PnL by strategy, profit factor, expectancy, average
   R, max drawdown, consecutive losses, and no-trade reasons.
+- Report includes observed trading days, trades per day, trades per active day,
+  and whether the strategy fits the 1 to 5 trades per day operating cadence.
 
 ### Step 9: Paper trading
 

@@ -125,6 +125,7 @@ Content-Type: application/json
   "maxHoldM1Candles": 30,
   "dailyTargetPct": 1.0,
   "dailyStopPct": 1.0,
+  "minTradesPerDay": 1,
   "maxTradesPerDay": 5,
   "maxConsecutiveLosses": 3
 }

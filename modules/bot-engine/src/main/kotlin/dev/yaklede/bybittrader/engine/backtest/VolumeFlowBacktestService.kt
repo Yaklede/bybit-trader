@@ -365,7 +365,14 @@ class VolumeFlowBacktestService(
         val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
         val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
         val netPnl = finalEquity - config.initialEquity
+        val observedDays = dailyStates.size
         val activeDays = dailyStates.values.count { it.tradeCount > 0 }
+        val tradeFrequencyTargetDays =
+            dailyStates.values.count { dailyState ->
+                dailyState.tradeCount in config.minTradesPerDay..config.maxTradesPerDay
+            }
+        val belowMinTradeDays = dailyStates.values.count { it.tradeCount < config.minTradesPerDay }
+        val aboveMaxTradeDays = dailyStates.values.count { it.tradeCount > config.maxTradesPerDay }
         return VolumeFlowBacktestReport(
             symbol = symbol,
             m1CandleCount = m1Candles.size,
@@ -395,7 +402,15 @@ class VolumeFlowBacktestService(
             profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
             expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
             maxConsecutiveLosses = trades.maxConsecutiveLosses(),
+            observedDays = observedDays,
             activeDays = activeDays,
+            averageTradesPerDay = if (observedDays == 0) 0.0 else trades.size.toDouble() / observedDays,
+            averageTradesPerActiveDay = if (activeDays == 0) 0.0 else trades.size.toDouble() / activeDays,
+            tradeFrequencyTargetDays = tradeFrequencyTargetDays,
+            tradeFrequencyTargetPct =
+                if (observedDays == 0) 0.0 else (tradeFrequencyTargetDays.toDouble() / observedDays) * 100.0,
+            belowMinTradeDays = belowMinTradeDays,
+            aboveMaxTradeDays = aboveMaxTradeDays,
             targetHitDays = dailyStates.values.count { it.lockReason == "DAILY_TARGET_HIT" },
             stopHitDays = dailyStates.values.count { it.lockReason == "DAILY_STOP_HIT" },
             setupCount = setupCount,

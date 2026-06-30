@@ -23,6 +23,7 @@ data class VolumeFlowBacktestConfig(
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double = 1.0,
     val dailyStopPct: Double = 1.0,
+    val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
 ) {
@@ -46,7 +47,9 @@ data class VolumeFlowBacktestConfig(
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
         require(dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) { "Daily target percent must be between 0 and 10." }
         require(dailyStopPct > 0.0 && dailyStopPct <= 10.0) { "Daily stop percent must be between 0 and 10." }
+        require(minTradesPerDay > 0) { "Min trades per day must be positive." }
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
+        require(minTradesPerDay <= maxTradesPerDay) { "Min trades per day must be less than or equal to max trades per day." }
         require(maxConsecutiveLosses > 0) { "Max consecutive losses must be positive." }
     }
 }
@@ -70,7 +73,14 @@ data class VolumeFlowBacktestReport(
     val profitFactor: Double?,
     val expectancyR: Double,
     val maxConsecutiveLosses: Int,
+    val observedDays: Int,
     val activeDays: Int,
+    val averageTradesPerDay: Double,
+    val averageTradesPerActiveDay: Double,
+    val tradeFrequencyTargetDays: Int,
+    val tradeFrequencyTargetPct: Double,
+    val belowMinTradeDays: Int,
+    val aboveMaxTradeDays: Int,
     val targetHitDays: Int,
     val stopHitDays: Int,
     val setupCount: Int,

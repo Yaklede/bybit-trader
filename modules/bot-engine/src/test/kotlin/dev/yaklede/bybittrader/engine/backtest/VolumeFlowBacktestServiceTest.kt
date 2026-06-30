@@ -25,6 +25,12 @@ class VolumeFlowBacktestServiceTest :
 
             result.tradeCount shouldBe 1
             result.wins shouldBe 1
+            result.observedDays shouldBe 1
+            result.activeDays shouldBe 1
+            result.averageTradesPerDay shouldBe 1.0
+            result.averageTradesPerActiveDay shouldBe 1.0
+            result.tradeFrequencyTargetDays shouldBe 1
+            result.belowMinTradeDays shouldBe 0
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
         }
 
@@ -48,6 +54,8 @@ class VolumeFlowBacktestServiceTest :
 
             result.setupCount shouldBe 1
             result.tradeCount shouldBe 0
+            result.activeDays shouldBe 0
+            result.belowMinTradeDays shouldBe 1
             result.noTradeReasonCounts["NO_M1_RETEST_TRIGGER"] shouldBe 1
         }
 

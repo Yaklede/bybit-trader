@@ -41,20 +41,23 @@ maintenance simple enough for one operator to run.
   stop through authenticated local or private-network API commands.
 - Strategy-level net PnL is visible after fees, slippage estimates, and funding
   costs.
+- Backtests report whether the strategy reaches the operating cadence of at
+  least 1 and at most 5 trades per observed trading day.
 - The bot can restart without losing knowledge of open orders, open positions,
   or current control state.
-- A monthly 20 percent return is treated as an upside target to validate, not as
-  a guaranteed operating assumption.
+- Daily 0.5 to 2.0 percent return is treated as an upside target to validate,
+  not as a guaranteed operating assumption.
 
 ### Requirements
 
 - Exchange: Bybit V5 API for BTCUSDT perpetual trading.
 - Execution: isolated margin, low leverage, explicit position sizing, and
   kill-switch behavior.
-- Data: 15m and 1h candles at minimum, plus account, order, fill, fee, and
+- Data: 1m, 5m, and 15m candles at minimum, plus account, order, fill, fee, and
   funding records.
-- Strategy: score-based entry rules for mean reversion and breakout/retest, with
-  runner logic handled as position management.
+- Strategy: score-based entry rules that use 1m execution triggers, 5m local
+  flow, and 15m context filters. Runner logic is handled as position
+  management, not as the default entry mode.
 - Risk: daily, weekly, monthly, and consecutive-loss limits.
 - Control: `RUNNING`, `PAUSE_NEW_ENTRIES`, `PAUSE_ALL`, `EMERGENCY_STOP`, and
   `RESUME_PENDING_CHECK` states.
@@ -177,7 +180,20 @@ Acceptance criteria:
 
 ## Strategy Plan
 
-### Engine 1: Cashflow mean reversion
+### Engine 1: Intraday volume-flow scalping
+
+- Timeframe: 1m trigger, 5m local flow, 15m context.
+- Purpose: primary cashflow engine targeting 1 to 5 trades per observed trading
+  day.
+- Example inputs: relative volume expansion, volume z-score, candle body and
+  close location, local range breakout or failed breakout, VWAP side, estimated
+  fee-to-risk ratio.
+- Position management: short max hold window, fixed stop, fixed target, daily
+  target/stop lock, and consecutive-loss lock.
+- Constraint: a high annual return with too few trades is not a passing result
+  for this engine.
+
+### Engine 2: Cashflow mean reversion
 
 - Timeframe: primarily 15m.
 - Purpose: frequent small opportunities.
@@ -186,14 +202,14 @@ Acceptance criteria:
 - Position management: partial take profit at fixed R levels, then breakeven or
   trailing stop.
 
-### Engine 2: Breakout and retest
+### Engine 3: Breakout and retest
 
 - Timeframe: 1h structure with 15m execution confirmation.
-- Purpose: medium-frequency higher R opportunities.
+- Purpose: secondary medium-frequency higher R opportunities.
 - Example inputs: prior high/low break, failed retest, EMA alignment, VWAP side,
   volatility and spread checks.
 
-### Engine 3: Runner management
+### Engine 4: Runner management
 
 - Timeframe: position state and trend continuation checks.
 - Purpose: keep a minority of already-profitable size for larger moves.
@@ -411,8 +427,8 @@ Decision gates:
   backtest assumptions.
 - Disable a strategy if its net expectancy stays negative across a sufficient
   sample.
-- Keep monthly 20 percent as an upside target, not a requirement that overrides
-  risk limits.
+- Keep daily 0.5 to 2.0 percent as an upside target to validate, not a
+  requirement that overrides risk limits.
 
 ## Implementation Roadmap
 
@@ -434,9 +450,11 @@ Decision gates:
 ### Phase 2: Backtesting and reports
 
 - Implement indicator calculations.
-- Implement mean reversion and breakout/retest signal scoring.
+- Implement intraday volume-flow, mean reversion, and breakout/retest signal
+  scoring.
 - Implement partial take profit, breakeven, and ATR trailing simulation.
-- Generate strategy-level performance reports.
+- Generate strategy-level performance reports with daily trade-frequency
+  checks.
 
 ### Phase 3: Paper trading
 

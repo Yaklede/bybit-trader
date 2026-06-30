@@ -13,7 +13,7 @@ Milestone 1 is the operational backend shell:
 - Bybit public REST kline sync through a protected operator endpoint.
 - Backtest endpoint over stored candles with fee, slippage, funding, partial
   take-profit, breakeven stop, ATR trailing, drawdown, expectancy, no-trade
-  reasons, and estimated monthly return metrics.
+  reasons, trade frequency checks, and estimated return metrics.
 - Paper evaluation endpoint that records strategy signals, paper market orders,
   fills, positions, and performance snapshots without private Bybit order calls.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
@@ -64,7 +64,7 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"riskFraction":0.0075,"relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"requireContextTrend":true,"maxEstimatedFeeR":0.2,"targetR":1.2,"maxHoldM1Candles":30,"dailyTargetPct":1.0,"dailyStopPct":1.0}' \
+  --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"riskFraction":0.0075,"relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"requireContextTrend":true,"maxEstimatedFeeR":0.2,"targetR":1.2,"maxHoldM1Candles":30,"dailyTargetPct":1.0,"dailyStopPct":1.0,"minTradesPerDay":1,"maxTradesPerDay":5}' \
   http://127.0.0.1:8080/backtests/volume-flow/run
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
