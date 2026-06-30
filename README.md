@@ -17,6 +17,8 @@ Milestone 1 is the operational backend shell:
   metrics.
 - Paper evaluation endpoint that records strategy signals, paper market orders,
   fills, positions, and performance snapshots without private Bybit order calls.
+- Volume-flow composite backtest endpoint that replays multiple strategy legs on
+  one equity curve with overlap, daily stop, and trade-count controls.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -70,6 +72,11 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"initialEquity":10000.0,"dailyTargetPct":null,"dailyStopPct":1.0,"maxConsecutiveLosses":3,"legs":[{"id":"trend_down_breakout","riskFraction":0.02,"setupMode":"BREAKOUT_CONTINUATION","entryMode":"RETEST_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"setupRangeLookback":12,"requireM5Vwap":false,"requireContextVwap":true,"requireContextTrend":true,"allowedMarketRegimes":["TREND_DOWN"],"requireRegimeSideAlignment":true,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.45,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.2,"exitMode":"FIXED_TARGET","maxHoldM1Candles":30},{"id":"range_failed_break","riskFraction":0.02,"setupMode":"FAILED_BREAK_REVERSAL","entryMode":"CLOSE_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":3.5,"volumeZScoreThreshold":0.5,"setupRangeLookback":12,"requireM5Vwap":false,"requireContextVwap":false,"requireContextTrend":false,"allowedMarketRegimes":["RANGE"],"requireRegimeSideAlignment":false,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.25,"minRejectionWickRatio":0.25,"entryLookaheadM1Candles":5,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.0,"exitMode":"FIXED_TARGET","maxHoldM1Candles":30}]}' \
+  http://127.0.0.1:8080/backtests/volume-flow/composite/run
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"riskFractionValues":[0.0075,0.015,0.02],"setupModes":["BREAKOUT_CONTINUATION"],"entryModes":["RETEST_CONFIRMATION"],"sideModes":["BOTH"],"setupTimeframes":["M5"],"relativeVolumeThresholdValues":[3.5,5.0],"volumeZScoreThresholdValues":[0.5,1.5],"setupRangeLookbackValues":[8,12],"requireM5VwapValues":[false],"requireContextVwapValues":[true],"requireContextTrendValues":[true],"allowedMarketRegimeValues":[["TREND_DOWN"]],"requireRegimeSideAlignmentValues":[true],"requireKeyLevelProximityValues":[true],"avoidRangeMiddleValues":[true],"minEntryRiskPctValues":[null,0.008,0.01],"maxEntryRiskPctValues":[null,0.015,0.02],"targetRValues":[1.0,1.2],"exitModes":["FIXED_TARGET"],"breakevenTriggerRValues":[null],"maxHoldM1CandlesValues":[15,30],"dailyTargetPct":null,"maxCandidates":1000,"topResults":10}' \
   http://127.0.0.1:8080/backtests/volume-flow/sweep
 curl -X POST \
@@ -96,6 +103,14 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
+- Latest local 1-year BTCUSDT volume-flow tuning snapshot: the single
+  `TREND_DOWN` breakout leg returned `20.27258%` with `1.00983%` max drawdown
+  over 13 trades; the composite `trend_down_breakout + range_failed_break`
+  replay returned `24.06879%` with `2.10462%` max drawdown over 22 trades.
+  Source note: measured on
+  `build/runtime-test/bybit-trader-1y-backtest.sqlite` covering
+  `2025-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading
+  return guarantee.
 
 <!-- OPENDOCK:START id=files:README.md dock=opendock/business-ultrawork path=README.md -->
 # Business Ultrawork

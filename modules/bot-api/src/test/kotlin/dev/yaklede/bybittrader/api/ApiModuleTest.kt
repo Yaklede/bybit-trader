@@ -12,6 +12,7 @@ import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
@@ -332,6 +333,62 @@ class ApiModuleTest :
                               "entryRetestTolerancePct":0.01,
                               "targetR":0.5,
                               "maxHoldM1Candles":5
+                            }
+                            """.trimIndent(),
+                        )
+                    }.status shouldBe HttpStatusCode.OK
+            }
+        }
+
+        "authorized composite volume flow backtest request returns estimated result" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val candleStore = InMemoryMarketCandleStore(volumeFlowApiCandles())
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        volumeFlowCompositeBacktestService = VolumeFlowCompositeBacktestService(candleStore),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/backtests/volume-flow/composite/run") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody(
+                            """
+                            {
+                              "symbol":"BTCUSDT",
+                              "m1Limit":80,
+                              "m5Limit":30,
+                              "m15Limit":30,
+                              "legs":[
+                                {
+                                  "id":"primary",
+                                  "setupMode":"BREAKOUT_CONTINUATION",
+                                  "entryMode":"RETEST_CONFIRMATION",
+                                  "setupTimeframe":"M5",
+                                  "volumeLookback":3,
+                                  "relativeVolumeThreshold":2.0,
+                                  "volumeZScoreThreshold":0.5,
+                                  "setupRangeLookback":3,
+                                  "requireM5Vwap":true,
+                                  "m5VwapLookback":3,
+                                  "contextVwapLookback":3,
+                                  "requireContextVwap":true,
+                                  "minBodyRatio":0.4,
+                                  "entryLookaheadM1Candles":3,
+                                  "entryRetestTolerancePct":0.01,
+                                  "targetR":0.5,
+                                  "maxHoldM1Candles":5
+                                }
+                              ]
                             }
                             """.trimIndent(),
                         )

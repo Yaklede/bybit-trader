@@ -229,6 +229,34 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 1
             result.trades.single().side shouldBe Side.SELL
         }
+
+        "composite backtest replays leg signals on one equity curve and skips overlapping positions" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+            val legConfig = testVolumeFlowConfig()
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            legs =
+                                listOf(
+                                    VolumeFlowCompositeBacktestLeg("primary", legConfig),
+                                    VolumeFlowCompositeBacktestLeg("duplicate", legConfig),
+                                ),
+                        ),
+                )
+
+            result.signalCount shouldBe 2
+            result.tradeCount shouldBe 1
+            result.skippedSignalCount shouldBe 1
+            result.noTradeReasonCounts["OVERLAPPING_POSITION"] shouldBe 1
+            result.performanceByLeg.single().tag shouldBe "primary"
+            (result.finalEquity > result.initialEquity) shouldBe true
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =
