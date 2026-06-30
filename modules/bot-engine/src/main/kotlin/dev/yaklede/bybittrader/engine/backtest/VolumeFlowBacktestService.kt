@@ -311,7 +311,7 @@ class VolumeFlowBacktestService(
             incrementReason("BODY_TOO_SMALL", noTradeReasonCounts)
             return null
         }
-        if (!shape.closesStronglyFor(side)) {
+        if (!shape.closesStronglyFor(side, config.minDirectionalCloseStrength)) {
             incrementReason("WEAK_CLOSE_LOCATION", noTradeReasonCounts)
             return null
         }
@@ -371,7 +371,7 @@ class VolumeFlowBacktestService(
             incrementReason("REJECTION_WICK_TOO_SMALL", noTradeReasonCounts)
             return null
         }
-        if (!shape.closesStronglyFor(side)) {
+        if (!shape.closesStronglyFor(side, config.minDirectionalCloseStrength)) {
             incrementReason("WEAK_CLOSE_LOCATION", noTradeReasonCounts)
             return null
         }
@@ -402,8 +402,10 @@ class VolumeFlowBacktestService(
     ): SetupCandidate? {
         val side =
             when {
-                shape.upperWickRatio >= config.minRejectionWickRatio && shape.closeLocation <= 0.30 -> Side.SELL
-                shape.lowerWickRatio >= config.minRejectionWickRatio && shape.closeLocation >= 0.70 -> Side.BUY
+                shape.upperWickRatio >= config.minRejectionWickRatio &&
+                    shape.closeLocation <= 1.0 - config.minDirectionalCloseStrength -> Side.SELL
+                shape.lowerWickRatio >= config.minRejectionWickRatio &&
+                    shape.closeLocation >= config.minDirectionalCloseStrength -> Side.BUY
                 else -> null
             }
         if (side == null) {
@@ -694,7 +696,7 @@ class VolumeFlowBacktestService(
             val shape = VolumeFlowIndicators.candleShape(candle)
             if (
                 shape.direction == candidate.side &&
-                shape.closesStronglyFor(candidate.side) &&
+                shape.closesStronglyFor(candidate.side, config.minDirectionalCloseStrength) &&
                 entryTriggerAccepted(candle, candidate, config)
             ) {
                 val rawEntryPrice = candle.close.toDouble()

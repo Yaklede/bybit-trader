@@ -127,10 +127,13 @@ data class CandleShape(
     val lowerWickRatio: Double,
     val direction: Side?,
 ) {
-    fun closesStronglyFor(side: Side): Boolean =
+    fun closesStronglyFor(
+        side: Side,
+        minDirectionalCloseStrength: Double = 0.70,
+    ): Boolean =
         when (side) {
-            Side.BUY -> closeLocation >= 0.70 && upperWickRatio <= 0.35
-            Side.SELL -> closeLocation <= 0.30 && lowerWickRatio <= 0.35
+            Side.BUY -> closeLocation >= minDirectionalCloseStrength && upperWickRatio <= 0.35
+            Side.SELL -> closeLocation <= 1.0 - minDirectionalCloseStrength && lowerWickRatio <= 0.35
         }
 }
 

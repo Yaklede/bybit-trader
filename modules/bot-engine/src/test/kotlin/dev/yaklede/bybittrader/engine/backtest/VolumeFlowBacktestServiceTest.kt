@@ -101,6 +101,22 @@ class VolumeFlowBacktestServiceTest :
             result.noTradeReasonCounts["ENTRY_RISK_TOO_LARGE"] shouldBe 1
         }
 
+        "can reject setups when the directional close is too weak" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalCloseStrength = 0.99),
+                )
+
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["WEAK_CLOSE_LOCATION"] shouldBe 1
+        }
+
         "can require m5 vwap alignment before entering volume flow trades" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
 

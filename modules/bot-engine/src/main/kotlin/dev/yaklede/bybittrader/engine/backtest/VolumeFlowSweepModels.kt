@@ -30,6 +30,7 @@ data class VolumeFlowSweepConfig(
     val keyLevelTolerancePctValues: List<Double> = listOf(0.0025),
     val avoidRangeMiddleValues: List<Boolean> = listOf(false),
     val minBodyRatioValues: List<Double> = listOf(0.45),
+    val minDirectionalCloseStrengthValues: List<Double> = listOf(0.70),
     val minRejectionWickRatioValues: List<Double> = listOf(0.25),
     val entryLookaheadM1CandlesValues: List<Int> = listOf(5),
     val entryRetestTolerancePct: Double = 0.0015,
@@ -72,6 +73,9 @@ data class VolumeFlowSweepConfig(
         require(keyLevelTolerancePctValues.isNotEmpty()) { "Key-level tolerance values must not be empty." }
         require(avoidRangeMiddleValues.isNotEmpty()) { "Avoid range-middle values must not be empty." }
         require(minBodyRatioValues.isNotEmpty()) { "Minimum body ratio values must not be empty." }
+        require(minDirectionalCloseStrengthValues.isNotEmpty()) {
+            "Minimum directional close strength values must not be empty."
+        }
         require(minRejectionWickRatioValues.isNotEmpty()) { "Minimum rejection wick ratio values must not be empty." }
         require(entryLookaheadM1CandlesValues.isNotEmpty()) { "Entry lookahead values must not be empty." }
         require(minEntryRiskPctValues.isNotEmpty()) { "Minimum entry risk values must not be empty." }
@@ -192,49 +196,52 @@ data class VolumeFlowSweepConfig(
         avoidRangeMiddle: Boolean,
     ) {
         for (minBodyRatio in minBodyRatioValues) {
-            for (minRejectionWickRatio in minRejectionWickRatioValues) {
-                for (entryLookaheadM1Candles in entryLookaheadM1CandlesValues) {
-                    for (minEntryRiskPct in minEntryRiskPctValues) {
-                        for (maxEntryRiskPct in maxEntryRiskPctValues) {
-                            for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
-                                for (targetR in targetRValues) {
-                                    for (exitMode in exitModes) {
-                                        for (runnerTrailActivationR in runnerTrailActivationRValues) {
-                                            for (runnerTrailDistanceR in runnerTrailDistanceRValues) {
-                                                for (breakevenTriggerR in breakevenTriggerRValues) {
-                                                    for (maxHoldM1Candles in maxHoldM1CandlesValues) {
-                                                        add(
-                                                            VolumeFlowSweepCandidate(
-                                                                riskFraction = riskFraction,
-                                                                setupMode = setupMode,
-                                                                entryMode = entryMode,
-                                                                sideMode = sideMode,
-                                                                setupTimeframe = setupTimeframe,
-                                                                relativeVolumeThreshold = relativeVolumeThreshold,
-                                                                volumeZScoreThreshold = volumeZScoreThreshold,
-                                                                setupRangeLookback = setupRangeLookback,
-                                                                requireM5Vwap = requireM5Vwap,
-                                                                requireContextVwap = requireContextVwap,
-                                                                requireContextTrend = requireContextTrend,
-                                                                allowedMarketRegimes = allowedMarketRegimes,
-                                                                requireRegimeSideAlignment = requireRegimeSideAlignment,
-                                                                requireKeyLevelProximity = requireKeyLevelProximity,
-                                                                keyLevelTolerancePct = keyLevelTolerancePct,
-                                                                avoidRangeMiddle = avoidRangeMiddle,
-                                                                minBodyRatio = minBodyRatio,
-                                                                minRejectionWickRatio = minRejectionWickRatio,
-                                                                entryLookaheadM1Candles = entryLookaheadM1Candles,
-                                                                minEntryRiskPct = minEntryRiskPct,
-                                                                maxEntryRiskPct = maxEntryRiskPct,
-                                                                maxEstimatedFeeR = maxEstimatedFeeR,
-                                                                targetR = targetR,
-                                                                exitMode = exitMode,
-                                                                runnerTrailActivationR = runnerTrailActivationR,
-                                                                runnerTrailDistanceR = runnerTrailDistanceR,
-                                                                breakevenTriggerR = breakevenTriggerR,
-                                                                maxHoldM1Candles = maxHoldM1Candles,
-                                                            ),
-                                                        )
+            for (minDirectionalCloseStrength in minDirectionalCloseStrengthValues) {
+                for (minRejectionWickRatio in minRejectionWickRatioValues) {
+                    for (entryLookaheadM1Candles in entryLookaheadM1CandlesValues) {
+                        for (minEntryRiskPct in minEntryRiskPctValues) {
+                            for (maxEntryRiskPct in maxEntryRiskPctValues) {
+                                for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
+                                    for (targetR in targetRValues) {
+                                        for (exitMode in exitModes) {
+                                            for (runnerTrailActivationR in runnerTrailActivationRValues) {
+                                                for (runnerTrailDistanceR in runnerTrailDistanceRValues) {
+                                                    for (breakevenTriggerR in breakevenTriggerRValues) {
+                                                        for (maxHoldM1Candles in maxHoldM1CandlesValues) {
+                                                            add(
+                                                                VolumeFlowSweepCandidate(
+                                                                    riskFraction = riskFraction,
+                                                                    setupMode = setupMode,
+                                                                    entryMode = entryMode,
+                                                                    sideMode = sideMode,
+                                                                    setupTimeframe = setupTimeframe,
+                                                                    relativeVolumeThreshold = relativeVolumeThreshold,
+                                                                    volumeZScoreThreshold = volumeZScoreThreshold,
+                                                                    setupRangeLookback = setupRangeLookback,
+                                                                    requireM5Vwap = requireM5Vwap,
+                                                                    requireContextVwap = requireContextVwap,
+                                                                    requireContextTrend = requireContextTrend,
+                                                                    allowedMarketRegimes = allowedMarketRegimes,
+                                                                    requireRegimeSideAlignment = requireRegimeSideAlignment,
+                                                                    requireKeyLevelProximity = requireKeyLevelProximity,
+                                                                    keyLevelTolerancePct = keyLevelTolerancePct,
+                                                                    avoidRangeMiddle = avoidRangeMiddle,
+                                                                    minBodyRatio = minBodyRatio,
+                                                                    minDirectionalCloseStrength = minDirectionalCloseStrength,
+                                                                    minRejectionWickRatio = minRejectionWickRatio,
+                                                                    entryLookaheadM1Candles = entryLookaheadM1Candles,
+                                                                    minEntryRiskPct = minEntryRiskPct,
+                                                                    maxEntryRiskPct = maxEntryRiskPct,
+                                                                    maxEstimatedFeeR = maxEstimatedFeeR,
+                                                                    targetR = targetR,
+                                                                    exitMode = exitMode,
+                                                                    runnerTrailActivationR = runnerTrailActivationR,
+                                                                    runnerTrailDistanceR = runnerTrailDistanceR,
+                                                                    breakevenTriggerR = breakevenTriggerR,
+                                                                    maxHoldM1Candles = maxHoldM1Candles,
+                                                                ),
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -267,6 +274,7 @@ data class VolumeFlowSweepConfig(
             keyLevelTolerancePctValues.size *
             avoidRangeMiddleValues.size *
             minBodyRatioValues.size *
+            minDirectionalCloseStrengthValues.size *
             minRejectionWickRatioValues.size *
             entryLookaheadM1CandlesValues.size *
             minEntryRiskPctValues.size *
@@ -298,6 +306,7 @@ data class VolumeFlowSweepCandidate(
     val keyLevelTolerancePct: Double,
     val avoidRangeMiddle: Boolean,
     val minBodyRatio: Double,
+    val minDirectionalCloseStrength: Double,
     val minRejectionWickRatio: Double,
     val entryLookaheadM1Candles: Int,
     val minEntryRiskPct: Double?,
@@ -338,6 +347,7 @@ data class VolumeFlowSweepCandidate(
             keyLevelTolerancePct = keyLevelTolerancePct,
             avoidRangeMiddle = avoidRangeMiddle,
             minBodyRatio = minBodyRatio,
+            minDirectionalCloseStrength = minDirectionalCloseStrength,
             minRejectionWickRatio = minRejectionWickRatio,
             entryLookaheadM1Candles = entryLookaheadM1Candles,
             entryRetestTolerancePct = config.entryRetestTolerancePct,

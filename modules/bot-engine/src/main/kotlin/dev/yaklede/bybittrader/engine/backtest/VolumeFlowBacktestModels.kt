@@ -32,6 +32,7 @@ data class VolumeFlowBacktestConfig(
     val keyLevelTolerancePct: Double = 0.0025,
     val avoidRangeMiddle: Boolean = false,
     val minBodyRatio: Double = 0.45,
+    val minDirectionalCloseStrength: Double = 0.70,
     val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
     val entryRetestTolerancePct: Double = 0.0015,
@@ -78,6 +79,9 @@ data class VolumeFlowBacktestConfig(
             "Key level tolerance must be between 0 and 0.02."
         }
         require(minBodyRatio in 0.0..1.0) { "Minimum body ratio must be between 0 and 1." }
+        require(minDirectionalCloseStrength in 0.5..1.0) {
+            "Minimum directional close strength must be between 0.5 and 1."
+        }
         require(minRejectionWickRatio in 0.0..1.0) { "Minimum rejection wick ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }
         require(entryRetestTolerancePct in 0.0..0.02) { "Entry retest tolerance must be between 0 and 0.02." }
