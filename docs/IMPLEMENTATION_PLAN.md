@@ -344,6 +344,8 @@ Done when:
   R, max drawdown, consecutive losses, and no-trade reasons.
 - Report includes observed trading days, trades per day, trades per active day,
   and whether the strategy fits the 1 to 5 trades per day operating cadence.
+- Volume-flow backtests can compare M1 and M5 setup candles and optionally
+  require M5 VWAP alignment before 15m context confirmation.
 
 ### Step 9: Paper trading
 

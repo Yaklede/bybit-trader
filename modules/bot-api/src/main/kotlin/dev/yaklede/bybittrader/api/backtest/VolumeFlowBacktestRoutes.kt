@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.api.backtest
 
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
@@ -39,10 +40,13 @@ data class VolumeFlowBacktestRequest(
     val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val setupTimeframe: String = "M5",
     val volumeLookback: Int = 20,
     val relativeVolumeThreshold: Double = 5.0,
     val volumeZScoreThreshold: Double = 1.5,
     val setupRangeLookback: Int = 12,
+    val requireM5Vwap: Boolean = false,
+    val m5VwapLookback: Int = 12,
     val contextVwapLookback: Int = 32,
     val requireContextTrend: Boolean = true,
     val minBodyRatio: Double = 0.45,
@@ -59,6 +63,10 @@ data class VolumeFlowBacktestRequest(
 ) {
     fun validated(): VolumeFlowBacktestRequest {
         Symbol(symbol)
+        val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
+        require(parsedSetupTimeframe == Timeframe.M1 || parsedSetupTimeframe == Timeframe.M5) {
+            "Setup timeframe must be M1 or M5."
+        }
         require(m1Limit in 60..600_000) { "M1 limit must be between 60 and 600000." }
         require(m5Limit in 30..200_000) { "M5 limit must be between 30 and 200000." }
         require(m15Limit in 30..50_000) { "M15 limit must be between 30 and 50000." }
@@ -72,10 +80,13 @@ data class VolumeFlowBacktestRequest(
             riskFraction = riskFraction,
             feeRate = feeRate,
             slippageRate = slippageRate,
+            setupTimeframe = Timeframe.valueOf(setupTimeframe),
             volumeLookback = volumeLookback,
             relativeVolumeThreshold = relativeVolumeThreshold,
             volumeZScoreThreshold = volumeZScoreThreshold,
             setupRangeLookback = setupRangeLookback,
+            requireM5Vwap = requireM5Vwap,
+            m5VwapLookback = m5VwapLookback,
             contextVwapLookback = contextVwapLookback,
             requireContextTrend = requireContextTrend,
             minBodyRatio = minBodyRatio,

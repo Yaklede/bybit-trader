@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.domain.Timeframe
 import java.time.Instant
 
 data class VolumeFlowBacktestConfig(
@@ -9,10 +10,13 @@ data class VolumeFlowBacktestConfig(
     val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val setupTimeframe: Timeframe = Timeframe.M5,
     val volumeLookback: Int = 20,
     val relativeVolumeThreshold: Double = 5.0,
     val volumeZScoreThreshold: Double = 1.5,
     val setupRangeLookback: Int = 12,
+    val requireM5Vwap: Boolean = false,
+    val m5VwapLookback: Int = 12,
     val contextVwapLookback: Int = 32,
     val requireContextTrend: Boolean = true,
     val minBodyRatio: Double = 0.45,
@@ -32,10 +36,14 @@ data class VolumeFlowBacktestConfig(
         require(riskFraction > 0.0 && riskFraction <= 0.02) { "Risk fraction must be between 0 and 0.02." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
+        require(setupTimeframe == Timeframe.M1 || setupTimeframe == Timeframe.M5) {
+            "Setup timeframe must be M1 or M5."
+        }
         require(volumeLookback > 1) { "Volume lookback must be greater than 1." }
         require(relativeVolumeThreshold > 1.0) { "Relative volume threshold must be greater than 1." }
         require(volumeZScoreThreshold >= 0.0) { "Volume z-score threshold must not be negative." }
         require(setupRangeLookback > 1) { "Setup range lookback must be greater than 1." }
+        require(m5VwapLookback > 1) { "M5 VWAP lookback must be greater than 1." }
         require(contextVwapLookback > 1) { "Context VWAP lookback must be greater than 1." }
         require(minBodyRatio in 0.0..1.0) { "Minimum body ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }

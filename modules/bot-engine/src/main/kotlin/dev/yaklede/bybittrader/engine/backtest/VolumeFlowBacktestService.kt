@@ -11,6 +11,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 class VolumeFlowBacktestService(
     private val candleStore: MarketCandleStore,
@@ -30,7 +31,7 @@ class VolumeFlowBacktestService(
         val m5Candles = candleStore.recentCandles(symbol, Timeframe.M5, m5Limit).sortedBy { it.openedAt }
         val m15Candles = candleStore.recentCandles(symbol, Timeframe.M15, m15Limit).sortedBy { it.openedAt }
         require(m1Candles.size >= 60) { "At least 60 M1 candles are required." }
-        require(m5Candles.size > config.volumeLookback + config.setupRangeLookback) {
+        require(m5Candles.size > maxOf(config.volumeLookback + config.setupRangeLookback, config.m5VwapLookback)) {
             "Not enough M5 candles for volume setup detection."
         }
         require(m15Candles.size >= config.contextVwapLookback) {
@@ -64,9 +65,21 @@ class VolumeFlowBacktestService(
         val trades = mutableListOf<VolumeFlowBacktestTrade>()
         val dailyStates = mutableMapOf<LocalDate, DailyBacktestState>()
         val startIndex = maxOf(config.volumeLookback, config.setupRangeLookback)
+        val m1Timeline = CandleTimeline(m1Candles)
+        val m5Timeline = CandleTimeline(m5Candles)
+        val m15Timeline = CandleTimeline(m15Candles)
+        val setupCandles =
+            when (config.setupTimeframe) {
+                Timeframe.M1 -> m1Candles
+                Timeframe.M5 -> m5Candles
+                else -> error("Unsupported setup timeframe.")
+            }
+        require(setupCandles.size > startIndex) {
+            "Not enough setup candles for volume setup detection."
+        }
 
-        for (setupIndex in startIndex until m5Candles.size) {
-            val setupCandle = m5Candles[setupIndex]
+        for (setupIndex in startIndex until setupCandles.size) {
+            val setupCandle = setupCandles[setupIndex]
             if (!setupCandle.openedAt.isAfter(blockedUntil)) {
                 continue
             }
@@ -79,17 +92,22 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            val setupWindow = m5Candles.subList(0, setupIndex + 1)
-            val candidate = detectSetup(setupWindow, config, noTradeReasonCounts) ?: continue
+            val candidate = detectSetup(setupCandles, setupIndex, config, noTradeReasonCounts) ?: continue
             setupCount += 1
 
-            if (!contextAllows(m15Candles, setupCandle.openedAt, candidate.side, config)) {
+            if (!localContextAllows(m5Timeline, setupCandle.openedAt, candidate.side, config)) {
+                rejectedSetupCount += 1
+                incrementReason("M5_CONTEXT_REJECTED", noTradeReasonCounts)
+                continue
+            }
+
+            if (!contextAllows(m15Timeline, setupCandle.openedAt, candidate.side, config)) {
                 rejectedSetupCount += 1
                 incrementReason("CONTEXT_REJECTED", noTradeReasonCounts)
                 continue
             }
 
-            val entry = findEntry(m1Candles, setupCandle, candidate, config)
+            val entry = findEntry(m1Timeline, setupCandle, candidate, config)
             if (entry == null) {
                 rejectedSetupCount += 1
                 incrementReason("NO_M1_RETEST_TRIGGER", noTradeReasonCounts)
@@ -164,25 +182,26 @@ class VolumeFlowBacktestService(
 
     private fun detectSetup(
         candles: List<Candle>,
+        index: Int,
         config: VolumeFlowBacktestConfig,
         noTradeReasonCounts: MutableMap<String, Int>,
     ): SetupCandidate? {
-        val relativeVolume = VolumeFlowIndicators.relativeVolume(candles, config.volumeLookback)
+        val relativeVolume = relativeVolumeAt(candles, index, config.volumeLookback)
         if (relativeVolume == null || relativeVolume < config.relativeVolumeThreshold) {
             incrementReason("RELATIVE_VOLUME_LOW", noTradeReasonCounts)
             return null
         }
-        val volumeZScore = VolumeFlowIndicators.volumeZScore(candles, config.volumeLookback)
+        val volumeZScore = volumeZScoreAt(candles, index, config.volumeLookback)
         if (volumeZScore == null || volumeZScore < config.volumeZScoreThreshold) {
             incrementReason("VOLUME_ZSCORE_LOW", noTradeReasonCounts)
             return null
         }
-        val side = VolumeFlowIndicators.breakoutSide(candles, config.setupRangeLookback)
+        val side = breakoutSideAt(candles, index, config.setupRangeLookback)
         if (side == null) {
             incrementReason("NO_RANGE_BREAKOUT", noTradeReasonCounts)
             return null
         }
-        val shape = VolumeFlowIndicators.candleShape(candles.last())
+        val shape = VolumeFlowIndicators.candleShape(candles[index])
         if (shape.direction != side) {
             incrementReason("CANDLE_DIRECTION_MISMATCH", noTradeReasonCounts)
             return null
@@ -203,17 +222,102 @@ class VolumeFlowBacktestService(
         )
     }
 
-    private fun contextAllows(
-        m15Candles: List<Candle>,
+    private fun relativeVolumeAt(
+        candles: List<Candle>,
+        index: Int,
+        lookback: Int,
+    ): Double? {
+        if (index < lookback) return null
+        var volumeSum = 0.0
+        for (volumeIndex in index - lookback until index) {
+            volumeSum += candles[volumeIndex].volume.toDouble()
+        }
+        val baseline = volumeSum / lookback
+        if (baseline <= 0.0) return null
+        return candles[index].volume.toDouble() / baseline
+    }
+
+    private fun volumeZScoreAt(
+        candles: List<Candle>,
+        index: Int,
+        lookback: Int,
+    ): Double? {
+        if (index < lookback) return null
+        var volumeSum = 0.0
+        for (volumeIndex in index - lookback until index) {
+            volumeSum += candles[volumeIndex].volume.toDouble()
+        }
+        val average = volumeSum / lookback
+        var squaredDeltaSum = 0.0
+        for (volumeIndex in index - lookback until index) {
+            val delta = candles[volumeIndex].volume.toDouble() - average
+            squaredDeltaSum += delta * delta
+        }
+        val variance = squaredDeltaSum / lookback
+        val standardDeviation = sqrt(variance)
+        if (standardDeviation <= 0.0) return null
+        return (candles[index].volume.toDouble() - average) / standardDeviation
+    }
+
+    private fun breakoutSideAt(
+        candles: List<Candle>,
+        index: Int,
+        lookback: Int,
+    ): Side? {
+        if (index < lookback) return null
+        var high = Double.NEGATIVE_INFINITY
+        var low = Double.POSITIVE_INFINITY
+        for (rangeIndex in index - lookback until index) {
+            high = maxOf(high, candles[rangeIndex].high.toDouble())
+            low = minOf(low, candles[rangeIndex].low.toDouble())
+        }
+        val close = candles[index].close.toDouble()
+        return when {
+            close > high -> Side.BUY
+            close < low -> Side.SELL
+            else -> null
+        }
+    }
+
+    private fun localContextAllows(
+        m5Timeline: CandleTimeline,
         setupAt: Instant,
         side: Side,
         config: VolumeFlowBacktestConfig,
     ): Boolean {
-        val contextCandles =
-            m15Candles
-                .filter { !it.openedAt.isAfter(setupAt) }
-                .takeLast(config.contextVwapLookback)
-        if (contextCandles.size < config.contextVwapLookback) return false
+        if (!config.requireM5Vwap) return true
+        return vwapSideAllows(
+            timeline = m5Timeline,
+            setupAt = setupAt,
+            side = side,
+            lookback = config.m5VwapLookback,
+            requireTrend = false,
+        )
+    }
+
+    private fun contextAllows(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        side: Side,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean =
+        vwapSideAllows(
+            timeline = m15Timeline,
+            setupAt = setupAt,
+            side = side,
+            lookback = config.contextVwapLookback,
+            requireTrend = config.requireContextTrend,
+        )
+
+    private fun vwapSideAllows(
+        timeline: CandleTimeline,
+        setupAt: Instant,
+        side: Side,
+        lookback: Int,
+        requireTrend: Boolean,
+    ): Boolean {
+        val contextCandles = timeline.takeLastAtOrBefore(setupAt, lookback)
+        if (contextCandles.size < lookback) return false
         val vwap = VolumeFlowIndicators.vwap(contextCandles) ?: return false
         val latest = contextCandles.last()
         val vwapAllows =
@@ -222,7 +326,7 @@ class VolumeFlowBacktestService(
                 Side.SELL -> latest.close.toDouble() <= vwap
             }
         if (!vwapAllows) return false
-        if (!config.requireContextTrend) return true
+        if (!requireTrend) return true
 
         val first = contextCandles.first()
         return when (side) {
@@ -246,12 +350,13 @@ class VolumeFlowBacktestService(
     }
 
     private fun findEntry(
-        m1Candles: List<Candle>,
+        m1Timeline: CandleTimeline,
         setupCandle: Candle,
         candidate: SetupCandidate,
         config: VolumeFlowBacktestConfig,
     ): EntryPlan? {
-        val startIndex = m1Candles.indexOfFirst { it.openedAt.isAfter(setupCandle.openedAt) }
+        val m1Candles = m1Timeline.candles
+        val startIndex = m1Timeline.firstIndexAfter(setupCandle.openedAt)
         if (startIndex < 0) return null
         val breakoutLevel =
             when (candidate.side) {
@@ -453,6 +558,33 @@ private data class ExitPlan(
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
 )
+
+private class CandleTimeline(
+    val candles: List<Candle>,
+) {
+    private val openedAt = candles.map { it.openedAt }
+
+    fun firstIndexAfter(time: Instant): Int {
+        val index = openedAt.binarySearch(time)
+        val nextIndex = if (index >= 0) index + 1 else -index - 1
+        return if (nextIndex <= candles.lastIndex) nextIndex else -1
+    }
+
+    fun takeLastAtOrBefore(
+        time: Instant,
+        count: Int,
+    ): List<Candle> {
+        val latestIndex = lastIndexAtOrBefore(time)
+        if (latestIndex < 0) return emptyList()
+        val startIndex = maxOf(0, latestIndex - count + 1)
+        return candles.subList(startIndex, latestIndex + 1)
+    }
+
+    private fun lastIndexAtOrBefore(time: Instant): Int {
+        val index = openedAt.binarySearch(time)
+        return if (index >= 0) index else -index - 2
+    }
+}
 
 private class DailyBacktestState(
     val startingEquity: Double,

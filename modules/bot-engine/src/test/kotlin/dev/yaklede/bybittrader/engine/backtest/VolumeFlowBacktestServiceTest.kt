@@ -75,6 +75,22 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 0
             result.noTradeReasonCounts["ESTIMATED_FEE_R_TOO_HIGH"] shouldBe 1
         }
+
+        "can require m5 vwap alignment before entering volume flow trades" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(requireM5Vwap = true, m5VwapLookback = 3),
+                )
+
+            result.tradeCount shouldBe 1
+            result.noTradeReasonCounts["M5_CONTEXT_REJECTED"] shouldBe null
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =
