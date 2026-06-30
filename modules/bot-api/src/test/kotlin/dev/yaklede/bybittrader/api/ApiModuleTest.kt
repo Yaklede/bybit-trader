@@ -35,11 +35,13 @@ import dev.yaklede.bybittrader.strategy.StrategyDecision
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -357,42 +359,46 @@ class ApiModuleTest :
                     )
                 }
 
-                client
-                    .post("/backtests/volume-flow/composite/run") {
-                        bearerAuth("test-control-credential")
-                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                        setBody(
-                            """
-                            {
-                              "symbol":"BTCUSDT",
-                              "m1Limit":80,
-                              "m5Limit":30,
-                              "m15Limit":30,
-                              "legs":[
+                val response =
+                    client
+                        .post("/backtests/volume-flow/composite/run") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """
                                 {
-                                  "id":"primary",
-                                  "setupMode":"BREAKOUT_CONTINUATION",
-                                  "entryMode":"RETEST_CONFIRMATION",
-                                  "setupTimeframe":"M5",
-                                  "volumeLookback":3,
-                                  "relativeVolumeThreshold":2.0,
-                                  "volumeZScoreThreshold":0.5,
-                                  "setupRangeLookback":3,
-                                  "requireM5Vwap":true,
-                                  "m5VwapLookback":3,
-                                  "contextVwapLookback":3,
-                                  "requireContextVwap":true,
-                                  "minBodyRatio":0.4,
-                                  "entryLookaheadM1Candles":3,
-                                  "entryRetestTolerancePct":0.01,
-                                  "targetR":0.5,
-                                  "maxHoldM1Candles":5
+                                  "symbol":"BTCUSDT",
+                                  "m1Limit":80,
+                                  "m5Limit":30,
+                                  "m15Limit":30,
+                                  "tradeLimit":0,
+                                  "legs":[
+                                    {
+                                      "id":"primary",
+                                      "setupMode":"BREAKOUT_CONTINUATION",
+                                      "entryMode":"RETEST_CONFIRMATION",
+                                      "setupTimeframe":"M5",
+                                      "volumeLookback":3,
+                                      "relativeVolumeThreshold":2.0,
+                                      "volumeZScoreThreshold":0.5,
+                                      "setupRangeLookback":3,
+                                      "requireM5Vwap":true,
+                                      "m5VwapLookback":3,
+                                      "contextVwapLookback":3,
+                                      "requireContextVwap":true,
+                                      "minBodyRatio":0.4,
+                                      "entryLookaheadM1Candles":3,
+                                      "entryRetestTolerancePct":0.01,
+                                      "targetR":0.5,
+                                      "maxHoldM1Candles":5
+                                    }
+                                  ]
                                 }
-                              ]
-                            }
-                            """.trimIndent(),
-                        )
-                    }.status shouldBe HttpStatusCode.OK
+                                """.trimIndent(),
+                            )
+                        }
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"trades":[]"""
             }
         }
 

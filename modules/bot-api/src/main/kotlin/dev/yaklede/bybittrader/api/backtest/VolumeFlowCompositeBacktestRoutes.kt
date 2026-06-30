@@ -35,7 +35,7 @@ fun Route.configureVolumeFlowCompositeBacktestRoutes(compositeBacktestService: V
                     m15Limit = request.m15Limit,
                     config = request.toConfig(),
                 )
-            call.respond(result.toResponse())
+            call.respond(result.toResponse(request.tradeLimit))
         }
     }
 }
@@ -52,6 +52,7 @@ data class VolumeFlowCompositeBacktestRequest(
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
+    val tradeLimit: Int = 50,
     val legs: List<VolumeFlowCompositeLegRequest>,
 ) {
     fun validated(): VolumeFlowCompositeBacktestRequest {
@@ -59,6 +60,7 @@ data class VolumeFlowCompositeBacktestRequest(
         require(m1Limit in 60..600_000) { "M1 limit must be between 60 and 600000." }
         require(m5Limit in 30..200_000) { "M5 limit must be between 30 and 200000." }
         require(m15Limit in 30..50_000) { "M15 limit must be between 30 and 50000." }
+        require(tradeLimit in 0..10_000) { "Trade limit must be between 0 and 10000." }
         toConfig()
         return this
     }
@@ -260,7 +262,7 @@ data class VolumeFlowCompositeTradeResponse(
     val setupCloseLocation: Double,
 )
 
-private fun VolumeFlowCompositeBacktestReport.toResponse(): VolumeFlowCompositeBacktestResponse =
+private fun VolumeFlowCompositeBacktestReport.toResponse(tradeLimit: Int): VolumeFlowCompositeBacktestResponse =
     VolumeFlowCompositeBacktestResponse(
         symbol = symbol.value,
         m1CandleCount = m1CandleCount,
@@ -301,7 +303,7 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(): VolumeFlowCompositeB
         performanceByVolumePattern = performanceByVolumePattern.map(VolumeFlowTagSummary::toCompositeResponse),
         monthlyPerformance = monthlyPerformance.map(VolumeFlowPeriodSummary::toResponse),
         walkForwardPerformance = walkForwardPerformance.map(VolumeFlowPeriodSummary::toResponse),
-        trades = trades.takeLast(50).map(VolumeFlowCompositeBacktestTrade::toResponse),
+        trades = trades.takeLast(tradeLimit).map(VolumeFlowCompositeBacktestTrade::toResponse),
     )
 
 private fun VolumeFlowPeriodSummary.toResponse(): VolumeFlowPeriodSummaryResponse =

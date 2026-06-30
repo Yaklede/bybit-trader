@@ -9,6 +9,7 @@ config/application.prod.conf
 
 # Build outputs
 .gradle/
+.kotlin/
 build/
 out/
 
