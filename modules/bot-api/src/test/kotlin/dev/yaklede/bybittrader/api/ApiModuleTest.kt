@@ -11,6 +11,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
@@ -58,6 +59,7 @@ class ApiModuleTest :
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -76,6 +78,7 @@ class ApiModuleTest :
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -98,6 +101,7 @@ class ApiModuleTest :
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -124,6 +128,7 @@ class ApiModuleTest :
                         marketDataSyncService = testMarketDataSyncService(store),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -159,6 +164,7 @@ class ApiModuleTest :
                             ),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -186,6 +192,7 @@ class ApiModuleTest :
                                 runner = BacktestRunner(AlwaysBuyApiStrategy()),
                             ),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -210,6 +217,7 @@ class ApiModuleTest :
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = MeanReversionSweepService(candleStore),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -236,6 +244,50 @@ class ApiModuleTest :
             }
         }
 
+        "authorized volume flow backtest request returns estimated result" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val candleStore = InMemoryMarketCandleStore(volumeFlowApiCandles())
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = VolumeFlowBacktestService(candleStore),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/backtests/volume-flow/run") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody(
+                            """
+                            {
+                              "symbol":"BTCUSDT",
+                              "m1Limit":80,
+                              "m5Limit":30,
+                              "m15Limit":30,
+                              "volumeLookback":3,
+                              "relativeVolumeThreshold":2.0,
+                              "volumeZScoreThreshold":0.5,
+                              "setupRangeLookback":3,
+                              "contextVwapLookback":3,
+                              "minBodyRatio":0.4,
+                              "entryLookaheadM1Candles":3,
+                              "entryRetestTolerancePct":0.01,
+                              "targetR":0.5,
+                              "maxHoldM1Candles":5
+                            }
+                            """.trimIndent(),
+                        )
+                    }.status shouldBe HttpStatusCode.OK
+            }
+        }
+
         "authorized paper evaluate request records a paper fill" {
             testApplication {
                 val stateStore = InMemoryStateStore()
@@ -247,6 +299,7 @@ class ApiModuleTest :
                         marketDataSyncService = testMarketDataSyncService(),
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
                         paperTradingService =
                             PaperTradingService(
                                 stateStore = stateStore,
@@ -311,6 +364,9 @@ private fun testBacktestService(store: InMemoryMarketCandleStore = InMemoryMarke
 
 private fun testMeanReversionSweepService(store: InMemoryMarketCandleStore = InMemoryMarketCandleStore()): MeanReversionSweepService =
     MeanReversionSweepService(candleStore = store)
+
+private fun testVolumeFlowBacktestService(store: InMemoryMarketCandleStore = InMemoryMarketCandleStore()): VolumeFlowBacktestService =
+    VolumeFlowBacktestService(candleStore = store)
 
 private class StaticMarketDataFeed : MarketDataFeed {
     override suspend fun fetchRecentCandles(
@@ -482,3 +538,114 @@ private fun sweepApiCandles(): List<Candle> =
             volume = BigDecimal("10"),
         )
     }
+
+private fun volumeFlowApiCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
+
+private fun volumeFlowM1Candles(): List<Candle> =
+    (0 until 80).map { index ->
+        when (index) {
+            61 ->
+                apiCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "112.0",
+                    high = "113.0",
+                    low = "111.8",
+                    close = "112.9",
+                    volume = "30",
+                )
+            62 ->
+                apiCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "112.9",
+                    high = "118.0",
+                    low = "112.8",
+                    close = "117.5",
+                    volume = "40",
+                )
+            else ->
+                apiCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "105",
+                    high = "106",
+                    low = "104",
+                    close = "105",
+                    volume = "10",
+                )
+        }
+    }
+
+private fun volumeFlowM5Candles(): List<Candle> =
+    (0 until 30).map { index ->
+        if (index == 12) {
+            apiCandle(
+                index = index,
+                timeframe = Timeframe.M5,
+                seconds = 300L,
+                open = "105",
+                high = "112",
+                low = "104",
+                close = "111.5",
+                volume = "60",
+            )
+        } else {
+            val close = 100 + index.coerceAtMost(10)
+            val volume =
+                when (index % 3) {
+                    0 -> "8"
+                    1 -> "10"
+                    else -> "12"
+                }
+            apiCandle(
+                index = index,
+                timeframe = Timeframe.M5,
+                seconds = 300L,
+                open = close.toString(),
+                high = (close + 1).toString(),
+                low = (close - 1).toString(),
+                close = close.toString(),
+                volume = volume,
+            )
+        }
+    }
+
+private fun volumeFlowM15Candles(): List<Candle> =
+    (0 until 30).map { index ->
+        val close = 100 + index.coerceAtMost(5)
+        apiCandle(
+            index = index,
+            timeframe = Timeframe.M15,
+            seconds = 900L,
+            open = close.toString(),
+            high = (close + 2).toString(),
+            low = (close - 2).toString(),
+            close = close.toString(),
+            volume = "20",
+        )
+    }
+
+private fun apiCandle(
+    index: Int,
+    timeframe: Timeframe,
+    seconds: Long,
+    open: String,
+    high: String,
+    low: String,
+    close: String,
+    volume: String,
+): Candle =
+    Candle(
+        symbol = Symbol("BTCUSDT"),
+        timeframe = timeframe,
+        openedAt = Instant.parse("2026-06-30T00:00:00Z").plusSeconds(index * seconds),
+        open = BigDecimal(open),
+        high = BigDecimal(high),
+        low = BigDecimal(low),
+        close = BigDecimal(close),
+        volume = BigDecimal(volume),
+    )

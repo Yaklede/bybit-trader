@@ -84,6 +84,36 @@ Content-Type: application/json
   "topResults": 10
 }
 
+### Run a multi-timeframe volume-flow backtest
+POST http://localhost:8080/backtests/volume-flow/run
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "m1Limit": 3000,
+  "m5Limit": 1000,
+  "m15Limit": 500,
+  "initialEquity": 10000.0,
+  "riskFraction": 0.0025,
+  "feeRate": 0.0006,
+  "slippageRate": 0.0002,
+  "volumeLookback": 20,
+  "relativeVolumeThreshold": 2.0,
+  "volumeZScoreThreshold": 1.5,
+  "setupRangeLookback": 12,
+  "contextVwapLookback": 32,
+  "minBodyRatio": 0.45,
+  "entryLookaheadM1Candles": 5,
+  "entryRetestTolerancePct": 0.0015,
+  "targetR": 1.5,
+  "maxHoldM1Candles": 30,
+  "dailyTargetPct": 1.0,
+  "dailyStopPct": 1.0,
+  "maxTradesPerDay": 5,
+  "maxConsecutiveLosses": 3
+}
+
 ### Evaluate one paper trading cycle over stored candles
 POST http://localhost:8080/paper/evaluate
 Authorization: Bearer {{controlCredential}}

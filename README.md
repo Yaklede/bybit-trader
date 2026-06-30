@@ -59,6 +59,11 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","m1Limit":3000,"m5Limit":1000,"m15Limit":500,"relativeVolumeThreshold":2.0,"volumeZScoreThreshold":1.5,"dailyTargetPct":1.0,"dailyStopPct":1.0}' \
+  http://127.0.0.1:8080/backtests/volume-flow/run
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200}' \
   http://127.0.0.1:8080/paper/evaluate
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \

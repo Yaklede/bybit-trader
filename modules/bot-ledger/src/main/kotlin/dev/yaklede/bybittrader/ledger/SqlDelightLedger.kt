@@ -123,7 +123,7 @@ class SqlDelightLedger(
         timeframe: Timeframe,
         limit: Int,
     ): List<Candle> {
-        require(limit in 1..1000) { "Limit must be between 1 and 1000." }
+        require(limit in 1..200_000) { "Limit must be between 1 and 200000." }
         return database.ledgerQueries
             .selectRecentMarketCandles(
                 symbol = symbol.value,
