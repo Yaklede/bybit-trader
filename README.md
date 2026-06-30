@@ -107,11 +107,12 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Latest local 1-year BTCUSDT volume-flow tuning snapshot: the current
   eight-leg composite candidate in `config/volume-flow-composite-current.json`
   adds `m1_trend_up_breakout_scalp + m1_trend_down_breakout_scalp` to the prior
-  six-leg set. The replay returned `47.80985%` with `2.22453%` max drawdown
-  over 57 trades. The previous six-leg candidate returned `40.94073%` with
-  `2.10462%` max drawdown over 32 trades. The current candidate is still below
-  the daily `0.5%` to `2%` objective, at roughly `0.131%` simple average return
-  per observed calendar day across 366 observed days. See
+  six-leg set and uses asymmetric M1 risk (`0.02` up, `0.0125` down). The replay
+  returned `49.02336%` with `2.43591%` max drawdown over 57 trades. The previous
+  equal-risk eight-leg candidate returned `47.80985%` with `2.22453%` max
+  drawdown over 57 trades. The current candidate is still below the daily
+  `0.5%` to `2%` objective, at roughly `0.134%` simple average return per
+  observed calendar day across 366 observed days. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
   tuning paths.
   Source note: measured on

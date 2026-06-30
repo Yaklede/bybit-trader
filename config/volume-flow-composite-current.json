@@ -188,7 +188,7 @@
     },
     {
       "id": "m1_trend_up_breakout_scalp",
-      "riskFraction": 0.015,
+      "riskFraction": 0.02,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -220,7 +220,7 @@
     },
     {
       "id": "m1_trend_down_breakout_scalp",
-      "riskFraction": 0.015,
+      "riskFraction": 0.0125,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
