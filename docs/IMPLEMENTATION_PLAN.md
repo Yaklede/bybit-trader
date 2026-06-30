@@ -350,9 +350,13 @@ Done when:
 - Volume-flow reports tag each accepted trade by 15m market regime, key-level
   proximity, and volume pattern so losing logic can be disabled by setup type
   instead of tuning raw volume thresholds.
+- Volume-flow exits can be tested as either fixed target exits or runner exits
+  that trail an already-profitable move; daily target lock is optional so
+  compounded return can be measured without forcing a one-day profit cap.
 - Volume-flow sweep ranking prioritizes compounded net return,
   return-to-drawdown ratio, profit factor, and positive expectancy over trade
-  frequency.
+  frequency, and it must penalize candidates that only work in either the
+  train or test slice.
 
 ### Step 9: Paper trading
 

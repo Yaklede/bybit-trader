@@ -4,6 +4,7 @@ import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import kotlin.math.abs
 
 class VolumeFlowSweepService(
     private val candleStore: MarketCandleStore,
@@ -54,12 +55,17 @@ class VolumeFlowSweepService(
                         testPassesProfitabilityGate = test.passesProfitabilityGate(),
                         testPassesCompoundingGate = test.passesCompoundingGate(),
                         testPassesFrequencyGate = test.passesFrequencyGate(sweepConfig),
-                        score = test.compoundingScore(),
+                        score = train.stabilityAdjustedCompoundingScore(test),
                     )
                 }.sortedWith(
-                    compareByDescending<VolumeFlowSweepResult> { it.testPassesCompoundingGate }
+                    compareByDescending<VolumeFlowSweepResult> {
+                        it.train.passesCompoundingGate() && it.testPassesCompoundingGate
+                    }.thenByDescending {
+                        it.train.passesProfitabilityGate() && it.testPassesProfitabilityGate
+                    }.thenByDescending { it.testPassesCompoundingGate }
                         .thenByDescending { it.testPassesProfitabilityGate }
                         .thenByDescending { it.score }
+                        .thenByDescending { minOf(it.train.netReturnPct, it.test.netReturnPct) }
                         .thenByDescending { it.test.netReturnPct }
                         .thenBy { it.test.maxDrawdownPct },
                 )
@@ -133,4 +139,20 @@ private fun VolumeFlowBacktestSummary.compoundingScore(): Double {
         (returnDrawdownRatio * 5.0) -
         drawdownPenalty -
         lossStreakPenalty
+}
+
+private fun VolumeFlowBacktestSummary.stabilityAdjustedCompoundingScore(test: VolumeFlowBacktestSummary): Double {
+    val trainScore = compoundingScore()
+    val testScore = test.compoundingScore()
+    val weakestReturn = minOf(netReturnPct, test.netReturnPct)
+    val weakestScore = minOf(trainScore, testScore)
+    val returnDivergencePenalty = abs(netReturnPct - test.netReturnPct) * 0.5
+    val negativeReturnPenalty = listOf(netReturnPct, test.netReturnPct).count { it <= 0.0 } * 20.0
+    val drawdownPenalty = maxOf(maxDrawdownPct, test.maxDrawdownPct) * 0.5
+    return weakestScore +
+        weakestReturn +
+        ((trainScore + testScore) * 0.25) -
+        returnDivergencePenalty -
+        negativeReturnPenalty -
+        drawdownPenalty
 }

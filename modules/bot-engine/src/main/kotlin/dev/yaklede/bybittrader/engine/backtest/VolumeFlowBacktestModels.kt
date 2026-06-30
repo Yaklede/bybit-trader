@@ -37,9 +37,12 @@ data class VolumeFlowBacktestConfig(
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
+    val exitMode: VolumeFlowExitMode = VolumeFlowExitMode.FIXED_TARGET,
+    val runnerTrailActivationR: Double = 1.0,
+    val runnerTrailDistanceR: Double = 0.5,
     val breakevenTriggerR: Double? = null,
     val maxHoldM1Candles: Int = 30,
-    val dailyTargetPct: Double = 1.0,
+    val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
@@ -80,9 +83,13 @@ data class VolumeFlowBacktestConfig(
             "Max estimated fee R must be between 0 and 5."
         }
         require(targetR > 0.0) { "Target R must be positive." }
+        require(runnerTrailActivationR > 0.0) { "Runner trail activation R must be positive." }
+        require(runnerTrailDistanceR > 0.0) { "Runner trail distance R must be positive." }
         require(breakevenTriggerR == null || breakevenTriggerR > 0.0) { "Breakeven trigger R must be positive." }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
-        require(dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) { "Daily target percent must be between 0 and 10." }
+        require(dailyTargetPct == null || dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) {
+            "Daily target percent must be null or between 0 and 10."
+        }
         require(dailyStopPct > 0.0 && dailyStopPct <= 10.0) { "Daily stop percent must be between 0 and 10." }
         require(minTradesPerDay > 0) { "Min trades per day must be positive." }
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
@@ -116,6 +123,11 @@ enum class VolumeFlowSideMode {
     BOTH,
     LONG_ONLY,
     SHORT_ONLY,
+}
+
+enum class VolumeFlowExitMode {
+    FIXED_TARGET,
+    RUNNER,
 }
 
 enum class VolumeFlowMarketRegime {
@@ -215,6 +227,7 @@ data class VolumeFlowBacktestTrade(
 
 enum class VolumeFlowExitReason {
     TARGET,
+    TRAILING_STOP,
     STOP,
     TIME,
 }

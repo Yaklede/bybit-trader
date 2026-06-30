@@ -4,6 +4,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
@@ -74,9 +75,12 @@ data class VolumeFlowSweepRequest(
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeRValues: List<Double> = listOf(0.2),
     val targetRValues: List<Double> = listOf(1.0, 1.2),
+    val exitModes: List<String> = listOf("FIXED_TARGET"),
+    val runnerTrailActivationRValues: List<Double> = listOf(1.0),
+    val runnerTrailDistanceRValues: List<Double> = listOf(0.5),
     val breakevenTriggerRValues: List<Double?> = listOf(null),
     val maxHoldM1CandlesValues: List<Int> = listOf(15, 30),
-    val dailyTargetPct: Double = 1.0,
+    val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
@@ -92,6 +96,7 @@ data class VolumeFlowSweepRequest(
         require(m15Limit in 60..50_000) { "M15 limit must be between 60 and 50000." }
         require(topResults in 1..50) { "Top results must be between 1 and 50." }
         allowedMarketRegimeValues?.flatten()?.forEach(VolumeFlowMarketRegime::valueOf)
+        exitModes.forEach(VolumeFlowExitMode::valueOf)
         toSweepConfig()
         return this
     }
@@ -132,6 +137,9 @@ data class VolumeFlowSweepRequest(
             entryRetestTolerancePct = entryRetestTolerancePct,
             maxEstimatedFeeRValues = maxEstimatedFeeRValues,
             targetRValues = targetRValues,
+            exitModes = exitModes.map(VolumeFlowExitMode::valueOf),
+            runnerTrailActivationRValues = runnerTrailActivationRValues,
+            runnerTrailDistanceRValues = runnerTrailDistanceRValues,
             breakevenTriggerRValues = breakevenTriggerRValues,
             maxHoldM1CandlesValues = maxHoldM1CandlesValues,
             dailyTargetPct = dailyTargetPct,
@@ -195,6 +203,9 @@ data class VolumeFlowSweepCandidateResponse(
     val entryLookaheadM1Candles: Int,
     val maxEstimatedFeeR: Double,
     val targetR: Double,
+    val exitMode: String,
+    val runnerTrailActivationR: Double,
+    val runnerTrailDistanceR: Double,
     val breakevenTriggerR: Double?,
     val maxHoldM1Candles: Int,
 )
@@ -273,6 +284,9 @@ private fun VolumeFlowSweepCandidate.toResponse(): VolumeFlowSweepCandidateRespo
         entryLookaheadM1Candles = entryLookaheadM1Candles,
         maxEstimatedFeeR = maxEstimatedFeeR.roundForApi(),
         targetR = targetR.roundForApi(),
+        exitMode = exitMode.name,
+        runnerTrailActivationR = runnerTrailActivationR.roundForApi(),
+        runnerTrailDistanceR = runnerTrailDistanceR.roundForApi(),
         breakevenTriggerR = breakevenTriggerR?.roundForApi(),
         maxHoldM1Candles = maxHoldM1Candles,
     )

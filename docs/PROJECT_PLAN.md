@@ -189,10 +189,11 @@ Acceptance criteria:
 - Example inputs: relative volume expansion, volume z-score, candle body and
   close location, local range breakout or failed breakout, VWAP side, estimated
   fee-to-risk ratio.
-- Position management: short max hold window, fixed stop, fixed target, daily
-  target/stop lock, and consecutive-loss lock.
-- Constraint: a high annual return with too few trades is not a passing result
-  for this engine.
+- Position management: fixed stop, optional fixed target, optional runner
+  trailing exit, daily stop lock, optional daily target lock, and
+  consecutive-loss lock.
+- Constraint: trade frequency is diagnostic only; a passing result must show
+  repeatable compounded net return after fees, slippage, and drawdown.
 
 ### Engine 2: Cashflow mean reversion
 

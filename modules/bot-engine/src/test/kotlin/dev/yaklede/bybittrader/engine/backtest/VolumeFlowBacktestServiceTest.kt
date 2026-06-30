@@ -117,6 +117,28 @@ class VolumeFlowBacktestServiceTest :
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
         }
 
+        "runner exit can trail a move beyond the fixed target reference" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(runnerVolumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            exitMode = VolumeFlowExitMode.RUNNER,
+                            runnerTrailActivationR = 0.5,
+                            runnerTrailDistanceR = 0.05,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.TRAILING_STOP
+            (result.trades.single().exitPrice > result.trades.single().targetPrice) shouldBe true
+        }
+
         "runs a short trade from failed breakout reversal and close confirmation" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(failedBreakReversalCandles()))
 
@@ -224,8 +246,22 @@ private class InMemoryVolumeFlowCandleStore(
 
 private fun volumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
+private fun runnerVolumeFlowCandles(): List<Candle> = runnerVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
+
 private fun failedBreakReversalCandles(): List<Candle> =
     failedBreakReversalM1Candles() + failedBreakReversalM5Candles() + volumeFlowM15Candles()
+
+private fun runnerVolumeFlowM1Candles(): List<Candle> =
+    volumeFlowM1Candles().map { candle ->
+        if (candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")) {
+            candle.copy(
+                high = BigDecimal("130.0"),
+                close = BigDecimal("128.0"),
+            )
+        } else {
+            candle
+        }
+    }
 
 private fun volumeFlowM1Candles(): List<Candle> =
     (0 until 80).map { index ->

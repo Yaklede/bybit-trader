@@ -737,6 +737,7 @@ class VolumeFlowBacktestService(
         val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles, m1Candles.lastIndex)
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
         var stopPrice = entry.stopPrice
+        var stopReason = VolumeFlowExitReason.STOP
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
             val stopHit =
@@ -748,7 +749,7 @@ class VolumeFlowBacktestService(
                 return ExitPlan(
                     exitCandle = candle,
                     exitPrice = stopPrice.withExitSlippage(entry.side, config),
-                    reason = VolumeFlowExitReason.STOP,
+                    reason = stopReason,
                 )
             }
             val targetHit =
@@ -756,12 +757,36 @@ class VolumeFlowBacktestService(
                     Side.BUY -> candle.high.toDouble() >= entry.targetPrice
                     Side.SELL -> candle.low.toDouble() <= entry.targetPrice
                 }
-            if (targetHit) {
+            if (config.exitMode == VolumeFlowExitMode.FIXED_TARGET && targetHit) {
                 return ExitPlan(
                     exitCandle = candle,
                     exitPrice = entry.targetPrice.withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.TARGET,
                 )
+            }
+            if (config.exitMode == VolumeFlowExitMode.RUNNER && initialRiskPerUnit > 0.0) {
+                val bestPrice =
+                    when (entry.side) {
+                        Side.BUY -> candle.high.toDouble()
+                        Side.SELL -> candle.low.toDouble()
+                    }
+                val favorableMove =
+                    when (entry.side) {
+                        Side.BUY -> bestPrice - entry.entryPrice
+                        Side.SELL -> entry.entryPrice - bestPrice
+                    }
+                if (favorableMove >= initialRiskPerUnit * config.runnerTrailActivationR) {
+                    val trailStop =
+                        when (entry.side) {
+                            Side.BUY -> bestPrice - (initialRiskPerUnit * config.runnerTrailDistanceR)
+                            Side.SELL -> bestPrice + (initialRiskPerUnit * config.runnerTrailDistanceR)
+                        }
+                    val improvedStop = stopPrice.improvedFor(entry.side, trailStop)
+                    if (improvedStop != stopPrice) {
+                        stopPrice = improvedStop
+                        stopReason = VolumeFlowExitReason.TRAILING_STOP
+                    }
+                }
             }
             val breakevenTriggerR = config.breakevenTriggerR
             if (breakevenTriggerR != null && initialRiskPerUnit > 0.0) {
@@ -771,7 +796,7 @@ class VolumeFlowBacktestService(
                         Side.SELL -> candle.low.toDouble() <= entry.entryPrice - (initialRiskPerUnit * breakevenTriggerR)
                     }
                 if (breakevenTouched) {
-                    stopPrice = entry.entryPrice
+                    stopPrice = stopPrice.improvedFor(entry.side, entry.entryPrice)
                 }
             }
         }
@@ -979,7 +1004,7 @@ private class DailyBacktestState(
         val dailyReturnPct = (netPnl / startingEquity) * 100.0
         lockReason =
             when {
-                dailyReturnPct >= config.dailyTargetPct -> "DAILY_TARGET_HIT"
+                config.dailyTargetPct != null && dailyReturnPct >= config.dailyTargetPct -> "DAILY_TARGET_HIT"
                 dailyReturnPct <= -config.dailyStopPct -> "DAILY_STOP_HIT"
                 tradeCount >= config.maxTradesPerDay -> "MAX_TRADES_PER_DAY"
                 consecutiveLosses >= config.maxConsecutiveLosses -> "MAX_CONSECUTIVE_LOSSES"
@@ -996,6 +1021,15 @@ private fun Double.withExitSlippage(
     when (side) {
         Side.BUY -> this * (1.0 - config.slippageRate)
         Side.SELL -> this * (1.0 + config.slippageRate)
+    }
+
+private fun Double.improvedFor(
+    side: Side,
+    candidateStop: Double,
+): Double =
+    when (side) {
+        Side.BUY -> maxOf(this, candidateStop)
+        Side.SELL -> minOf(this, candidateStop)
     }
 
 private fun Instant.utcDate(): LocalDate = atZone(ZoneOffset.UTC).toLocalDate()

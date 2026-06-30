@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
@@ -73,9 +74,12 @@ data class VolumeFlowBacktestRequest(
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
+    val exitMode: String = "FIXED_TARGET",
+    val runnerTrailActivationR: Double = 1.0,
+    val runnerTrailDistanceR: Double = 0.5,
     val breakevenTriggerR: Double? = null,
     val maxHoldM1Candles: Int = 30,
-    val dailyTargetPct: Double = 1.0,
+    val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
@@ -85,6 +89,7 @@ data class VolumeFlowBacktestRequest(
         Symbol(symbol)
         VolumeFlowSetupMode.valueOf(setupMode)
         VolumeFlowEntryMode.valueOf(entryMode)
+        VolumeFlowExitMode.valueOf(exitMode)
         VolumeFlowSideMode.valueOf(sideMode)
         allowedMarketRegimes?.forEach(VolumeFlowMarketRegime::valueOf)
         val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
@@ -131,6 +136,9 @@ data class VolumeFlowBacktestRequest(
             entryRetestTolerancePct = entryRetestTolerancePct,
             maxEstimatedFeeR = maxEstimatedFeeR,
             targetR = targetR,
+            exitMode = VolumeFlowExitMode.valueOf(exitMode),
+            runnerTrailActivationR = runnerTrailActivationR,
+            runnerTrailDistanceR = runnerTrailDistanceR,
             breakevenTriggerR = breakevenTriggerR,
             maxHoldM1Candles = maxHoldM1Candles,
             dailyTargetPct = dailyTargetPct,

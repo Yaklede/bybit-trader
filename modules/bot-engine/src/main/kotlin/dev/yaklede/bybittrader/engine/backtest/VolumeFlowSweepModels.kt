@@ -35,9 +35,12 @@ data class VolumeFlowSweepConfig(
     val entryRetestTolerancePct: Double = 0.0015,
     val maxEstimatedFeeRValues: List<Double> = listOf(0.2),
     val targetRValues: List<Double> = listOf(1.0, 1.2),
+    val exitModes: List<VolumeFlowExitMode> = listOf(VolumeFlowExitMode.FIXED_TARGET),
+    val runnerTrailActivationRValues: List<Double> = listOf(1.0),
+    val runnerTrailDistanceRValues: List<Double> = listOf(0.5),
     val breakevenTriggerRValues: List<Double?> = listOf(null),
     val maxHoldM1CandlesValues: List<Int> = listOf(15, 30),
-    val dailyTargetPct: Double = 1.0,
+    val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
@@ -71,6 +74,9 @@ data class VolumeFlowSweepConfig(
         require(entryLookaheadM1CandlesValues.isNotEmpty()) { "Entry lookahead values must not be empty." }
         require(maxEstimatedFeeRValues.isNotEmpty()) { "Max estimated fee R values must not be empty." }
         require(targetRValues.isNotEmpty()) { "Target R values must not be empty." }
+        require(exitModes.isNotEmpty()) { "Exit modes must not be empty." }
+        require(runnerTrailActivationRValues.isNotEmpty()) { "Runner trail activation values must not be empty." }
+        require(runnerTrailDistanceRValues.isNotEmpty()) { "Runner trail distance values must not be empty." }
         require(breakevenTriggerRValues.isNotEmpty()) { "Breakeven trigger R values must not be empty." }
         require(maxHoldM1CandlesValues.isNotEmpty()) { "Max hold values must not be empty." }
         require(trainRatio >= 0.5 && trainRatio <= 0.8) { "Train ratio must be between 0.5 and 0.8." }
@@ -186,35 +192,44 @@ data class VolumeFlowSweepConfig(
                 for (entryLookaheadM1Candles in entryLookaheadM1CandlesValues) {
                     for (maxEstimatedFeeR in maxEstimatedFeeRValues) {
                         for (targetR in targetRValues) {
-                            for (breakevenTriggerR in breakevenTriggerRValues) {
-                                for (maxHoldM1Candles in maxHoldM1CandlesValues) {
-                                    add(
-                                        VolumeFlowSweepCandidate(
-                                            riskFraction = riskFraction,
-                                            setupMode = setupMode,
-                                            entryMode = entryMode,
-                                            sideMode = sideMode,
-                                            setupTimeframe = setupTimeframe,
-                                            relativeVolumeThreshold = relativeVolumeThreshold,
-                                            volumeZScoreThreshold = volumeZScoreThreshold,
-                                            setupRangeLookback = setupRangeLookback,
-                                            requireM5Vwap = requireM5Vwap,
-                                            requireContextVwap = requireContextVwap,
-                                            requireContextTrend = requireContextTrend,
-                                            allowedMarketRegimes = allowedMarketRegimes,
-                                            requireRegimeSideAlignment = requireRegimeSideAlignment,
-                                            requireKeyLevelProximity = requireKeyLevelProximity,
-                                            keyLevelTolerancePct = keyLevelTolerancePct,
-                                            avoidRangeMiddle = avoidRangeMiddle,
-                                            minBodyRatio = minBodyRatio,
-                                            minRejectionWickRatio = minRejectionWickRatio,
-                                            entryLookaheadM1Candles = entryLookaheadM1Candles,
-                                            maxEstimatedFeeR = maxEstimatedFeeR,
-                                            targetR = targetR,
-                                            breakevenTriggerR = breakevenTriggerR,
-                                            maxHoldM1Candles = maxHoldM1Candles,
-                                        ),
-                                    )
+                            for (exitMode in exitModes) {
+                                for (runnerTrailActivationR in runnerTrailActivationRValues) {
+                                    for (runnerTrailDistanceR in runnerTrailDistanceRValues) {
+                                        for (breakevenTriggerR in breakevenTriggerRValues) {
+                                            for (maxHoldM1Candles in maxHoldM1CandlesValues) {
+                                                add(
+                                                    VolumeFlowSweepCandidate(
+                                                        riskFraction = riskFraction,
+                                                        setupMode = setupMode,
+                                                        entryMode = entryMode,
+                                                        sideMode = sideMode,
+                                                        setupTimeframe = setupTimeframe,
+                                                        relativeVolumeThreshold = relativeVolumeThreshold,
+                                                        volumeZScoreThreshold = volumeZScoreThreshold,
+                                                        setupRangeLookback = setupRangeLookback,
+                                                        requireM5Vwap = requireM5Vwap,
+                                                        requireContextVwap = requireContextVwap,
+                                                        requireContextTrend = requireContextTrend,
+                                                        allowedMarketRegimes = allowedMarketRegimes,
+                                                        requireRegimeSideAlignment = requireRegimeSideAlignment,
+                                                        requireKeyLevelProximity = requireKeyLevelProximity,
+                                                        keyLevelTolerancePct = keyLevelTolerancePct,
+                                                        avoidRangeMiddle = avoidRangeMiddle,
+                                                        minBodyRatio = minBodyRatio,
+                                                        minRejectionWickRatio = minRejectionWickRatio,
+                                                        entryLookaheadM1Candles = entryLookaheadM1Candles,
+                                                        maxEstimatedFeeR = maxEstimatedFeeR,
+                                                        targetR = targetR,
+                                                        exitMode = exitMode,
+                                                        runnerTrailActivationR = runnerTrailActivationR,
+                                                        runnerTrailDistanceR = runnerTrailDistanceR,
+                                                        breakevenTriggerR = breakevenTriggerR,
+                                                        maxHoldM1Candles = maxHoldM1Candles,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -246,6 +261,9 @@ data class VolumeFlowSweepConfig(
             entryLookaheadM1CandlesValues.size *
             maxEstimatedFeeRValues.size *
             targetRValues.size *
+            exitModes.size *
+            runnerTrailActivationRValues.size *
+            runnerTrailDistanceRValues.size *
             breakevenTriggerRValues.size *
             maxHoldM1CandlesValues.size
 }
@@ -272,6 +290,9 @@ data class VolumeFlowSweepCandidate(
     val entryLookaheadM1Candles: Int,
     val maxEstimatedFeeR: Double,
     val targetR: Double,
+    val exitMode: VolumeFlowExitMode,
+    val runnerTrailActivationR: Double,
+    val runnerTrailDistanceR: Double,
     val breakevenTriggerR: Double?,
     val maxHoldM1Candles: Int,
 ) {
@@ -308,6 +329,9 @@ data class VolumeFlowSweepCandidate(
             entryRetestTolerancePct = config.entryRetestTolerancePct,
             maxEstimatedFeeR = maxEstimatedFeeR,
             targetR = targetR,
+            exitMode = exitMode,
+            runnerTrailActivationR = runnerTrailActivationR,
+            runnerTrailDistanceR = runnerTrailDistanceR,
             breakevenTriggerR = breakevenTriggerR,
             maxHoldM1Candles = maxHoldM1Candles,
             dailyTargetPct = config.dailyTargetPct,
