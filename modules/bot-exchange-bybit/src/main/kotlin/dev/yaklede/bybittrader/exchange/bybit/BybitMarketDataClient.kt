@@ -26,6 +26,25 @@ class BybitMarketDataClient(
         symbol: Symbol,
         timeframe: Timeframe,
         limit: Int,
+    ): List<Candle> = fetchKlines(symbol = symbol, timeframe = timeframe, limit = limit, startAt = null, endAt = null)
+
+    override suspend fun fetchCandles(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> {
+        require(!startAt.isAfter(endAt)) { "Start time must be before or equal to end time." }
+        return fetchKlines(symbol = symbol, timeframe = timeframe, limit = limit, startAt = startAt, endAt = endAt)
+    }
+
+    private suspend fun fetchKlines(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        limit: Int,
+        startAt: Instant?,
+        endAt: Instant?,
     ): List<Candle> {
         require(limit in 1..1000) { "Limit must be between 1 and 1000." }
         val response =
@@ -35,6 +54,8 @@ class BybitMarketDataClient(
                     parameter("symbol", symbol.value)
                     parameter("interval", timeframe.toBybitInterval())
                     parameter("limit", limit)
+                    startAt?.let { parameter("start", it.toEpochMilli()) }
+                    endAt?.let { parameter("end", it.toEpochMilli()) }
                 }.body<BybitKlineResponse>()
 
         if (response.retCode != 0) {

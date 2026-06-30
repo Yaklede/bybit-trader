@@ -41,10 +41,58 @@ class MarketDataSyncServiceTest :
             result.totalFetchedCandles shouldBe 3
             result.syncedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
         }
+
+        "syncHistory pages backward through the requested time range" {
+            val symbol = Symbol("BTCUSDT")
+            val feed =
+                RecordingMarketDataFeed(
+                    historyCandles =
+                        (0 until 5).map { index ->
+                            sampleCandle(
+                                symbol = symbol,
+                                timeframe = Timeframe.M1,
+                                openedAt = Instant.parse("2026-06-30T00:00:00Z").plusSeconds(index * 60L),
+                            )
+                        },
+                )
+            val store = RecordingMarketCandleStore()
+            val service =
+                MarketDataSyncService(
+                    marketDataFeed = feed,
+                    candleStore = store,
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:05:00Z"), ZoneOffset.UTC),
+                )
+
+            val result =
+                service.syncHistory(
+                    symbol = symbol,
+                    timeframes = listOf(Timeframe.M1),
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:05:00Z"),
+                    daysBack = 1,
+                    pageLimit = 2,
+                    maxRequestsPerTimeframe = 10,
+                )
+
+            feed.historyRequests.map { it.startAt }.shouldContainExactly(
+                listOf(
+                    Instant.parse("2026-06-30T00:03:00Z"),
+                    Instant.parse("2026-06-30T00:01:00Z"),
+                    Instant.parse("2026-06-30T00:00:00Z"),
+                ),
+            )
+            store.saved.map { candles -> candles.size }.shouldContainExactly(listOf(2, 2, 1))
+            result.totalFetchedCandles shouldBe 5
+            result.timeframeResults.single().earliestOpenedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
+            result.timeframeResults.single().latestOpenedAt shouldBe Instant.parse("2026-06-30T00:04:00Z")
+        }
     })
 
-private class RecordingMarketDataFeed : MarketDataFeed {
+private class RecordingMarketDataFeed(
+    private val historyCandles: List<Candle> = emptyList(),
+) : MarketDataFeed {
     val requests = mutableListOf<MarketDataRequest>()
+    val historyRequests = mutableListOf<HistoryMarketDataRequest>()
 
     override suspend fun fetchRecentCandles(
         symbol: Symbol,
@@ -53,6 +101,23 @@ private class RecordingMarketDataFeed : MarketDataFeed {
     ): List<Candle> {
         requests += MarketDataRequest(symbol, timeframe, limit)
         return listOf(sampleCandle(symbol, timeframe))
+    }
+
+    override suspend fun fetchCandles(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> {
+        historyRequests += HistoryMarketDataRequest(symbol, timeframe, startAt, endAt, limit)
+        return historyCandles
+            .filter { candle ->
+                candle.symbol == symbol &&
+                    candle.timeframe == timeframe &&
+                    !candle.openedAt.isBefore(startAt) &&
+                    !candle.openedAt.isAfter(endAt)
+            }.take(limit)
     }
 }
 
@@ -76,14 +141,23 @@ private data class MarketDataRequest(
     val limit: Int,
 )
 
+private data class HistoryMarketDataRequest(
+    val symbol: Symbol,
+    val timeframe: Timeframe,
+    val startAt: Instant,
+    val endAt: Instant,
+    val limit: Int,
+)
+
 private fun sampleCandle(
     symbol: Symbol,
     timeframe: Timeframe,
+    openedAt: Instant = Instant.parse("2026-06-30T00:00:00Z"),
 ): Candle =
     Candle(
         symbol = symbol,
         timeframe = timeframe,
-        openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+        openedAt = openedAt,
         open = BigDecimal("100"),
         high = BigDecimal("110"),
         low = BigDecimal("90"),

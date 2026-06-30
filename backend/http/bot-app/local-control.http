@@ -34,6 +34,19 @@ Content-Type: application/json
   "limit": 200
 }
 
+### Sync historical Bybit market candles for one-year backtests
+POST http://localhost:8080/market-data/history/sync
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframes": ["M1", "M5", "M15"],
+  "daysBack": 365,
+  "pageLimit": 1000,
+  "maxRequestsPerTimeframe": 1000
+}
+
 ### Run a backtest over stored candles
 POST http://localhost:8080/backtests/run
 Authorization: Bearer {{controlCredential}}
@@ -91,9 +104,9 @@ Content-Type: application/json
 
 {
   "symbol": "BTCUSDT",
-  "m1Limit": 3000,
-  "m5Limit": 1000,
-  "m15Limit": 500,
+  "m1Limit": 525600,
+  "m5Limit": 105120,
+  "m15Limit": 35040,
   "initialEquity": 10000.0,
   "riskFraction": 0.0025,
   "feeRate": 0.0006,

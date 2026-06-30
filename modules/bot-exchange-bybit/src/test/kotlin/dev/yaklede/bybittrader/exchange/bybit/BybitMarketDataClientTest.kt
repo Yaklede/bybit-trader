@@ -65,6 +65,53 @@ class BybitMarketDataClientTest :
             candles.first().volume shouldBe BigDecimal("10.5")
         }
 
+        "fetchCandles sends Bybit start and end timestamps" {
+            val engine =
+                MockEngine { request ->
+                    request.url.parameters["start"] shouldBe "1719748800000"
+                    request.url.parameters["end"] shouldBe "1719749700000"
+                    request.url.parameters["limit"] shouldBe "2"
+
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "symbol": "BTCUSDT",
+                                "category": "linear",
+                                "list": [
+                                  ["1719749700000", "101", "111", "91", "106", "20", "2120"],
+                                  ["1719748800000", "100", "110", "90", "105", "10.5", "1050"]
+                                ]
+                              },
+                              "time": 1719749900000
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val candles =
+                client.fetchCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M15,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749700000),
+                    limit = 2,
+                )
+
+            candles.map { it.openedAt }.shouldContainExactly(
+                listOf(
+                    Instant.ofEpochMilli(1719748800000),
+                    Instant.ofEpochMilli(1719749700000),
+                ),
+            )
+        }
+
         "fetchRecentCandles fails on Bybit error response" {
             val engine =
                 MockEngine {

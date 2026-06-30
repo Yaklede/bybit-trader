@@ -56,8 +56,8 @@ data class VolumeFlowBacktestRequest(
 ) {
     fun validated(): VolumeFlowBacktestRequest {
         Symbol(symbol)
-        require(m1Limit in 60..200_000) { "M1 limit must be between 60 and 200000." }
-        require(m5Limit in 30..100_000) { "M5 limit must be between 30 and 100000." }
+        require(m1Limit in 60..600_000) { "M1 limit must be between 60 and 600000." }
+        require(m5Limit in 30..200_000) { "M5 limit must be between 30 and 200000." }
         require(m15Limit in 30..50_000) { "M15 limit must be between 30 and 50000." }
         toConfig()
         return this

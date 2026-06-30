@@ -150,6 +150,49 @@ class ApiModuleTest :
             }
         }
 
+        "authorized market data history sync request stores fetched candles" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val store = InMemoryMarketCandleStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(store),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val status =
+                    client
+                        .post("/market-data/history/sync") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """
+                                {
+                                  "symbol":"BTCUSDT",
+                                  "timeframes":["M15"],
+                                  "startAt":"2026-06-30T00:00:00Z",
+                                  "endAt":"2026-06-30T00:15:00Z",
+                                  "pageLimit":10
+                                }
+                                """.trimIndent(),
+                            )
+                        }.status
+
+                status shouldBe HttpStatusCode.OK
+                store.saved.size shouldBe 1
+                store.saved
+                    .first()
+                    .single()
+                    .timeframe shouldBe Timeframe.M15
+            }
+        }
+
         "market data provider errors return sanitized bad gateway response" {
             testApplication {
                 val stateStore = InMemoryStateStore()
