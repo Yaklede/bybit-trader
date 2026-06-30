@@ -17,9 +17,9 @@
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
       "setupTimeframe": "M5",
-      "relativeVolumeThreshold": 5.0,
+      "relativeVolumeThreshold": 3.5,
       "volumeZScoreThreshold": 1.5,
-      "setupRangeLookback": 12,
+      "setupRangeLookback": 8,
       "requireM5Vwap": false,
       "requireContextVwap": true,
       "requireContextTrend": true,
@@ -28,7 +28,7 @@
       "requireKeyLevelProximity": true,
       "keyLevelTolerancePct": 0.0025,
       "avoidRangeMiddle": true,
-      "minBodyRatio": 0.45,
+      "minBodyRatio": 0.55,
       "minDirectionalCloseStrength": 0.70,
       "minEntryRiskPct": 0.008,
       "maxEntryRiskPct": 0.015,
@@ -227,7 +227,7 @@
       "setupTimeframe": "M1",
       "relativeVolumeThreshold": 2.0,
       "volumeZScoreThreshold": 0.5,
-      "setupRangeLookback": 8,
+      "setupRangeLookback": 6,
       "requireM5Vwap": false,
       "requireContextVwap": false,
       "requireContextTrend": false,
@@ -248,11 +248,11 @@
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 15
+      "maxHoldM1Candles": 10
     },
     {
       "id": "m1_trend_down_breakout_assist",
-      "riskFraction": 0.009,
+      "riskFraction": 0.0125,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -275,12 +275,12 @@
       "minEntryRiskPct": 0.008,
       "maxEntryRiskPct": 0.015,
       "maxEstimatedFeeR": 0.2,
-      "targetR": 0.8,
+      "targetR": 0.6,
       "exitMode": "FIXED_TARGET",
       "runnerTrailActivationR": 1.0,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 15
+      "maxHoldM1Candles": 10
     }
   ]
 }
