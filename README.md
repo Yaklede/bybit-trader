@@ -28,8 +28,13 @@ export BOT_CONTROL_TOKEN="replace-with-local-operator-token"
 export BOT_DATABASE_PATH="$PWD/data/bybit-trader.sqlite"
 export BOT_SYMBOL="BTCUSDT"
 export BOT_TIMEFRAMES="M15,H1"
+export BOT_PAPER_LOOP_ENABLED="false"
 ./gradlew :modules:bot-app:run
 ```
+
+Set `BOT_PAPER_LOOP_ENABLED=true` to run the paper loop automatically. Optional
+loop settings are `BOT_PAPER_TIMEFRAME`, `BOT_PAPER_CANDLE_LIMIT`, and
+`BOT_PAPER_INTERVAL_SECONDS`.
 
 Smoke test:
 

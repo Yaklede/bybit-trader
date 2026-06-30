@@ -14,6 +14,8 @@ class AppConfigTest :
             config.marketData.timeframes.map { it.name } shouldBe listOf("M15", "H1")
             config.api.host shouldBe "127.0.0.1"
             config.api.port shouldBe 8080
+            config.paperLoop.enabled shouldBe false
+            config.paperLoop.timeframe.name shouldBe "M15"
         }
 
         "testnet mode requires private exchange credentials" {
@@ -47,5 +49,22 @@ class AppConfigTest :
             config.marketData.symbol.value shouldBe "ETHUSDT"
             config.marketData.timeframes.map { it.name } shouldBe listOf("M15")
             config.marketData.bybitPublicBaseUrl shouldBe "https://api-testnet.bybit.com"
+        }
+
+        "paper loop settings can be read from environment" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_PAPER_LOOP_ENABLED" to "true",
+                        "BOT_PAPER_TIMEFRAME" to "H1",
+                        "BOT_PAPER_CANDLE_LIMIT" to "300",
+                        "BOT_PAPER_INTERVAL_SECONDS" to "1800",
+                    ),
+                )
+
+            config.paperLoop.enabled shouldBe true
+            config.paperLoop.timeframe.name shouldBe "H1"
+            config.paperLoop.candleLimit shouldBe 300
+            config.paperLoop.intervalSeconds shouldBe 1800
         }
     })

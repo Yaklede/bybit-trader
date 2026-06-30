@@ -9,6 +9,7 @@ data class AppConfig(
     val api: ApiConfig,
     val database: DatabaseConfig,
     val alerts: AlertsConfig,
+    val paperLoop: PaperLoopSettings,
 ) {
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): AppConfig {
@@ -27,9 +28,10 @@ data class AppConfig(
                 }
             }
 
+            val marketData = MarketDataConfig.fromEnvironment(environment)
             return AppConfig(
                 runtimeMode = runtimeMode,
-                marketData = MarketDataConfig.fromEnvironment(environment),
+                marketData = marketData,
                 api =
                     ApiConfig(
                         host = environment["BOT_API_HOST"] ?: "127.0.0.1",
@@ -41,6 +43,7 @@ data class AppConfig(
                         path = environment["BOT_DATABASE_PATH"] ?: "data/bybit-trader.sqlite",
                     ),
                 alerts = AlertsConfig.fromEnvironment(environment),
+                paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first()),
             )
         }
     }
@@ -88,6 +91,36 @@ data class DatabaseConfig(
 ) {
     init {
         require(path.isNotBlank()) { "Database path must not be blank." }
+    }
+}
+
+data class PaperLoopSettings(
+    val enabled: Boolean,
+    val timeframe: Timeframe,
+    val candleLimit: Int,
+    val intervalSeconds: Long,
+) {
+    init {
+        require(candleLimit in 20..1000) { "Paper loop candle limit must be between 20 and 1000." }
+        require(intervalSeconds in 10..86_400) { "Paper loop interval seconds must be between 10 and 86400." }
+    }
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            defaultTimeframe: Timeframe,
+        ): PaperLoopSettings =
+            PaperLoopSettings(
+                enabled = environment["BOT_PAPER_LOOP_ENABLED"].toBooleanStrictOrFalse(),
+                timeframe =
+                    environment["BOT_PAPER_TIMEFRAME"]
+                        ?.trim()
+                        ?.uppercase()
+                        ?.let(Timeframe::valueOf)
+                        ?: defaultTimeframe,
+                candleLimit = environment["BOT_PAPER_CANDLE_LIMIT"]?.toIntOrNull() ?: 200,
+                intervalSeconds = environment["BOT_PAPER_INTERVAL_SECONDS"]?.toLongOrNull() ?: 900,
+            )
     }
 }
 

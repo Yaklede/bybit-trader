@@ -15,6 +15,10 @@ import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
+import dev.yaklede.bybittrader.engine.paper.PaperEvaluationStatus
+import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
+import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
@@ -25,10 +29,15 @@ import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.engine.embeddedServer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.server.cio.CIO as ServerCIO
 
@@ -69,6 +78,25 @@ fun main() {
             paperTradingStore = ledger,
             strategy = MeanReversionStrategy(),
         )
+    val paperLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val paperLoopJob =
+        if (config.runtimeMode == RuntimeMode.PAPER && config.paperLoop.enabled) {
+            PaperTradingLoop(
+                marketDataSyncService = marketDataSyncService,
+                paperTradingService = paperTradingService,
+                config =
+                    PaperTradingLoopConfig(
+                        symbol = config.marketData.symbol,
+                        timeframe = config.paperLoop.timeframe,
+                        candleLimit = config.paperLoop.candleLimit,
+                        interval = Duration.ofSeconds(config.paperLoop.intervalSeconds),
+                    ),
+                onResult = { result -> alertingService.sendPaperLoopResult(result) },
+                onFailure = { error -> alertingService.sendPaperLoopFailure(error) },
+            ).start(paperLoopScope)
+        } else {
+            null
+        }
 
     runBlocking {
         alertingService.send(
@@ -91,6 +119,8 @@ fun main() {
                     ),
                 )
             }
+            paperLoopJob?.cancel()
+            paperLoopScope.cancel()
             httpClient.close()
         },
     )
@@ -162,4 +192,44 @@ private fun createAlertSink(
         1 -> sinks.single()
         else -> CompositeAlertSink(sinks)
     }
+}
+
+private suspend fun AlertingService.sendPaperLoopResult(result: PaperEvaluationResult) {
+    when (result.status) {
+        PaperEvaluationStatus.FILLED ->
+            send(
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "paper-fill",
+                    body =
+                        "${result.symbol.value} ${result.timeframe.name} ${result.status.name} " +
+                            "signal=${result.signalId} order=${result.orderId} fee=${result.fee?.toPlainString()}",
+                ),
+            )
+
+        PaperEvaluationStatus.REJECTED ->
+            send(
+                AlertMessage(
+                    severity = AlertSeverity.WARNING,
+                    title = "paper-signal-rejected",
+                    body =
+                        "${result.symbol.value} ${result.timeframe.name} rejected: " +
+                            result.reasonCodes.joinToString(","),
+                ),
+            )
+
+        PaperEvaluationStatus.SKIPPED_BY_MODE,
+        PaperEvaluationStatus.NO_TRADE,
+        -> Unit
+    }
+}
+
+private suspend fun AlertingService.sendPaperLoopFailure(error: Throwable) {
+    send(
+        AlertMessage(
+            severity = AlertSeverity.WARNING,
+            title = "paper-loop-error",
+            body = "Paper loop failed with ${error::class.simpleName ?: "unknown error"}.",
+        ),
+    )
 }
