@@ -46,9 +46,9 @@ baseline, it adds:
 
 Candidate result:
 
-| Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days |
-| --- | --- | --- | --- | --- | --- |
-| `40.94073%` | `2.10462%` | `32` | `9.12199` | `0.54553R` | `30` |
+| Net return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
+| --- | --- | --- | --- | --- | --- | --- |
+| `40.94073%` | `2.10462%` | `32` | `9.12199` | `0.54553R` | `30` | `0.08743` |
 
 Per-leg accepted performance:
 
@@ -83,6 +83,20 @@ Monthly accepted PnL:
 | `2026-05` | `-130.33` | 1 |
 | `2026-06` | `1318.15` | 5 |
 
+Walk-forward accepted PnL:
+
+| Window | Return | PnL | Trades | Profit factor | Max drawdown |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `WF1:2025-06-30..2025-09-29` | `2.19191%` | `219.19` | 1 | n/a | `0.00000%` |
+| `WF2:2025-09-29..2025-12-29` | `10.42635%` | `1065.49` | 11 | `5.09421` | `2.10462%` |
+| `WF3:2025-12-29..2026-03-31` | `11.78453%` | `1329.85` | 11 | `28.57186` | `0.26849%` |
+| `WF4:2026-03-31..2026-06-30` | `11.72891%` | `1479.55` | 9 | `8.56421` | `1.12568%` |
+
+Walk-forward note: all four windows are profitable, but `WF1` only has one
+accepted trade. The next useful tuning loop should target additional
+high-quality July to September setups without weakening the later three
+windows.
+
 ## Rejected Paths
 
 - M5 setup-close breakout continuation increased trade count to 35 but lowered
@@ -110,10 +124,9 @@ runtime database.
 
 ## Tuning Gate
 
-The composite backtest response now returns `monthlyPerformance` so the next
-tuning loop can reject candidates that only improve the annual total through one
-or two isolated trades. The next missing validation is a walk-forward gate that
-compares multiple contiguous train/test slices instead of one `60/40` split.
+The composite backtest response now returns `monthlyPerformance` and
+`walkForwardPerformance` so the next tuning loop can reject candidates that only
+improve the annual total through one or two isolated trades.
 
 Do not raise per-trade risk just to force the daily target until a candidate
 passes the monthly and walk-forward stability gates. Raising risk before then

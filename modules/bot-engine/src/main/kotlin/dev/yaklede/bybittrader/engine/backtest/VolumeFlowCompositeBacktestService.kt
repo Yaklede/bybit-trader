@@ -4,12 +4,15 @@ import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
+
+private const val WALK_FORWARD_WINDOW_COUNT = 4
 
 class VolumeFlowCompositeBacktestService(
     private val candleStore: MarketCandleStore,
@@ -248,6 +251,13 @@ class VolumeFlowCompositeBacktestService(
             performanceByMarketRegime = trades.compositeTagSummaries { it.marketRegime.name },
             performanceByVolumePattern = trades.compositeTagSummaries { it.volumePattern.name },
             monthlyPerformance = trades.monthlyPerformance(config.initialEquity),
+            walkForwardPerformance =
+                trades.walkForwardPerformance(
+                    initialEquity = config.initialEquity,
+                    startAt = startAt,
+                    endAt = endAt,
+                    windowCount = WALK_FORWARD_WINDOW_COUNT,
+                ),
             trades = trades,
         )
     }
@@ -370,6 +380,41 @@ private fun List<VolumeFlowCompositeBacktestTrade>.monthlyPerformance(initialEqu
         state.record(trade, equity)
     }
     return states.values.map(CompositePeriodBacktestState::toSummary)
+}
+
+private fun List<VolumeFlowCompositeBacktestTrade>.walkForwardPerformance(
+    initialEquity: Double,
+    startAt: Instant?,
+    endAt: Instant?,
+    windowCount: Int,
+): List<VolumeFlowPeriodSummary> {
+    if (startAt == null || endAt == null || !endAt.isAfter(startAt) || windowCount <= 0) return emptyList()
+
+    var equity = initialEquity
+    var tradeIndex = 0
+    val sortedTrades = sortedBy { it.exitAt }
+    val totalSeconds = Duration.between(startAt, endAt).seconds.coerceAtLeast(1L)
+    return (0 until windowCount).map { windowIndex ->
+        val windowStart = startAt.plusSeconds((totalSeconds * windowIndex) / windowCount)
+        val windowEnd =
+            if (windowIndex == windowCount - 1) {
+                endAt.plusNanos(1)
+            } else {
+                startAt.plusSeconds((totalSeconds * (windowIndex + 1)) / windowCount)
+            }
+        val state =
+            CompositePeriodBacktestState(
+                period = "WF${windowIndex + 1}:${windowStart.utcDate()}..${windowEnd.minusNanos(1).utcDate()}",
+                startingEquity = equity,
+            )
+        while (tradeIndex < sortedTrades.size && sortedTrades[tradeIndex].exitAt.isBefore(windowEnd)) {
+            val trade = sortedTrades[tradeIndex]
+            equity += trade.pnl
+            state.record(trade, equity)
+            tradeIndex += 1
+        }
+        state.toSummary()
+    }
 }
 
 private class CompositePeriodBacktestState(

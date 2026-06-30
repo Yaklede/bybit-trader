@@ -213,6 +213,7 @@ data class VolumeFlowCompositeBacktestResponse(
     val performanceByMarketRegime: List<VolumeFlowTagSummaryResponse>,
     val performanceByVolumePattern: List<VolumeFlowTagSummaryResponse>,
     val monthlyPerformance: List<VolumeFlowPeriodSummaryResponse>,
+    val walkForwardPerformance: List<VolumeFlowPeriodSummaryResponse>,
     val trades: List<VolumeFlowCompositeTradeResponse>,
 )
 
@@ -299,6 +300,7 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(): VolumeFlowCompositeB
         performanceByMarketRegime = performanceByMarketRegime.map(VolumeFlowTagSummary::toCompositeResponse),
         performanceByVolumePattern = performanceByVolumePattern.map(VolumeFlowTagSummary::toCompositeResponse),
         monthlyPerformance = monthlyPerformance.map(VolumeFlowPeriodSummary::toResponse),
+        walkForwardPerformance = walkForwardPerformance.map(VolumeFlowPeriodSummary::toResponse),
         trades = trades.takeLast(50).map(VolumeFlowCompositeBacktestTrade::toResponse),
     )
 

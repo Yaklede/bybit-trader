@@ -77,6 +77,7 @@ data class VolumeFlowCompositeBacktestReport(
     val performanceByMarketRegime: List<VolumeFlowTagSummary>,
     val performanceByVolumePattern: List<VolumeFlowTagSummary>,
     val monthlyPerformance: List<VolumeFlowPeriodSummary>,
+    val walkForwardPerformance: List<VolumeFlowPeriodSummary>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
 )
 

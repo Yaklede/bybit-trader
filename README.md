@@ -19,7 +19,7 @@ Milestone 1 is the operational backend shell:
   fills, positions, and performance snapshots without private Bybit order calls.
 - Volume-flow composite backtest endpoint that replays multiple strategy legs on
   one equity curve with overlap, daily stop, trade-count controls, and monthly
-  performance summaries.
+  and walk-forward performance summaries.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
