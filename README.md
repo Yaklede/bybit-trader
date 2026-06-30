@@ -11,8 +11,9 @@ Milestone 1 is the operational backend shell:
 - SQLDelight + SQLite event ledger for bot state, control events, alerts, and
   public market candles, and future trading records.
 - Bybit public REST kline sync through a protected operator endpoint.
-- Backtest endpoint over stored candles with fee, slippage, risk fraction,
-  drawdown, expectancy, and estimated monthly return metrics.
+- Backtest endpoint over stored candles with fee, slippage, funding, partial
+  take-profit, breakeven stop, ATR trailing, drawdown, expectancy, no-trade
+  reasons, and estimated monthly return metrics.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -41,7 +42,7 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200}' \
+  --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200,"fundingRatePer8h":0.0,"partialTakeProfitR":1.0,"partialTakeProfitFraction":0.5,"breakevenAfterPartialTakeProfit":true,"atrTrailingMultiplier":0.0}' \
   http://127.0.0.1:8080/backtests/run
 ```
 
