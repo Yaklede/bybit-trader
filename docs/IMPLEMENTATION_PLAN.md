@@ -343,12 +343,16 @@ Done when:
 - Report includes net PnL, PnL by strategy, profit factor, expectancy, average
   R, max drawdown, consecutive losses, and no-trade reasons.
 - Report includes observed trading days, trades per day, trades per active day,
-  and whether the strategy fits the 1 to 5 trades per day operating cadence.
+  and trade-frequency observations without treating daily frequency as a
+  profitability gate.
 - Volume-flow backtests can compare M1 and M5 setup candles and optionally
   require M5 VWAP alignment before 15m context confirmation.
 - Volume-flow reports tag each accepted trade by 15m market regime, key-level
   proximity, and volume pattern so losing logic can be disabled by setup type
   instead of tuning raw volume thresholds.
+- Volume-flow sweep ranking prioritizes compounded net return,
+  return-to-drawdown ratio, profit factor, and positive expectancy over trade
+  frequency.
 
 ### Step 9: Paper trading
 

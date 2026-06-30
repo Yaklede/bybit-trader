@@ -52,11 +52,13 @@ class VolumeFlowSweepService(
                         train = train,
                         test = test,
                         testPassesProfitabilityGate = test.passesProfitabilityGate(),
+                        testPassesCompoundingGate = test.passesCompoundingGate(),
                         testPassesFrequencyGate = test.passesFrequencyGate(sweepConfig),
-                        score = test.score(sweepConfig),
+                        score = test.compoundingScore(),
                     )
                 }.sortedWith(
-                    compareByDescending<VolumeFlowSweepResult> { it.testPassesProfitabilityGate && it.testPassesFrequencyGate }
+                    compareByDescending<VolumeFlowSweepResult> { it.testPassesCompoundingGate }
+                        .thenByDescending { it.testPassesProfitabilityGate }
                         .thenByDescending { it.score }
                         .thenByDescending { it.test.netReturnPct }
                         .thenBy { it.test.maxDrawdownPct },
@@ -109,22 +111,26 @@ private fun VolumeFlowBacktestSummary.passesProfitabilityGate(): Boolean =
         (profitFactor ?: 0.0) >= 1.1 &&
         maxDrawdownPct <= 10.0
 
+private fun VolumeFlowBacktestSummary.passesCompoundingGate(): Boolean =
+    passesProfitabilityGate() &&
+        expectancyR > 0.0 &&
+        returnDrawdownRatio >= 0.25 &&
+        maxConsecutiveLosses <= 3
+
 private fun VolumeFlowBacktestSummary.passesFrequencyGate(config: VolumeFlowSweepConfig): Boolean =
     averageTradesPerDay >= config.minTradesPerDay &&
         averageTradesPerDay <= config.maxTradesPerDay &&
         tradeFrequencyTargetPct >= 50.0
 
-private fun VolumeFlowBacktestSummary.score(config: VolumeFlowSweepConfig): Double {
+private fun VolumeFlowBacktestSummary.compoundingScore(): Double {
     val profitFactorScore = ((profitFactor ?: 0.0) - 1.0) * 10.0
-    val cadencePenalty =
-        when {
-            averageTradesPerDay < config.minTradesPerDay -> (config.minTradesPerDay - averageTradesPerDay) * 5.0
-            averageTradesPerDay > config.maxTradesPerDay -> (averageTradesPerDay - config.maxTradesPerDay) * 5.0
-            else -> 0.0
-        }
+    val expectancyScore = expectancyR * 20.0
+    val drawdownPenalty = maxDrawdownPct * 0.75
+    val lossStreakPenalty = maxConsecutiveLosses * 0.5
     return netReturnPct +
         profitFactorScore +
-        (tradeFrequencyTargetPct / 10.0) -
-        maxDrawdownPct -
-        cadencePenalty
+        expectancyScore +
+        (returnDrawdownRatio * 5.0) -
+        drawdownPenalty -
+        lossStreakPenalty
 }

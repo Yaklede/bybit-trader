@@ -41,8 +41,9 @@ maintenance simple enough for one operator to run.
   stop through authenticated local or private-network API commands.
 - Strategy-level net PnL is visible after fees, slippage estimates, and funding
   costs.
-- Backtests report whether the strategy reaches the operating cadence of at
-  least 1 and at most 5 trades per observed trading day.
+- Backtests rank strategies by compounded net return, return-to-drawdown ratio,
+  profit factor, and expectancy. Trade frequency is reported as an operator
+  observation metric, not a pass/fail target.
 - The bot can restart without losing knowledge of open orders, open positions,
   or current control state.
 - Daily 0.5 to 2.0 percent return is treated as an upside target to validate,
@@ -183,8 +184,8 @@ Acceptance criteria:
 ### Engine 1: Intraday volume-flow scalping
 
 - Timeframe: 1m trigger, 5m local flow, 15m context.
-- Purpose: primary cashflow engine targeting 1 to 5 trades per observed trading
-  day.
+- Purpose: primary cashflow engine that compounds only when high-conviction
+  flow setups appear; quiet periods are acceptable.
 - Example inputs: relative volume expansion, volume z-score, candle body and
   close location, local range breakout or failed breakout, VWAP side, estimated
   fee-to-risk ratio.
@@ -453,8 +454,8 @@ Decision gates:
 - Implement intraday volume-flow, mean reversion, and breakout/retest signal
   scoring.
 - Implement partial take profit, breakeven, and ATR trailing simulation.
-- Generate strategy-level performance reports with daily trade-frequency
-  checks.
+- Generate strategy-level performance reports with compounded return,
+  return-to-drawdown, expectancy, and trade-frequency observations.
 
 ### Phase 3: Paper trading
 

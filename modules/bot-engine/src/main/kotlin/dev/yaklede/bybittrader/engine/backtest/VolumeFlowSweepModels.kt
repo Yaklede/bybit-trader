@@ -338,6 +338,7 @@ data class VolumeFlowSweepResult(
     val train: VolumeFlowBacktestSummary,
     val test: VolumeFlowBacktestSummary,
     val testPassesProfitabilityGate: Boolean,
+    val testPassesCompoundingGate: Boolean,
     val testPassesFrequencyGate: Boolean,
     val score: Double,
 )
@@ -349,6 +350,7 @@ data class VolumeFlowBacktestSummary(
     val maxDrawdownPct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
+    val returnDrawdownRatio: Double,
     val winRatePct: Double,
     val maxConsecutiveLosses: Int,
     val observedDays: Int,
@@ -371,6 +373,7 @@ fun VolumeFlowBacktestReport.toSweepSummary(): VolumeFlowBacktestSummary =
         maxDrawdownPct = maxDrawdownPct,
         profitFactor = profitFactor,
         expectancyR = expectancyR,
+        returnDrawdownRatio = netReturnPct / maxOf(maxDrawdownPct, 1.0),
         winRatePct = winRatePct,
         maxConsecutiveLosses = maxConsecutiveLosses,
         observedDays = observedDays,

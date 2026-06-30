@@ -13,7 +13,8 @@ Milestone 1 is the operational backend shell:
 - Bybit public REST kline sync through a protected operator endpoint.
 - Backtest endpoint over stored candles with fee, slippage, funding, partial
   take-profit, breakeven stop, ATR trailing, drawdown, expectancy, no-trade
-  reasons, trade frequency checks, and estimated return metrics.
+  reasons, compounding score, return-to-drawdown ratio, and estimated return
+  metrics.
 - Paper evaluation endpoint that records strategy signals, paper market orders,
   fills, positions, and performance snapshots without private Bybit order calls.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
