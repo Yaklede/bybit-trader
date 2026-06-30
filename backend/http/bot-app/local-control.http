@@ -33,3 +33,19 @@ Content-Type: application/json
   "timeframes": ["M15", "H1"],
   "limit": 200
 }
+
+### Run a backtest over stored candles
+POST http://localhost:8080/backtests/run
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframe": "M15",
+  "candleLimit": 500,
+  "initialEquity": 10000.0,
+  "riskFraction": 0.005,
+  "feeRate": 0.0006,
+  "slippageRate": 0.0002,
+  "maxHoldCandles": 16
+}

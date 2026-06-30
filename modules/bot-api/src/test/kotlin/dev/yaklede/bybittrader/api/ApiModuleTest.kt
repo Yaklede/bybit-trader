@@ -2,8 +2,14 @@ package dev.yaklede.bybittrader.api
 
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Candle
+import dev.yaklede.bybittrader.domain.Price
+import dev.yaklede.bybittrader.domain.Side
+import dev.yaklede.bybittrader.domain.SignalIntent
+import dev.yaklede.bybittrader.domain.SignalScore
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
+import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
@@ -13,6 +19,8 @@ import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.strategy.StrategyDecision
+import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.bearerAuth
@@ -39,6 +47,7 @@ class ApiModuleTest :
                         stateStore = stateStore,
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -55,6 +64,7 @@ class ApiModuleTest :
                         stateStore = stateStore,
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -75,6 +85,7 @@ class ApiModuleTest :
                         stateStore = stateStore,
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -99,6 +110,7 @@ class ApiModuleTest :
                         stateStore = stateStore,
                         controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
                         marketDataSyncService = testMarketDataSyncService(store),
+                        backtestService = testBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -132,6 +144,7 @@ class ApiModuleTest :
                                 marketDataFeed = FailingMarketDataFeed(),
                                 candleStore = InMemoryMarketCandleStore(),
                             ),
+                        backtestService = testBacktestService(),
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -142,6 +155,32 @@ class ApiModuleTest :
                         header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                         setBody("""{"symbol":"BTCUSDT","timeframes":["M15"],"limit":2}""")
                     }.status shouldBe HttpStatusCode.BadGateway
+            }
+        }
+
+        "authorized backtest request returns estimated result" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService =
+                            BacktestService(
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                runner = BacktestRunner(AlwaysBuyApiStrategy()),
+                            ),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/backtests/run") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody("""{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":30}""")
+                    }.status shouldBe HttpStatusCode.OK
             }
         }
     })
@@ -172,6 +211,12 @@ private fun testMarketDataSyncService(store: InMemoryMarketCandleStore = InMemor
         clock = Clock.fixed(Instant.parse("2026-06-30T00:00:00Z"), ZoneOffset.UTC),
     )
 
+private fun testBacktestService(store: InMemoryMarketCandleStore = InMemoryMarketCandleStore()): BacktestService =
+    BacktestService(
+        candleStore = store,
+        runner = BacktestRunner(NoTradeApiStrategy()),
+    )
+
 private class StaticMarketDataFeed : MarketDataFeed {
     override suspend fun fetchRecentCandles(
         symbol: Symbol,
@@ -192,7 +237,9 @@ private class StaticMarketDataFeed : MarketDataFeed {
         )
 }
 
-private class InMemoryMarketCandleStore : MarketCandleStore {
+private class InMemoryMarketCandleStore(
+    private val existingCandles: List<Candle> = emptyList(),
+) : MarketCandleStore {
     val saved = mutableListOf<List<Candle>>()
 
     override suspend fun upsert(candles: List<Candle>) {
@@ -203,7 +250,11 @@ private class InMemoryMarketCandleStore : MarketCandleStore {
         symbol: Symbol,
         timeframe: Timeframe,
         limit: Int,
-    ): List<Candle> = emptyList()
+    ): List<Candle> =
+        existingCandles
+            .filter { it.symbol == symbol && it.timeframe == timeframe }
+            .sortedByDescending { it.openedAt }
+            .take(limit)
 }
 
 private class FailingMarketDataFeed : MarketDataFeed {
@@ -213,3 +264,46 @@ private class FailingMarketDataFeed : MarketDataFeed {
         limit: Int,
     ): List<Candle> = throw MarketDataException("provider failed with raw details")
 }
+
+private class NoTradeApiStrategy : TradingStrategy {
+    override val name: String = "no-trade-api-test"
+    override val warmupCandles: Int = 2
+
+    override fun evaluate(candles: List<Candle>): StrategyDecision = StrategyDecision.noTrade("TEST")
+}
+
+private class AlwaysBuyApiStrategy : TradingStrategy {
+    override val name: String = "always-buy-api-test"
+    override val warmupCandles: Int = 2
+
+    override fun evaluate(candles: List<Candle>): StrategyDecision {
+        val latest = candles.last()
+        return StrategyDecision(
+            intent =
+                SignalIntent(
+                    symbol = latest.symbol,
+                    side = Side.BUY,
+                    strategy = name,
+                    score = SignalScore(80, listOf("TEST")),
+                    invalidationPrice = Price(latest.close - BigDecimal("5")),
+                    expectedR = BigDecimal("1.5"),
+                ),
+            reasonCodes = listOf("TEST"),
+        )
+    }
+}
+
+private fun backtestCandles(): List<Candle> =
+    (0 until 40).map { index ->
+        val close = 100 + index
+        Candle(
+            symbol = Symbol("BTCUSDT"),
+            timeframe = Timeframe.M15,
+            openedAt = Instant.parse("2026-06-30T00:00:00Z").plusSeconds(index * 900L),
+            open = BigDecimal(close),
+            high = BigDecimal(close + 10),
+            low = BigDecimal(close - 1),
+            close = BigDecimal(close),
+            volume = BigDecimal("10"),
+        )
+    }

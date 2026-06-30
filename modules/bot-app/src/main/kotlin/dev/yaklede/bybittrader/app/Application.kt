@@ -10,12 +10,15 @@ import dev.yaklede.bybittrader.alerts.DiscordWebhookAlertSink
 import dev.yaklede.bybittrader.alerts.NoopAlertSink
 import dev.yaklede.bybittrader.alerts.TelegramAlertSink
 import dev.yaklede.bybittrader.api.configureApi
+import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
+import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
+import dev.yaklede.bybittrader.strategy.MeanReversionStrategy
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
@@ -51,6 +54,11 @@ fun main() {
             stateStore = ledger,
             eventRecorder = ledger,
         )
+    val backtestService =
+        BacktestService(
+            candleStore = ledger,
+            runner = BacktestRunner(MeanReversionStrategy()),
+        )
 
     runBlocking {
         alertingService.send(
@@ -83,6 +91,7 @@ fun main() {
                 stateStore = ledger,
                 controlService = controlService,
                 marketDataSyncService = marketDataSyncService,
+                backtestService = backtestService,
                 controlCredential = config.api.controlCredential,
             )
         }

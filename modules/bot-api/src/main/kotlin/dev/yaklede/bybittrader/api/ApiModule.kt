@@ -1,10 +1,12 @@
 package dev.yaklede.bybittrader.api
 
+import dev.yaklede.bybittrader.api.backtest.configureBacktestRoutes
 import dev.yaklede.bybittrader.api.control.configureControlRoutes
 import dev.yaklede.bybittrader.api.health.configureHealthRoutes
 import dev.yaklede.bybittrader.api.market.configureMarketDataRoutes
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
+import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
@@ -23,6 +25,7 @@ fun Application.configureApi(
     stateStore: BotStateStore,
     controlService: BotControlService,
     marketDataSyncService: MarketDataSyncService,
+    backtestService: BacktestService,
     controlCredential: String?,
 ) {
     install(ContentNegotiation) {
@@ -52,6 +55,7 @@ fun Application.configureApi(
         configureStatusRoutes(stateStore)
         configureControlRoutes(controlService)
         configureMarketDataRoutes(marketDataSyncService)
+        configureBacktestRoutes(backtestService)
     }
 }
 

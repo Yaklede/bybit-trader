@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":modules:bot-engine"))
     implementation(project(":modules:bot-exchange-bybit"))
     implementation(project(":modules:bot-ledger"))
+    implementation(project(":modules:bot-strategy"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)

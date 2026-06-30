@@ -14,4 +14,5 @@ dependencies {
     testImplementation(libs.kotest.runner.junit5)
     testImplementation(libs.kotest.assertions.core)
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(project(":modules:bot-strategy"))
 }
