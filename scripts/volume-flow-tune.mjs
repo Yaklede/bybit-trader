@@ -45,7 +45,9 @@ for (let index = 0; index < variants.length; index += 1) {
         bestSummary
           ? `best=${best.name} cdr=${fmt(bestSummary.compoundDailyReturnPct)} coverage=${fmt(
               bestSummary.activeDayCoveragePct,
-            )} mdd=${fmt(bestSummary.maxDrawdownPct)} maxLoss=${bestSummary.maxConsecutiveLosses}`
+            )} mdd=${fmt(bestSummary.maxDrawdownPct)} mtmMdd=${fmt(
+              bestSummary.markToMarketMaxDrawdownPct,
+            )} maxLoss=${bestSummary.maxConsecutiveLosses}`
           : "best=n/a",
       ].join(" "),
     );
@@ -329,9 +331,10 @@ async function runComposite(variant) {
 }
 
 function passesTarget(report) {
+  const deployableDrawdownPct = deploymentDrawdownPct(report);
   return (
     report.compoundDailyReturnPct >= DEFAULT_TARGET.compoundDailyReturnPct &&
-    report.maxDrawdownPct <= DEFAULT_TARGET.maxDrawdownPct &&
+    deployableDrawdownPct <= DEFAULT_TARGET.maxDrawdownPct &&
     report.activeDayCoveragePct >= DEFAULT_TARGET.activeDayCoveragePct &&
     (report.winRateEdgePct ?? -100) > DEFAULT_TARGET.minWinRateEdgePct &&
     report.maxConsecutiveLosses <= DEFAULT_TARGET.maxConsecutiveLosses
@@ -344,9 +347,13 @@ function score(report) {
   const coverageScore = report.activeDayCoveragePct * 80;
   const edgeScore = (report.winRateEdgePct ?? -50) * 25;
   const expectancyScore = report.expectancyR * 1000;
-  const drawdownPenalty = report.maxDrawdownPct * 300;
+  const drawdownPenalty = deploymentDrawdownPct(report) * 300;
   const lossPenalty = Math.max(0, report.maxConsecutiveLosses - DEFAULT_TARGET.maxConsecutiveLosses) * 1200;
   return targetBonus + cdrScore + coverageScore + edgeScore + expectancyScore - drawdownPenalty - lossPenalty;
+}
+
+function deploymentDrawdownPct(report) {
+  return Math.max(report.maxDrawdownPct ?? 0, report.markToMarketMaxDrawdownPct ?? report.maxDrawdownPct ?? 0);
 }
 
 function summarize(report) {
@@ -354,6 +361,10 @@ function summarize(report) {
     netReturnPct: report.netReturnPct,
     compoundDailyReturnPct: report.compoundDailyReturnPct,
     maxDrawdownPct: report.maxDrawdownPct,
+    markToMarketMaxDrawdownPct: report.markToMarketMaxDrawdownPct,
+    averageMaxFavorableExcursionR: report.averageMaxFavorableExcursionR,
+    averageMaxAdverseExcursionR: report.averageMaxAdverseExcursionR,
+    averageMfeCapturePct: report.averageMfeCapturePct,
     tradeCount: report.tradeCount,
     winRatePct: report.winRatePct,
     payoffRatio: report.payoffRatio,

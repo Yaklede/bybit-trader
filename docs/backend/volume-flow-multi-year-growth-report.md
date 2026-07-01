@@ -259,3 +259,79 @@ Decision:
 - Additional loose coverage legs were tested but did not improve the accepted
   candidate. The remaining gap requires a new positive-expectancy setup family,
   not only risk scaling.
+
+## Excursion Diagnostics Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and
+`config/volume-flow-composite-current.json`. It adds candle-level trade
+excursion metrics to the backtest response:
+
+- `maxFavorableExcursionR`: maximum in-trade favorable move in R.
+- `maxAdverseExcursionR`: maximum in-trade adverse move in R.
+- `mfeCapturePct`: realized R divided by maximum favorable R. This can be
+  negative when a trade moved favorably before closing at a loss.
+- `markToMarketMaxDrawdownPct`: drawdown including each position's worst
+  in-trade adverse excursion. For concurrent positions this is a per-position
+  diagnostic, not a full tick-level portfolio path replay.
+
+Validated current result with the new diagnostics:
+
+| Horizon | Final equity | Compound daily | Realized MDD | Mark-to-market MDD | Avg MFE | Avg MAE | Avg MFE capture | Trades | Expectancy R |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,252,218 KRW` | `0.63795%` | `18.60992%` | `23.68100%` | `1.05261R` | `0.30974R` | `-114.32975%` | `84` | `0.44837R` |
+| 2 years | `52,661,077 KRW` | `0.54373%` | `31.55409%` | `32.46589%` | `1.06594R` | `0.40106R` | `-218.51020%` | `182` | `0.35963R` |
+| 3 years | `125,401,945 KRW` | `0.44140%` | `39.90845%` | `41.03446%` | `1.07854R` | `0.43516R` | `-175.90296%` | `268` | `0.30706R` |
+
+Risk gate update:
+
+| Risk fraction | 3-year final equity | Compound daily | Realized MDD | Mark-to-market MDD | Decision |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| `0.069` | `106,734,862 KRW` | `0.42665%` | `38.49808%` | `39.60251%` | Strict MTM gate pass |
+| `0.070` | `112,666,970 KRW` | `0.43160%` | `38.97048%` | `40.08230%` | MTM gate fail |
+| `0.071` | `118,885,578 KRW` | `0.43652%` | `39.44060%` | `40.55962%` | MTM gate fail |
+| `0.072` | `125,401,945 KRW` | `0.44140%` | `39.90845%` | `41.03446%` | Research only under MTM gate |
+
+Key 3-year diagnostics:
+
+| Segment | Trades | Win rate | Profit factor | Expectancy R | Avg MFE | Avg MAE | Avg MFE capture |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `BUY` | `80` | `53.75000%` | `1.17864` | `0.22345R` | `1.26234R` | `0.55255R` | `-224.07972%` |
+| `SELL` | `188` | `66.48936%` | `4.37038` | `0.34263R` | `1.00032R` | `0.38521R` | `-155.36860%` |
+| `STOP` exits | `24` | `0.00000%` | `0.00000` | `-1.13722R` | `0.26426R` | `1.25395R` | `-1,637.08692%` |
+| `TIME` exits | `133` | `45.86466%` | `1.10199` | `-0.01140R` | `0.66877R` | `0.43881R` | `-127.17324%` |
+| `TRAILING_STOP` exits | `36` | `88.88889%` | `1,012.19060` | `0.87479R` | `2.01563R` | `0.27151R` | `35.65974%` |
+| `TREND_BREAK` exits | `12` | `100.00000%` | `n/a` | `1.53143R` | `2.85603R` | `0.35955R` | `49.88057%` |
+
+Interpretation:
+
+- The current `0.072` risk setting is valid only under realized-MDD reporting.
+  With open-position adverse movement included, the three-year drawdown rises to
+  `41.03446%`, above the current `40%` deployment gate.
+- The strategy has enough raw favorable movement to improve: three-year average
+  MFE is `1.07854R`, while realized expectancy is only `0.30706R`.
+- The main leak is not the winning fixed-target trades. `TARGET`,
+  `TRAILING_STOP`, and `TREND_BREAK` exits are positive. The drag comes from
+  `TIME` exits and `STOP` exits after small favorable movement.
+- Long-side trades are materially weaker than short-side trades. `BUY` has
+  higher MFE but lower profit factor and higher MAE, so it is giving back more
+  movement before exit.
+
+Next improvement list:
+
+1. Add a first-N-minute follow-through rule. If a trade does not reach at least
+   `0.25R-0.35R` favorable movement quickly, exit early or move to a reduced
+   risk state. This targets `STOP` trades that average only `0.26426R` MFE.
+2. Replace weak `TIME` exits with structure invalidation or breakeven logic.
+   `TIME` exits are the largest bucket at `133` trades and have slightly
+   negative expectancy despite `0.66877R` average MFE.
+3. Split risk by side. Keep or expand short-side risk first; cap long-side risk
+   until `BUY` profit factor improves materially above `1.17864`.
+4. Treat `riskFraction=0.072` as a research setting. For strict deployment under
+   the current `40%` mark-to-market gate, use `0.069` until exit logic reduces
+   in-trade adverse drawdown.
+5. Expand the high-expectancy runner family, especially trend-break or trailing
+   exits. `TREND_BREAK` and `TRAILING_STOP` have the strongest R expectancy, but
+   still capture only about `35-50%` of available MFE.
+6. Add future tuning gates to reject candidates by
+   `max(realized MDD, mark-to-market MDD)`. The recursive tuning scripts now use
+   this stricter deployment drawdown metric.

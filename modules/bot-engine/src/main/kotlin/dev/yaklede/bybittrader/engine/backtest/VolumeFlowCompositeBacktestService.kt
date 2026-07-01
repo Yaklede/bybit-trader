@@ -96,6 +96,7 @@ class VolumeFlowCompositeBacktestService(
             config = config,
             finalEquity = simulationResult.finalEquity,
             maxDrawdownPct = simulationResult.maxDrawdownPct,
+            markToMarketMaxDrawdownPct = simulationResult.markToMarketMaxDrawdownPct,
             setupCount = legReports.sumOf { it.report.setupCount },
             rejectedSetupCount = legReports.sumOf { it.report.rejectedSetupCount },
             signalCount = signals.size,
@@ -113,6 +114,7 @@ class VolumeFlowCompositeBacktestService(
         config: VolumeFlowCompositeBacktestConfig,
         finalEquity: Double,
         maxDrawdownPct: Double,
+        markToMarketMaxDrawdownPct: Double,
         setupCount: Int,
         rejectedSetupCount: Int,
         signalCount: Int,
@@ -146,6 +148,7 @@ class VolumeFlowCompositeBacktestService(
         val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
         val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
         val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
+        val mfeCaptures = trades.mapNotNull { it.mfeCapturePct }.filter { it.isFinite() }
         val netPnl = finalEquity - config.initialEquity
         return VolumeFlowCompositeBacktestReport(
             symbol = symbol,
@@ -159,6 +162,12 @@ class VolumeFlowCompositeBacktestService(
             netPnl = netPnl,
             netReturnPct = (netPnl / config.initialEquity) * 100.0,
             maxDrawdownPct = maxDrawdownPct,
+            markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct,
+            averageMaxFavorableExcursionR =
+                if (trades.isEmpty()) 0.0 else trades.map { it.maxFavorableExcursionR }.average(),
+            averageMaxAdverseExcursionR =
+                if (trades.isEmpty()) 0.0 else trades.map { it.maxAdverseExcursionR }.average(),
+            averageMfeCapturePct = if (mfeCaptures.isEmpty()) null else mfeCaptures.average(),
             tradeCount = trades.size,
             wins = wins,
             losses = losses,
@@ -190,6 +199,8 @@ class VolumeFlowCompositeBacktestService(
             noTradeReasonCounts = noTradeReasonCounts,
             performanceByLeg = trades.compositeTagSummaries { it.legId },
             performanceBySetupMode = trades.compositeTagSummaries { it.setupMode.name },
+            performanceBySide = trades.compositeTagSummaries { it.side.name },
+            performanceByExitReason = trades.compositeTagSummaries { it.exitReason.name },
             performanceByMarketRegime = trades.compositeTagSummaries { it.marketRegime.name },
             performanceByVolumePattern = trades.compositeTagSummaries { it.volumePattern.name },
             monthlyPerformance = trades.monthlyPerformance(config.initialEquity),
@@ -230,6 +241,7 @@ private fun simulateSinglePositionComposite(
     var equity = config.initialEquity
     var peakEquity = equity
     var maxDrawdownPct = 0.0
+    var markToMarketMaxDrawdownPct = 0.0
     var blockedUntil = Instant.MIN
     var consecutiveLosses = 0
     val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
@@ -251,6 +263,9 @@ private fun simulateSinglePositionComposite(
         }
 
         val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
+        val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
+        markToMarketMaxDrawdownPct =
+            maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
         equity += trade.pnl
         peakEquity = maxOf(peakEquity, equity)
         maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
@@ -264,6 +279,7 @@ private fun simulateSinglePositionComposite(
     return CompositeSimulationResult(
         finalEquity = equity,
         maxDrawdownPct = maxDrawdownPct,
+        markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct,
         noTradeReasonCounts = noTradeReasonCounts,
         dailyStates = dailyStates,
         trades = trades,
@@ -278,6 +294,7 @@ private fun simulateConcurrentComposite(
     var equity = config.initialEquity
     var peakEquity = equity
     var maxDrawdownPct = 0.0
+    var markToMarketMaxDrawdownPct = 0.0
     var consecutiveLosses = 0
     val openTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val closedTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
@@ -337,6 +354,9 @@ private fun simulateConcurrentComposite(
         }
 
         val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
+        val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
+        markToMarketMaxDrawdownPct =
+            maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
         acceptedEntriesByDay[setupDay] = (acceptedEntriesByDay[setupDay] ?: 0) + 1
         acceptedSetupKeys += setupKey
         openTrades += trade
@@ -349,6 +369,7 @@ private fun simulateConcurrentComposite(
     return CompositeSimulationResult(
         finalEquity = equity,
         maxDrawdownPct = maxDrawdownPct,
+        markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct,
         noTradeReasonCounts = noTradeReasonCounts,
         dailyStates = dailyStates,
         trades = closedTrades,
@@ -372,6 +393,13 @@ private fun CompositeSignal.toCompositeTrade(
     val grossPnl = sourceTrade.grossPnl * quantityScale
     val fees = sourceTrade.fees * quantityScale
     val pnl = grossPnl - fees
+    val returnR = if (riskAmount <= 0.0) 0.0 else pnl / riskAmount
+    val mfeCapturePct =
+        if (sourceTrade.maxFavorableExcursionR <= 0.0) {
+            null
+        } else {
+            (returnR / sourceTrade.maxFavorableExcursionR) * 100.0
+        }
 
     return VolumeFlowCompositeBacktestTrade(
         legId = legId,
@@ -388,7 +416,14 @@ private fun CompositeSignal.toCompositeTrade(
         grossPnl = grossPnl,
         fees = fees,
         pnl = pnl,
-        returnR = if (riskAmount <= 0.0) 0.0 else pnl / riskAmount,
+        returnR = returnR,
+        maxFavorableExcursionR = sourceTrade.maxFavorableExcursionR,
+        maxAdverseExcursionR = sourceTrade.maxAdverseExcursionR,
+        mfeCapturePct = mfeCapturePct,
+        maxFavorablePrice = sourceTrade.maxFavorablePrice,
+        maxAdversePrice = sourceTrade.maxAdversePrice,
+        maxUnrealizedProfitPct = sourceTrade.maxFavorableExcursionR * riskFraction * 100.0,
+        maxUnrealizedDrawdownPct = sourceTrade.maxAdverseExcursionR * riskFraction * 100.0,
         exitReason = sourceTrade.exitReason,
         marketRegime = sourceTrade.marketRegime,
         keyLevelType = sourceTrade.keyLevelType,
@@ -404,6 +439,7 @@ private fun CompositeSignal.toCompositeTrade(
 private data class CompositeSimulationResult(
     val finalEquity: Double,
     val maxDrawdownPct: Double,
+    val markToMarketMaxDrawdownPct: Double,
     val noTradeReasonCounts: Map<String, Int>,
     val dailyStates: Map<LocalDate, CompositeDailyBacktestState>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
@@ -511,6 +547,7 @@ private fun List<VolumeFlowCompositeBacktestTrade>.compositeTagSummaries(
             val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
             val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
             val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
+            val mfeCaptures = trades.mapNotNull { it.mfeCapturePct }.filter { it.isFinite() }
             VolumeFlowTagSummary(
                 tag = tag,
                 tradeCount = trades.size,
@@ -523,6 +560,11 @@ private fun List<VolumeFlowCompositeBacktestTrade>.compositeTagSummaries(
                 payoffRatio = expectancyProfile.payoffRatio,
                 breakevenWinRatePct = expectancyProfile.breakevenWinRatePct,
                 winRateEdgePct = expectancyProfile.winRateEdgePct,
+                averageMaxFavorableExcursionR =
+                    if (trades.isEmpty()) 0.0 else trades.map { it.maxFavorableExcursionR }.average(),
+                averageMaxAdverseExcursionR =
+                    if (trades.isEmpty()) 0.0 else trades.map { it.maxAdverseExcursionR }.average(),
+                averageMfeCapturePct = if (mfeCaptures.isEmpty()) null else mfeCaptures.average(),
             )
         }
 

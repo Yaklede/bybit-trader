@@ -57,6 +57,7 @@ class VolumeFlowBacktestService(
         var equity = config.initialEquity
         var peakEquity = equity
         var maxDrawdownPct = 0.0
+        var markToMarketMaxDrawdownPct = 0.0
         var blockedUntil = Instant.MIN
         var consecutiveLosses = 0
         var setupCount = 0
@@ -157,12 +158,27 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            val riskAmount = equity * config.riskFraction
+            val entryEquity = equity
+            val riskAmount = entryEquity * config.riskFraction
             val quantity = riskAmount / riskPerUnit
             val exit = simulateExit(m1Candles, entry, config)
             val grossPnl = grossPnl(candidate.side, entry.entryPrice, exit.exitPrice, quantity)
             val fees = ((entry.entryPrice * quantity) + (exit.exitPrice * quantity)) * config.feeRate
             val pnl = grossPnl - fees
+            val returnR = pnl / riskAmount
+            val mfeCapturePct =
+                if (exit.maxFavorableExcursionR <= 0.0) {
+                    null
+                } else {
+                    (returnR / exit.maxFavorableExcursionR) * 100.0
+                }
+            val maxUnrealizedProfitPct =
+                if (entryEquity <= 0.0) 0.0 else ((exit.maxFavorableExcursionR * riskAmount) / entryEquity) * 100.0
+            val maxUnrealizedDrawdownPct =
+                if (entryEquity <= 0.0) 0.0 else ((exit.maxAdverseExcursionR * riskAmount) / entryEquity) * 100.0
+            val markToMarketLowEquity = entryEquity - (exit.maxAdverseExcursionR * riskAmount)
+            markToMarketMaxDrawdownPct =
+                maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
             equity += pnl
             peakEquity = maxOf(peakEquity, equity)
             maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
@@ -183,7 +199,14 @@ class VolumeFlowBacktestService(
                     grossPnl = grossPnl,
                     fees = fees,
                     pnl = pnl,
-                    returnR = pnl / riskAmount,
+                    returnR = returnR,
+                    maxFavorableExcursionR = exit.maxFavorableExcursionR,
+                    maxAdverseExcursionR = exit.maxAdverseExcursionR,
+                    mfeCapturePct = mfeCapturePct,
+                    maxFavorablePrice = exit.maxFavorablePrice,
+                    maxAdversePrice = exit.maxAdversePrice,
+                    maxUnrealizedProfitPct = maxUnrealizedProfitPct,
+                    maxUnrealizedDrawdownPct = maxUnrealizedDrawdownPct,
                     exitReason = exit.reason,
                     marketRegime = marketRegime,
                     keyLevelType = candidate.keyLevel.type,
@@ -207,6 +230,7 @@ class VolumeFlowBacktestService(
             config = config,
             finalEquity = equity,
             maxDrawdownPct = maxDrawdownPct,
+            markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct,
             setupCount = setupCount,
             rejectedSetupCount = rejectedSetupCount,
             noTradeReasonCounts = noTradeReasonCounts.toSortedMap(),
@@ -749,19 +773,79 @@ class VolumeFlowBacktestService(
         val startIndex = minOf(entry.entryIndex + 1, m1Candles.lastIndex)
         val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles, m1Candles.lastIndex)
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
+        var maxFavorableMove = 0.0
+        var maxAdverseMove = 0.0
+        var maxFavorablePrice = entry.entryPrice
+        var maxAdversePrice = entry.entryPrice
         var stopPrice = entry.stopPrice
         var stopReason = VolumeFlowExitReason.STOP
         var trendBreakActivated = false
+
+        fun recordExcursion(candle: Candle) {
+            val favorablePrice =
+                when (entry.side) {
+                    Side.BUY -> candle.high.toDouble()
+                    Side.SELL -> candle.low.toDouble()
+                }
+            val adversePrice =
+                when (entry.side) {
+                    Side.BUY -> candle.low.toDouble()
+                    Side.SELL -> candle.high.toDouble()
+                }
+            val favorableMove =
+                maxOf(
+                    0.0,
+                    when (entry.side) {
+                        Side.BUY -> favorablePrice - entry.entryPrice
+                        Side.SELL -> entry.entryPrice - favorablePrice
+                    },
+                )
+            val adverseMove =
+                maxOf(
+                    0.0,
+                    when (entry.side) {
+                        Side.BUY -> entry.entryPrice - adversePrice
+                        Side.SELL -> adversePrice - entry.entryPrice
+                    },
+                )
+            if (favorableMove > maxFavorableMove) {
+                maxFavorableMove = favorableMove
+                maxFavorablePrice = favorablePrice
+            }
+            if (adverseMove > maxAdverseMove) {
+                maxAdverseMove = adverseMove
+                maxAdversePrice = adversePrice
+            }
+        }
+
+        fun exitPlan(
+            candle: Candle,
+            exitPrice: Double,
+            reason: VolumeFlowExitReason,
+        ): ExitPlan =
+            ExitPlan(
+                exitCandle = candle,
+                exitPrice = exitPrice,
+                reason = reason,
+                maxFavorableExcursionR =
+                    if (initialRiskPerUnit <= 0.0) 0.0 else maxFavorableMove / initialRiskPerUnit,
+                maxAdverseExcursionR =
+                    if (initialRiskPerUnit <= 0.0) 0.0 else maxAdverseMove / initialRiskPerUnit,
+                maxFavorablePrice = maxFavorablePrice,
+                maxAdversePrice = maxAdversePrice,
+            )
+
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
+            recordExcursion(candle)
             val stopHit =
                 when (entry.side) {
                     Side.BUY -> candle.low.toDouble() <= stopPrice
                     Side.SELL -> candle.high.toDouble() >= stopPrice
                 }
             if (stopHit) {
-                return ExitPlan(
-                    exitCandle = candle,
+                return exitPlan(
+                    candle = candle,
                     exitPrice = stopPrice.withExitSlippage(entry.side, config),
                     reason = stopReason,
                 )
@@ -772,8 +856,8 @@ class VolumeFlowBacktestService(
                     Side.SELL -> candle.low.toDouble() <= entry.targetPrice
                 }
             if (config.exitMode == VolumeFlowExitMode.FIXED_TARGET && targetHit) {
-                return ExitPlan(
-                    exitCandle = candle,
+                return exitPlan(
+                    candle = candle,
                     exitPrice = entry.targetPrice.withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.TARGET,
                 )
@@ -816,8 +900,8 @@ class VolumeFlowBacktestService(
                 trendBreakActivated &&
                 trendBreakConfirmed(m1Candles, index, entry, config)
             ) {
-                return ExitPlan(
-                    exitCandle = candle,
+                return exitPlan(
+                    candle = candle,
                     exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.TREND_BREAK,
                 )
@@ -835,8 +919,8 @@ class VolumeFlowBacktestService(
             }
         }
         val exitCandle = m1Candles[endIndex]
-        return ExitPlan(
-            exitCandle = exitCandle,
+        return exitPlan(
+            candle = exitCandle,
             exitPrice = exitCandle.close.toDouble().withExitSlippage(entry.side, config),
             reason = VolumeFlowExitReason.TIME,
         )
@@ -868,6 +952,7 @@ class VolumeFlowBacktestService(
         config: VolumeFlowBacktestConfig,
         finalEquity: Double,
         maxDrawdownPct: Double,
+        markToMarketMaxDrawdownPct: Double,
         setupCount: Int,
         rejectedSetupCount: Int,
         noTradeReasonCounts: Map<String, Int>,
@@ -880,6 +965,7 @@ class VolumeFlowBacktestService(
         val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
         val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
         val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
+        val mfeCaptures = trades.mapNotNull { it.mfeCapturePct }.filter { it.isFinite() }
         val netPnl = finalEquity - config.initialEquity
         val observedDays = dailyStates.size
         val activeDays = dailyStates.values.count { it.tradeCount > 0 }
@@ -911,6 +997,12 @@ class VolumeFlowBacktestService(
             netPnl = netPnl,
             netReturnPct = (netPnl / config.initialEquity) * 100.0,
             maxDrawdownPct = maxDrawdownPct,
+            markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct,
+            averageMaxFavorableExcursionR =
+                if (trades.isEmpty()) 0.0 else trades.map { it.maxFavorableExcursionR }.average(),
+            averageMaxAdverseExcursionR =
+                if (trades.isEmpty()) 0.0 else trades.map { it.maxAdverseExcursionR }.average(),
+            averageMfeCapturePct = if (mfeCaptures.isEmpty()) null else mfeCaptures.average(),
             tradeCount = trades.size,
             wins = wins,
             losses = losses,
@@ -939,6 +1031,8 @@ class VolumeFlowBacktestService(
             rejectedSetupCount = rejectedSetupCount,
             noTradeReasonCounts = noTradeReasonCounts,
             performanceBySetupMode = trades.tagSummaries { it.setupMode.name },
+            performanceBySide = trades.tagSummaries { it.side.name },
+            performanceByExitReason = trades.tagSummaries { it.exitReason.name },
             performanceByMarketRegime = trades.tagSummaries { it.marketRegime.name },
             performanceByVolumePattern = trades.tagSummaries { it.volumePattern.name },
             trades = trades,
@@ -1012,6 +1106,10 @@ private data class ExitPlan(
     val exitCandle: Candle,
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
+    val maxFavorableExcursionR: Double,
+    val maxAdverseExcursionR: Double,
+    val maxFavorablePrice: Double,
+    val maxAdversePrice: Double,
 )
 
 private class CandleTimeline(
@@ -1134,6 +1232,7 @@ private fun List<VolumeFlowBacktestTrade>.tagSummaries(selector: (VolumeFlowBack
             val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
             val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
             val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
+            val mfeCaptures = trades.mapNotNull { it.mfeCapturePct }.filter { it.isFinite() }
             VolumeFlowTagSummary(
                 tag = tag,
                 tradeCount = trades.size,
@@ -1146,6 +1245,11 @@ private fun List<VolumeFlowBacktestTrade>.tagSummaries(selector: (VolumeFlowBack
                 payoffRatio = expectancyProfile.payoffRatio,
                 breakevenWinRatePct = expectancyProfile.breakevenWinRatePct,
                 winRateEdgePct = expectancyProfile.winRateEdgePct,
+                averageMaxFavorableExcursionR =
+                    if (trades.isEmpty()) 0.0 else trades.map { it.maxFavorableExcursionR }.average(),
+                averageMaxAdverseExcursionR =
+                    if (trades.isEmpty()) 0.0 else trades.map { it.maxAdverseExcursionR }.average(),
+                averageMfeCapturePct = if (mfeCaptures.isEmpty()) null else mfeCaptures.average(),
             )
         }
 

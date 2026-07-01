@@ -63,6 +63,7 @@ for (let round = 1; round <= rounds; round += 1) {
           best ? `best=${best.name}` : "best=n/a",
           best ? `bestCdr=${fmt(best.summary.compoundDailyReturnPct)}` : "",
           best ? `bestMdd=${fmt(best.summary.maxDrawdownPct)}` : "",
+          best ? `bestMtmMdd=${fmt(best.summary.markToMarketMaxDrawdownPct)}` : "",
         ].join(" "),
       );
     }
@@ -598,9 +599,10 @@ async function runComposite(variant, round) {
 }
 
 function passesDeployableTarget(summary, report) {
+  const deployableDrawdownPct = deploymentDrawdownPct(summary);
   return (
     summary.compoundDailyReturnPct >= targetCompoundDailyReturnPct &&
-    summary.maxDrawdownPct <= maxDeployableDrawdownPct &&
+    deployableDrawdownPct <= maxDeployableDrawdownPct &&
     summary.maxConsecutiveLosses <= maxDeployableConsecutiveLosses &&
     report.walkForwardPerformance.every((period) => period.returnPct > 0)
   );
@@ -610,7 +612,8 @@ function score(summary, report) {
   const rawTargetBonus = summary.compoundDailyReturnPct >= targetCompoundDailyReturnPct ? 1_000_000 : 0;
   const deployableBonus = passesDeployableTarget(summary, report) ? 2_000_000 : 0;
   const worstWalkForward = Math.min(...report.walkForwardPerformance.map((period) => period.returnPct));
-  const drawdownOverGate = Math.max(0, summary.maxDrawdownPct - maxDeployableDrawdownPct);
+  const deployableDrawdownPct = deploymentDrawdownPct(summary);
+  const drawdownOverGate = Math.max(0, deployableDrawdownPct - maxDeployableDrawdownPct);
   return (
     rawTargetBonus +
     deployableBonus +
@@ -619,10 +622,14 @@ function score(summary, report) {
     (summary.profitFactor ?? 0) * 800 +
     summary.activeDayCoveragePct * 120 +
     worstWalkForward * 150 -
-    summary.maxDrawdownPct * 450 -
+    deployableDrawdownPct * 450 -
     drawdownOverGate * 10_000 -
     Math.max(0, summary.maxConsecutiveLosses - 8) * 2_000
   );
+}
+
+function deploymentDrawdownPct(summary) {
+  return Math.max(summary.maxDrawdownPct ?? 0, summary.markToMarketMaxDrawdownPct ?? summary.maxDrawdownPct ?? 0);
 }
 
 function summarize(report) {
@@ -632,6 +639,10 @@ function summarize(report) {
     compoundDailyReturnPct: report.compoundDailyReturnPct,
     targetCompoundDailyReturnPct,
     maxDrawdownPct: report.maxDrawdownPct,
+    markToMarketMaxDrawdownPct: report.markToMarketMaxDrawdownPct,
+    averageMaxFavorableExcursionR: report.averageMaxFavorableExcursionR,
+    averageMaxAdverseExcursionR: report.averageMaxAdverseExcursionR,
+    averageMfeCapturePct: report.averageMfeCapturePct,
     tradeCount: report.tradeCount,
     activeDayCoveragePct: report.activeDayCoveragePct,
     winRatePct: report.winRatePct,

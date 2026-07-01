@@ -41,7 +41,13 @@ class VolumeFlowBacktestServiceTest :
             result.averageTradesPerActiveDay shouldBe 1.0
             result.tradeFrequencyTargetDays shouldBe 1
             result.belowMinTradeDays shouldBe 0
+            (result.markToMarketMaxDrawdownPct >= result.maxDrawdownPct) shouldBe true
+            (result.averageMaxFavorableExcursionR > 0.0) shouldBe true
+            (result.averageMaxAdverseExcursionR > 0.0) shouldBe true
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+            (result.trades.single().maxFavorableExcursionR > result.trades.single().returnR) shouldBe true
+            (result.trades.single().maxUnrealizedProfitPct > 0.0) shouldBe true
+            (result.trades.single().maxUnrealizedDrawdownPct > 0.0) shouldBe true
             result.trades.single().setupMode shouldBe VolumeFlowSetupMode.BREAKOUT_CONTINUATION
             result.trades.single().marketRegime shouldBe VolumeFlowMarketRegime.TREND_UP
             result.trades.single().keyLevelType shouldBe VolumeFlowKeyLevelType.RANGE_HIGH
@@ -179,6 +185,7 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 1
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TRAILING_STOP
             (result.trades.single().exitPrice > result.trades.single().targetPrice) shouldBe true
+            (result.trades.single().maxFavorableExcursionR > result.trades.single().returnR) shouldBe true
         }
 
         "trend break exit holds a profitable move until recent structure breaks" {
@@ -202,6 +209,7 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 1
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TREND_BREAK
             (result.trades.single().exitPrice > result.trades.single().targetPrice) shouldBe true
+            (result.trades.single().mfeCapturePct != null) shouldBe true
         }
 
         "runs a short trade from failed breakout reversal and close confirmation" {
@@ -306,6 +314,9 @@ class VolumeFlowBacktestServiceTest :
             result.monthlyPerformance.single().tradeCount shouldBe 1
             result.walkForwardPerformance.size shouldBe 4
             result.walkForwardPerformance.sumOf { it.tradeCount } shouldBe 1
+            (result.markToMarketMaxDrawdownPct >= result.maxDrawdownPct) shouldBe true
+            (result.averageMaxFavorableExcursionR > 0.0) shouldBe true
+            (result.trades.single().maxUnrealizedProfitPct > 0.0) shouldBe true
             (result.finalEquity > result.initialEquity) shouldBe true
         }
 
