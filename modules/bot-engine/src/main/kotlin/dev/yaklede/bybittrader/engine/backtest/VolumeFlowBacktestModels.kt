@@ -291,6 +291,7 @@ enum class VolumeFlowExitReason {
     TRAILING_STOP,
     TREND_BREAK,
     STOP,
+    BREAKEVEN_STOP,
     FOLLOW_THROUGH_FAIL,
     TIME,
 }

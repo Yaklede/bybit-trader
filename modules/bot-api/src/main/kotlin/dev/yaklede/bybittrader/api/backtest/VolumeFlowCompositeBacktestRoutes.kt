@@ -10,6 +10,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestServic
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowLegExitSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowPeriodSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
@@ -232,6 +233,7 @@ data class VolumeFlowCompositeBacktestResponse(
     val skippedSignalCount: Int,
     val noTradeReasonCounts: Map<String, Int>,
     val performanceByLeg: List<VolumeFlowTagSummaryResponse>,
+    val performanceByLegExit: List<VolumeFlowLegExitSummaryResponse>,
     val performanceBySetupMode: List<VolumeFlowTagSummaryResponse>,
     val performanceBySide: List<VolumeFlowTagSummaryResponse>,
     val performanceByExitReason: List<VolumeFlowTagSummaryResponse>,
@@ -240,6 +242,25 @@ data class VolumeFlowCompositeBacktestResponse(
     val monthlyPerformance: List<VolumeFlowPeriodSummaryResponse>,
     val walkForwardPerformance: List<VolumeFlowPeriodSummaryResponse>,
     val trades: List<VolumeFlowCompositeTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowLegExitSummaryResponse(
+    val legId: String,
+    val exitReason: String,
+    val tradeCount: Int,
+    val netPnl: Double,
+    val winRatePct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
+    val averageWinR: Double,
+    val averageLossR: Double,
+    val payoffRatio: Double?,
+    val breakevenWinRatePct: Double?,
+    val winRateEdgePct: Double?,
+    val averageMaxFavorableExcursionR: Double,
+    val averageMaxAdverseExcursionR: Double,
+    val averageMfeCapturePct: Double?,
 )
 
 @Serializable
@@ -344,6 +365,7 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(tradeLimit: Int): Volum
         skippedSignalCount = skippedSignalCount,
         noTradeReasonCounts = noTradeReasonCounts,
         performanceByLeg = performanceByLeg.map(VolumeFlowTagSummary::toCompositeResponse),
+        performanceByLegExit = performanceByLegExit.map(VolumeFlowLegExitSummary::toResponse),
         performanceBySetupMode = performanceBySetupMode.map(VolumeFlowTagSummary::toCompositeResponse),
         performanceBySide = performanceBySide.map(VolumeFlowTagSummary::toCompositeResponse),
         performanceByExitReason = performanceByExitReason.map(VolumeFlowTagSummary::toCompositeResponse),
@@ -390,6 +412,25 @@ private fun VolumeFlowTagSummary.toCompositeResponse(): VolumeFlowTagSummaryResp
         averageMaxFavorableExcursionR = averageMaxFavorableExcursionR.roundForApi(),
         averageMaxAdverseExcursionR = averageMaxAdverseExcursionR.roundForApi(),
         averageMfeCapturePct = averageMfeCapturePct?.roundForApi(),
+    )
+
+private fun VolumeFlowLegExitSummary.toResponse(): VolumeFlowLegExitSummaryResponse =
+    VolumeFlowLegExitSummaryResponse(
+        legId = legId,
+        exitReason = exitReason.name,
+        tradeCount = summary.tradeCount,
+        netPnl = summary.netPnl.roundForApi(),
+        winRatePct = summary.winRatePct.roundForApi(),
+        profitFactor = summary.profitFactor?.roundForApi(),
+        expectancyR = summary.expectancyR.roundForApi(),
+        averageWinR = summary.averageWinR.roundForApi(),
+        averageLossR = summary.averageLossR.roundForApi(),
+        payoffRatio = summary.payoffRatio?.roundForApi(),
+        breakevenWinRatePct = summary.breakevenWinRatePct?.roundForApi(),
+        winRateEdgePct = summary.winRateEdgePct?.roundForApi(),
+        averageMaxFavorableExcursionR = summary.averageMaxFavorableExcursionR.roundForApi(),
+        averageMaxAdverseExcursionR = summary.averageMaxAdverseExcursionR.roundForApi(),
+        averageMfeCapturePct = summary.averageMfeCapturePct?.roundForApi(),
     )
 
 private fun VolumeFlowCompositeBacktestTrade.toResponse(): VolumeFlowCompositeTradeResponse =

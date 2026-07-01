@@ -489,8 +489,8 @@ Decision:
   versus the previous current, but two-year and three-year compounding improve
   materially while deployment MDD falls below the prior `34.21%` level.
 - `TIME` exits fall from `100` to `87` in the three-year replay. `STOP` exits
-  rise from `25` to `39` because breakeven stop exits are still reported under
-  the generic `STOP` bucket.
+  rise in the pre-diagnostic report because breakeven stop exits are still
+  reported under the generic `STOP` bucket.
 - The target is still not reached. `1,000,000 KRW -> 10,000,000,000 KRW` over
   three years requires `0.84390%` compound daily return; the current candidate
   reaches `0.50726%`.
@@ -504,3 +504,56 @@ Next improvement list:
    requesting a high `tradeLimit`, which is fragile for iterative tuning.
 3. After reporting is clearer, target the remaining gap with new high-conviction
    trend-continuation coverage rather than more global risk expansion.
+
+## Exit Diagnostics Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the TIME exit retune pass.
+
+Implementation change:
+
+- Added `BREAKEVEN_STOP` as a first-class `VolumeFlowExitReason`.
+- Updated volume-flow breakeven logic so a stop moved to entry is reported as
+  `BREAKEVEN_STOP` instead of generic `STOP`.
+- Added `performanceByLegExit` to the composite engine report and API response.
+  Each row includes `legId`, `exitReason`, trade count, PnL, win rate, profit
+  factor, expectancy, payoff, MAE/MFE, and MFE capture metrics.
+
+Validated current three-year exit split:
+
+| Exit reason | Trades | Net PnL | Win rate | Profit factor | Expectancy R | Avg MFE R | Avg MAE R |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `BREAKEVEN_STOP` | `17` | `-4,485,520 KRW` | `0.00%` | `0.00` | `-0.14232R` | `0.65952R` | `0.23477R` |
+| `FOLLOW_THROUGH_FAIL` | `33` | `-19,676,423 KRW` | `18.18%` | `0.08` | `-0.19144R` | `0.16227R` | `0.34951R` |
+| `STOP` | `22` | `-47,350,204 KRW` | `0.00%` | `0.00` | `-1.14083R` | `0.24535R` | `1.14881R` |
+| `TARGET` | `64` | `176,501,214 KRW` | `100.00%` | `n/a` | `0.99868R` | `1.44540R` | `0.22654R` |
+| `TIME` | `87` | `39,288,318 KRW` | `50.57%` | `1.63` | `0.10381R` | `0.72291R` | `0.42116R` |
+| `TRAILING_STOP` | `34` | `76,932,795 KRW` | `88.24%` | `1,353.16` | `0.90793R` | `2.06281R` | `0.25489R` |
+| `TREND_BREAK` | `12` | `35,187,439 KRW` | `100.00%` | `n/a` | `1.53143R` | `2.85603R` | `0.35955R` |
+
+Validated current three-year headline result is unchanged by this diagnostic
+pass:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3 years | `257,397,618 KRW` | `25,639.76%` | `0.50726%` | `30.39%` | `31.36%` | `269` | `57.99%` | `2.90` | `0.32847R` | `33.08%` |
+
+Decision:
+
+- Promote this diagnostic change. It does not alter entry/exit prices or final
+  equity, but it separates full-risk stops from breakeven defense.
+- The real full-risk `STOP` bucket is now `22` trades at `-1.14083R`
+  expectancy. The new `BREAKEVEN_STOP` bucket is `17` trades at only
+  `-0.14232R`, mostly fee/slippage drag after the trade moved favorably.
+- `performanceByLegExit` removes the need to request `tradeLimit=10000` and
+  manually cross-tab trades during tuning.
+
+Next improvement list:
+
+1. Focus the next strategy pass on true full-risk `STOP` and weak negative
+   `TIME` rows in `performanceByLegExit`, especially `m1_trend_down_breakout_assist`
+   TIME exits and non-runner chop/range full stops.
+2. Keep `BREAKEVEN_STOP` as a defensive mechanism unless its fee/slippage drag
+   exceeds the full-risk stops it prevents.
+3. Add candidate scoring that penalizes full-risk `STOP` separately from
+   `BREAKEVEN_STOP`, rather than treating both as the same failure type.

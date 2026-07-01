@@ -929,7 +929,11 @@ class VolumeFlowBacktestService(
                         Side.SELL -> candle.low.toDouble() <= entry.entryPrice - (initialRiskPerUnit * breakevenTriggerR)
                     }
                 if (breakevenTouched) {
-                    stopPrice = stopPrice.improvedFor(entry.side, entry.entryPrice)
+                    val improvedStop = stopPrice.improvedFor(entry.side, entry.entryPrice)
+                    if (improvedStop != stopPrice) {
+                        stopPrice = improvedStop
+                        stopReason = VolumeFlowExitReason.BREAKEVEN_STOP
+                    }
                 }
             }
         }

@@ -198,6 +198,7 @@ class VolumeFlowCompositeBacktestService(
             skippedSignalCount = signalCount - trades.size,
             noTradeReasonCounts = noTradeReasonCounts,
             performanceByLeg = trades.compositeTagSummaries { it.legId },
+            performanceByLegExit = trades.compositeLegExitSummaries(),
             performanceBySetupMode = trades.compositeTagSummaries { it.setupMode.name },
             performanceBySide = trades.compositeTagSummaries { it.side.name },
             performanceByExitReason = trades.compositeTagSummaries { it.exitReason.name },
@@ -541,32 +542,45 @@ private fun List<VolumeFlowCompositeBacktestTrade>.compositeTagSummaries(
 ): List<VolumeFlowTagSummary> =
     groupBy(selector)
         .toSortedMap()
-        .map { (tag, trades) ->
-            val wins = trades.count { it.pnl > 0.0 }
-            val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
-            val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
-            val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
-            val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
-            val mfeCaptures = trades.mapNotNull { it.mfeCapturePct }.filter { it.isFinite() }
-            VolumeFlowTagSummary(
-                tag = tag,
-                tradeCount = trades.size,
-                netPnl = trades.sumOf { it.pnl },
-                winRatePct = winRatePct,
-                profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
-                expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
-                averageWinR = expectancyProfile.averageWinR,
-                averageLossR = expectancyProfile.averageLossR,
-                payoffRatio = expectancyProfile.payoffRatio,
-                breakevenWinRatePct = expectancyProfile.breakevenWinRatePct,
-                winRateEdgePct = expectancyProfile.winRateEdgePct,
-                averageMaxFavorableExcursionR =
-                    if (trades.isEmpty()) 0.0 else trades.map { it.maxFavorableExcursionR }.average(),
-                averageMaxAdverseExcursionR =
-                    if (trades.isEmpty()) 0.0 else trades.map { it.maxAdverseExcursionR }.average(),
-                averageMfeCapturePct = if (mfeCaptures.isEmpty()) null else mfeCaptures.average(),
+        .map { (tag, trades) -> trades.toCompositeTagSummary(tag) }
+
+private fun List<VolumeFlowCompositeBacktestTrade>.compositeLegExitSummaries(): List<VolumeFlowLegExitSummary> =
+    groupBy { trade -> trade.legId to trade.exitReason }
+        .entries
+        .sortedWith(compareBy({ it.key.first }, { it.key.second.name }))
+        .map { (key, trades) ->
+            val (legId, exitReason) = key
+            VolumeFlowLegExitSummary(
+                legId = legId,
+                exitReason = exitReason,
+                summary = trades.toCompositeTagSummary("$legId:${exitReason.name}"),
             )
         }
+
+private fun List<VolumeFlowCompositeBacktestTrade>.toCompositeTagSummary(tag: String): VolumeFlowTagSummary {
+    val wins = count { it.pnl > 0.0 }
+    val grossProfit = filter { it.pnl > 0.0 }.sumOf { it.pnl }
+    val grossLoss = filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
+    val winRatePct = if (isEmpty()) 0.0 else (wins.toDouble() / size) * 100.0
+    val expectancyProfile = volumeFlowExpectancyProfile(map { it.returnR }, winRatePct)
+    val mfeCaptures = mapNotNull { it.mfeCapturePct }.filter { it.isFinite() }
+    return VolumeFlowTagSummary(
+        tag = tag,
+        tradeCount = size,
+        netPnl = sumOf { it.pnl },
+        winRatePct = winRatePct,
+        profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
+        expectancyR = if (isEmpty()) 0.0 else map { it.returnR }.average(),
+        averageWinR = expectancyProfile.averageWinR,
+        averageLossR = expectancyProfile.averageLossR,
+        payoffRatio = expectancyProfile.payoffRatio,
+        breakevenWinRatePct = expectancyProfile.breakevenWinRatePct,
+        winRateEdgePct = expectancyProfile.winRateEdgePct,
+        averageMaxFavorableExcursionR = if (isEmpty()) 0.0 else map { it.maxFavorableExcursionR }.average(),
+        averageMaxAdverseExcursionR = if (isEmpty()) 0.0 else map { it.maxAdverseExcursionR }.average(),
+        averageMfeCapturePct = if (mfeCaptures.isEmpty()) null else mfeCaptures.average(),
+    )
+}
 
 private fun List<VolumeFlowCompositeBacktestTrade>.maxCompositeConsecutiveLosses(): Int {
     var current = 0

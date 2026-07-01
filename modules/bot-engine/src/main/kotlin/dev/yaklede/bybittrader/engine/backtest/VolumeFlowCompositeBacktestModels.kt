@@ -86,6 +86,7 @@ data class VolumeFlowCompositeBacktestReport(
     val skippedSignalCount: Int,
     val noTradeReasonCounts: Map<String, Int>,
     val performanceByLeg: List<VolumeFlowTagSummary>,
+    val performanceByLegExit: List<VolumeFlowLegExitSummary>,
     val performanceBySetupMode: List<VolumeFlowTagSummary>,
     val performanceBySide: List<VolumeFlowTagSummary>,
     val performanceByExitReason: List<VolumeFlowTagSummary>,
@@ -94,6 +95,12 @@ data class VolumeFlowCompositeBacktestReport(
     val monthlyPerformance: List<VolumeFlowPeriodSummary>,
     val walkForwardPerformance: List<VolumeFlowPeriodSummary>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
+)
+
+data class VolumeFlowLegExitSummary(
+    val legId: String,
+    val exitReason: VolumeFlowExitReason,
+    val summary: VolumeFlowTagSummary,
 )
 
 data class VolumeFlowPeriodSummary(

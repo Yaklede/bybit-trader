@@ -238,6 +238,27 @@ class VolumeFlowBacktestServiceTest :
             result.performanceByExitReason.single().tag shouldBe "FOLLOW_THROUGH_FAIL"
         }
 
+        "breakeven trigger reports breakeven stop separately from full stop" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            targetR = 3.0,
+                            breakevenTriggerR = 0.2,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.BREAKEVEN_STOP
+            result.performanceByExitReason.single().tag shouldBe "BREAKEVEN_STOP"
+        }
+
         "runs a short trade from failed breakout reversal and close confirmation" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(failedBreakReversalCandles()))
 
@@ -337,6 +358,11 @@ class VolumeFlowBacktestServiceTest :
             result.skippedSignalCount shouldBe 1
             result.noTradeReasonCounts["OVERLAPPING_POSITION"] shouldBe 1
             result.performanceByLeg.single().tag shouldBe "primary"
+            result.performanceByLegExit.single().legId shouldBe "primary"
+            result.performanceByLegExit.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+            result.performanceByLegExit
+                .single()
+                .summary.tradeCount shouldBe 1
             result.monthlyPerformance.single().tradeCount shouldBe 1
             result.walkForwardPerformance.size shouldBe 4
             result.walkForwardPerformance.sumOf { it.tradeCount } shouldBe 1
