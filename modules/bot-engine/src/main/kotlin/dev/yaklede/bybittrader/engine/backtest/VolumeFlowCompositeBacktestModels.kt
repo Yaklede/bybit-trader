@@ -12,6 +12,7 @@ data class VolumeFlowCompositeBacktestConfig(
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
     val maxConcurrentPositions: Int = 1,
+    val dedupeSameSetupSignals: Boolean = false,
     val legs: List<VolumeFlowCompositeBacktestLeg>,
 ) {
     init {

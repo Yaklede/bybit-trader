@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Candle
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
@@ -282,6 +283,7 @@ private fun simulateConcurrentComposite(
     val closedTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
     val acceptedEntriesByDay = mutableMapOf<LocalDate, Int>()
+    val acceptedSetupKeys = mutableSetOf<CompositeSetupKey>()
 
     fun closeTrade(trade: VolumeFlowCompositeBacktestTrade) {
         equity += trade.pnl
@@ -328,9 +330,15 @@ private fun simulateConcurrentComposite(
             incrementCompositeReason("MAX_TRADES_PER_DAY", noTradeReasonCounts)
             continue
         }
+        val setupKey = sourceTrade.toCompositeSetupKey()
+        if (config.dedupeSameSetupSignals && setupKey in acceptedSetupKeys) {
+            incrementCompositeReason("DUPLICATE_SETUP_SIGNAL", noTradeReasonCounts)
+            continue
+        }
 
         val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
         acceptedEntriesByDay[setupDay] = (acceptedEntriesByDay[setupDay] ?: 0) + 1
+        acceptedSetupKeys += setupKey
         openTrades += trade
     }
 
@@ -411,6 +419,23 @@ private data class CompositeSignal(
     val riskFraction: Double,
     val trade: VolumeFlowBacktestTrade,
 )
+
+private data class CompositeSetupKey(
+    val setupAt: Instant,
+    val side: Side,
+    val setupMode: VolumeFlowSetupMode,
+    val marketRegime: VolumeFlowMarketRegime,
+    val volumePattern: VolumeFlowVolumePattern,
+)
+
+private fun VolumeFlowBacktestTrade.toCompositeSetupKey(): CompositeSetupKey =
+    CompositeSetupKey(
+        setupAt = setupAt,
+        side = side,
+        setupMode = setupMode,
+        marketRegime = marketRegime,
+        volumePattern = volumePattern,
+    )
 
 private class CompositeDailyBacktestState(
     val startingEquity: Double,

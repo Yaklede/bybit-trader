@@ -53,6 +53,7 @@ data class VolumeFlowCompositeBacktestRequest(
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
     val maxConcurrentPositions: Int = 1,
+    val dedupeSameSetupSignals: Boolean = false,
     val tradeLimit: Int = 50,
     val legs: List<VolumeFlowCompositeLegRequest>,
 ) {
@@ -75,6 +76,7 @@ data class VolumeFlowCompositeBacktestRequest(
             maxTradesPerDay = maxTradesPerDay,
             maxConsecutiveLosses = maxConsecutiveLosses,
             maxConcurrentPositions = maxConcurrentPositions,
+            dedupeSameSetupSignals = dedupeSameSetupSignals,
             legs = legs.map { it.toLeg(initialEquity) },
         )
 }
