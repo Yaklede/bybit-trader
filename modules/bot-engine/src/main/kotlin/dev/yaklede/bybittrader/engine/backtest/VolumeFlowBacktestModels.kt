@@ -54,7 +54,7 @@ data class VolumeFlowBacktestConfig(
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
-        require(riskFraction > 0.0 && riskFraction <= 0.05) { "Risk fraction must be between 0 and 0.05." }
+        require(riskFraction > 0.0 && riskFraction <= 0.075) { "Risk fraction must be between 0 and 0.075." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
         require(setupTimeframe == Timeframe.M1 || setupTimeframe == Timeframe.M5) {

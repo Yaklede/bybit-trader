@@ -133,6 +133,7 @@ function seedVariants(config) {
   variants.push(...wholePortfolioTargetVariants(config));
   variants.push(...wholePortfolioRiskVariants(config));
   variants.push(...wholePortfolioTrendBreakVariants(config));
+  variants.push(...additiveCoverageVariants(config));
   variants.push(...executionVariants);
   return variants;
 }
@@ -158,6 +159,8 @@ function mutateConfig(parentName, config) {
       variants.push(namedVariant(`${parentName}_mut_${leg.id}_${patch.name}`, withRunDefaults(withLegPatch(base, legIndex, patch.patch))));
     }
   }
+
+  variants.push(...additiveCoverageVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)));
 
   return variants;
 }
@@ -201,7 +204,7 @@ function wholePortfolioTargetVariants(config) {
 
 function wholePortfolioRiskVariants(config) {
   const variants = [];
-  for (const riskFraction of [0.03, 0.035, 0.04, 0.045, 0.05]) {
+  for (const riskFraction of [0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06, 0.065, 0.07, 0.071, 0.072, 0.073, 0.074, 0.075]) {
     variants.push(
       namedVariant(
         `all_risk_${riskFraction}`,
@@ -247,18 +250,216 @@ function wholePortfolioTrendBreakVariants(config) {
   return variants;
 }
 
+function additiveCoverageVariants(config) {
+  const templates = coverageLegTemplates();
+  const variants = [];
+  const available = templates.filter((template) => !hasLegId(config, template.id));
+
+  for (const template of available) {
+    variants.push(namedVariant(`add_${template.id}`, withRunDefaults(withAddedLegs(config, [template]))));
+  }
+
+  for (let leftIndex = 0; leftIndex < available.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < available.length; rightIndex += 1) {
+      const pair = [available[leftIndex], available[rightIndex]];
+      variants.push(namedVariant(`add_${pair.map((leg) => leg.id).join("_plus_")}`, withRunDefaults(withAddedLegs(config, pair))));
+    }
+  }
+
+  return variants;
+}
+
+function coverageLegTemplates() {
+  return [
+    coverageLeg({
+      id: "m1_range_failed_break_trend_break",
+      setupMode: "FAILED_BREAK_REVERSAL",
+      allowedMarketRegimes: ["RANGE"],
+      relativeVolumeThreshold: 1.8,
+      setupRangeLookback: 6,
+      requireKeyLevelProximity: true,
+      minBodyRatio: 0.15,
+      minDirectionalCloseStrength: 0.55,
+      minRejectionWickRatio: 0.15,
+      targetR: 0.8,
+      exitMode: "TREND_BREAK",
+      runnerTrailActivationR: 0.8,
+      trendBreakLookbackM1Candles: 8,
+      maxHoldM1Candles: 140,
+    }),
+    coverageLeg({
+      id: "m1_range_failed_break_runner",
+      setupMode: "FAILED_BREAK_REVERSAL",
+      allowedMarketRegimes: ["RANGE"],
+      relativeVolumeThreshold: 1.8,
+      setupRangeLookback: 6,
+      requireKeyLevelProximity: false,
+      minBodyRatio: 0.15,
+      minDirectionalCloseStrength: 0.55,
+      minRejectionWickRatio: 0.15,
+      targetR: 1.0,
+      exitMode: "RUNNER",
+      runnerTrailActivationR: 0.8,
+      runnerTrailDistanceR: 0.75,
+      maxHoldM1Candles: 90,
+    }),
+    coverageLeg({
+      id: "m1_chop_volume_rejection_trend_break",
+      setupMode: "VOLUME_REJECTION_REVERSAL",
+      allowedMarketRegimes: ["HIGH_VOLATILITY_CHOP"],
+      relativeVolumeThreshold: 1.8,
+      setupRangeLookback: 6,
+      requireKeyLevelProximity: true,
+      minBodyRatio: 0.1,
+      minDirectionalCloseStrength: 0.55,
+      minRejectionWickRatio: 0.2,
+      targetR: 0.8,
+      exitMode: "TREND_BREAK",
+      runnerTrailActivationR: 0.8,
+      trendBreakLookbackM1Candles: 8,
+      maxHoldM1Candles: 140,
+    }),
+    coverageLeg({
+      id: "m1_range_volume_rejection_trend_break",
+      setupMode: "VOLUME_REJECTION_REVERSAL",
+      allowedMarketRegimes: ["RANGE"],
+      relativeVolumeThreshold: 1.8,
+      setupRangeLookback: 6,
+      requireKeyLevelProximity: true,
+      minBodyRatio: 0.1,
+      minDirectionalCloseStrength: 0.55,
+      minRejectionWickRatio: 0.2,
+      targetR: 0.8,
+      exitMode: "TREND_BREAK",
+      runnerTrailActivationR: 0.8,
+      trendBreakLookbackM1Candles: 8,
+      maxHoldM1Candles: 140,
+    }),
+    coverageLeg({
+      id: "m1_trend_up_breakout_loose_runner",
+      setupMode: "BREAKOUT_CONTINUATION",
+      allowedMarketRegimes: ["TREND_UP"],
+      requireContextVwap: true,
+      requireContextTrend: true,
+      requireRegimeSideAlignment: true,
+      relativeVolumeThreshold: 1.6,
+      setupRangeLookback: 6,
+      requireKeyLevelProximity: false,
+      minBodyRatio: 0.4,
+      minDirectionalCloseStrength: 0.6,
+      targetR: 0.8,
+      exitMode: "RUNNER",
+      runnerTrailActivationR: 0.8,
+      runnerTrailDistanceR: 0.75,
+      maxHoldM1Candles: 90,
+    }),
+    coverageLeg({
+      id: "m1_trend_down_breakout_loose_runner",
+      setupMode: "BREAKOUT_CONTINUATION",
+      allowedMarketRegimes: ["TREND_DOWN"],
+      requireContextVwap: true,
+      requireContextTrend: true,
+      requireRegimeSideAlignment: true,
+      relativeVolumeThreshold: 1.8,
+      setupRangeLookback: 6,
+      requireKeyLevelProximity: false,
+      minBodyRatio: 0.4,
+      minDirectionalCloseStrength: 0.6,
+      targetR: 0.8,
+      exitMode: "RUNNER",
+      runnerTrailActivationR: 0.8,
+      runnerTrailDistanceR: 0.75,
+      maxHoldM1Candles: 90,
+    }),
+    coverageLeg({
+      id: "m5_trend_up_breakout_runner",
+      setupMode: "BREAKOUT_CONTINUATION",
+      setupTimeframe: "M5",
+      entryMode: "CLOSE_CONFIRMATION",
+      allowedMarketRegimes: ["TREND_UP"],
+      requireContextVwap: true,
+      requireContextTrend: true,
+      requireRegimeSideAlignment: true,
+      relativeVolumeThreshold: 2.5,
+      setupRangeLookback: 8,
+      requireKeyLevelProximity: true,
+      minBodyRatio: 0.45,
+      minDirectionalCloseStrength: 0.65,
+      targetR: 1.2,
+      exitMode: "RUNNER",
+      runnerTrailActivationR: 0.8,
+      runnerTrailDistanceR: 0.75,
+      maxHoldM1Candles: 90,
+    }),
+    coverageLeg({
+      id: "m5_chop_failed_break_trend_break",
+      setupMode: "FAILED_BREAK_REVERSAL",
+      setupTimeframe: "M5",
+      entryMode: "CLOSE_CONFIRMATION",
+      allowedMarketRegimes: ["HIGH_VOLATILITY_CHOP"],
+      relativeVolumeThreshold: 2.0,
+      setupRangeLookback: 8,
+      requireKeyLevelProximity: true,
+      minBodyRatio: 0.2,
+      minDirectionalCloseStrength: 0.55,
+      minRejectionWickRatio: 0.15,
+      targetR: 1.0,
+      exitMode: "TREND_BREAK",
+      runnerTrailActivationR: 0.8,
+      trendBreakLookbackM1Candles: 8,
+      maxHoldM1Candles: 180,
+    }),
+  ];
+}
+
+function coverageLeg(overrides) {
+  return {
+    id: overrides.id,
+    riskFraction: overrides.riskFraction ?? 0.05,
+    setupMode: overrides.setupMode,
+    entryMode: overrides.entryMode ?? "CLOSE_CONFIRMATION",
+    sideMode: "BOTH",
+    setupTimeframe: overrides.setupTimeframe ?? "M1",
+    relativeVolumeThreshold: overrides.relativeVolumeThreshold,
+    volumeZScoreThreshold: overrides.volumeZScoreThreshold ?? 0.5,
+    setupRangeLookback: overrides.setupRangeLookback,
+    requireM5Vwap: overrides.requireM5Vwap ?? false,
+    requireContextVwap: overrides.requireContextVwap ?? false,
+    requireContextTrend: overrides.requireContextTrend ?? false,
+    allowedMarketRegimes: overrides.allowedMarketRegimes,
+    requireRegimeSideAlignment: overrides.requireRegimeSideAlignment ?? false,
+    requireKeyLevelProximity: overrides.requireKeyLevelProximity ?? false,
+    keyLevelTolerancePct: overrides.keyLevelTolerancePct ?? 0.0025,
+    avoidRangeMiddle: overrides.avoidRangeMiddle ?? true,
+    minBodyRatio: overrides.minBodyRatio,
+    minDirectionalCloseStrength: overrides.minDirectionalCloseStrength,
+    minRejectionWickRatio: overrides.minRejectionWickRatio ?? 0.2,
+    entryLookaheadM1Candles: overrides.entryLookaheadM1Candles ?? 5,
+    minEntryRiskPct: overrides.minEntryRiskPct ?? 0.008,
+    maxEntryRiskPct: overrides.maxEntryRiskPct ?? 0.015,
+    maxEstimatedFeeR: overrides.maxEstimatedFeeR ?? 0.2,
+    targetR: overrides.targetR,
+    exitMode: overrides.exitMode,
+    runnerTrailActivationR: overrides.runnerTrailActivationR ?? 1.0,
+    runnerTrailDistanceR: overrides.runnerTrailDistanceR ?? 0.5,
+    breakevenTriggerR: null,
+    maxHoldM1Candles: overrides.maxHoldM1Candles,
+    trendBreakLookbackM1Candles: overrides.trendBreakLookbackM1Candles ?? 5,
+  };
+}
+
 function legPatches(leg) {
   return [
     {
       name: "risk_up",
       patch: {
-        riskFraction: bounded((leg.riskFraction ?? 0.03) + 0.005, 0.005, 0.05),
+        riskFraction: bounded((leg.riskFraction ?? 0.03) + 0.005, 0.005, 0.075),
       },
     },
     {
       name: "risk_max",
       patch: {
-        riskFraction: 0.05,
+        riskFraction: 0.075,
       },
     },
     {
@@ -409,6 +610,7 @@ function score(summary, report) {
   const rawTargetBonus = summary.compoundDailyReturnPct >= targetCompoundDailyReturnPct ? 1_000_000 : 0;
   const deployableBonus = passesDeployableTarget(summary, report) ? 2_000_000 : 0;
   const worstWalkForward = Math.min(...report.walkForwardPerformance.map((period) => period.returnPct));
+  const drawdownOverGate = Math.max(0, summary.maxDrawdownPct - maxDeployableDrawdownPct);
   return (
     rawTargetBonus +
     deployableBonus +
@@ -418,6 +620,7 @@ function score(summary, report) {
     summary.activeDayCoveragePct * 120 +
     worstWalkForward * 150 -
     summary.maxDrawdownPct * 450 -
+    drawdownOverGate * 10_000 -
     Math.max(0, summary.maxConsecutiveLosses - 8) * 2_000
   );
 }
@@ -471,6 +674,14 @@ function withLegPatch(config, legIndex, patch) {
   return next;
 }
 
+function withAddedLegs(config, legs) {
+  const next = structuredClone(config);
+  const existingIds = new Set(next.legs.map((leg) => leg.id));
+  const additions = legs.filter((leg) => !existingIds.has(leg.id));
+  next.legs = [...next.legs, ...additions].slice(0, 10);
+  return next;
+}
+
 function nextCandidates(variants, limit) {
   const candidates = [];
   for (const variant of variants) {
@@ -508,6 +719,10 @@ function nearby(current, values) {
 
 function bounded(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function hasLegId(config, id) {
+  return config.legs.some((leg) => leg.id === id);
 }
 
 function fmt(value) {

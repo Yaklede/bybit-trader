@@ -13,12 +13,12 @@ import java.time.Instant
 
 class VolumeFlowBacktestServiceTest :
     StringSpec({
-        "allows volume-flow tuning risk up to five percent" {
-            VolumeFlowBacktestConfig(riskFraction = 0.05).riskFraction shouldBe 0.05
+        "allows volume-flow tuning risk up to seven and a half percent" {
+            VolumeFlowBacktestConfig(riskFraction = 0.075).riskFraction shouldBe 0.075
 
             shouldThrow<IllegalArgumentException> {
-                VolumeFlowBacktestConfig(riskFraction = 0.0501)
-            }.message shouldBe "Risk fraction must be between 0 and 0.05."
+                VolumeFlowBacktestConfig(riskFraction = 0.0751)
+            }.message shouldBe "Risk fraction must be between 0 and 0.075."
         }
 
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {

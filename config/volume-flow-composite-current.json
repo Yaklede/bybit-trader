@@ -8,13 +8,13 @@
   "dailyStopPct": 1,
   "minTradesPerDay": 1,
   "maxTradesPerDay": 5,
-  "maxConsecutiveLosses": 1,
+  "maxConsecutiveLosses": 2,
   "maxConcurrentPositions": 5,
   "dedupeSameSetupSignals": false,
   "legs": [
     {
       "id": "trend_down_retest",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -42,7 +42,7 @@
     },
     {
       "id": "trend_down_close",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -64,13 +64,13 @@
       "minDirectionalCloseStrength": 0.7,
       "minEntryRiskPct": 0.008,
       "maxEntryRiskPct": 0.015,
-      "targetR": 1.2,
+      "targetR": 1.5,
       "exitMode": "FIXED_TARGET",
-      "maxHoldM1Candles": 20
+      "maxHoldM1Candles": 35
     },
     {
       "id": "trend_down_retest_runner",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -104,9 +104,9 @@
     },
     {
       "id": "range_failed_break_loose",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "FAILED_BREAK_REVERSAL",
-      "entryMode": "CLOSE_CONFIRMATION",
+      "entryMode": "SETUP_CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
       "setupTimeframe": "M5",
       "relativeVolumeThreshold": 2.5,
@@ -134,16 +134,16 @@
       "runnerTrailActivationR": 1,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 35
+      "maxHoldM1Candles": 45
     },
     {
       "id": "m1_trend_up_breakout_scalp",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
       "setupTimeframe": "M1",
-      "relativeVolumeThreshold": 2,
+      "relativeVolumeThreshold": 1.5,
       "volumeZScoreThreshold": 0.5,
       "setupRangeLookback": 8,
       "requireM5Vwap": false,
@@ -172,7 +172,7 @@
     },
     {
       "id": "m1_trend_down_breakout_assist",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -206,7 +206,7 @@
     },
     {
       "id": "m1_failed_break_chop_scalp",
-      "riskFraction": 0.05,
+      "riskFraction": 0.072,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",

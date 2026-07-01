@@ -205,3 +205,57 @@ Decision:
 - The remaining gap is not solved by exit tuning alone. Active-day coverage is
   still only `15.22%`, so the next loop needs new positive-expectancy signal
   coverage, not only higher leverage or wider holds.
+
+## Risk-Expanded Coverage Pass 2026-07-01
+
+Source note: this pass started from the MDD 40 trend-break candidate and used
+`scripts/volume-flow-recursive-target.mjs` plus a focused risk sweep against the
+same three-year BTCUSDT local dataset. It keeps the deployment drawdown gate at
+`40%`.
+
+Implementation and tuning changes:
+
+- Raised the tunable `riskFraction` ceiling from `5%` to `7.5%`.
+- Selected `riskFraction=0.072` because `0.073` already exceeded the MDD gate.
+- Changed `range_failed_break_loose` to `SETUP_CLOSE_CONFIRMATION`.
+- Relaxed `m1_trend_up_breakout_scalp` volume threshold from `2.0` to `1.5`.
+- Increased `trend_down_close` `targetR` from `1.2` to `1.5`.
+- Increased global `maxConsecutiveLosses` from `1` to `2`; higher lock values
+  did not improve the selected candidate.
+
+Fine risk sweep on the selected structure:
+
+| Risk fraction | Final equity | Compound daily | Max drawdown | Decision |
+| ---: | ---: | ---: | ---: | --- |
+| `0.070` | `112,666,970 KRW` | `0.43160%` | `38.97%` | Under gate |
+| `0.071` | `118,885,578 KRW` | `0.43652%` | `39.44%` | Under gate |
+| `0.072` | `125,401,945 KRW` | `0.44140%` | `39.91%` | Accepted |
+| `0.073` | `132,227,626 KRW` | `0.44625%` | `40.37%` | Rejected |
+| `0.074` | `139,374,476 KRW` | `0.45107%` | `40.89%` | Rejected |
+| `0.075` | `146,854,643 KRW` | `0.45586%` | `41.41%` | Rejected |
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Max drawdown | Trades | Win rate | Profit factor | Expectancy R | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,252,218 KRW` | `925.22%` | `0.63795%` | `18.61%` | `84` | `70.24%` | `3.12` | `0.44837R` | `45.26%` |
+| 2 years | `52,661,077 KRW` | `5,166.11%` | `0.54373%` | `31.55%` | `182` | `69.23%` | `2.90` | `0.35963R` | `84.63%` |
+| 3 years | `125,401,945 KRW` | `12,440.19%` | `0.44140%` | `39.91%` | `268` | `62.69%` | `2.86` | `0.30706R` | `-9.40%` |
+
+Comparison with the prior current candidate:
+
+| Horizon | Prior final equity | New final equity | Prior compound daily | New compound daily | Prior MDD | New MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `6,795,347 KRW` | `10,252,218 KRW` | `0.52494%` | `0.63795%` | `12.42%` | `18.61%` |
+| 2 years | `16,827,954 KRW` | `52,661,077 KRW` | `0.38694%` | `0.54373%` | `26.54%` | `31.55%` |
+| 3 years | `23,428,184 KRW` | `125,401,945 KRW` | `0.28792%` | `0.44140%` | `36.67%` | `39.91%` |
+
+Decision:
+
+- Promote this candidate to current because it uses almost the full accepted
+  `30-40%` MDD budget and improves all 1/2/3-year compound results.
+- It still does not reach the `0.84390%` three-year compound daily target
+  required for `1,000,000 KRW -> 10,000,000,000 KRW`.
+- Additional loose coverage legs were tested but did not improve the accepted
+  candidate. The remaining gap requires a new positive-expectancy setup family,
+  not only risk scaling.
