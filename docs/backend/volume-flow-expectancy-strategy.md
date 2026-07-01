@@ -33,6 +33,8 @@ A volume-flow candidate may have low win rate, but it must pass these gates:
 - `expectancyR > 0`
 - `winRateEdgePct >= 0`
 - `maxDrawdownPct <= 10`
+- `activeDayCoveragePct` improves unless the candidate is intentionally a
+  narrow defensive leg
 - `compoundDailyReturnPct` improves without relying on one or two isolated
   trades
 - monthly and walk-forward results do not concentrate all return in one regime
@@ -63,6 +65,7 @@ Volume-flow API responses expose these low-win-rate strategy metrics:
 - `payoffRatio`
 - `breakevenWinRatePct`
 - `winRateEdgePct`
+- `activeDayCoveragePct`
 
 These fields are returned on single-leg, composite, tag, period, and sweep
 summary responses so each leg and market regime can be judged by asymmetric

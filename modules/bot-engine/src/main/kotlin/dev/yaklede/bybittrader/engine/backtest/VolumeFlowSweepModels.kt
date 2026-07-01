@@ -47,6 +47,7 @@ data class VolumeFlowSweepConfig(
     val dailyStopPct: Double = 1.0,
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
+    val minActiveDayCoveragePct: Double = 10.0,
     val maxConsecutiveLosses: Int = 3,
     val trainRatio: Double = 0.6,
     val maxCandidates: Int = 200,
@@ -87,6 +88,9 @@ data class VolumeFlowSweepConfig(
         require(runnerTrailDistanceRValues.isNotEmpty()) { "Runner trail distance values must not be empty." }
         require(breakevenTriggerRValues.isNotEmpty()) { "Breakeven trigger R values must not be empty." }
         require(maxHoldM1CandlesValues.isNotEmpty()) { "Max hold values must not be empty." }
+        require(minActiveDayCoveragePct in 0.0..100.0) {
+            "Minimum active-day coverage percent must be between 0 and 100."
+        }
         require(trainRatio >= 0.5 && trainRatio <= 0.8) { "Train ratio must be between 0.5 and 0.8." }
         require(maxCandidates in 1..1_000) { "Max candidates must be between 1 and 1000." }
         require(candidateCount() <= maxCandidates) {
@@ -410,6 +414,7 @@ data class VolumeFlowBacktestSummary(
     val maxConsecutiveLosses: Int,
     val observedDays: Int,
     val activeDays: Int,
+    val activeDayCoveragePct: Double,
     val averageTradesPerDay: Double,
     val averageTradesPerActiveDay: Double,
     val tradeFrequencyTargetPct: Double,
@@ -438,6 +443,7 @@ fun VolumeFlowBacktestReport.toSweepSummary(): VolumeFlowBacktestSummary =
         maxConsecutiveLosses = maxConsecutiveLosses,
         observedDays = observedDays,
         activeDays = activeDays,
+        activeDayCoveragePct = activeDayCoveragePct,
         averageTradesPerDay = averageTradesPerDay,
         averageTradesPerActiveDay = averageTradesPerActiveDay,
         tradeFrequencyTargetPct = tradeFrequencyTargetPct,

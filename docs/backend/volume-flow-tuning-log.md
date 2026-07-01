@@ -17,7 +17,8 @@ Strategy gate note: the next tuning loop is not a win-rate chase. A candidate
 with `40%` win rate can be valid only if average winners are large enough to
 beat the post-cost breakeven win rate. Volume-flow responses now expose
 `averageWinR`, `averageLossR`, `payoffRatio`, `breakevenWinRatePct`, and
-`winRateEdgePct`; see `docs/backend/volume-flow-expectancy-strategy.md`.
+`winRateEdgePct`; see `docs/backend/volume-flow-expectancy-strategy.md` and
+`docs/backend/volume-flow-target-plan.md`.
 
 ## Baseline
 
@@ -110,9 +111,9 @@ latest loop, not a completed daily compounding target.
 
 Candidate result:
 
-| Net return | Compound daily return | Max drawdown | Trades | Win rate | Payoff ratio | Breakeven win rate | Win-rate edge | Expectancy | Active days |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `189.22322%` | `0.29059%` | `4.29784%` | `103` | `79.61165%` | `1.77996` | `35.97180%` | `43.63985%` | `0.46269R` | `55` |
+| Net return | Compound daily return | Max drawdown | Trades | Win rate | Payoff ratio | Breakeven win rate | Win-rate edge | Expectancy | Active days | Active-day coverage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `189.22322%` | `0.29059%` | `4.29784%` | `103` | `79.61165%` | `1.77996` | `35.97180%` | `43.63985%` | `0.46269R` | `55` | `15.02732%` |
 
 Current structure note: this accepted candidate is not yet a low-win-rate
 `4:6` style system. It currently wins often and also has positive payoff edge:

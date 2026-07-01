@@ -66,6 +66,7 @@ data class VolumeFlowCompositeBacktestReport(
     val maxConsecutiveLosses: Int,
     val observedDays: Int,
     val activeDays: Int,
+    val activeDayCoveragePct: Double,
     val averageTradesPerDay: Double,
     val averageTradesPerActiveDay: Double,
     val tradeFrequencyTargetDays: Int,

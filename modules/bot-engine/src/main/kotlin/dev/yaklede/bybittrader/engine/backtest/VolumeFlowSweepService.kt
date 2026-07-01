@@ -130,20 +130,21 @@ private fun VolumeFlowBacktestSummary.passesCompoundingGate(): Boolean =
         maxConsecutiveLosses <= 3
 
 private fun VolumeFlowBacktestSummary.passesFrequencyGate(config: VolumeFlowSweepConfig): Boolean =
-    averageTradesPerDay >= config.minTradesPerDay &&
-        averageTradesPerDay <= config.maxTradesPerDay &&
-        tradeFrequencyTargetPct >= 50.0
+    activeDayCoveragePct >= config.minActiveDayCoveragePct &&
+        averageTradesPerActiveDay <= config.maxTradesPerDay
 
 private fun VolumeFlowBacktestSummary.compoundingScore(): Double {
     val profitFactorScore = ((profitFactor ?: 1.0) - 1.0) * 2.0
     val expectancyScore = expectancyR * 20.0
     val payoffScore = ((winRateEdgePct ?: -25.0) * 2.0) + ((payoffRatio ?: 0.0) * 5.0)
+    val coverageScore = activeDayCoveragePct * 0.5
     val drawdownPenalty = maxDrawdownPct * 0.75
     val lossStreakPenalty = maxConsecutiveLosses * 0.5
     return netReturnPct +
         profitFactorScore +
         expectancyScore +
         payoffScore +
+        coverageScore +
         (returnDrawdownRatio * 5.0) -
         drawdownPenalty -
         lossStreakPenalty

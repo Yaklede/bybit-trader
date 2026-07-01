@@ -21,8 +21,9 @@ Milestone 1 is the operational backend shell:
   one equity curve with overlap, daily stop, trade-count controls, and monthly
   and walk-forward performance summaries. Volume-flow responses include
   `compoundDailyReturnPct`, `averageWinR`, `averageLossR`, `payoffRatio`,
-  `breakevenWinRatePct`, and `winRateEdgePct` so daily targets are evaluated on
-  a compounding and asymmetric-expectancy basis.
+  `breakevenWinRatePct`, `winRateEdgePct`, and `activeDayCoveragePct` so daily
+  targets are evaluated on a compounding, coverage, and asymmetric-expectancy
+  basis.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -120,11 +121,12 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
   That is `0.29059%` compound daily return across 366 observed days, so it does
   not meet the daily `0.5%` to `2%` compounding objective. A `0.5%` compound
   daily target over the same 366 days requires about `520.55260%` net return.
-  It also has sparse active days (`55`) and is not evidence of steady daily
-  profit. See
+  It also has sparse active days (`55`, `15.02732%` active-day coverage) and is
+  not evidence of steady daily profit. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
   tuning paths. See `docs/backend/volume-flow-expectancy-strategy.md` for the
-  low-win-rate, positive-expectancy candidate gate.
+  low-win-rate, positive-expectancy candidate gate, and
+  `docs/backend/volume-flow-target-plan.md` for the current phase targets.
   Source note: measured on
   `build/runtime-test/bybit-trader-1y-backtest.sqlite` covering
   `2025-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading

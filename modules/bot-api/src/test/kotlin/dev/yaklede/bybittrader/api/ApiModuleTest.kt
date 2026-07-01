@@ -343,6 +343,7 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 val body = response.bodyAsText()
                 body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"activeDayCoveragePct":"""
                 body shouldContain """"averageWinR":"""
                 body shouldContain """"averageLossR":"""
                 body shouldContain """"payoffRatio":"""
@@ -410,6 +411,7 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 val body = response.bodyAsText()
                 body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"activeDayCoveragePct":"""
                 body shouldContain """"averageWinR":"""
                 body shouldContain """"averageLossR":"""
                 body shouldContain """"payoffRatio":"""
@@ -473,6 +475,7 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 val body = response.bodyAsText()
                 body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"activeDayCoveragePct":"""
                 body shouldContain """"averageWinR":"""
                 body shouldContain """"averageLossR":"""
                 body shouldContain """"payoffRatio":"""

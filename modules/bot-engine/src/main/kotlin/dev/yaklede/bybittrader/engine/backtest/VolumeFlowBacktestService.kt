@@ -886,6 +886,7 @@ class VolumeFlowBacktestService(
             maxConsecutiveLosses = trades.maxConsecutiveLosses(),
             observedDays = observedDays,
             activeDays = activeDays,
+            activeDayCoveragePct = if (observedDays == 0) 0.0 else (activeDays.toDouble() / observedDays) * 100.0,
             averageTradesPerDay = if (observedDays == 0) 0.0 else trades.size.toDouble() / observedDays,
             averageTradesPerActiveDay = if (activeDays == 0) 0.0 else trades.size.toDouble() / activeDays,
             tradeFrequencyTargetDays = tradeFrequencyTargetDays,
