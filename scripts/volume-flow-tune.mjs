@@ -230,6 +230,23 @@ function generateVariants(config) {
         ),
       );
     }
+
+    for (const [checkCandles, minR] of [
+      [3, 0.25],
+      [5, 0.35],
+      [8, 0.45],
+    ]) {
+      variants.push(
+        namedVariant(
+          `follow_through_${leg.id}_${checkCandles}_${minR}`,
+          withLegPatch(config, legIndex, {
+            followThroughCheckM1Candles: checkCandles,
+            minFollowThroughR: minR,
+            maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, checkCandles),
+          }),
+        ),
+      );
+    }
   });
 
   return variants;

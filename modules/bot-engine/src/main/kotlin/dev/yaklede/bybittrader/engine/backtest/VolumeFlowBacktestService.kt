@@ -773,6 +773,8 @@ class VolumeFlowBacktestService(
         val startIndex = minOf(entry.entryIndex + 1, m1Candles.lastIndex)
         val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles, m1Candles.lastIndex)
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
+        val followThroughCheckIndex = config.followThroughCheckM1Candles?.let { entry.entryIndex + it }
+        val minFollowThroughMove = config.minFollowThroughR?.let { initialRiskPerUnit * it }
         var maxFavorableMove = 0.0
         var maxAdverseMove = 0.0
         var maxFavorablePrice = entry.entryPrice
@@ -904,6 +906,19 @@ class VolumeFlowBacktestService(
                     candle = candle,
                     exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.TREND_BREAK,
+                )
+            }
+            if (
+                followThroughCheckIndex != null &&
+                minFollowThroughMove != null &&
+                initialRiskPerUnit > 0.0 &&
+                index >= followThroughCheckIndex &&
+                maxFavorableMove < minFollowThroughMove
+            ) {
+                return exitPlan(
+                    candle = candle,
+                    exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
+                    reason = VolumeFlowExitReason.FOLLOW_THROUGH_FAIL,
                 )
             }
             val breakevenTriggerR = config.breakevenTriggerR

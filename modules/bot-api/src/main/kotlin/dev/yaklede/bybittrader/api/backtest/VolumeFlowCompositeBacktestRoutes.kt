@@ -122,6 +122,8 @@ data class VolumeFlowCompositeLegRequest(
     val runnerTrailDistanceR: Double = 0.5,
     val trendBreakLookbackM1Candles: Int = 5,
     val breakevenTriggerR: Double? = null,
+    val followThroughCheckM1Candles: Int? = null,
+    val minFollowThroughR: Double? = null,
     val maxHoldM1Candles: Int = 30,
 ) {
     fun toLeg(initialEquity: Double): VolumeFlowCompositeBacktestLeg {
@@ -175,6 +177,8 @@ data class VolumeFlowCompositeLegRequest(
                     runnerTrailDistanceR = runnerTrailDistanceR,
                     trendBreakLookbackM1Candles = trendBreakLookbackM1Candles,
                     breakevenTriggerR = breakevenTriggerR,
+                    followThroughCheckM1Candles = followThroughCheckM1Candles,
+                    minFollowThroughR = minFollowThroughR,
                     maxHoldM1Candles = maxHoldM1Candles,
                 ),
         )

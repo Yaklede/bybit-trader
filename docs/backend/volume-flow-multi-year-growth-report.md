@@ -335,3 +335,64 @@ Next improvement list:
 6. Add future tuning gates to reject candidates by
    `max(realized MDD, mark-to-market MDD)`. The recursive tuning scripts now use
    this stricter deployment drawdown metric.
+
+## Follow-Through Exit Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+new `max(realized MDD, mark-to-market MDD)` deployment drawdown gate.
+
+Implementation change:
+
+- Added `followThroughCheckM1Candles` and `minFollowThroughR` to volume-flow
+  backtest config.
+- Added `FOLLOW_THROUGH_FAIL` exit reason. If a position does not reach the
+  configured favorable R by the configured M1 candle count, the backtest exits
+  at the current M1 close with exit slippage.
+- Added follow-through mutation candidates to both volume-flow tuning scripts.
+
+Accepted current candidate:
+
+- All legs now use `riskFraction=0.075`, the maximum validated config ceiling.
+- `trend_down_retest` and `trend_down_close` use
+  `followThroughCheckM1Candles=8` and `minFollowThroughR=0.45`.
+- Other legs keep their previous exit behavior. Applying follow-through to
+  `m1_trend_up_breakout_scalp`, all legs, or stop-heavy legs reduced long-term
+  results or worsened drawdown.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `9,798,521 KRW` | `879.85%` | `0.62551%` | `17.33%` | `22.69%` | `84` | `67.86%` | `2.95` | `0.42471R` | `47.30%` |
+| 2 years | `54,919,596 KRW` | `5,391.96%` | `0.54950%` | `33.29%` | `34.21%` | `182` | `65.93%` | `2.75` | `0.34909R` | `67.79%` |
+| 3 years | `177,421,106 KRW` | `17,642.11%` | `0.47318%` | `33.29%` | `34.21%` | `268` | `59.70%` | `2.74` | `0.31097R` | `11.94%` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,252,218 KRW` | `9,798,521 KRW` | `0.63795%` | `0.62551%` | `23.68%` | `22.69%` |
+| 2 years | `52,661,077 KRW` | `54,919,596 KRW` | `0.54373%` | `0.54950%` | `32.47%` | `34.21%` |
+| 3 years | `125,401,945 KRW` | `177,421,106 KRW` | `0.44140%` | `0.47318%` | `41.03%` | `34.21%` |
+
+Decision:
+
+- Promote this candidate to current. It gives up a small amount of one-year
+  return, but improves two-year and three-year compounding while moving the
+  three-year mark-to-market drawdown back inside the `40%` deployment gate.
+- The three-year worst walk-forward window improves from `-9.40%` to `11.94%`,
+  which is the strongest reason to accept the change.
+- The target is still not reached. `1,000,000 KRW -> 10,000,000,000 KRW` over
+  three years requires `0.84390%` compound daily return; the current candidate
+  reaches `0.47318%`.
+
+Next improvement list:
+
+1. Split `m1_trend_up_breakout_scalp` into long-only and short-only variants or
+   cap its long-side risk. Follow-through on that leg was harmful, but the
+   prior diagnostics still show weak long-side profit factor and high MAE.
+2. Add a structure-based replacement for `TIME` exits. Follow-through reduced
+   `TIME` exits from `133` to `103`, but `TIME` is still the largest exit
+   bucket.
+3. Test a dedicated trend-break expansion for the two M5 trend-down fixed
+   target legs now that early failed continuation trades are filtered.

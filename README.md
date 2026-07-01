@@ -112,24 +112,19 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
-- Latest local 1-year BTCUSDT volume-flow tuning snapshot: the current
-  ten-leg composite candidate in `config/volume-flow-composite-current.json`
-  keeps the M5/M1 time-exit retune, adds an M1 high-volatility-chop failed-break
-  scalp, raises validated volume-flow backtest risk sizing to `0.023`, and
-  allows up to 3 concurrent composite positions with a 3-trade daily cap. The
-  replay returned `189.22322%` with `4.29784%` max drawdown over 103 trades.
-  That is `0.29059%` compound daily return across 366 observed days, so it does
-  not meet the daily `0.5%` to `2%` compounding objective. A `0.5%` compound
-  daily target over the same 366 days requires about `520.55260%` net return.
-  It also has sparse active days (`55`, `15.02732%` active-day coverage) and is
-  not evidence of steady daily profit. See
-  `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
-  tuning paths. See `docs/backend/volume-flow-expectancy-strategy.md` for the
-  low-win-rate, positive-expectancy candidate gate, and
-  `docs/backend/volume-flow-target-plan.md` for the current phase targets.
-  Source note: measured on
-  `build/runtime-test/bybit-trader-1y-backtest.sqlite` covering
-  `2025-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading
+- Latest local BTCUSDT volume-flow snapshot: the current composite candidate in
+  `config/volume-flow-composite-current.json` uses `riskFraction=0.075` and
+  applies an 8-candle, `0.45R` follow-through check to the two M5 trend-down
+  fixed-target legs. On the local three-year dataset, the replay returned
+  `17,642.11%` net return, `0.47318%` compound daily return, `33.29%` realized
+  max drawdown, and `34.21%` mark-to-market max drawdown over 268 trades.
+  This is improved but still below the `0.84390%` compound daily return required
+  for `1,000,000 KRW -> 10,000,000,000 KRW` over three years. See
+  `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year
+  reproduction notes, accepted/rejected tuning paths, and the next improvement
+  list. Source note: measured on
+  `build/runtime-test/bybit-trader-3y-backtest.sqlite` covering
+  `2023-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading
   return guarantee.
 
 <!-- OPENDOCK:START id=files:README.md dock=opendock/business-ultrawork path=README.md -->

@@ -545,6 +545,30 @@ function legPatches(leg) {
       },
     },
     {
+      name: "follow_through_3_0_25",
+      patch: {
+        followThroughCheckM1Candles: 3,
+        minFollowThroughR: 0.25,
+        maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, 3),
+      },
+    },
+    {
+      name: "follow_through_5_0_35",
+      patch: {
+        followThroughCheckM1Candles: 5,
+        minFollowThroughR: 0.35,
+        maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, 5),
+      },
+    },
+    {
+      name: "follow_through_8_0_45",
+      patch: {
+        followThroughCheckM1Candles: 8,
+        minFollowThroughR: 0.45,
+        maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, 8),
+      },
+    },
+    {
       name: "target_1_5",
       patch: {
         targetR: 1.5,

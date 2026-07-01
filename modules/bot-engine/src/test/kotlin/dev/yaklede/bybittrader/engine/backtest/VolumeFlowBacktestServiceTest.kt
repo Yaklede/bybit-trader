@@ -19,6 +19,10 @@ class VolumeFlowBacktestServiceTest :
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(riskFraction = 0.0751)
             }.message shouldBe "Risk fraction must be between 0 and 0.075."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
+            }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
         }
 
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {
@@ -212,6 +216,28 @@ class VolumeFlowBacktestServiceTest :
             (result.trades.single().mfeCapturePct != null) shouldBe true
         }
 
+        "follow-through check exits stagnant trades before time expiry" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(followThroughFailVolumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            followThroughCheckM1Candles = 1,
+                            minFollowThroughR = 0.2,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.FOLLOW_THROUGH_FAIL
+            (result.trades.single().maxFavorableExcursionR < 0.2) shouldBe true
+            result.performanceByExitReason.single().tag shouldBe "FOLLOW_THROUGH_FAIL"
+        }
+
         "runs a short trade from failed breakout reversal and close confirmation" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(failedBreakReversalCandles()))
 
@@ -388,6 +414,9 @@ private fun runnerVolumeFlowCandles(): List<Candle> = runnerVolumeFlowM1Candles(
 
 private fun trendBreakVolumeFlowCandles(): List<Candle> = trendBreakVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
+private fun followThroughFailVolumeFlowCandles(): List<Candle> =
+    followThroughFailVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
+
 private fun failedBreakReversalCandles(): List<Candle> =
     failedBreakReversalM1Candles() + failedBreakReversalM5Candles() + volumeFlowM15Candles()
 
@@ -435,6 +464,20 @@ private fun trendBreakVolumeFlowM1Candles(): List<Candle> =
                     close = BigDecimal("123.0"),
                 )
             else -> candle
+        }
+    }
+
+private fun followThroughFailVolumeFlowM1Candles(): List<Candle> =
+    volumeFlowM1Candles().map { candle ->
+        if (candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")) {
+            candle.copy(
+                open = BigDecimal("112.9"),
+                high = BigDecimal("113.0"),
+                low = BigDecimal("112.4"),
+                close = BigDecimal("112.7"),
+            )
+        } else {
+            candle
         }
     }
 

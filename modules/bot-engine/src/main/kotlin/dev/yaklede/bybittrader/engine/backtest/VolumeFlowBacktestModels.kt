@@ -45,6 +45,8 @@ data class VolumeFlowBacktestConfig(
     val runnerTrailDistanceR: Double = 0.5,
     val trendBreakLookbackM1Candles: Int = 5,
     val breakevenTriggerR: Double? = null,
+    val followThroughCheckM1Candles: Int? = null,
+    val minFollowThroughR: Double? = null,
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
@@ -105,7 +107,19 @@ data class VolumeFlowBacktestConfig(
             "Trend break lookback must be between 2 and 60 candles."
         }
         require(breakevenTriggerR == null || breakevenTriggerR > 0.0) { "Breakeven trigger R must be positive." }
+        require((followThroughCheckM1Candles == null) == (minFollowThroughR == null)) {
+            "Follow-through check candles and minimum R must both be null or both be set."
+        }
+        require(followThroughCheckM1Candles == null || followThroughCheckM1Candles in 1..60) {
+            "Follow-through check candles must be null or between 1 and 60."
+        }
+        require(minFollowThroughR == null || minFollowThroughR > 0.0 && minFollowThroughR <= 5.0) {
+            "Minimum follow-through R must be null or between 0 and 5."
+        }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
+        require(followThroughCheckM1Candles == null || followThroughCheckM1Candles <= maxHoldM1Candles) {
+            "Follow-through check candles must be less than or equal to max hold M1 candles."
+        }
         require(dailyTargetPct == null || dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) {
             "Daily target percent must be null or between 0 and 10."
         }
@@ -277,5 +291,6 @@ enum class VolumeFlowExitReason {
     TRAILING_STOP,
     TREND_BREAK,
     STOP,
+    FOLLOW_THROUGH_FAIL,
     TIME,
 }
