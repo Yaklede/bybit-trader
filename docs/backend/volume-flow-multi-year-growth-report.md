@@ -92,3 +92,62 @@ days and higher R expectancy before the 10,000x target is credible.
 The previous trend-impulse experiment is discarded. The current production
 candidate is now the hardened existing strategy. It improves long-horizon
 robustness but does not yet meet the 10 billion KRW target.
+
+## Recursive Target Search 2026-07-01
+
+Source note: this pass used `scripts/volume-flow-recursive-target.mjs` against
+the same three-year local BTCUSDT dataset. The script evaluates candidates
+against a `10,000x` target, which requires `0.84390%` compound daily return
+over `1096` observed days.
+
+The recursive search did not find a raw or deployable target hit. It did find a
+better risk-adjusted current candidate inside the existing strategy family:
+
+- Global execution: `maxTradesPerDay=5`, `maxConcurrentPositions=5`,
+  `dailyStopPct=1`, `maxConsecutiveLosses=1`.
+- `range_failed_break_loose`: `targetR=1.5`, `maxHoldM1Candles=35`.
+- `m1_trend_up_breakout_scalp`: switched to `RUNNER` exit with
+  `runnerTrailActivationR=0.8`, `runnerTrailDistanceR=0.75`,
+  `maxHoldM1Candles=30`.
+- `m1_trend_down_breakout_assist`: `targetR=0.8`.
+
+Updated current result:
+
+| Horizon | Final equity | Net return | Compound daily | Max drawdown | Trades | Win rate | Profit factor | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `3,321,185 KRW` | `232.12%` | `0.32850%` | `7.51%` | `91` | `74.73%` | `4.78` | `17.07%` |
+| 2 years | `5,062,776 KRW` | `406.28%` | `0.22212%` | `16.27%` | `191` | `69.11%` | `3.18` | `12.68%` |
+| 3 years | `5,747,575 KRW` | `474.76%` | `0.15954%` | `26.73%` | `275` | `61.45%` | `2.65` | `-14.75%` |
+
+Compared with the previous hardened current, the three-year final equity
+improves from `3,948,481 KRW` to `5,747,575 KRW`, and max drawdown improves
+from `32.58%` to `26.73%`. This is still far below the `10,000x` target:
+`0.15954%` compound daily return versus the required `0.84390%`.
+
+Search conclusion:
+
+- Repeating parameter changes inside the current setup family converged around
+  `0.16%` compound daily return.
+- The active-day coverage remained near `15.22%`, so the main bottleneck is not
+  only target/exit tuning. The system needs new positive-expectancy signal
+  coverage.
+- The three-year worst walk-forward window is still negative at `-14.75%`, so
+  the current candidate is improved but not final.
+
+Next recursive loop requirement:
+
+- Add new signal coverage instead of only mutating existing legs.
+- Keep the three-year `0.84390%` target as the raw hit gate.
+- Reject any candidate that reaches the target only through extreme per-trade
+  risk or a `>80%` drawdown profile.
+
+Coverage expansion note:
+
+An additional coverage-expansion pass found a stronger three-year research
+candidate by changing `range_failed_break_loose` to
+`SETUP_CLOSE_CONFIRMATION`. It produced `540.01868%` three-year net return,
+`0.16936%` compound daily return, and `23.19099%` max drawdown. It was not
+accepted as the current config because it lowered the one-year result to
+`201.40%` and the two-year result to `388.11%` versus the balanced current
+candidate's `232.12%` and `406.28%`. Keep it as a research branch for the next
+loop, not the current baseline.
