@@ -648,8 +648,26 @@ function score(summary, report) {
     worstWalkForward * 150 -
     deployableDrawdownPct * 450 -
     drawdownOverGate * 10_000 -
+    exitRiskPenalty(report, 800, 120) -
     Math.max(0, summary.maxConsecutiveLosses - 8) * 2_000
   );
+}
+
+function exitRiskPenalty(report, fullRiskStopWeight, breakevenStopWeight) {
+  const fullRiskStop = exitSummary(report, "STOP");
+  const breakevenStop = exitSummary(report, "BREAKEVEN_STOP");
+  return (
+    exitLossR(fullRiskStop) * fullRiskStopWeight +
+    exitLossR(breakevenStop) * breakevenStopWeight
+  );
+}
+
+function exitLossR(summary) {
+  return Math.max(0, summary.tradeCount ?? 0) * Math.max(0, -(summary.expectancyR ?? 0));
+}
+
+function exitSummary(report, tag) {
+  return report.performanceByExitReason?.find((summary) => summary.tag === tag) ?? { tradeCount: 0, expectancyR: 0 };
 }
 
 function deploymentDrawdownPct(summary) {
@@ -674,6 +692,10 @@ function summarize(report) {
     payoffRatio: report.payoffRatio,
     expectancyR: report.expectancyR,
     maxConsecutiveLosses: report.maxConsecutiveLosses,
+    fullRiskStopTradeCount: exitSummary(report, "STOP").tradeCount ?? 0,
+    fullRiskStopExpectancyR: exitSummary(report, "STOP").expectancyR ?? 0,
+    breakevenStopTradeCount: exitSummary(report, "BREAKEVEN_STOP").tradeCount ?? 0,
+    breakevenStopExpectancyR: exitSummary(report, "BREAKEVEN_STOP").expectancyR ?? 0,
     worstWalkForwardReturnPct: Math.min(...report.walkForwardPerformance.map((period) => period.returnPct)),
   };
 }

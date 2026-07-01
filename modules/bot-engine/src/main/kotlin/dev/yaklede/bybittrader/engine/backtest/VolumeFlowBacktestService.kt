@@ -182,7 +182,7 @@ class VolumeFlowBacktestService(
             equity += pnl
             peakEquity = maxOf(peakEquity, equity)
             maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
-            consecutiveLosses = if (pnl < 0.0) consecutiveLosses + 1 else 0
+            consecutiveLosses = nextLossStreak(consecutiveLosses, pnl, exit.reason)
 
             val trade =
                 VolumeFlowBacktestTrade(
@@ -1276,12 +1276,19 @@ private fun List<VolumeFlowBacktestTrade>.maxConsecutiveLosses(): Int {
     var current = 0
     var max = 0
     forEach { trade ->
-        if (trade.pnl < 0.0) {
-            current += 1
-            max = maxOf(max, current)
-        } else {
-            current = 0
-        }
+        current = nextLossStreak(current, trade.pnl, trade.exitReason)
+        max = maxOf(max, current)
     }
     return max
 }
+
+private fun nextLossStreak(
+    current: Int,
+    pnl: Double,
+    exitReason: VolumeFlowExitReason,
+): Int =
+    when {
+        pnl >= 0.0 -> 0
+        exitReason == VolumeFlowExitReason.BREAKEVEN_STOP -> current
+        else -> current + 1
+    }

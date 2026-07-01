@@ -270,7 +270,7 @@ private fun simulateSinglePositionComposite(
         equity += trade.pnl
         peakEquity = maxOf(peakEquity, equity)
         maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
-        consecutiveLosses = if (trade.pnl < 0.0) consecutiveLosses + 1 else 0
+        consecutiveLosses = nextCompositeLossStreak(consecutiveLosses, trade)
 
         trades += trade
         dayState.recordTrade(trade.pnl, equity, config, consecutiveLosses)
@@ -307,7 +307,7 @@ private fun simulateConcurrentComposite(
         equity += trade.pnl
         peakEquity = maxOf(peakEquity, equity)
         maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
-        consecutiveLosses = if (trade.pnl < 0.0) consecutiveLosses + 1 else 0
+        consecutiveLosses = nextCompositeLossStreak(consecutiveLosses, trade)
         closedTrades += trade
         dailyStates
             .getOrPut(trade.setupAt.utcDate()) {
@@ -586,15 +586,21 @@ private fun List<VolumeFlowCompositeBacktestTrade>.maxCompositeConsecutiveLosses
     var current = 0
     var max = 0
     forEach { trade ->
-        if (trade.pnl < 0.0) {
-            current += 1
-            max = maxOf(max, current)
-        } else {
-            current = 0
-        }
+        current = nextCompositeLossStreak(current, trade)
+        max = maxOf(max, current)
     }
     return max
 }
+
+private fun nextCompositeLossStreak(
+    current: Int,
+    trade: VolumeFlowCompositeBacktestTrade,
+): Int =
+    when {
+        trade.pnl >= 0.0 -> 0
+        trade.exitReason == VolumeFlowExitReason.BREAKEVEN_STOP -> current
+        else -> current + 1
+    }
 
 private fun List<VolumeFlowCompositeBacktestTrade>.monthlyPerformance(initialEquity: Double): List<VolumeFlowPeriodSummary> {
     var equity = initialEquity

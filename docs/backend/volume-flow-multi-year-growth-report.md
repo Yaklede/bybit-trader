@@ -557,3 +557,50 @@ Next improvement list:
    exceeds the full-risk stops it prevents.
 3. Add candidate scoring that penalizes full-risk `STOP` separately from
    `BREAKEVEN_STOP`, rather than treating both as the same failure type.
+
+## Loss-Streak Scoring Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the TIME exit retune pass.
+
+Implementation change:
+
+- `BREAKEVEN_STOP` no longer increments volume-flow `maxConsecutiveLosses` or
+  same-day consecutive-loss locks. It is treated as a neutral defensive exit:
+  profitable trades still reset the streak, full-risk losses still increment it.
+- Composite replay uses the same loss-streak policy as single-leg volume-flow
+  backtests.
+- `scripts/volume-flow-recursive-target.mjs` and `scripts/volume-flow-tune.mjs`
+  now add full-risk stop and breakeven-stop fields to summaries:
+  `fullRiskStopTradeCount`, `fullRiskStopExpectancyR`,
+  `breakevenStopTradeCount`, and `breakevenStopExpectancyR`.
+- Tuning score now penalizes full-risk `STOP` loss-R materially more than
+  `BREAKEVEN_STOP` loss-R. This keeps breakeven defense available while pushing
+  search away from true `-1R` stop clusters.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Max loss streak | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,478,880 KRW` | `947.89%` | `0.64397%` | `18.56%` | `23.85%` | `86` | `66.28%` | `3.10` | `0.42470R` | `6` | `48.80%` |
+| 2 years | `65,458,746 KRW` | `6,445.87%` | `0.57365%` | `30.39%` | `31.36%` | `184` | `63.59%` | `2.90` | `0.35817R` | `6` | `76.83%` |
+| 3 years | `257,397,618 KRW` | `25,639.76%` | `0.50726%` | `30.39%` | `31.36%` | `269` | `57.99%` | `2.90` | `0.32847R` | `6` | `33.08%` |
+
+Decision:
+
+- Promote this policy and scoring change. It does not alter the current
+  headline return because the accepted config did not have entries blocked only
+  by breakeven-stop loss streaks in this replay.
+- The change still matters for search: future candidates can use breakeven
+  defense without being ranked like full-risk stop strategies.
+- Full-risk `STOP` remains the primary loss bucket to reduce: `22` trades at
+  `-1.14083R` expectancy in the current three-year replay.
+
+Next improvement list:
+
+1. Run recursive target search with the updated score and reject candidates that
+   improve CDR by increasing full-risk `STOP` concentration.
+2. Add targeted mutations for `m1_trend_down_breakout_assist` negative `TIME`
+   exits, because global exit changes have repeatedly underperformed.
+3. Consider a full-risk stop cap per leg if a single leg dominates the
+   `performanceByLegExit` full-stop loss-R during the next tuning pass.

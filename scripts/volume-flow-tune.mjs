@@ -366,7 +366,21 @@ function score(report) {
   const expectancyScore = report.expectancyR * 1000;
   const drawdownPenalty = deploymentDrawdownPct(report) * 300;
   const lossPenalty = Math.max(0, report.maxConsecutiveLosses - DEFAULT_TARGET.maxConsecutiveLosses) * 1200;
-  return targetBonus + cdrScore + coverageScore + edgeScore + expectancyScore - drawdownPenalty - lossPenalty;
+  return targetBonus + cdrScore + coverageScore + edgeScore + expectancyScore - drawdownPenalty - lossPenalty - exitRiskPenalty(report);
+}
+
+function exitRiskPenalty(report) {
+  const fullRiskStop = exitSummary(report, "STOP");
+  const breakevenStop = exitSummary(report, "BREAKEVEN_STOP");
+  return (exitLossR(fullRiskStop) * 120) + (exitLossR(breakevenStop) * 20);
+}
+
+function exitLossR(summary) {
+  return Math.max(0, summary.tradeCount ?? 0) * Math.max(0, -(summary.expectancyR ?? 0));
+}
+
+function exitSummary(report, tag) {
+  return report.performanceByExitReason?.find((summary) => summary.tag === tag) ?? { tradeCount: 0, expectancyR: 0 };
 }
 
 function deploymentDrawdownPct(report) {
@@ -388,6 +402,10 @@ function summarize(report) {
     winRateEdgePct: report.winRateEdgePct,
     expectancyR: report.expectancyR,
     maxConsecutiveLosses: report.maxConsecutiveLosses,
+    fullRiskStopTradeCount: exitSummary(report, "STOP").tradeCount ?? 0,
+    fullRiskStopExpectancyR: exitSummary(report, "STOP").expectancyR ?? 0,
+    breakevenStopTradeCount: exitSummary(report, "BREAKEVEN_STOP").tradeCount ?? 0,
+    breakevenStopExpectancyR: exitSummary(report, "BREAKEVEN_STOP").expectancyR ?? 0,
     activeDays: report.activeDays,
     observedDays: report.observedDays,
     activeDayCoveragePct: report.activeDayCoveragePct,

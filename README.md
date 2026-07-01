@@ -122,7 +122,9 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
   `0.50726%` compound daily return, `30.39%` realized max drawdown, and
   `31.36%` mark-to-market max drawdown over 269 trades.
   Composite reports now split `BREAKEVEN_STOP` from full-risk `STOP` and expose
-  `performanceByLegExit` for leg-by-exit diagnostics.
+  `performanceByLegExit` for leg-by-exit diagnostics. `BREAKEVEN_STOP` is
+  treated as a neutral defensive exit for loss-streak locks, and the tuning
+  scripts penalize full-risk `STOP` separately from breakeven defense.
   This is improved but still below the `0.84390%` compound daily return required
   for `1,000,000 KRW -> 10,000,000,000 KRW` over three years. See
   `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year

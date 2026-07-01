@@ -256,6 +256,7 @@ class VolumeFlowBacktestServiceTest :
 
             result.tradeCount shouldBe 1
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.BREAKEVEN_STOP
+            result.maxConsecutiveLosses shouldBe 0
             result.performanceByExitReason.single().tag shouldBe "BREAKEVEN_STOP"
         }
 
@@ -401,6 +402,33 @@ class VolumeFlowBacktestServiceTest :
             result.monthlyPerformance.single().tradeCount shouldBe 2
             result.walkForwardPerformance.sumOf { it.tradeCount } shouldBe 2
             (result.finalEquity > result.initialEquity) shouldBe true
+        }
+
+        "composite backtest does not count breakeven stops as consecutive losses" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+            val legConfig =
+                testVolumeFlowConfig().copy(
+                    targetR = 3.0,
+                    breakevenTriggerR = 0.2,
+                )
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            maxConsecutiveLosses = 1,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.BREAKEVEN_STOP
+            result.maxConsecutiveLosses shouldBe 0
+            result.performanceByLegExit.single().exitReason shouldBe VolumeFlowExitReason.BREAKEVEN_STOP
         }
     })
 
