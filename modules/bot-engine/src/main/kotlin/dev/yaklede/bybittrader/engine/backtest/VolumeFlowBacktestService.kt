@@ -23,9 +23,9 @@ class VolumeFlowBacktestService(
         m15Limit: Int,
         config: VolumeFlowBacktestConfig,
     ): VolumeFlowBacktestReport {
-        require(m1Limit in 60..600_000) { "M1 candle limit must be between 60 and 600000." }
-        require(m5Limit in 30..200_000) { "M5 candle limit must be between 30 and 200000." }
-        require(m15Limit in 30..50_000) { "M15 candle limit must be between 30 and 50000." }
+        require(m1Limit in 60..1_600_000) { "M1 candle limit must be between 60 and 1600000." }
+        require(m5Limit in 30..320_000) { "M5 candle limit must be between 30 and 320000." }
+        require(m15Limit in 30..110_000) { "M15 candle limit must be between 30 and 110000." }
 
         val m1Candles = candleStore.recentCandles(symbol, Timeframe.M1, m1Limit).sortedBy { it.openedAt }
         val m5Candles = candleStore.recentCandles(symbol, Timeframe.M5, m5Limit).sortedBy { it.openedAt }
@@ -258,16 +258,6 @@ class VolumeFlowBacktestService(
                     config,
                     noTradeReasonCounts,
                 )
-            VolumeFlowSetupMode.TREND_IMPULSE_CONTINUATION ->
-                detectTrendImpulseContinuation(
-                    candles[index],
-                    shape,
-                    keyLevel,
-                    relativeVolume,
-                    volumeZScore,
-                    config,
-                    noTradeReasonCounts,
-                )
             VolumeFlowSetupMode.FAILED_BREAK_REVERSAL ->
                 detectFailedBreakReversal(
                     candles[index],
@@ -290,40 +280,6 @@ class VolumeFlowBacktestService(
                     noTradeReasonCounts,
                 )
         }
-    }
-
-    private fun detectTrendImpulseContinuation(
-        candle: Candle,
-        shape: CandleShape,
-        keyLevel: KeyLevelContext,
-        relativeVolume: Double,
-        volumeZScore: Double,
-        config: VolumeFlowBacktestConfig,
-        noTradeReasonCounts: MutableMap<String, Int>,
-    ): SetupCandidate? {
-        val side = shape.direction
-        if (side == null) {
-            incrementReason("NO_DIRECTIONAL_IMPULSE", noTradeReasonCounts)
-            return null
-        }
-        if (shape.bodyRatio < config.minBodyRatio) {
-            incrementReason("BODY_TOO_SMALL", noTradeReasonCounts)
-            return null
-        }
-        if (!shape.closesStronglyFor(side, config.minDirectionalCloseStrength)) {
-            incrementReason("WEAK_CLOSE_LOCATION", noTradeReasonCounts)
-            return null
-        }
-        return SetupCandidate(
-            setupMode = VolumeFlowSetupMode.TREND_IMPULSE_CONTINUATION,
-            side = side,
-            entryLevel = candle.close.toDouble(),
-            relativeVolume = relativeVolume,
-            volumeZScore = volumeZScore,
-            shape = shape,
-            keyLevel = keyLevel,
-            volumePattern = VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE,
-        )
     }
 
     private fun detectBreakoutContinuation(

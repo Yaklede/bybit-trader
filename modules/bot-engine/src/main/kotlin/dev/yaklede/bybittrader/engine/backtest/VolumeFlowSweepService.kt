@@ -16,9 +16,9 @@ class VolumeFlowSweepService(
         m15Limit: Int,
         sweepConfig: VolumeFlowSweepConfig,
     ): VolumeFlowSweepReport {
-        require(m1Limit in 120..600_000) { "M1 candle limit must be between 120 and 600000." }
-        require(m5Limit in 60..200_000) { "M5 candle limit must be between 60 and 200000." }
-        require(m15Limit in 60..50_000) { "M15 candle limit must be between 60 and 50000." }
+        require(m1Limit in 120..1_600_000) { "M1 candle limit must be between 120 and 1600000." }
+        require(m5Limit in 60..320_000) { "M5 candle limit must be between 60 and 320000." }
+        require(m15Limit in 60..110_000) { "M15 candle limit must be between 60 and 110000." }
 
         val m1Candles = candleStore.recentCandles(symbol, Timeframe.M1, m1Limit).sortedBy { it.openedAt }
         val m5Candles = candleStore.recentCandles(symbol, Timeframe.M5, m5Limit).sortedBy { it.openedAt }

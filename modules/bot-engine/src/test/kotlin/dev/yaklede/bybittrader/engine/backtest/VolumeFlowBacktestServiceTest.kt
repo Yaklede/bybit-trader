@@ -159,29 +159,6 @@ class VolumeFlowBacktestServiceTest :
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
         }
 
-        "can enter a trend impulse continuation from the setup candle close" {
-            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
-
-            val result =
-                service.run(
-                    symbol = Symbol("BTCUSDT"),
-                    m1Limit = 80,
-                    m5Limit = 30,
-                    m15Limit = 30,
-                    config =
-                        testVolumeFlowConfig().copy(
-                            setupMode = VolumeFlowSetupMode.TREND_IMPULSE_CONTINUATION,
-                            entryMode = VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION,
-                            requireRegimeSideAlignment = true,
-                        ),
-                )
-
-            result.tradeCount shouldBe 1
-            result.trades.single().setupMode shouldBe VolumeFlowSetupMode.TREND_IMPULSE_CONTINUATION
-            result.trades.single().side shouldBe Side.BUY
-            result.trades.single().volumePattern shouldBe VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE
-        }
-
         "runner exit can trail a move beyond the fixed target reference" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(runnerVolumeFlowCandles()))
 
