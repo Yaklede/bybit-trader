@@ -47,6 +47,9 @@ data class VolumeFlowBacktestConfig(
     val breakevenTriggerR: Double? = null,
     val followThroughCheckM1Candles: Int? = null,
     val minFollowThroughR: Double? = null,
+    val adverseExitCheckM1Candles: Int? = null,
+    val maxAdverseRBeforeExit: Double? = null,
+    val minFavorableRBeforeAdverseExit: Double? = null,
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
@@ -116,9 +119,33 @@ data class VolumeFlowBacktestConfig(
         require(minFollowThroughR == null || minFollowThroughR > 0.0 && minFollowThroughR <= 5.0) {
             "Minimum follow-through R must be null or between 0 and 5."
         }
+        val adverseExitFields =
+            listOf(
+                adverseExitCheckM1Candles,
+                maxAdverseRBeforeExit,
+                minFavorableRBeforeAdverseExit,
+            )
+        require(adverseExitFields.all { it == null } || adverseExitFields.all { it != null }) {
+            "Adverse exit check candles, maximum adverse R, and minimum favorable R must all be null or all be set."
+        }
+        require(adverseExitCheckM1Candles == null || adverseExitCheckM1Candles in 1..60) {
+            "Adverse exit check candles must be null or between 1 and 60."
+        }
+        require(maxAdverseRBeforeExit == null || maxAdverseRBeforeExit > 0.0 && maxAdverseRBeforeExit <= 5.0) {
+            "Maximum adverse R before exit must be null or between 0 and 5."
+        }
+        require(
+            minFavorableRBeforeAdverseExit == null ||
+                minFavorableRBeforeAdverseExit >= 0.0 && minFavorableRBeforeAdverseExit <= 5.0,
+        ) {
+            "Minimum favorable R before adverse exit must be null or between 0 and 5."
+        }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
         require(followThroughCheckM1Candles == null || followThroughCheckM1Candles <= maxHoldM1Candles) {
             "Follow-through check candles must be less than or equal to max hold M1 candles."
+        }
+        require(adverseExitCheckM1Candles == null || adverseExitCheckM1Candles <= maxHoldM1Candles) {
+            "Adverse exit check candles must be less than or equal to max hold M1 candles."
         }
         require(dailyTargetPct == null || dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) {
             "Daily target percent must be null or between 0 and 10."
@@ -293,5 +320,6 @@ enum class VolumeFlowExitReason {
     STOP,
     BREAKEVEN_STOP,
     FOLLOW_THROUGH_FAIL,
+    ADVERSE_INVALIDATION,
     TIME,
 }

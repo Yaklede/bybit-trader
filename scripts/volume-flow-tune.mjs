@@ -247,6 +247,23 @@ function generateVariants(config) {
         ),
       );
     }
+
+    for (const [checkCandles, maxAdverseR, minFavorableR] of [
+      [8, 0.7, 0.35],
+      [12, 0.7, 0.35],
+    ]) {
+      variants.push(
+        namedVariant(
+          `adverse_${leg.id}_${checkCandles}_${maxAdverseR}_${minFavorableR}`,
+          withLegPatch(config, legIndex, {
+            adverseExitCheckM1Candles: checkCandles,
+            maxAdverseRBeforeExit: maxAdverseR,
+            minFavorableRBeforeAdverseExit: minFavorableR,
+            maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, checkCandles),
+          }),
+        ),
+      );
+    }
   });
 
   return variants;
@@ -372,7 +389,8 @@ function score(report) {
 function exitRiskPenalty(report) {
   const fullRiskStop = exitSummary(report, "STOP");
   const breakevenStop = exitSummary(report, "BREAKEVEN_STOP");
-  return (exitLossR(fullRiskStop) * 120) + (exitLossR(breakevenStop) * 20);
+  const adverseInvalidation = exitSummary(report, "ADVERSE_INVALIDATION");
+  return (exitLossR(fullRiskStop) * 120) + (exitLossR(breakevenStop) * 20) + (exitLossR(adverseInvalidation) * 45);
 }
 
 function exitLossR(summary) {
@@ -406,6 +424,8 @@ function summarize(report) {
     fullRiskStopExpectancyR: exitSummary(report, "STOP").expectancyR ?? 0,
     breakevenStopTradeCount: exitSummary(report, "BREAKEVEN_STOP").tradeCount ?? 0,
     breakevenStopExpectancyR: exitSummary(report, "BREAKEVEN_STOP").expectancyR ?? 0,
+    adverseInvalidationTradeCount: exitSummary(report, "ADVERSE_INVALIDATION").tradeCount ?? 0,
+    adverseInvalidationExpectancyR: exitSummary(report, "ADVERSE_INVALIDATION").expectancyR ?? 0,
     activeDays: report.activeDays,
     observedDays: report.observedDays,
     activeDayCoveragePct: report.activeDayCoveragePct,

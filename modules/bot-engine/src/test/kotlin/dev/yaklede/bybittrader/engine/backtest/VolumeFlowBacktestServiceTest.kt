@@ -23,6 +23,11 @@ class VolumeFlowBacktestServiceTest :
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(adverseExitCheckM1Candles = 3)
+            }.message shouldBe
+                "Adverse exit check candles, maximum adverse R, and minimum favorable R must all be null or all be set."
         }
 
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {
@@ -236,6 +241,29 @@ class VolumeFlowBacktestServiceTest :
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.FOLLOW_THROUGH_FAIL
             (result.trades.single().maxFavorableExcursionR < 0.2) shouldBe true
             result.performanceByExitReason.single().tag shouldBe "FOLLOW_THROUGH_FAIL"
+        }
+
+        "adverse invalidation exits weak trades that move against entry before time expiry" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(followThroughFailVolumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            adverseExitCheckM1Candles = 1,
+                            maxAdverseRBeforeExit = 0.05,
+                            minFavorableRBeforeAdverseExit = 0.2,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.ADVERSE_INVALIDATION
+            (result.trades.single().maxAdverseExcursionR >= 0.05) shouldBe true
+            result.performanceByExitReason.single().tag shouldBe "ADVERSE_INVALIDATION"
         }
 
         "breakeven trigger reports breakeven stop separately from full stop" {

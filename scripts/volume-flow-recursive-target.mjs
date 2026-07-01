@@ -569,6 +569,32 @@ function legPatches(leg) {
       },
     },
     {
+      name: "adverse_8_0_7_0_35",
+      patch: {
+        adverseExitCheckM1Candles: 8,
+        maxAdverseRBeforeExit: 0.7,
+        minFavorableRBeforeAdverseExit: 0.35,
+        maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, 8),
+      },
+    },
+    {
+      name: "adverse_12_0_7_0_35",
+      patch: {
+        adverseExitCheckM1Candles: 12,
+        maxAdverseRBeforeExit: 0.7,
+        minFavorableRBeforeAdverseExit: 0.35,
+        maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, 12),
+      },
+    },
+    {
+      name: "adverse_off",
+      patch: {
+        adverseExitCheckM1Candles: null,
+        maxAdverseRBeforeExit: null,
+        minFavorableRBeforeAdverseExit: null,
+      },
+    },
+    {
       name: "target_1_5",
       patch: {
         targetR: 1.5,
@@ -648,17 +674,19 @@ function score(summary, report) {
     worstWalkForward * 150 -
     deployableDrawdownPct * 450 -
     drawdownOverGate * 10_000 -
-    exitRiskPenalty(report, 800, 120) -
+    exitRiskPenalty(report, 800, 120, 300) -
     Math.max(0, summary.maxConsecutiveLosses - 8) * 2_000
   );
 }
 
-function exitRiskPenalty(report, fullRiskStopWeight, breakevenStopWeight) {
+function exitRiskPenalty(report, fullRiskStopWeight, breakevenStopWeight, adverseInvalidationWeight) {
   const fullRiskStop = exitSummary(report, "STOP");
   const breakevenStop = exitSummary(report, "BREAKEVEN_STOP");
+  const adverseInvalidation = exitSummary(report, "ADVERSE_INVALIDATION");
   return (
     exitLossR(fullRiskStop) * fullRiskStopWeight +
-    exitLossR(breakevenStop) * breakevenStopWeight
+    exitLossR(breakevenStop) * breakevenStopWeight +
+    exitLossR(adverseInvalidation) * adverseInvalidationWeight
   );
 }
 
@@ -696,6 +724,8 @@ function summarize(report) {
     fullRiskStopExpectancyR: exitSummary(report, "STOP").expectancyR ?? 0,
     breakevenStopTradeCount: exitSummary(report, "BREAKEVEN_STOP").tradeCount ?? 0,
     breakevenStopExpectancyR: exitSummary(report, "BREAKEVEN_STOP").expectancyR ?? 0,
+    adverseInvalidationTradeCount: exitSummary(report, "ADVERSE_INVALIDATION").tradeCount ?? 0,
+    adverseInvalidationExpectancyR: exitSummary(report, "ADVERSE_INVALIDATION").expectancyR ?? 0,
     worstWalkForwardReturnPct: Math.min(...report.walkForwardPerformance.map((period) => period.returnPct)),
   };
 }

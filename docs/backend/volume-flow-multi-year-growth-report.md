@@ -677,3 +677,76 @@ Decision:
   sweep. The remaining high-value work is a new structure-based invalidation
   rule for `m1_trend_down_breakout_assist` weak `TIME` exits and a leg-specific
   full-risk stop reducer for M1 scalp/range setups.
+
+## Adverse Invalidation Retune Pass 2026-07-02
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the hold-capture pass. The objective remained the
+`1,000,000 KRW -> 10,000,000,000 KRW` three-year target, which requires
+`0.84390%` compound daily return.
+
+Implementation change:
+
+- Added `ADVERSE_INVALIDATION` as a first-class volume-flow exit reason.
+- Added optional leg-level adverse invalidation fields:
+  `adverseExitCheckM1Candles`, `maxAdverseRBeforeExit`, and
+  `minFavorableRBeforeAdverseExit`.
+- The exit is disabled by default. When all three fields are set, a trade exits
+  at the current 1m close after the check window if it has moved adversely at
+  least the configured R amount without first producing enough favorable R.
+- Exposed the fields through both single-leg and composite backtest API request
+  DTOs.
+- Updated recursive/tuning scripts so adverse invalidation is included in
+  future candidate summaries and mutation space.
+
+Accepted config changes:
+
+- `trend_down_retest`:
+  - `volumeZScoreThreshold`: `1.5 -> 1.0`
+  - `minBodyRatio`: `0.55 -> 0.50`
+  - `minDirectionalCloseStrength`: `0.70 -> 0.55`
+- `m1_failed_break_chop_scalp`:
+  - `adverseExitCheckM1Candles=12`
+  - `maxAdverseRBeforeExit=0.7`
+  - `minFavorableRBeforeAdverseExit=0.35`
+
+Rejected paths:
+
+- Applying adverse invalidation to `m1_trend_down_breakout_assist` reduced
+  compounding. It cut some weak `TIME` exits, but also damaged the profitable
+  target sequence enough that the portfolio-level result worsened.
+- Applying adverse invalidation to `m1_trend_up_breakout_scalp` breached the
+  deployment drawdown gate in the sampled variants.
+- Applying adverse invalidation to `range_failed_break_loose` reduced
+  full-risk stops but lowered long-horizon compounding.
+- Additional global risk, target, trend-break, and coverage-leg mutations did
+  not beat the accepted current candidate.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Full STOP | Adverse exits |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,319,884 KRW` | `931.99%` | `0.63976%` | `16.76%` | `22.16%` | `87` | `65.52%` | `3.11` | `0.41768R` | `4` | `0` |
+| 2 years | `104,939,598 KRW` | `10,393.96%` | `0.63861%` | `29.59%` | `31.34%` | `183` | `63.39%` | `3.02` | `0.39407R` | `11` | `2` |
+| 3 years | `425,532,564 KRW` | `42,453.26%` | `0.55333%` | `29.59%` | `31.34%` | `273` | `58.61%` | `3.02` | `0.34799R` | `17` | `2` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | MDD delta | Full STOP delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,647,468 KRW` | `10,319,884 KRW` | `0.64836%` | `0.63976%` | `0.00pp` | `0` |
+| 2 years | `73,550,989 KRW` | `104,939,598 KRW` | `0.58969%` | `0.63861%` | `-0.80pp` | `-5` |
+| 3 years | `305,482,466 KRW` | `425,532,564 KRW` | `0.52296%` | `0.55333%` | `-0.80pp` | `-5` |
+
+Decision:
+
+- Promote this candidate to current. The one-year result is lower, but the
+  three-year target is the primary gate and the two-/three-year compound
+  results improve materially while realized and mark-to-market MDD remain under
+  the `40%` deployment gate.
+- The target is still not reached. Current three-year compound daily return is
+  `0.55333%`, while `0.84390%` is required for `10,000x`.
+- The remaining gap is unlikely to be solved by global parameter mutation. The
+  next loop needs a new positive-expectancy setup family or a more selective
+  trend-side expansion that adds active days without increasing full-risk stop
+  concentration.

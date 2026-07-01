@@ -125,6 +125,9 @@ data class VolumeFlowCompositeLegRequest(
     val breakevenTriggerR: Double? = null,
     val followThroughCheckM1Candles: Int? = null,
     val minFollowThroughR: Double? = null,
+    val adverseExitCheckM1Candles: Int? = null,
+    val maxAdverseRBeforeExit: Double? = null,
+    val minFavorableRBeforeAdverseExit: Double? = null,
     val maxHoldM1Candles: Int = 30,
 ) {
     fun toLeg(initialEquity: Double): VolumeFlowCompositeBacktestLeg {
@@ -180,6 +183,9 @@ data class VolumeFlowCompositeLegRequest(
                     breakevenTriggerR = breakevenTriggerR,
                     followThroughCheckM1Candles = followThroughCheckM1Candles,
                     minFollowThroughR = minFollowThroughR,
+                    adverseExitCheckM1Candles = adverseExitCheckM1Candles,
+                    maxAdverseRBeforeExit = maxAdverseRBeforeExit,
+                    minFavorableRBeforeAdverseExit = minFavorableRBeforeAdverseExit,
                     maxHoldM1Candles = maxHoldM1Candles,
                 ),
         )

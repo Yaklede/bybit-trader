@@ -775,6 +775,10 @@ class VolumeFlowBacktestService(
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
         val followThroughCheckIndex = config.followThroughCheckM1Candles?.let { entry.entryIndex + it }
         val minFollowThroughMove = config.minFollowThroughR?.let { initialRiskPerUnit * it }
+        val adverseExitCheckIndex = config.adverseExitCheckM1Candles?.let { entry.entryIndex + it }
+        val maxAdverseMoveBeforeExit = config.maxAdverseRBeforeExit?.let { initialRiskPerUnit * it }
+        val minFavorableMoveBeforeAdverseExit =
+            config.minFavorableRBeforeAdverseExit?.let { initialRiskPerUnit * it }
         var maxFavorableMove = 0.0
         var maxAdverseMove = 0.0
         var maxFavorablePrice = entry.entryPrice
@@ -919,6 +923,21 @@ class VolumeFlowBacktestService(
                     candle = candle,
                     exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.FOLLOW_THROUGH_FAIL,
+                )
+            }
+            if (
+                adverseExitCheckIndex != null &&
+                maxAdverseMoveBeforeExit != null &&
+                minFavorableMoveBeforeAdverseExit != null &&
+                initialRiskPerUnit > 0.0 &&
+                index >= adverseExitCheckIndex &&
+                maxAdverseMove >= maxAdverseMoveBeforeExit &&
+                maxFavorableMove < minFavorableMoveBeforeAdverseExit
+            ) {
+                return exitPlan(
+                    candle = candle,
+                    exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
+                    reason = VolumeFlowExitReason.ADVERSE_INVALIDATION,
                 )
             }
             val breakevenTriggerR = config.breakevenTriggerR
