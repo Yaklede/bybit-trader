@@ -258,6 +258,16 @@ class VolumeFlowBacktestService(
                     config,
                     noTradeReasonCounts,
                 )
+            VolumeFlowSetupMode.TREND_IMPULSE_CONTINUATION ->
+                detectTrendImpulseContinuation(
+                    candles[index],
+                    shape,
+                    keyLevel,
+                    relativeVolume,
+                    volumeZScore,
+                    config,
+                    noTradeReasonCounts,
+                )
             VolumeFlowSetupMode.FAILED_BREAK_REVERSAL ->
                 detectFailedBreakReversal(
                     candles[index],
@@ -280,6 +290,40 @@ class VolumeFlowBacktestService(
                     noTradeReasonCounts,
                 )
         }
+    }
+
+    private fun detectTrendImpulseContinuation(
+        candle: Candle,
+        shape: CandleShape,
+        keyLevel: KeyLevelContext,
+        relativeVolume: Double,
+        volumeZScore: Double,
+        config: VolumeFlowBacktestConfig,
+        noTradeReasonCounts: MutableMap<String, Int>,
+    ): SetupCandidate? {
+        val side = shape.direction
+        if (side == null) {
+            incrementReason("NO_DIRECTIONAL_IMPULSE", noTradeReasonCounts)
+            return null
+        }
+        if (shape.bodyRatio < config.minBodyRatio) {
+            incrementReason("BODY_TOO_SMALL", noTradeReasonCounts)
+            return null
+        }
+        if (!shape.closesStronglyFor(side, config.minDirectionalCloseStrength)) {
+            incrementReason("WEAK_CLOSE_LOCATION", noTradeReasonCounts)
+            return null
+        }
+        return SetupCandidate(
+            setupMode = VolumeFlowSetupMode.TREND_IMPULSE_CONTINUATION,
+            side = side,
+            entryLevel = candle.close.toDouble(),
+            relativeVolume = relativeVolume,
+            volumeZScore = volumeZScore,
+            shape = shape,
+            keyLevel = keyLevel,
+            volumePattern = VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE,
+        )
     }
 
     private fun detectBreakoutContinuation(

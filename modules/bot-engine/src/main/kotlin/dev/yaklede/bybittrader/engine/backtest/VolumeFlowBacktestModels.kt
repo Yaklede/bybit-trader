@@ -124,6 +124,7 @@ val defaultVolumeFlowMarketRegimes: Set<VolumeFlowMarketRegime> =
 
 enum class VolumeFlowSetupMode {
     BREAKOUT_CONTINUATION,
+    TREND_IMPULSE_CONTINUATION,
     FAILED_BREAK_REVERSAL,
     VOLUME_REJECTION_REVERSAL,
 }
