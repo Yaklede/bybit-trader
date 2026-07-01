@@ -175,6 +175,11 @@ data class VolumeFlowBacktestResponse(
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
+    val averageWinR: Double,
+    val averageLossR: Double,
+    val payoffRatio: Double?,
+    val breakevenWinRatePct: Double?,
+    val winRateEdgePct: Double?,
     val maxConsecutiveLosses: Int,
     val observedDays: Int,
     val activeDays: Int,
@@ -203,6 +208,11 @@ data class VolumeFlowTagSummaryResponse(
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
+    val averageWinR: Double,
+    val averageLossR: Double,
+    val payoffRatio: Double?,
+    val breakevenWinRatePct: Double?,
+    val winRateEdgePct: Double?,
 )
 
 @Serializable
@@ -252,6 +262,11 @@ private fun VolumeFlowBacktestReport.toResponse(): VolumeFlowBacktestResponse =
         winRatePct = winRatePct.roundForApi(),
         profitFactor = profitFactor?.roundForApi(),
         expectancyR = expectancyR.roundForApi(),
+        averageWinR = averageWinR.roundForApi(),
+        averageLossR = averageLossR.roundForApi(),
+        payoffRatio = payoffRatio?.roundForApi(),
+        breakevenWinRatePct = breakevenWinRatePct?.roundForApi(),
+        winRateEdgePct = winRateEdgePct?.roundForApi(),
         maxConsecutiveLosses = maxConsecutiveLosses,
         observedDays = observedDays,
         activeDays = activeDays,
@@ -280,6 +295,11 @@ private fun VolumeFlowTagSummary.toResponse(): VolumeFlowTagSummaryResponse =
         winRatePct = winRatePct.roundForApi(),
         profitFactor = profitFactor?.roundForApi(),
         expectancyR = expectancyR.roundForApi(),
+        averageWinR = averageWinR.roundForApi(),
+        averageLossR = averageLossR.roundForApi(),
+        payoffRatio = payoffRatio?.roundForApi(),
+        breakevenWinRatePct = breakevenWinRatePct?.roundForApi(),
+        winRateEdgePct = winRateEdgePct?.roundForApi(),
     )
 
 private fun VolumeFlowBacktestTrade.toResponse(): VolumeFlowTradeResponse =

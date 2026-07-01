@@ -20,8 +20,9 @@ Milestone 1 is the operational backend shell:
 - Volume-flow composite backtest endpoint that replays multiple strategy legs on
   one equity curve with overlap, daily stop, trade-count controls, and monthly
   and walk-forward performance summaries. Volume-flow responses include
-  `compoundDailyReturnPct` so daily targets are evaluated on a compounding
-  basis.
+  `compoundDailyReturnPct`, `averageWinR`, `averageLossR`, `payoffRatio`,
+  `breakevenWinRatePct`, and `winRateEdgePct` so daily targets are evaluated on
+  a compounding and asymmetric-expectancy basis.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -122,7 +123,8 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
   It also has sparse active days (`55`) and is not evidence of steady daily
   profit. See
   `docs/backend/volume-flow-tuning-log.md` for reproduction notes and rejected
-  tuning paths.
+  tuning paths. See `docs/backend/volume-flow-expectancy-strategy.md` for the
+  low-win-rate, positive-expectancy candidate gate.
   Source note: measured on
   `build/runtime-test/bybit-trader-1y-backtest.sqlite` covering
   `2025-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading

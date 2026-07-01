@@ -58,6 +58,11 @@ data class VolumeFlowCompositeBacktestReport(
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
+    val averageWinR: Double,
+    val averageLossR: Double,
+    val payoffRatio: Double?,
+    val breakevenWinRatePct: Double?,
+    val winRateEdgePct: Double?,
     val maxConsecutiveLosses: Int,
     val observedDays: Int,
     val activeDays: Int,
@@ -95,6 +100,11 @@ data class VolumeFlowPeriodSummary(
     val maxDrawdownPct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
+    val averageWinR: Double,
+    val averageLossR: Double,
+    val payoffRatio: Double?,
+    val breakevenWinRatePct: Double?,
+    val winRateEdgePct: Double?,
 )
 
 data class VolumeFlowCompositeBacktestTrade(

@@ -13,6 +13,12 @@ compound daily return. This does not meet the lower bound. A `0.5%` compound
 daily return over the same 366 observed days requires about `520.55260%` net
 return, and active-day coverage is still sparse at `55` days.
 
+Strategy gate note: the next tuning loop is not a win-rate chase. A candidate
+with `40%` win rate can be valid only if average winners are large enough to
+beat the post-cost breakeven win rate. Volume-flow responses now expose
+`averageWinR`, `averageLossR`, `payoffRatio`, `breakevenWinRatePct`, and
+`winRateEdgePct`; see `docs/backend/volume-flow-expectancy-strategy.md`.
+
 ## Baseline
 
 The previous three-leg composite was:
@@ -104,9 +110,15 @@ latest loop, not a completed daily compounding target.
 
 Candidate result:
 
-| Net return | Compound daily return | Max drawdown | Trades | Profit factor | Expectancy | Active days | Average trades/day |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `189.22322%` | `0.29059%` | `4.29784%` | `103` | `6.58446` | `0.46269R` | `55` | `0.28142` |
+| Net return | Compound daily return | Max drawdown | Trades | Win rate | Payoff ratio | Breakeven win rate | Win-rate edge | Expectancy | Active days |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `189.22322%` | `0.29059%` | `4.29784%` | `103` | `79.61165%` | `1.77996` | `35.97180%` | `43.63985%` | `0.46269R` | `55` |
+
+Current structure note: this accepted candidate is not yet a low-win-rate
+`4:6` style system. It currently wins often and also has positive payoff edge:
+`averageWinR=0.67886`, `averageLossR=0.38139`, and
+`payoffRatio=1.77996`. The main weakness remains sparse active-day coverage and
+`maxConsecutiveLosses=5`, not raw expectancy.
 
 Per-leg accepted performance:
 
@@ -259,10 +271,11 @@ trades.
 ## Tuning Gate
 
 The composite backtest response returns `compoundDailyReturnPct`,
-`monthlyPerformance`, and `walkForwardPerformance`; the request also accepts
-scoped `tradeLimit` and `maxConcurrentPositions`, so the next tuning loop can
-reject candidates that only improve the annual total through one or two
-isolated trades or through unbounded overlapping risk.
+low-win-rate payoff metrics, `monthlyPerformance`, and
+`walkForwardPerformance`; the request also accepts scoped `tradeLimit` and
+`maxConcurrentPositions`, so the next tuning loop can reject candidates that
+only improve the annual total through one or two isolated trades or through
+unbounded overlapping risk.
 
 Do not raise per-trade risk by itself just to force the daily target. The
 accepted `0.023` sizing is tied to the additional M1 failed-break setup and to

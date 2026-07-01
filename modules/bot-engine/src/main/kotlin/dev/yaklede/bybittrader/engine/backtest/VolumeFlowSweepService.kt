@@ -87,6 +87,8 @@ class VolumeFlowSweepService(
     }
 }
 
+private const val MIN_PAYOFF_EDGE_PCT = 0.0
+
 private fun List<Candle>.trainSlice(
     trainRatio: Double,
     minTrainSize: Int,
@@ -114,12 +116,16 @@ private fun List<Candle>.splitIndex(
 private fun VolumeFlowBacktestSummary.passesProfitabilityGate(): Boolean =
     tradeCount > 0 &&
         netReturnPct > 0.0 &&
-        (profitFactor ?: 0.0) >= 1.1 &&
+        expectancyR > 0.0 &&
+        hasPositivePayoffEdge() &&
         maxDrawdownPct <= 10.0
+
+private fun VolumeFlowBacktestSummary.hasPositivePayoffEdge(): Boolean =
+    winRateEdgePct?.let { it >= MIN_PAYOFF_EDGE_PCT }
+        ?: (averageWinR > 0.0 && averageLossR == 0.0)
 
 private fun VolumeFlowBacktestSummary.passesCompoundingGate(): Boolean =
     passesProfitabilityGate() &&
-        expectancyR > 0.0 &&
         returnDrawdownRatio >= 0.25 &&
         maxConsecutiveLosses <= 3
 
@@ -129,13 +135,15 @@ private fun VolumeFlowBacktestSummary.passesFrequencyGate(config: VolumeFlowSwee
         tradeFrequencyTargetPct >= 50.0
 
 private fun VolumeFlowBacktestSummary.compoundingScore(): Double {
-    val profitFactorScore = ((profitFactor ?: 0.0) - 1.0) * 10.0
+    val profitFactorScore = ((profitFactor ?: 1.0) - 1.0) * 2.0
     val expectancyScore = expectancyR * 20.0
+    val payoffScore = ((winRateEdgePct ?: -25.0) * 2.0) + ((payoffRatio ?: 0.0) * 5.0)
     val drawdownPenalty = maxDrawdownPct * 0.75
     val lossStreakPenalty = maxConsecutiveLosses * 0.5
     return netReturnPct +
         profitFactorScore +
         expectancyScore +
+        payoffScore +
         (returnDrawdownRatio * 5.0) -
         drawdownPenalty -
         lossStreakPenalty

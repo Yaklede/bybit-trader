@@ -839,6 +839,8 @@ class VolumeFlowBacktestService(
         val losses = trades.count { it.pnl < 0.0 }
         val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
         val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
+        val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
+        val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
         val netPnl = finalEquity - config.initialEquity
         val observedDays = dailyStates.size
         val activeDays = dailyStates.values.count { it.tradeCount > 0 }
@@ -873,9 +875,14 @@ class VolumeFlowBacktestService(
             tradeCount = trades.size,
             wins = wins,
             losses = losses,
-            winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0,
+            winRatePct = winRatePct,
             profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
             expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
+            averageWinR = expectancyProfile.averageWinR,
+            averageLossR = expectancyProfile.averageLossR,
+            payoffRatio = expectancyProfile.payoffRatio,
+            breakevenWinRatePct = expectancyProfile.breakevenWinRatePct,
+            winRateEdgePct = expectancyProfile.winRateEdgePct,
             maxConsecutiveLosses = trades.maxConsecutiveLosses(),
             observedDays = observedDays,
             activeDays = activeDays,
@@ -1085,13 +1092,20 @@ private fun List<VolumeFlowBacktestTrade>.tagSummaries(selector: (VolumeFlowBack
             val wins = trades.count { it.pnl > 0.0 }
             val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
             val grossLoss = trades.filter { it.pnl < 0.0 }.sumOf { abs(it.pnl) }
+            val winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0
+            val expectancyProfile = volumeFlowExpectancyProfile(trades.map { it.returnR }, winRatePct)
             VolumeFlowTagSummary(
                 tag = tag,
                 tradeCount = trades.size,
                 netPnl = trades.sumOf { it.pnl },
-                winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0,
+                winRatePct = winRatePct,
                 profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
                 expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
+                averageWinR = expectancyProfile.averageWinR,
+                averageLossR = expectancyProfile.averageLossR,
+                payoffRatio = expectancyProfile.payoffRatio,
+                breakevenWinRatePct = expectancyProfile.breakevenWinRatePct,
+                winRateEdgePct = expectancyProfile.winRateEdgePct,
             )
         }
 

@@ -341,7 +341,13 @@ class ApiModuleTest :
                             )
                         }
                 response.status shouldBe HttpStatusCode.OK
-                response.bodyAsText() shouldContain """"compoundDailyReturnPct":"""
+                val body = response.bodyAsText()
+                body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"averageWinR":"""
+                body shouldContain """"averageLossR":"""
+                body shouldContain """"payoffRatio":"""
+                body shouldContain """"breakevenWinRatePct":"""
+                body shouldContain """"winRateEdgePct":"""
             }
         }
 
@@ -404,6 +410,11 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 val body = response.bodyAsText()
                 body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"averageWinR":"""
+                body shouldContain """"averageLossR":"""
+                body shouldContain """"payoffRatio":"""
+                body shouldContain """"breakevenWinRatePct":"""
+                body shouldContain """"winRateEdgePct":"""
                 body shouldContain """"trades":[]"""
             }
         }
@@ -460,7 +471,13 @@ class ApiModuleTest :
                             )
                         }
                 response.status shouldBe HttpStatusCode.OK
-                response.bodyAsText() shouldContain """"compoundDailyReturnPct":"""
+                val body = response.bodyAsText()
+                body shouldContain """"compoundDailyReturnPct":"""
+                body shouldContain """"averageWinR":"""
+                body shouldContain """"averageLossR":"""
+                body shouldContain """"payoffRatio":"""
+                body shouldContain """"breakevenWinRatePct":"""
+                body shouldContain """"winRateEdgePct":"""
             }
         }
 
