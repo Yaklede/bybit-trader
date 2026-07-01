@@ -84,8 +84,9 @@ days and higher R expectancy before the 10,000x target is credible.
 - Any candidate claiming 10,000x must show `compoundDailyReturnPct >= 0.84390`
   over the three-year replay, with explicit max drawdown and consecutive-loss
   reporting.
-- Risk-only candidates with `maxDrawdownPct` above `80%` are research artifacts,
-  not deployment candidates.
+- Risk candidates outside the selected deployment drawdown gate are research
+  artifacts, not deployment candidates. The current gate is `30-40%` max
+  drawdown.
 
 ## Current Decision
 
@@ -139,7 +140,7 @@ Next recursive loop requirement:
 - Add new signal coverage instead of only mutating existing legs.
 - Keep the three-year `0.84390%` target as the raw hit gate.
 - Reject any candidate that reaches the target only through extreme per-trade
-  risk or a `>80%` drawdown profile.
+  risk or a `>40%` drawdown profile under the current deployment gate.
 
 Coverage expansion note:
 
@@ -151,3 +152,56 @@ accepted as the current config because it lowered the one-year result to
 `201.40%` and the two-year result to `388.11%` versus the balanced current
 candidate's `232.12%` and `406.28%`. Keep it as a research branch for the next
 loop, not the current baseline.
+
+## MDD 40 Trend-Break Pass 2026-07-01
+
+Source note: this pass used the same three-year local BTCUSDT dataset and
+`scripts/volume-flow-recursive-target.mjs` with `maxDeployableDrawdownPct=40`.
+The strategy objective changed from low drawdown preservation to using the
+allowed `30-40%` MDD band more aggressively, while still rejecting candidates
+above the gate.
+
+Implementation change:
+
+- Added `TREND_BREAK` exit mode. It does not exit at the fixed target. After a
+  trade reaches `runnerTrailActivationR`, it holds until the 1m close breaks the
+  recent structure low for longs or recent structure high for shorts.
+- Added `trendBreakLookbackM1Candles` to configure that structure window.
+- Raised the allowed per-trade `riskFraction` ceiling from `3%` to `5%`, with
+  MDD <= `40%` used as the deployment filter.
+
+Accepted current candidate:
+
+- All current legs use `riskFraction=0.05`.
+- `m1_failed_break_chop_scalp` now uses `exitMode=TREND_BREAK`,
+  `runnerTrailActivationR=1.0`, `trendBreakLookbackM1Candles=8`, and
+  `maxHoldM1Candles=140`.
+- Existing profitable fixed-target/runner exits remain unchanged on the other
+  legs. Applying `TREND_BREAK` to every leg was not better in this replay.
+
+Validated result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Max drawdown | Trades | Win rate | Profit factor | Expectancy R | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `6,795,347 KRW` | `579.53%` | `0.52494%` | `12.42%` | `90` | `74.44%` | `4.42` | `0.46665R` | `29.07%` |
+| 2 years | `16,827,954 KRW` | `1,582.80%` | `0.38694%` | `26.54%` | `191` | `69.11%` | `3.57` | `0.33116R` | `50.17%` |
+| 3 years | `23,428,184 KRW` | `2,242.82%` | `0.28792%` | `36.67%` | `275` | `61.45%` | `3.27` | `0.26478R` | `-19.59%` |
+
+Comparison with the previous current candidate:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MDD | New MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `3,321,185 KRW` | `6,795,347 KRW` | `0.32850%` | `0.52494%` | `7.51%` | `12.42%` |
+| 2 years | `5,062,776 KRW` | `16,827,954 KRW` | `0.22212%` | `0.38694%` | `16.27%` | `26.54%` |
+| 3 years | `5,747,575 KRW` | `23,428,184 KRW` | `0.15954%` | `0.28792%` | `26.73%` | `36.67%` |
+
+Decision:
+
+- Promote this candidate to current because it uses the allowed MDD budget and
+  materially improves 1/2/3-year compounding.
+- It is still not a `1,000,000 KRW -> 10,000,000,000 KRW` strategy. The
+  three-year target requires `0.84390%` compound daily return, while the current
+  candidate reaches `0.28792%`.
+- The remaining gap is not solved by exit tuning alone. Active-day coverage is
+  still only `15.22%`, so the next loop needs new positive-expectancy signal
+  coverage, not only higher leverage or wider holds.

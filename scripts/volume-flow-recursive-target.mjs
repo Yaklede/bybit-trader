@@ -20,7 +20,7 @@ const maxPerRound = Number(args.maxPerRound ?? 40);
 const initialEquity = Number(args.initialEquity ?? 1_000_000);
 const targetMultiple = Number(args.targetMultiple ?? 10_000);
 const targetDays = Number(args.days ?? 1096);
-const maxDeployableDrawdownPct = Number(args.maxDeployableDrawdownPct ?? 80);
+const maxDeployableDrawdownPct = Number(args.maxDeployableDrawdownPct ?? 40);
 const maxDeployableConsecutiveLosses = Number(args.maxDeployableConsecutiveLosses ?? 20);
 const targetCompoundDailyReturnPct = (Math.pow(targetMultiple, 1 / targetDays) - 1) * 100;
 
@@ -38,6 +38,7 @@ console.log(
     `rounds=${rounds}`,
     `beam=${beam}`,
     `maxPerRound=${maxPerRound}`,
+    `maxDeployableDrawdownPct=${maxDeployableDrawdownPct}`,
   ].join(" "),
 );
 
@@ -130,6 +131,8 @@ function seedVariants(config) {
 
   variants.push(...trendUpMirrorVariants(config));
   variants.push(...wholePortfolioTargetVariants(config));
+  variants.push(...wholePortfolioRiskVariants(config));
+  variants.push(...wholePortfolioTrendBreakVariants(config));
   variants.push(...executionVariants);
   return variants;
 }
@@ -196,8 +199,68 @@ function wholePortfolioTargetVariants(config) {
   return variants;
 }
 
+function wholePortfolioRiskVariants(config) {
+  const variants = [];
+  for (const riskFraction of [0.03, 0.035, 0.04, 0.045, 0.05]) {
+    variants.push(
+      namedVariant(
+        `all_risk_${riskFraction}`,
+        withRunDefaults({
+          ...config,
+          legs: config.legs.map((leg) => ({
+            ...leg,
+            riskFraction,
+          })),
+        }),
+      ),
+    );
+  }
+  return variants;
+}
+
+function wholePortfolioTrendBreakVariants(config) {
+  const variants = [];
+  for (const trendBreakLookbackM1Candles of [3, 5, 8]) {
+    for (const runnerTrailActivationR of [0.6, 0.8, 1.0]) {
+      variants.push(
+        namedVariant(
+          `all_trend_break_l${trendBreakLookbackM1Candles}_a${runnerTrailActivationR}`,
+          withRunDefaults({
+            ...config,
+            legs: config.legs.map((leg) =>
+              leg.setupMode === "BREAKOUT_CONTINUATION"
+                ? {
+                    ...leg,
+                    exitMode: "TREND_BREAK",
+                    runnerTrailActivationR,
+                    trendBreakLookbackM1Candles,
+                    breakevenTriggerR: leg.breakevenTriggerR ?? null,
+                    maxHoldM1Candles: Math.min((leg.maxHoldM1Candles ?? 30) + 90, 180),
+                  }
+                : leg,
+            ),
+          }),
+        ),
+      );
+    }
+  }
+  return variants;
+}
+
 function legPatches(leg) {
   return [
+    {
+      name: "risk_up",
+      patch: {
+        riskFraction: bounded((leg.riskFraction ?? 0.03) + 0.005, 0.005, 0.05),
+      },
+    },
+    {
+      name: "risk_max",
+      patch: {
+        riskFraction: 0.05,
+      },
+    },
     {
       name: "looser_volume",
       patch: {
@@ -227,6 +290,36 @@ function legPatches(leg) {
         runnerTrailActivationR: 0.8,
         runnerTrailDistanceR: 0.75,
         maxHoldM1Candles: Math.min((leg.maxHoldM1Candles ?? 30) + 15, 75),
+      },
+    },
+    {
+      name: "trend_break_l3",
+      patch: {
+        exitMode: "TREND_BREAK",
+        runnerTrailActivationR: 0.6,
+        trendBreakLookbackM1Candles: 3,
+        breakevenTriggerR: null,
+        maxHoldM1Candles: Math.min((leg.maxHoldM1Candles ?? 30) + 90, 180),
+      },
+    },
+    {
+      name: "trend_break_l5",
+      patch: {
+        exitMode: "TREND_BREAK",
+        runnerTrailActivationR: 0.8,
+        trendBreakLookbackM1Candles: 5,
+        breakevenTriggerR: null,
+        maxHoldM1Candles: Math.min((leg.maxHoldM1Candles ?? 30) + 90, 180),
+      },
+    },
+    {
+      name: "trend_break_l8",
+      patch: {
+        exitMode: "TREND_BREAK",
+        runnerTrailActivationR: 1.0,
+        trendBreakLookbackM1Candles: 8,
+        breakevenTriggerR: null,
+        maxHoldM1Candles: Math.min((leg.maxHoldM1Candles ?? 30) + 120, 240),
       },
     },
     {

@@ -43,6 +43,7 @@ data class VolumeFlowBacktestConfig(
     val exitMode: VolumeFlowExitMode = VolumeFlowExitMode.FIXED_TARGET,
     val runnerTrailActivationR: Double = 1.0,
     val runnerTrailDistanceR: Double = 0.5,
+    val trendBreakLookbackM1Candles: Int = 5,
     val breakevenTriggerR: Double? = null,
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double? = null,
@@ -53,7 +54,7 @@ data class VolumeFlowBacktestConfig(
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
-        require(riskFraction > 0.0 && riskFraction <= 0.03) { "Risk fraction must be between 0 and 0.03." }
+        require(riskFraction > 0.0 && riskFraction <= 0.05) { "Risk fraction must be between 0 and 0.05." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
         require(setupTimeframe == Timeframe.M1 || setupTimeframe == Timeframe.M5) {
@@ -100,6 +101,9 @@ data class VolumeFlowBacktestConfig(
         require(targetR > 0.0) { "Target R must be positive." }
         require(runnerTrailActivationR > 0.0) { "Runner trail activation R must be positive." }
         require(runnerTrailDistanceR > 0.0) { "Runner trail distance R must be positive." }
+        require(trendBreakLookbackM1Candles in 2..60) {
+            "Trend break lookback must be between 2 and 60 candles."
+        }
         require(breakevenTriggerR == null || breakevenTriggerR > 0.0) { "Breakeven trigger R must be positive." }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
         require(dailyTargetPct == null || dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) {
@@ -143,6 +147,7 @@ enum class VolumeFlowSideMode {
 enum class VolumeFlowExitMode {
     FIXED_TARGET,
     RUNNER,
+    TREND_BREAK,
 }
 
 enum class VolumeFlowMarketRegime {
@@ -254,6 +259,7 @@ data class VolumeFlowBacktestTrade(
 enum class VolumeFlowExitReason {
     TARGET,
     TRAILING_STOP,
+    TREND_BREAK,
     STOP,
     TIME,
 }

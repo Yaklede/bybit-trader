@@ -751,6 +751,7 @@ class VolumeFlowBacktestService(
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
         var stopPrice = entry.stopPrice
         var stopReason = VolumeFlowExitReason.STOP
+        var trendBreakActivated = false
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
             val stopHit =
@@ -777,7 +778,10 @@ class VolumeFlowBacktestService(
                     reason = VolumeFlowExitReason.TARGET,
                 )
             }
-            if (config.exitMode == VolumeFlowExitMode.RUNNER && initialRiskPerUnit > 0.0) {
+            if (
+                (config.exitMode == VolumeFlowExitMode.RUNNER || config.exitMode == VolumeFlowExitMode.TREND_BREAK) &&
+                initialRiskPerUnit > 0.0
+            ) {
                 val bestPrice =
                     when (entry.side) {
                         Side.BUY -> candle.high.toDouble()
@@ -789,17 +793,34 @@ class VolumeFlowBacktestService(
                         Side.SELL -> entry.entryPrice - bestPrice
                     }
                 if (favorableMove >= initialRiskPerUnit * config.runnerTrailActivationR) {
-                    val trailStop =
-                        when (entry.side) {
-                            Side.BUY -> bestPrice - (initialRiskPerUnit * config.runnerTrailDistanceR)
-                            Side.SELL -> bestPrice + (initialRiskPerUnit * config.runnerTrailDistanceR)
+                    when (config.exitMode) {
+                        VolumeFlowExitMode.RUNNER -> {
+                            val trailStop =
+                                when (entry.side) {
+                                    Side.BUY -> bestPrice - (initialRiskPerUnit * config.runnerTrailDistanceR)
+                                    Side.SELL -> bestPrice + (initialRiskPerUnit * config.runnerTrailDistanceR)
+                                }
+                            val improvedStop = stopPrice.improvedFor(entry.side, trailStop)
+                            if (improvedStop != stopPrice) {
+                                stopPrice = improvedStop
+                                stopReason = VolumeFlowExitReason.TRAILING_STOP
+                            }
                         }
-                    val improvedStop = stopPrice.improvedFor(entry.side, trailStop)
-                    if (improvedStop != stopPrice) {
-                        stopPrice = improvedStop
-                        stopReason = VolumeFlowExitReason.TRAILING_STOP
+                        VolumeFlowExitMode.TREND_BREAK -> trendBreakActivated = true
+                        VolumeFlowExitMode.FIXED_TARGET -> Unit
                     }
                 }
+            }
+            if (
+                config.exitMode == VolumeFlowExitMode.TREND_BREAK &&
+                trendBreakActivated &&
+                trendBreakConfirmed(m1Candles, index, entry, config)
+            ) {
+                return ExitPlan(
+                    exitCandle = candle,
+                    exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
+                    reason = VolumeFlowExitReason.TREND_BREAK,
+                )
             }
             val breakevenTriggerR = config.breakevenTriggerR
             if (breakevenTriggerR != null && initialRiskPerUnit > 0.0) {
@@ -819,6 +840,24 @@ class VolumeFlowBacktestService(
             exitPrice = exitCandle.close.toDouble().withExitSlippage(entry.side, config),
             reason = VolumeFlowExitReason.TIME,
         )
+    }
+
+    private fun trendBreakConfirmed(
+        m1Candles: List<Candle>,
+        currentIndex: Int,
+        entry: EntryPlan,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean {
+        val priorEndIndex = currentIndex - 1
+        if (priorEndIndex <= entry.entryIndex) return false
+        val priorStartIndex = maxOf(entry.entryIndex + 1, priorEndIndex - config.trendBreakLookbackM1Candles + 1)
+        val priorCandles = m1Candles.subList(priorStartIndex, priorEndIndex + 1)
+        if (priorCandles.size < config.trendBreakLookbackM1Candles) return false
+        val candle = m1Candles[currentIndex]
+        return when (entry.side) {
+            Side.BUY -> candle.close.toDouble() < priorCandles.minOf { it.low.toDouble() }
+            Side.SELL -> candle.close.toDouble() > priorCandles.maxOf { it.high.toDouble() }
+        }
     }
 
     private fun buildReport(

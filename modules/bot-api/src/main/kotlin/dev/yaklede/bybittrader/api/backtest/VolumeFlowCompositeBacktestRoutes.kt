@@ -120,6 +120,7 @@ data class VolumeFlowCompositeLegRequest(
     val exitMode: String = "FIXED_TARGET",
     val runnerTrailActivationR: Double = 1.0,
     val runnerTrailDistanceR: Double = 0.5,
+    val trendBreakLookbackM1Candles: Int = 5,
     val breakevenTriggerR: Double? = null,
     val maxHoldM1Candles: Int = 30,
 ) {
@@ -172,6 +173,7 @@ data class VolumeFlowCompositeLegRequest(
                     exitMode = VolumeFlowExitMode.valueOf(exitMode),
                     runnerTrailActivationR = runnerTrailActivationR,
                     runnerTrailDistanceR = runnerTrailDistanceR,
+                    trendBreakLookbackM1Candles = trendBreakLookbackM1Candles,
                     breakevenTriggerR = breakevenTriggerR,
                     maxHoldM1Candles = maxHoldM1Candles,
                 ),
