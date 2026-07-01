@@ -139,7 +139,7 @@
       "runnerTrailActivationR": 1,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 60
+      "maxHoldM1Candles": 90
     },
     {
       "id": "m1_trend_up_breakout_scalp",
@@ -241,7 +241,7 @@
       "runnerTrailActivationR": 1,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 140,
+      "maxHoldM1Candles": 100,
       "trendBreakLookbackM1Candles": 8
     }
   ]

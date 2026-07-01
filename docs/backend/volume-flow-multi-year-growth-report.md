@@ -604,3 +604,76 @@ Next improvement list:
    exits, because global exit changes have repeatedly underperformed.
 3. Consider a full-risk stop cap per leg if a single leg dominates the
    `performanceByLegExit` full-stop loss-R during the next tuning pass.
+
+## Hold-Capture Retune Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the loss-streak scoring pass. The analysis started from
+`performanceByLegExit` so that profitable runner/target exits were protected
+while weak `TIME` and full-risk `STOP` rows were isolated.
+
+Analysis summary:
+
+- The target remains `1,000,000 KRW -> 10,000,000,000 KRW` over three years,
+  requiring `0.84390%` compound daily return. The previous current reached
+  `0.50726%`.
+- The largest remaining loss bucket was true full-risk `STOP`: `22` trades,
+  `-47,350,204 KRW`, and `-1.14083R` expectancy.
+- The weakest leg/exit row was `m1_trend_down_breakout_assist` `TIME`:
+  `14` trades, `-14,744,302 KRW`, and `-0.36216R` expectancy.
+- `BREAKEVEN_STOP` remained acceptable as a defensive exit: `17` trades and
+  only `-0.14232R` expectancy. It should not be optimized the same way as a
+  full-risk stop.
+- Profitable rows to protect were `TARGET`, `TRAILING_STOP`, and
+  `TREND_BREAK`, especially the M5 trend-down target/runner legs and the
+  `m1_failed_break_chop_scalp` trend-break winners.
+
+Implementation change:
+
+- Reduced `m1_failed_break_chop_scalp.maxHoldM1Candles` from `140` to `100`.
+  This keeps the trend-break structure exit but prevents the chop-reversal leg
+  from giving back too much after its best extension window.
+- Increased `range_failed_break_loose.maxHoldM1Candles` from `60` to `90`.
+  This was selected only in combination with the chop hold change; shorter
+  range holds and range removal were worse in the three-year replay.
+- No engine change was required. This pass only retunes existing exit timing.
+
+Rejected paths:
+
+- `m1_trend_down_breakout_assist` breakeven, shorter holds, and
+  follow-through filters did not beat the previous current candidate.
+- Relaxing `dailyStopPct`, `maxTradesPerDay`, `maxConcurrentPositions`, or
+  `maxConsecutiveLosses` did not change the accepted trade set or improve
+  compounding.
+- Removing `range_failed_break_loose` reduced three-year compounding even
+  though the leg remained negative by net PnL. The profitable cases still help
+  the portfolio sequence enough to keep it.
+- Adding breakeven to the chop trend-break leg was harmful because it cut off
+  the large MFE recovery profile that makes the leg valuable.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Max loss streak |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,647,468 KRW` | `964.75%` | `0.64836%` | `16.76%` | `22.16%` | `86` | `66.28%` | `3.23` | `0.42730R` | `6` |
+| 2 years | `73,550,989 KRW` | `7,255.10%` | `0.58969%` | `30.39%` | `31.36%` | `183` | `63.39%` | `3.01` | `0.37098R` | `6` |
+| 3 years | `305,482,466 KRW` | `30,448.25%` | `0.52296%` | `30.39%` | `31.36%` | `269` | `58.74%` | `3.00` | `0.33864R` | `6` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | MDD delta | Profit factor delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,478,880 KRW` | `10,647,468 KRW` | `0.64397%` | `0.64836%` | `-1.80pp` | `+0.13` |
+| 2 years | `65,458,746 KRW` | `73,550,989 KRW` | `0.57365%` | `0.58969%` | `0.00pp` | `+0.11` |
+| 3 years | `257,397,618 KRW` | `305,482,466 KRW` | `0.50726%` | `0.52296%` | `0.00pp` | `+0.11` |
+
+Decision:
+
+- Promote this candidate to current because it improves all one-, two-, and
+  three-year compound results without increasing the deployment MDD gate.
+- The strategy is still far from the `10,000x` target. The current three-year
+  compound daily return is `0.52296%`, while the target requires `0.84390%`.
+- The next improvement should not be another global frequency or breakeven
+  sweep. The remaining high-value work is a new structure-based invalidation
+  rule for `m1_trend_down_breakout_assist` weak `TIME` exits and a leg-specific
+  full-risk stop reducer for M1 scalp/range setups.
