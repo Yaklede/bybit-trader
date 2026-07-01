@@ -124,7 +124,7 @@ function generateVariants(config) {
     const legIndex = config.legs.findIndex((leg) => leg.id === legId);
     if (legIndex < 0) continue;
     const leg = config.legs[legIndex];
-    for (const riskFraction of [0.023, 0.027, 0.03]) {
+    for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12]) {
       for (const maxConcurrentPositions of [1, 2, 3]) {
         for (const maxTradesPerDay of [2, 3]) {
           for (const maxConsecutiveLosses of [1, 2, 3]) {
@@ -161,7 +161,7 @@ function generateVariants(config) {
     const firstLegIndex = config.legs.findIndex((leg) => leg.id === firstLegId);
     const secondLegIndex = config.legs.findIndex((leg) => leg.id === secondLegId);
     if (firstLegIndex < 0 || secondLegIndex < 0) continue;
-    for (const riskFraction of [0.027, 0.03]) {
+  for (const riskFraction of [0.09, 0.10, 0.11, 0.12]) {
       for (const maxConcurrentPositions of [2, 3]) {
         for (const maxTradesPerDay of [2, 3]) {
           for (const maxConsecutiveLosses of [1, 2]) {
@@ -189,7 +189,7 @@ function generateVariants(config) {
     }
   }
 
-  for (const riskFraction of [0.023, 0.025, 0.027, 0.03]) {
+  for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12, 0.15]) {
     for (const maxConcurrentPositions of [2, 3, 4]) {
       for (const maxTradesPerDay of [3, 4, 5]) {
         for (const maxConsecutiveLosses of [2, 3, 4]) {
@@ -213,7 +213,7 @@ function generateVariants(config) {
   }
 
   config.legs.forEach((leg, legIndex) => {
-    for (const riskFraction of [0.023, 0.027, 0.03]) {
+    for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12]) {
       variants.push(
         namedVariant(
           `relax_${leg.id}_r${riskFraction}`,
@@ -260,6 +260,21 @@ function generateVariants(config) {
             maxAdverseRBeforeExit: maxAdverseR,
             minFavorableRBeforeAdverseExit: minFavorableR,
             maxHoldM1Candles: Math.max(leg.maxHoldM1Candles ?? 30, checkCandles),
+          }),
+        ),
+      );
+    }
+
+    for (const [activationR, floorR] of [
+      [0.5, 0.1],
+      [0.7, 0.2],
+    ]) {
+      variants.push(
+        namedVariant(
+          `profit_protect_${leg.id}_${activationR}_${floorR}`,
+          withLegPatch(config, legIndex, {
+            profitProtectActivationR: activationR,
+            profitProtectFloorR: floorR,
           }),
         ),
       );
@@ -390,7 +405,13 @@ function exitRiskPenalty(report) {
   const fullRiskStop = exitSummary(report, "STOP");
   const breakevenStop = exitSummary(report, "BREAKEVEN_STOP");
   const adverseInvalidation = exitSummary(report, "ADVERSE_INVALIDATION");
-  return (exitLossR(fullRiskStop) * 120) + (exitLossR(breakevenStop) * 20) + (exitLossR(adverseInvalidation) * 45);
+  const profitProtect = exitSummary(report, "PROFIT_PROTECT");
+  return (
+    exitLossR(fullRiskStop) * 120 +
+    exitLossR(breakevenStop) * 20 +
+    exitLossR(adverseInvalidation) * 45 +
+    exitLossR(profitProtect) * 30
+  );
 }
 
 function exitLossR(summary) {
@@ -426,6 +447,8 @@ function summarize(report) {
     breakevenStopExpectancyR: exitSummary(report, "BREAKEVEN_STOP").expectancyR ?? 0,
     adverseInvalidationTradeCount: exitSummary(report, "ADVERSE_INVALIDATION").tradeCount ?? 0,
     adverseInvalidationExpectancyR: exitSummary(report, "ADVERSE_INVALIDATION").expectancyR ?? 0,
+    profitProtectTradeCount: exitSummary(report, "PROFIT_PROTECT").tradeCount ?? 0,
+    profitProtectExpectancyR: exitSummary(report, "PROFIT_PROTECT").expectancyR ?? 0,
     activeDays: report.activeDays,
     observedDays: report.observedDays,
     activeDayCoveragePct: report.activeDayCoveragePct,

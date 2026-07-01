@@ -13,12 +13,12 @@ import java.time.Instant
 
 class VolumeFlowBacktestServiceTest :
     StringSpec({
-        "allows volume-flow tuning risk up to seven and a half percent" {
-            VolumeFlowBacktestConfig(riskFraction = 0.075).riskFraction shouldBe 0.075
+        "allows volume-flow tuning risk up to fifteen percent" {
+            VolumeFlowBacktestConfig(riskFraction = 0.15).riskFraction shouldBe 0.15
 
             shouldThrow<IllegalArgumentException> {
-                VolumeFlowBacktestConfig(riskFraction = 0.0751)
-            }.message shouldBe "Risk fraction must be between 0 and 0.075."
+                VolumeFlowBacktestConfig(riskFraction = 0.1501)
+            }.message shouldBe "Risk fraction must be between 0 and 0.15."
 
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
@@ -28,6 +28,10 @@ class VolumeFlowBacktestServiceTest :
                 VolumeFlowBacktestConfig(adverseExitCheckM1Candles = 3)
             }.message shouldBe
                 "Adverse exit check candles, maximum adverse R, and minimum favorable R must all be null or all be set."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(profitProtectActivationR = 0.5)
+            }.message shouldBe "Profit protect activation R and floor R must both be null or both be set."
         }
 
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {
@@ -266,6 +270,30 @@ class VolumeFlowBacktestServiceTest :
             result.performanceByExitReason.single().tag shouldBe "ADVERSE_INVALIDATION"
         }
 
+        "profit protection exits after favorable movement is given back" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(profitProtectVolumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            targetR = 3.0,
+                            profitProtectActivationR = 0.5,
+                            profitProtectFloorR = 0.1,
+                            maxHoldM1Candles = 8,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.PROFIT_PROTECT
+            (result.trades.single().maxFavorableExcursionR >= 0.5) shouldBe true
+            result.performanceByExitReason.single().tag shouldBe "PROFIT_PROTECT"
+        }
+
         "breakeven trigger reports breakeven stop separately from full stop" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
 
@@ -499,6 +527,9 @@ private fun trendBreakVolumeFlowCandles(): List<Candle> = trendBreakVolumeFlowM1
 private fun followThroughFailVolumeFlowCandles(): List<Candle> =
     followThroughFailVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
+private fun profitProtectVolumeFlowCandles(): List<Candle> =
+    profitProtectVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
+
 private fun failedBreakReversalCandles(): List<Candle> =
     failedBreakReversalM1Candles() + failedBreakReversalM5Candles() + volumeFlowM15Candles()
 
@@ -557,6 +588,20 @@ private fun followThroughFailVolumeFlowM1Candles(): List<Candle> =
                 high = BigDecimal("113.0"),
                 low = BigDecimal("112.4"),
                 close = BigDecimal("112.7"),
+            )
+        } else {
+            candle
+        }
+    }
+
+private fun profitProtectVolumeFlowM1Candles(): List<Candle> =
+    volumeFlowM1Candles().map { candle ->
+        if (candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")) {
+            candle.copy(
+                open = BigDecimal("112.9"),
+                high = BigDecimal("118.0"),
+                low = BigDecimal("112.8"),
+                close = BigDecimal("113.0"),
             )
         } else {
             candle

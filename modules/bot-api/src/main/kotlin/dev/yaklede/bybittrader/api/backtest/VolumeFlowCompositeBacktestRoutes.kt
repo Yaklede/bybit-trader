@@ -128,6 +128,8 @@ data class VolumeFlowCompositeLegRequest(
     val adverseExitCheckM1Candles: Int? = null,
     val maxAdverseRBeforeExit: Double? = null,
     val minFavorableRBeforeAdverseExit: Double? = null,
+    val profitProtectActivationR: Double? = null,
+    val profitProtectFloorR: Double? = null,
     val maxHoldM1Candles: Int = 30,
 ) {
     fun toLeg(initialEquity: Double): VolumeFlowCompositeBacktestLeg {
@@ -186,6 +188,8 @@ data class VolumeFlowCompositeLegRequest(
                     adverseExitCheckM1Candles = adverseExitCheckM1Candles,
                     maxAdverseRBeforeExit = maxAdverseRBeforeExit,
                     minFavorableRBeforeAdverseExit = minFavorableRBeforeAdverseExit,
+                    profitProtectActivationR = profitProtectActivationR,
+                    profitProtectFloorR = profitProtectFloorR,
                     maxHoldM1Candles = maxHoldM1Candles,
                 ),
         )

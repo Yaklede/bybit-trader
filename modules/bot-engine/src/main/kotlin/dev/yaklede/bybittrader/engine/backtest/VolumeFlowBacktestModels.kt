@@ -50,6 +50,8 @@ data class VolumeFlowBacktestConfig(
     val adverseExitCheckM1Candles: Int? = null,
     val maxAdverseRBeforeExit: Double? = null,
     val minFavorableRBeforeAdverseExit: Double? = null,
+    val profitProtectActivationR: Double? = null,
+    val profitProtectFloorR: Double? = null,
     val maxHoldM1Candles: Int = 30,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
@@ -59,7 +61,7 @@ data class VolumeFlowBacktestConfig(
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
-        require(riskFraction > 0.0 && riskFraction <= 0.075) { "Risk fraction must be between 0 and 0.075." }
+        require(riskFraction > 0.0 && riskFraction <= 0.15) { "Risk fraction must be between 0 and 0.15." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
         require(setupTimeframe == Timeframe.M1 || setupTimeframe == Timeframe.M5) {
@@ -136,9 +138,40 @@ data class VolumeFlowBacktestConfig(
         }
         require(
             minFavorableRBeforeAdverseExit == null ||
-                minFavorableRBeforeAdverseExit >= 0.0 && minFavorableRBeforeAdverseExit <= 5.0,
+                (
+                    minFavorableRBeforeAdverseExit >= 0.0 &&
+                        minFavorableRBeforeAdverseExit <= 5.0
+                ),
         ) {
             "Minimum favorable R before adverse exit must be null or between 0 and 5."
+        }
+        require((profitProtectActivationR == null) == (profitProtectFloorR == null)) {
+            "Profit protect activation R and floor R must both be null or both be set."
+        }
+        require(
+            profitProtectActivationR == null ||
+                (
+                    profitProtectActivationR > 0.0 &&
+                        profitProtectActivationR <= 5.0
+                ),
+        ) {
+            "Profit protect activation R must be null or between 0 and 5."
+        }
+        require(
+            profitProtectFloorR == null ||
+                (
+                    profitProtectFloorR >= -1.0 &&
+                        profitProtectFloorR <= 5.0
+                ),
+        ) {
+            "Profit protect floor R must be null or between -1 and 5."
+        }
+        require(
+            profitProtectActivationR == null ||
+                profitProtectFloorR == null ||
+                profitProtectFloorR < profitProtectActivationR,
+        ) {
+            "Profit protect floor R must be less than activation R."
         }
         require(maxHoldM1Candles > 0) { "Max hold M1 candles must be positive." }
         require(followThroughCheckM1Candles == null || followThroughCheckM1Candles <= maxHoldM1Candles) {
@@ -321,5 +354,6 @@ enum class VolumeFlowExitReason {
     BREAKEVEN_STOP,
     FOLLOW_THROUGH_FAIL,
     ADVERSE_INVALIDATION,
+    PROFIT_PROTECT,
     TIME,
 }

@@ -750,3 +750,92 @@ Decision:
   next loop needs a new positive-expectancy setup family or a more selective
   trend-side expansion that adds active days without increasing full-risk stop
   concentration.
+
+## Risk Allocation And Profit-Protect Pass 2026-07-02
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the adverse invalidation pass. The objective remained
+`1,000,000 KRW -> 10,000,000,000 KRW` over three years, requiring `0.84390%`
+compound daily return.
+
+Implementation and tuning changes:
+
+- Raised the backtest research `riskFraction` validation ceiling from `0.075`
+  to `0.15` so the search can measure target-hit candidates and reject them by
+  drawdown instead of by request validation.
+- Added `PROFIT_PROTECT` as a first-class exit reason.
+- Added optional leg-level profit-protect fields:
+  `profitProtectActivationR` and `profitProtectFloorR`.
+- The exit is disabled by default. When both fields are set, a trade exits at
+  the current 1m close after it has reached the activation R and then gives back
+  to or below the configured floor R.
+- Updated recursive/tuning scripts so `PROFIT_PROTECT` is included in summaries,
+  scoring penalties, and mutation space.
+
+Accepted config changes:
+
+- Risk allocation:
+  - `trend_down_retest`, `trend_down_close`, `trend_down_retest_runner`:
+    `riskFraction=0.11`.
+  - `range_failed_break_loose`, `m1_trend_up_breakout_scalp`,
+    `m1_trend_down_breakout_assist`: `riskFraction=0.09`.
+  - `m1_failed_break_chop_scalp`: `riskFraction=0.12`.
+- `m1_trend_up_breakout_scalp`:
+  - `profitProtectActivationR=0.5`
+  - `profitProtectFloorR=0.1`
+
+Rejected paths:
+
+- Uniform `0.13+` risk reaches the raw target but breaks the deployment
+  drawdown gate. `all_risk_0.13` reached `0.84413%` compound daily return and
+  `10,109,565,496 KRW`, but had `49.27029%` mark-to-market max drawdown.
+- The strongest raw candidate in this pass,
+  `all_risk_0.13_mut_trend_down_close_risk_max`, reached `12,136,547,111 KRW`
+  and `0.86093%` compound daily return, but had `49.60597%` mark-to-market max
+  drawdown.
+- Uniform `0.14` and `0.15` risk also exceeded the target, but required
+  `52.11575%` and `54.84107%` mark-to-market max drawdown.
+- Profit-protect on `m1_trend_down_breakout_assist` reduced compounding. It
+  protected some giveback trades, but cut the profitable continuation sequence
+  enough to be rejected.
+- Additional coverage and trend-break mutations in the recursive search did not
+  produce a deployable target hit.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Profit-protect exits |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `21,029,973 KRW` | `2,003.00%` | `0.83570%` | `22.47%` | `28.51%` | `85` | `64.71%` | `3.06` | `0.41281R` | `1` |
+| 2 years | `456,645,741 KRW` | `45,564.57%` | `0.84126%` | `38.13%` | `39.97%` | `181` | `62.98%` | `3.03` | `0.39159R` | `2` |
+| 3 years | `2,578,793,786 KRW` | `257,779.38%` | `0.71862%` | `38.13%` | `39.97%` | `271` | `58.30%` | `3.02` | `0.34599R` | `2` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,319,884 KRW` | `21,029,973 KRW` | `0.63976%` | `0.83570%` | `22.16%` | `28.51%` |
+| 2 years | `104,939,598 KRW` | `456,645,741 KRW` | `0.63861%` | `0.84126%` | `31.34%` | `39.97%` |
+| 3 years | `425,532,564 KRW` | `2,578,793,786 KRW` | `0.55333%` | `0.71862%` | `31.34%` | `39.97%` |
+
+Decision:
+
+- Promote this candidate to current because it uses the accepted `40%` MDD
+  budget more efficiently and improves all one-, two-, and three-year compound
+  results.
+- The target is still not deployable under the current drawdown gate. The
+  three-year result reaches `0.71862%` compound daily return versus the required
+  `0.84390%`.
+- The strategy can now hit the raw `10,000x` target only by accepting roughly
+  `49%+` mark-to-market drawdown. The next loop must reduce full-risk stop and
+  weak TIME concentration before risk can be raised further.
+
+Next improvement list:
+
+1. Reduce the `17` full-risk `STOP` exits without cutting the M5 trend-down
+   target and runner winners.
+2. Add a portfolio-level drawdown throttle or cooldown research pass and test
+   whether raw target candidates can be capped below `40%` MTM MDD without
+   losing the `0.84390%` compound daily threshold.
+3. Expand active-day coverage beyond the current `14.86%` only with
+   positive-expectancy setups; lower-quality coverage will increase MDD faster
+   than CDR.

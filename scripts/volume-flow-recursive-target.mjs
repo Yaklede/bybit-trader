@@ -205,7 +205,7 @@ function wholePortfolioTargetVariants(config) {
 
 function wholePortfolioRiskVariants(config) {
   const variants = [];
-  for (const riskFraction of [0.03, 0.035, 0.04, 0.045, 0.05, 0.055, 0.06, 0.065, 0.07, 0.071, 0.072, 0.073, 0.074, 0.075]) {
+  for (const riskFraction of [0.07, 0.075, 0.08, 0.085, 0.09, 0.095, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]) {
     variants.push(
       namedVariant(
         `all_risk_${riskFraction}`,
@@ -454,13 +454,13 @@ function legPatches(leg) {
     {
       name: "risk_up",
       patch: {
-        riskFraction: bounded((leg.riskFraction ?? 0.03) + 0.005, 0.005, 0.075),
+        riskFraction: bounded((leg.riskFraction ?? 0.03) + 0.005, 0.005, 0.15),
       },
     },
     {
       name: "risk_max",
       patch: {
-        riskFraction: 0.075,
+        riskFraction: 0.15,
       },
     },
     {
@@ -595,6 +595,27 @@ function legPatches(leg) {
       },
     },
     {
+      name: "profit_protect_0_5_0_1",
+      patch: {
+        profitProtectActivationR: 0.5,
+        profitProtectFloorR: 0.1,
+      },
+    },
+    {
+      name: "profit_protect_0_7_0_2",
+      patch: {
+        profitProtectActivationR: 0.7,
+        profitProtectFloorR: 0.2,
+      },
+    },
+    {
+      name: "profit_protect_off",
+      patch: {
+        profitProtectActivationR: null,
+        profitProtectFloorR: null,
+      },
+    },
+    {
       name: "target_1_5",
       patch: {
         targetR: 1.5,
@@ -674,19 +695,21 @@ function score(summary, report) {
     worstWalkForward * 150 -
     deployableDrawdownPct * 450 -
     drawdownOverGate * 10_000 -
-    exitRiskPenalty(report, 800, 120, 300) -
+    exitRiskPenalty(report, 800, 120, 300, 80) -
     Math.max(0, summary.maxConsecutiveLosses - 8) * 2_000
   );
 }
 
-function exitRiskPenalty(report, fullRiskStopWeight, breakevenStopWeight, adverseInvalidationWeight) {
+function exitRiskPenalty(report, fullRiskStopWeight, breakevenStopWeight, adverseInvalidationWeight, profitProtectWeight) {
   const fullRiskStop = exitSummary(report, "STOP");
   const breakevenStop = exitSummary(report, "BREAKEVEN_STOP");
   const adverseInvalidation = exitSummary(report, "ADVERSE_INVALIDATION");
+  const profitProtect = exitSummary(report, "PROFIT_PROTECT");
   return (
     exitLossR(fullRiskStop) * fullRiskStopWeight +
     exitLossR(breakevenStop) * breakevenStopWeight +
-    exitLossR(adverseInvalidation) * adverseInvalidationWeight
+    exitLossR(adverseInvalidation) * adverseInvalidationWeight +
+    exitLossR(profitProtect) * profitProtectWeight
   );
 }
 
@@ -726,6 +749,8 @@ function summarize(report) {
     breakevenStopExpectancyR: exitSummary(report, "BREAKEVEN_STOP").expectancyR ?? 0,
     adverseInvalidationTradeCount: exitSummary(report, "ADVERSE_INVALIDATION").tradeCount ?? 0,
     adverseInvalidationExpectancyR: exitSummary(report, "ADVERSE_INVALIDATION").expectancyR ?? 0,
+    profitProtectTradeCount: exitSummary(report, "PROFIT_PROTECT").tradeCount ?? 0,
+    profitProtectExpectancyR: exitSummary(report, "PROFIT_PROTECT").expectancyR ?? 0,
     worstWalkForwardReturnPct: Math.min(...report.walkForwardPerformance.map((period) => period.returnPct)),
   };
 }

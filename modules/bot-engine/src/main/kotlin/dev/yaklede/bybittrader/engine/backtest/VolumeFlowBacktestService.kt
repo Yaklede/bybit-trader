@@ -779,6 +779,8 @@ class VolumeFlowBacktestService(
         val maxAdverseMoveBeforeExit = config.maxAdverseRBeforeExit?.let { initialRiskPerUnit * it }
         val minFavorableMoveBeforeAdverseExit =
             config.minFavorableRBeforeAdverseExit?.let { initialRiskPerUnit * it }
+        val profitProtectActivationMove = config.profitProtectActivationR?.let { initialRiskPerUnit * it }
+        val profitProtectFloorMove = config.profitProtectFloorR?.let { initialRiskPerUnit * it }
         var maxFavorableMove = 0.0
         var maxAdverseMove = 0.0
         var maxFavorablePrice = entry.entryPrice
@@ -911,6 +913,25 @@ class VolumeFlowBacktestService(
                     exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
                     reason = VolumeFlowExitReason.TREND_BREAK,
                 )
+            }
+            if (
+                profitProtectActivationMove != null &&
+                profitProtectFloorMove != null &&
+                initialRiskPerUnit > 0.0 &&
+                maxFavorableMove >= profitProtectActivationMove
+            ) {
+                val closeMove =
+                    when (entry.side) {
+                        Side.BUY -> candle.close.toDouble() - entry.entryPrice
+                        Side.SELL -> entry.entryPrice - candle.close.toDouble()
+                    }
+                if (closeMove <= profitProtectFloorMove) {
+                    return exitPlan(
+                        candle = candle,
+                        exitPrice = candle.close.toDouble().withExitSlippage(entry.side, config),
+                        reason = VolumeFlowExitReason.PROFIT_PROTECT,
+                    )
+                }
             }
             if (
                 followThroughCheckIndex != null &&

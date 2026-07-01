@@ -14,7 +14,7 @@
   "legs": [
     {
       "id": "trend_down_retest",
-      "riskFraction": 0.075,
+      "riskFraction": 0.11,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -44,7 +44,7 @@
     },
     {
       "id": "trend_down_close",
-      "riskFraction": 0.075,
+      "riskFraction": 0.11,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -75,7 +75,7 @@
     },
     {
       "id": "trend_down_retest_runner",
-      "riskFraction": 0.075,
+      "riskFraction": 0.11,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -109,7 +109,7 @@
     },
     {
       "id": "range_failed_break_loose",
-      "riskFraction": 0.075,
+      "riskFraction": 0.09,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "SETUP_CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -143,7 +143,7 @@
     },
     {
       "id": "m1_trend_up_breakout_scalp",
-      "riskFraction": 0.075,
+      "riskFraction": 0.09,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -173,11 +173,13 @@
       "runnerTrailActivationR": 0.8,
       "runnerTrailDistanceR": 0.75,
       "breakevenTriggerR": 0.4,
+      "profitProtectActivationR": 0.5,
+      "profitProtectFloorR": 0.1,
       "maxHoldM1Candles": 30
     },
     {
       "id": "m1_trend_down_breakout_assist",
-      "riskFraction": 0.075,
+      "riskFraction": 0.09,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -211,7 +213,7 @@
     },
     {
       "id": "m1_failed_break_chop_scalp",
-      "riskFraction": 0.075,
+      "riskFraction": 0.12,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
