@@ -115,9 +115,10 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Latest local BTCUSDT volume-flow snapshot: the current composite candidate in
   `config/volume-flow-composite-current.json` uses `riskFraction=0.075` and
   applies an 8-candle, `0.45R` follow-through check to the two M5 trend-down
-  fixed-target legs. On the local three-year dataset, the replay returned
-  `17,642.11%` net return, `0.47318%` compound daily return, `33.29%` realized
-  max drawdown, and `34.21%` mark-to-market max drawdown over 268 trades.
+  fixed-target legs. The `trend_down_close` leg also moves to breakeven after
+  `0.65R`. On the local three-year dataset, the replay returned `18,871.26%`
+  net return, `0.47931%` compound daily return, `33.29%` realized max drawdown,
+  and `34.21%` mark-to-market max drawdown over 270 trades.
   This is improved but still below the `0.84390%` compound daily return required
   for `1,000,000 KRW -> 10,000,000,000 KRW` over three years. See
   `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year

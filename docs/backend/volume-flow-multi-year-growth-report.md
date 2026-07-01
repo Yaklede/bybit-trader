@@ -396,3 +396,51 @@ Next improvement list:
    bucket.
 3. Test a dedicated trend-break expansion for the two M5 trend-down fixed
    target legs now that early failed continuation trades are filtered.
+
+## Breakeven Retune Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+strict `max(realized MDD, mark-to-market MDD)` deployment drawdown gate.
+
+Implementation change:
+
+- Added `breakevenTriggerR=0.65` to `trend_down_close` only.
+- No engine change was required. This uses the existing fixed-target breakeven
+  behavior after a position reaches the configured favorable R.
+- Rejected `m1_trend_up_breakout_scalp` risk caps, M5 fixed-leg
+  trend-break/runner conversion, and lower breakeven triggers because they
+  reduced long-horizon compounding or worsened walk-forward quality.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,482,650 KRW` | `948.26%` | `0.64407%` | `17.33%` | `22.69%` | `86` | `67.44%` | `3.04` | `0.42463R` | `47.30%` |
+| 2 years | `58,754,061 KRW` | `5,775.41%` | `0.55879%` | `33.29%` | `34.21%` | `184` | `65.76%` | `2.83` | `0.34987R` | `67.79%` |
+| 3 years | `189,712,591 KRW` | `18,871.26%` | `0.47931%` | `33.29%` | `34.21%` | `270` | `59.63%` | `2.82` | `0.31176R` | `11.89%` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `9,798,521 KRW` | `10,482,650 KRW` | `0.62551%` | `0.64407%` | `22.69%` | `22.69%` |
+| 2 years | `54,919,596 KRW` | `58,754,061 KRW` | `0.54950%` | `0.55879%` | `34.21%` | `34.21%` |
+| 3 years | `177,421,106 KRW` | `189,712,591 KRW` | `0.47318%` | `0.47931%` | `34.21%` | `34.21%` |
+
+Decision:
+
+- Promote this candidate to current because it improves all one-, two-, and
+  three-year horizons without increasing deployment MDD.
+- The target is still not reached. `1,000,000 KRW -> 10,000,000,000 KRW` over
+  three years requires `0.84390%` compound daily return; the current candidate
+  reaches `0.47931%`.
+
+Next improvement list:
+
+1. `TIME` exits fell to `100`, but remain the largest bucket. The next pass
+   should replace weak time-based exits with structure-based continuation or
+   invalidation rules.
+2. Do not cap `m1_trend_up_breakout_scalp` risk yet. Tested risk caps reduced
+   compound daily return and walk-forward quality.
+3. Keep M5 fixed-leg trend-break/runner conversion rejected for now. Revisit it
+   after the `TIME` exit model is improved.
