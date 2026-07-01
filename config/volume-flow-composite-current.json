@@ -134,12 +134,12 @@
       "minEntryRiskPct": 0.008,
       "maxEntryRiskPct": 0.015,
       "maxEstimatedFeeR": 0.2,
-      "targetR": 1.5,
+      "targetR": 1.85,
       "exitMode": "FIXED_TARGET",
       "runnerTrailActivationR": 1,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "maxHoldM1Candles": 45
+      "maxHoldM1Candles": 60
     },
     {
       "id": "m1_trend_up_breakout_scalp",
@@ -172,7 +172,7 @@
       "exitMode": "RUNNER",
       "runnerTrailActivationR": 0.8,
       "runnerTrailDistanceR": 0.75,
-      "breakevenTriggerR": null,
+      "breakevenTriggerR": 0.4,
       "maxHoldM1Candles": 30
     },
     {

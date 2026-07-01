@@ -116,9 +116,11 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
   `config/volume-flow-composite-current.json` uses `riskFraction=0.075` and
   applies an 8-candle, `0.45R` follow-through check to the two M5 trend-down
   fixed-target legs. The `trend_down_close` leg also moves to breakeven after
-  `0.65R`. On the local three-year dataset, the replay returned `18,871.26%`
-  net return, `0.47931%` compound daily return, `33.29%` realized max drawdown,
-  and `34.21%` mark-to-market max drawdown over 270 trades.
+  `0.65R`; `m1_trend_up_breakout_scalp` moves to breakeven after `0.4R`; and
+  `range_failed_break_loose` targets `1.85R` with a 60-candle M1 hold limit.
+  On the local three-year dataset, the replay returned `25,639.76%` net return,
+  `0.50726%` compound daily return, `30.39%` realized max drawdown, and
+  `31.36%` mark-to-market max drawdown over 269 trades.
   This is improved but still below the `0.84390%` compound daily return required
   for `1,000,000 KRW -> 10,000,000,000 KRW` over three years. See
   `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year

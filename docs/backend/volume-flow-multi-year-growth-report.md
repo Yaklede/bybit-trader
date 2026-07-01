@@ -444,3 +444,63 @@ Next improvement list:
    compound daily return and walk-forward quality.
 3. Keep M5 fixed-leg trend-break/runner conversion rejected for now. Revisit it
    after the `TIME` exit model is improved.
+
+## TIME Exit Retune Pass 2026-07-01
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+strict `max(realized MDD, mark-to-market MDD)` deployment drawdown gate.
+
+Implementation change:
+
+- Increased `range_failed_break_loose` from `targetR=1.5` to `targetR=1.85`
+  and extended its M1 hold limit from `45` to `60` candles.
+- Added `breakevenTriggerR=0.4` to `m1_trend_up_breakout_scalp`.
+- No engine change was required. The pass only retunes existing fixed-target,
+  runner, and breakeven behavior.
+
+Rejected paths:
+
+- `m1_trend_down_breakout_assist` breakeven, shorter holds, follow-through,
+  runner, and trend-break variants did not improve the current candidate.
+- Removing or heavily reducing `range_failed_break_loose` was worse than
+  letting the profitable cases target a larger R multiple.
+- `m1_trend_up_breakout_scalp` runner distance, longer hold, and trend-break
+  variants were weaker than a simple `0.4R-0.45R` breakeven trigger.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Worst walk-forward |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,478,880 KRW` | `947.89%` | `0.64397%` | `18.56%` | `23.85%` | `86` | `66.28%` | `3.10` | `0.42470R` | `48.80%` |
+| 2 years | `65,458,746 KRW` | `6,445.87%` | `0.57365%` | `30.39%` | `31.36%` | `184` | `63.59%` | `2.90` | `0.35817R` | `76.83%` |
+| 3 years | `257,397,618 KRW` | `25,639.76%` | `0.50726%` | `30.39%` | `31.36%` | `269` | `57.99%` | `2.90` | `0.32847R` | `33.08%` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `10,482,650 KRW` | `10,478,880 KRW` | `0.64407%` | `0.64397%` | `22.69%` | `23.85%` |
+| 2 years | `58,754,061 KRW` | `65,458,746 KRW` | `0.55879%` | `0.57365%` | `34.21%` | `31.36%` |
+| 3 years | `189,712,591 KRW` | `257,397,618 KRW` | `0.47931%` | `0.50726%` | `34.21%` | `31.36%` |
+
+Decision:
+
+- Promote this candidate to current. The one-year final equity is almost flat
+  versus the previous current, but two-year and three-year compounding improve
+  materially while deployment MDD falls below the prior `34.21%` level.
+- `TIME` exits fall from `100` to `87` in the three-year replay. `STOP` exits
+  rise from `25` to `39` because breakeven stop exits are still reported under
+  the generic `STOP` bucket.
+- The target is still not reached. `1,000,000 KRW -> 10,000,000,000 KRW` over
+  three years requires `0.84390%` compound daily return; the current candidate
+  reaches `0.50726%`.
+
+Next improvement list:
+
+1. Split breakeven exits into an explicit `BREAKEVEN_STOP` reason. The current
+   report cannot distinguish full-risk stops from stops after the position has
+   moved to breakeven.
+2. Add a full leg-by-exit aggregate to the API/report. Manual cross-tabs require
+   requesting a high `tradeLimit`, which is fragile for iterative tuning.
+3. After reporting is clearer, target the remaining gap with new high-conviction
+   trend-continuation coverage rather than more global risk expansion.
