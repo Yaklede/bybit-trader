@@ -1502,3 +1502,43 @@ Decision:
   relative volume in the current config. The best RV cap still underperformed
   baseline (`range_maxrv_12` at `0.35707%` CDR), and tighter M1-up caps worsened
   drawdown by removing the S1 survival winner.
+
+## M1 Trend-Up Macro Acceptance 2026-07-03
+
+Follow-up finding: applying the new macro trend alignment only to
+`m1_trend_up_breakout_scalp` improved the stress-validation segment without
+hurting the favorable segments. This is narrower than the rejected all-trend
+macro filter above.
+
+Accepted config change:
+
+- `m1_trend_up_breakout_scalp.requireMacroTrendAlignment=true`
+- `m1_trend_up_breakout_scalp.macroTrendLookbackM15Candles=96`
+- `m1_trend_up_breakout_scalp.minMacroTrendMovePct=0.005`
+
+Full-candle comparison:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Previous baseline | `378,668.16290%` | `0.36029%` | `45.53147%` | `404` | `2.43577` | `0.23635R` |
+| `m1up_macro_l96_m0.005` | `398,501.97498%` | `0.36253%` | `45.53147%` | `400` | `2.46153` | `0.24489R` |
+
+Segmented comparison for the accepted candidate:
+
+| Segment | Return | CDR | MTM MDD | Expectancy R | Trades | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| S1 | `6.78792%` | `0.01146%` | `45.53147%` | `0.07722R` | `30` | Unchanged |
+| S2 | `27.15322%` | `0.04093%` | `40.73915%` | `0.05366R` | `133` | Improved from `7.35468%` return and `43.61755%` MTM MDD |
+| S3 | `8,375.57375%` | `0.76445%` | `32.67190%` | `0.39174R` | `128` | Slightly improved |
+| S4 | `5,072.29163%` | `0.72265%` | `34.00532%` | `0.36016R` | `110` | Slightly improved |
+| FULL | `398,501.97498%` | `0.36253%` | `45.53147%` | `0.24489R` | `400` | Improved, but still below target |
+
+Decision:
+
+- Promote `m1up_macro_l96_m0.005` into
+  `config/volume-flow-composite-current.json`.
+- This is an incremental quality improvement, not a target hit. FULL CDR is
+  still far below the `0.8%` objective and FULL/S1 MDD still exceeds the
+  30-40% operating band.
+- The next loop should target the unchanged S1 drawdown cluster and keep S2 as
+  the main validation guard.

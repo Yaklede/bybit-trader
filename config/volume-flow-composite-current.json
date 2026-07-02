@@ -159,6 +159,9 @@
       "requireM5Vwap": false,
       "requireContextVwap": true,
       "requireContextTrend": true,
+      "requireMacroTrendAlignment": true,
+      "macroTrendLookbackM15Candles": 96,
+      "minMacroTrendMovePct": 0.005,
       "allowedMarketRegimes": [
         "TREND_UP"
       ],
