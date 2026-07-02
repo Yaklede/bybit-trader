@@ -1341,3 +1341,74 @@ Decision:
 - The next strategy loop should test portfolio-level drawdown cooldown and
   regime-level pause logic. S1/S2 need a mechanism that stops compounding
   loss clusters without destroying the S3/S4 growth windows.
+
+## Full-Candle Liquidity Filter Pass 2026-07-02
+
+Source note: this pass used the full local BTCUSDT candle database with replay
+limits large enough to cover every candle currently stored in the exchange
+history database. Earlier focused one-off searches used some config-level
+limits, so their high CDR figures must not be treated as deployment evidence.
+From this pass onward, target judgment should use the full-candle replay
+numbers below.
+
+Full-candle baseline:
+
+| Segment | Return | CDR | MTM MDD | Expectancy R | Trades | Pass |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| S1 | `-56.35231%` | `-0.14458%` | `62.98033%` | `-0.06857R` | `205` | FAIL |
+| S2 | `-60.34058%` | `-0.15743%` | `61.46592%` | `-0.10417R` | `174` | FAIL |
+| S3 | `8,298.10324%` | `0.76286%` | `39.69854%` | `0.31883R` | `149` | PASS |
+| S4 | `20,038.92383%` | `0.97281%` | `38.59458%` | `0.38431R` | `128` | PASS |
+| FULL | `1,101.20785%` | `0.10857%` | `76.80356%` | `0.08634R` | `628` | FAIL |
+
+Implementation change:
+
+- Added `minContextQuoteVolume` to volume-flow backtest config.
+- The engine now rejects setups with `CONTEXT_QUOTE_VOLUME_TOO_LOW` when the
+  recent M15 average quote volume, approximated as `close * volume`, is below
+  the optional floor.
+- Single-leg and composite API requests now accept the same field.
+- The recursive tuner now includes context quote-volume floor candidates for
+  all legs and TREND_DOWN legs.
+
+Feature analysis:
+
+- S1 median M15 context quote volume was only about `9.5M` USDT. S1 trades
+  above `40M` context quote volume were rare and had positive aggregate R in
+  the trade log.
+- S3/S4 winners were concentrated in higher-liquidity contexts. S3 median
+  context quote volume was about `91.2M` USDT and S4 was about `87.0M` USDT.
+- S2 remained negative even in higher-liquidity bins because M1 trend-up,
+  failed-break chop, and some range reversal legs were still losing. Liquidity
+  alone is therefore not a complete solution.
+
+Top full-candle liquidity candidates:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Worst segment return | Worst segment MDD | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `all_floor_30M` | `220,022.05%` | `0.33652%` | `55.45%` | `-49.62%` | `55.45%` | `S1`, `S2`, `FULL` |
+| `all_floor_40M` | `92,528.47%` | `0.29862%` | `59.87%` | `-45.73%` | `59.87%` | `S1`, `S2`, `FULL` |
+| `all_floor_80M` | `12,503.50%` | `0.21133%` | `55.67%` | `-40.84%` | `55.67%` | `S1`, `S2`, `S3`, `FULL` |
+| `all_floor_60M` | `9,821.28%` | `0.20087%` | `54.49%` | `-36.83%` | `54.49%` | `S1`, `S2`, `S3`, `FULL` |
+| `trendstack_all_floor_80M` | `1,890.96%` | `0.13065%` | `45.75%` | `0.00%` | `45.75%` | `S1`, `S3`, `FULL` |
+
+Focused drawdown throttle check on `all_floor_30M`:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Worst segment return | Worst segment MDD | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `all_floor_30M_dd30_m0.2_d1` | `224,023.11%` | `0.33731%` | `50.13%` | `-49.62%` | `51.05%` | `S1`, `S2`, `FULL` |
+| `all_floor_30M_currentdd` | `220,022.05%` | `0.33652%` | `55.45%` | `-49.62%` | `55.45%` | `S1`, `S2`, `FULL` |
+| `all_floor_30M_dd32_m0.35_d1` | `236,804.68%` | `0.33974%` | `66.81%` | `-58.31%` | `66.81%` | `S1`, `S2`, `S3`, `FULL` |
+
+Decision:
+
+- Do not promote a new trading config yet.
+- Keep `minContextQuoteVolume` as a first-class strategy control. It is the
+  strongest improvement axis found in the full-candle replay so far: baseline
+  FULL return improved from `1,101.20785%` to `220,022.05%` with `all_floor_30M`.
+- The result still misses the target because S1/S2 remain negative and MDD is
+  above the 30-40% operating band.
+- The next tuning loop should keep `all_floor_30M` or
+  `all_floor_30M_dd30_m0.2_d1` as the research baseline, then isolate S2 loss
+  clusters with a higher-timeframe direction or market-phase filter instead of
+  removing whole legs globally.

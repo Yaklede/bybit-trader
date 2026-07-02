@@ -30,6 +30,10 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Maximum context range percent must be null or between 0 and 0.10."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(minContextQuoteVolume = 0.0)
+            }.message shouldBe "Minimum context quote volume must be null or positive."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
 
@@ -201,6 +205,31 @@ class VolumeFlowBacktestServiceTest :
 
             rejected.tradeCount shouldBe 0
             rejected.noTradeReasonCounts["CONTEXT_RANGE_TOO_WIDE"] shouldBe 1
+            accepted.tradeCount shouldBe 1
+        }
+
+        "can reject setups when higher timeframe quote volume is too low" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val rejected =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minContextQuoteVolume = 3_000.0),
+                )
+            val accepted =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minContextQuoteVolume = 1_000.0),
+                )
+
+            rejected.tradeCount shouldBe 0
+            rejected.noTradeReasonCounts["CONTEXT_QUOTE_VOLUME_TOO_LOW"] shouldBe 1
             accepted.tradeCount shouldBe 1
         }
 

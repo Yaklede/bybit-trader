@@ -448,6 +448,30 @@ function volumeQualityStressVariants(config) {
     );
   }
 
+  for (const minContextQuoteVolume of [20_000_000, 40_000_000, 60_000_000, 80_000_000]) {
+    variants.push(
+      namedVariant(
+        `all_context_quote_floor_${minContextQuoteVolume}`,
+        withRunDefaults(withContextQuoteVolumeFloor(config, () => true, minContextQuoteVolume)),
+      ),
+    );
+  }
+
+  for (const minContextQuoteVolume of [40_000_000, 60_000_000, 80_000_000]) {
+    variants.push(
+      namedVariant(
+        `trend_down_context_quote_floor_${minContextQuoteVolume}`,
+        withRunDefaults(
+          withContextQuoteVolumeFloor(
+            config,
+            (leg) => leg.allowedMarketRegimes?.some((regime) => regime === "TREND_DOWN") === true,
+            minContextQuoteVolume,
+          ),
+        ),
+      ),
+    );
+  }
+
   return variants;
 }
 
@@ -1382,6 +1406,20 @@ function withContextRangeCap(config, shouldCap, maxContextRangePct) {
         ? {
             ...leg,
             maxContextRangePct,
+          }
+        : leg,
+    ),
+  };
+}
+
+function withContextQuoteVolumeFloor(config, shouldApply, minContextQuoteVolume) {
+  return {
+    ...structuredClone(config),
+    legs: config.legs.map((leg) =>
+      shouldApply(leg)
+        ? {
+            ...leg,
+            minContextQuoteVolume,
           }
         : leg,
     ),

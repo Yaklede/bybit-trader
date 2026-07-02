@@ -116,6 +116,12 @@ class VolumeFlowBacktestService(
                 continue
             }
 
+            if (!contextQuoteVolumeAllows(m15Timeline, setupCandle.openedAt, config)) {
+                rejectedSetupCount += 1
+                incrementReason("CONTEXT_QUOTE_VOLUME_TOO_LOW", noTradeReasonCounts)
+                continue
+            }
+
             if (config.requireRegimeSideAlignment && !marketRegime.allows(candidate.side)) {
                 rejectedSetupCount += 1
                 incrementReason("MARKET_REGIME_SIDE_MISMATCH", noTradeReasonCounts)
@@ -609,6 +615,19 @@ class VolumeFlowBacktestService(
         return averageRangePct <= maxContextRangePct
     }
 
+    private fun contextQuoteVolumeAllows(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean {
+        val minContextQuoteVolume = config.minContextQuoteVolume ?: return true
+        val averageQuoteVolume =
+            averageQuoteVolume(
+                m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback),
+            ) ?: return false
+        return averageQuoteVolume >= minContextQuoteVolume
+    }
+
     private fun vwapSideAllows(
         timeline: CandleTimeline,
         setupAt: Instant,
@@ -689,6 +708,16 @@ class VolumeFlowBacktestService(
             candles.mapNotNull { candle ->
                 val close = candle.close.toDouble()
                 if (close <= 0.0) null else (candle.high.toDouble() - candle.low.toDouble()) / close
+            }
+        return values.takeIf { it.isNotEmpty() }?.average()
+    }
+
+    private fun averageQuoteVolume(candles: List<Candle>): Double? {
+        val values =
+            candles.mapNotNull { candle ->
+                val close = candle.close.toDouble()
+                val volume = candle.volume.toDouble()
+                if (close <= 0.0 || volume < 0.0) null else close * volume
             }
         return values.takeIf { it.isNotEmpty() }?.average()
     }
