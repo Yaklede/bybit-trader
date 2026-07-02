@@ -16,6 +16,7 @@ class AppConfigTest :
             config.api.port shouldBe 8080
             config.paperLoop.enabled shouldBe false
             config.paperLoop.timeframe.name shouldBe "M1"
+            config.volumeFlowComposite.currentConfigPath shouldBe "config/volume-flow-composite-current.json"
         }
 
         "testnet mode requires private exchange credentials" {
@@ -66,5 +67,16 @@ class AppConfigTest :
             config.paperLoop.timeframe.name shouldBe "H1"
             config.paperLoop.candleLimit shouldBe 300
             config.paperLoop.intervalSeconds shouldBe 1800
+        }
+
+        "volume-flow composite current config path can be read from environment" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH" to "/tmp/current-volume-flow.json",
+                    ),
+                )
+
+            config.volumeFlowComposite.currentConfigPath shouldBe "/tmp/current-volume-flow.json"
         }
     })

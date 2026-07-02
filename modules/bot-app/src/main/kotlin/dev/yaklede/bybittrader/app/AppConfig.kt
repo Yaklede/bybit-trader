@@ -10,6 +10,7 @@ data class AppConfig(
     val database: DatabaseConfig,
     val alerts: AlertsConfig,
     val paperLoop: PaperLoopSettings,
+    val volumeFlowComposite: VolumeFlowCompositeSettings,
 ) {
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): AppConfig {
@@ -44,8 +45,24 @@ data class AppConfig(
                     ),
                 alerts = AlertsConfig.fromEnvironment(environment),
                 paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first()),
+                volumeFlowComposite = VolumeFlowCompositeSettings.fromEnvironment(environment),
             )
         }
+    }
+}
+
+data class VolumeFlowCompositeSettings(
+    val currentConfigPath: String,
+) {
+    init {
+        require(currentConfigPath.isNotBlank()) { "Volume-flow composite current config path must not be blank." }
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): VolumeFlowCompositeSettings =
+            VolumeFlowCompositeSettings(
+                currentConfigPath = environment["BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH"] ?: "config/volume-flow-composite-current.json",
+            )
     }
 }
 

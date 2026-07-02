@@ -9,6 +9,7 @@ import dev.yaklede.bybittrader.alerts.CompositeAlertSink
 import dev.yaklede.bybittrader.alerts.DiscordWebhookAlertSink
 import dev.yaklede.bybittrader.alerts.NoopAlertSink
 import dev.yaklede.bybittrader.alerts.TelegramAlertSink
+import dev.yaklede.bybittrader.api.backtest.FileVolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
@@ -141,6 +142,10 @@ fun main() {
                 meanReversionSweepService = meanReversionSweepService,
                 volumeFlowBacktestService = volumeFlowBacktestService,
                 volumeFlowCompositeBacktestService = volumeFlowCompositeBacktestService,
+                volumeFlowCompositeCurrentConfigProvider =
+                    FileVolumeFlowCompositeCurrentConfigProvider(
+                        Path.of(config.volumeFlowComposite.currentConfigPath),
+                    ),
                 volumeFlowSweepService = volumeFlowSweepService,
                 paperTradingService = paperTradingService,
                 paperTradingReportStore = ledger,

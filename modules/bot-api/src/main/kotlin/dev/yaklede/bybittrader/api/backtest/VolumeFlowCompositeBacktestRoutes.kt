@@ -23,29 +23,70 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.nio.file.Files
+import java.nio.file.Path
 
-fun Route.configureVolumeFlowCompositeBacktestRoutes(compositeBacktestService: VolumeFlowCompositeBacktestService) {
+fun Route.configureVolumeFlowCompositeBacktestRoutes(
+    compositeBacktestService: VolumeFlowCompositeBacktestService,
+    currentConfigProvider: VolumeFlowCompositeCurrentConfigProvider? = null,
+) {
     authenticate("control") {
         post("/backtests/volume-flow/composite/run") {
             val request = call.receive<VolumeFlowCompositeBacktestRequest>().validated()
-            val result =
-                compositeBacktestService.run(
-                    symbol = Symbol(request.symbol),
-                    m1Limit = request.m1Limit,
-                    m5Limit = request.m5Limit,
-                    m15Limit = request.m15Limit,
-                    config = request.toConfig(),
-                )
-            call.respond(
-                result.toResponse(
-                    tradeLimit = request.tradeLimit,
-                    equityCurveLimit = request.equityCurveLimit,
-                    drawdownEventLimit = request.drawdownEventLimit,
-                ),
-            )
+            call.respond(compositeBacktestService.run(request).toResponse(request))
+        }
+        if (currentConfigProvider != null) {
+            post("/backtests/volume-flow/composite/current/run") {
+                val overrideRequest = call.receive<VolumeFlowCompositeCurrentBacktestRequest>()
+                val request = overrideRequest.toRunRequest(currentConfigProvider.load().validated())
+                call.respond(compositeBacktestService.run(request).toResponse(request))
+            }
         }
     }
+}
+
+fun interface VolumeFlowCompositeCurrentConfigProvider {
+    suspend fun load(): VolumeFlowCompositeBacktestRequest
+}
+
+class FileVolumeFlowCompositeCurrentConfigProvider(
+    private val path: Path,
+    private val json: Json = Json { ignoreUnknownKeys = false },
+) : VolumeFlowCompositeCurrentConfigProvider {
+    override suspend fun load(): VolumeFlowCompositeBacktestRequest =
+        withContext(Dispatchers.IO) {
+            require(Files.exists(path)) {
+                "Current volume-flow composite config file does not exist: ${path.toAbsolutePath()}"
+            }
+            json.decodeFromString<VolumeFlowCompositeBacktestRequest>(Files.readString(path)).validated()
+        }
+}
+
+@Serializable
+data class VolumeFlowCompositeCurrentBacktestRequest(
+    val symbol: String? = null,
+    val m1Limit: Int? = null,
+    val m5Limit: Int? = null,
+    val m15Limit: Int? = null,
+    val tradeLimit: Int? = null,
+    val equityCurveLimit: Int? = null,
+    val drawdownEventLimit: Int? = null,
+) {
+    fun toRunRequest(base: VolumeFlowCompositeBacktestRequest): VolumeFlowCompositeBacktestRequest =
+        base
+            .copy(
+                symbol = symbol ?: base.symbol,
+                m1Limit = m1Limit ?: base.m1Limit,
+                m5Limit = m5Limit ?: base.m5Limit,
+                m15Limit = m15Limit ?: base.m15Limit,
+                tradeLimit = tradeLimit ?: base.tradeLimit,
+                equityCurveLimit = equityCurveLimit ?: base.equityCurveLimit,
+                drawdownEventLimit = drawdownEventLimit ?: base.drawdownEventLimit,
+            ).validated()
 }
 
 @Serializable
@@ -432,6 +473,24 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(
                 .take(drawdownEventLimit)
                 .map(VolumeFlowEquityCurvePoint::toResponse),
         trades = trades.takeLast(tradeLimit).map(VolumeFlowCompositeBacktestTrade::toResponse),
+    )
+
+private suspend fun VolumeFlowCompositeBacktestService.run(
+    request: VolumeFlowCompositeBacktestRequest,
+): VolumeFlowCompositeBacktestReport =
+    run(
+        symbol = Symbol(request.symbol),
+        m1Limit = request.m1Limit,
+        m5Limit = request.m5Limit,
+        m15Limit = request.m15Limit,
+        config = request.toConfig(),
+    )
+
+private fun VolumeFlowCompositeBacktestReport.toResponse(request: VolumeFlowCompositeBacktestRequest): VolumeFlowCompositeBacktestResponse =
+    toResponse(
+        tradeLimit = request.tradeLimit,
+        equityCurveLimit = request.equityCurveLimit,
+        drawdownEventLimit = request.drawdownEventLimit,
     )
 
 private fun VolumeFlowEquityCurvePoint.toResponse(): VolumeFlowEquityCurvePointResponse =

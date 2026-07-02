@@ -1,5 +1,8 @@
 package dev.yaklede.bybittrader.api
 
+import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeBacktestRequest
+import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeCurrentConfigProvider
+import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeLegRequest
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Price
@@ -422,6 +425,82 @@ class ApiModuleTest :
                 body shouldContain """"equityCurve":[{"""
                 body shouldContain """"drawdownEvents":[{"""
                 body shouldContain """"markToMarketDrawdownPct":"""
+                body shouldContain """"trades":[]"""
+            }
+        }
+
+        "authorized current composite volume flow backtest request loads configured strategy" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val candleStore = InMemoryMarketCandleStore(volumeFlowApiCandles())
+                val currentConfigProvider =
+                    VolumeFlowCompositeCurrentConfigProvider {
+                        VolumeFlowCompositeBacktestRequest(
+                            symbol = "BTCUSDT",
+                            m1Limit = 80,
+                            m5Limit = 30,
+                            m15Limit = 30,
+                            tradeLimit = 50,
+                            equityCurveLimit = 50,
+                            drawdownEventLimit = 20,
+                            legs =
+                                listOf(
+                                    VolumeFlowCompositeLegRequest(
+                                        id = "primary",
+                                        setupMode = "BREAKOUT_CONTINUATION",
+                                        entryMode = "RETEST_CONFIRMATION",
+                                        setupTimeframe = "M5",
+                                        volumeLookback = 3,
+                                        relativeVolumeThreshold = 2.0,
+                                        volumeZScoreThreshold = 0.5,
+                                        setupRangeLookback = 3,
+                                        requireM5Vwap = true,
+                                        m5VwapLookback = 3,
+                                        contextVwapLookback = 3,
+                                        requireContextVwap = true,
+                                        minBodyRatio = 0.4,
+                                        entryLookaheadM1Candles = 3,
+                                        entryRetestTolerancePct = 0.01,
+                                        targetR = 0.5,
+                                        maxHoldM1Candles = 5,
+                                    ),
+                                ),
+                        )
+                    }
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        volumeFlowCompositeBacktestService = VolumeFlowCompositeBacktestService(candleStore),
+                        volumeFlowCompositeCurrentConfigProvider = currentConfigProvider,
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/backtests/volume-flow/composite/current/run") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """
+                                {
+                                  "tradeLimit":0,
+                                  "equityCurveLimit":1,
+                                  "drawdownEventLimit":1
+                                }
+                                """.trimIndent(),
+                            )
+                        }
+                response.status shouldBe HttpStatusCode.OK
+                val body = response.bodyAsText()
+                body shouldContain """"symbol":"BTCUSDT""""
+                body shouldContain """"equityCurve":[{"""
+                body shouldContain """"drawdownEvents":[{"""
                 body shouldContain """"trades":[]"""
             }
         }

@@ -1129,3 +1129,26 @@ Next implementation list:
    Bybit order execution.
 3. Analyze sequence `52` and nearby 2024 drawdown events if more MDD margin is
    needed before testnet.
+
+## Current Config Endpoint Pass 2026-07-02
+
+Source note: this is an operational-readiness change. It does not alter the
+promoted strategy parameters or the backtest result.
+
+Implementation change:
+
+- Added `BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH`, defaulting to
+  `config/volume-flow-composite-current.json`.
+- Added a file-backed current config provider that validates the promoted
+  composite config before use.
+- Added protected endpoint
+  `POST /backtests/volume-flow/composite/current/run`.
+- The endpoint loads the current config from disk and accepts only run/output
+  overrides such as candle limits, `tradeLimit`, `equityCurveLimit`, and
+  `drawdownEventLimit`.
+
+Decision:
+
+- Use this endpoint as the parity baseline for paper/live work. The next
+  implementation step should make the real-time evaluator consume the same
+  current config path rather than duplicating strategy parameters in code.

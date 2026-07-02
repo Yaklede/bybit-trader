@@ -37,6 +37,7 @@ export BOT_CONTROL_TOKEN="replace-with-local-operator-token"
 export BOT_DATABASE_PATH="$PWD/data/bybit-trader.sqlite"
 export BOT_SYMBOL="BTCUSDT"
 export BOT_TIMEFRAMES="M1,M5,M15"
+export BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH="$PWD/config/volume-flow-composite-current.json"
 export BOT_PAPER_LOOP_ENABLED="false"
 ./gradlew :modules:bot-app:run
 ```
@@ -86,6 +87,14 @@ curl -X POST \
 # realized/mark-to-market drawdown points. Set "maxConcurrentPositions" when
 # testing concurrent futures-style execution; the default is 1.
 # The default response returns the latest 50 trades.
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"tradeLimit":0,"equityCurveLimit":1000,"drawdownEventLimit":10}' \
+  http://127.0.0.1:8080/backtests/volume-flow/composite/current/run
+# The current composite endpoint loads BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH
+# and only accepts run/output overrides. Use it as the paper/live parity
+# baseline before wiring private exchange execution.
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \

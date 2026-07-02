@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.api
 
+import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.backtest.configureBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureMeanReversionSweepRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowBacktestRoutes
@@ -41,6 +42,7 @@ fun Application.configureApi(
     meanReversionSweepService: MeanReversionSweepService,
     volumeFlowBacktestService: VolumeFlowBacktestService,
     volumeFlowCompositeBacktestService: VolumeFlowCompositeBacktestService? = null,
+    volumeFlowCompositeCurrentConfigProvider: VolumeFlowCompositeCurrentConfigProvider? = null,
     volumeFlowSweepService: VolumeFlowSweepService? = null,
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
@@ -76,7 +78,9 @@ fun Application.configureApi(
         configureBacktestRoutes(backtestService)
         configureMeanReversionSweepRoutes(meanReversionSweepService)
         configureVolumeFlowBacktestRoutes(volumeFlowBacktestService)
-        volumeFlowCompositeBacktestService?.let(::configureVolumeFlowCompositeBacktestRoutes)
+        volumeFlowCompositeBacktestService?.let {
+            configureVolumeFlowCompositeBacktestRoutes(it, volumeFlowCompositeCurrentConfigProvider)
+        }
         volumeFlowSweepService?.let(::configureVolumeFlowSweepRoutes)
         paperTradingService?.let(::configurePaperTradingRoutes)
     }
