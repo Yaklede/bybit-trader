@@ -27,6 +27,7 @@ data class VolumeFlowBacktestConfig(
     val requireMacroTrendAlignment: Boolean = false,
     val macroTrendLookbackM15Candles: Int = 192,
     val minMacroTrendMovePct: Double = 0.0,
+    val minMacroTrendEfficiency: Double? = null,
     val macroTrendMismatchRiskMultiplier: Double = 1.0,
     val allowedMarketRegimes: Set<VolumeFlowMarketRegime> = defaultVolumeFlowMarketRegimes,
     val requireRegimeSideAlignment: Boolean = false,
@@ -88,6 +89,9 @@ data class VolumeFlowBacktestConfig(
         }
         require(minMacroTrendMovePct >= 0.0 && minMacroTrendMovePct <= 0.50) {
             "Minimum macro trend move percent must be between 0 and 0.50."
+        }
+        require(minMacroTrendEfficiency == null || minMacroTrendEfficiency in 0.0..1.0) {
+            "Minimum macro trend efficiency must be null or between 0 and 1."
         }
         require(macroTrendMismatchRiskMultiplier > 0.0 && macroTrendMismatchRiskMultiplier <= 1.0) {
             "Macro trend mismatch risk multiplier must be between 0 and 1."
@@ -354,6 +358,8 @@ data class VolumeFlowBacktestTrade(
     val pnl: Double,
     val returnR: Double,
     val riskMultiplier: Double = 1.0,
+    val macroTrendMovePct: Double?,
+    val macroTrendEfficiency: Double?,
     val maxFavorableExcursionR: Double,
     val maxAdverseExcursionR: Double,
     val mfeCapturePct: Double?,

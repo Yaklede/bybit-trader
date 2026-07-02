@@ -42,6 +42,10 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Minimum macro trend move percent must be between 0 and 0.50."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(minMacroTrendEfficiency = 1.01)
+            }.message shouldBe "Minimum macro trend efficiency must be null or between 0 and 1."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(macroTrendMismatchRiskMultiplier = 0.0)
             }.message shouldBe "Macro trend mismatch risk multiplier must be between 0 and 1."
 
@@ -150,6 +154,8 @@ class VolumeFlowBacktestServiceTest :
             base.tradeCount shouldBe 1
             reduced.tradeCount shouldBe 1
             reduced.trades.single().riskMultiplier shouldBe 0.5
+            (reduced.trades.single().macroTrendMovePct!! < 0.0) shouldBe true
+            (reduced.trades.single().macroTrendEfficiency!! in 0.0..1.0) shouldBe true
             (reduced.trades.single().quantity < base.trades.single().quantity) shouldBe true
             (reduced.trades.single().pnl < base.trades.single().pnl) shouldBe true
         }

@@ -146,7 +146,8 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            if (!macroTrendAllows(m15Timeline, setupCandle.openedAt, candidate.side, config)) {
+            val macroTrendContext = macroTrendContext(m15Timeline, setupCandle.openedAt, config)
+            if (!macroTrendAllows(macroTrendContext, candidate.side, config)) {
                 rejectedSetupCount += 1
                 incrementReason("MACRO_TREND_REJECTED", noTradeReasonCounts)
                 continue
@@ -184,7 +185,7 @@ class VolumeFlowBacktestService(
             }
 
             val entryEquity = equity
-            val riskMultiplier = macroTrendRiskMultiplier(m15Timeline, setupCandle.openedAt, candidate.side, config)
+            val riskMultiplier = macroTrendRiskMultiplier(macroTrendContext, candidate.side, config)
             val riskAmount = entryEquity * config.riskFraction * riskMultiplier
             val quantity = riskAmount / riskPerUnit
             val exit = simulateExit(m1Candles, entry, config)
@@ -227,6 +228,8 @@ class VolumeFlowBacktestService(
                     pnl = pnl,
                     returnR = returnR,
                     riskMultiplier = riskMultiplier,
+                    macroTrendMovePct = macroTrendContext?.movePct,
+                    macroTrendEfficiency = macroTrendContext?.efficiency,
                     maxFavorableExcursionR = exit.maxFavorableExcursionR,
                     maxAdverseExcursionR = exit.maxAdverseExcursionR,
                     mfeCapturePct = mfeCapturePct,
@@ -611,47 +614,70 @@ class VolumeFlowBacktestService(
     }
 
     private fun macroTrendAllows(
-        m15Timeline: CandleTimeline,
-        setupAt: Instant,
+        macroTrendContext: MacroTrendContext?,
         side: Side,
         config: VolumeFlowBacktestConfig,
     ): Boolean {
         if (!config.requireMacroTrendAlignment) return true
-        val movePct = macroTrendMovePct(m15Timeline, setupAt, config) ?: return false
+        val context = macroTrendContext ?: return false
+        if (config.minMacroTrendEfficiency != null && context.efficiency < config.minMacroTrendEfficiency) {
+            return false
+        }
         return when (side) {
-            Side.BUY -> movePct >= config.minMacroTrendMovePct
-            Side.SELL -> movePct <= -config.minMacroTrendMovePct
+            Side.BUY -> context.movePct >= config.minMacroTrendMovePct
+            Side.SELL -> context.movePct <= -config.minMacroTrendMovePct
         }
     }
 
     private fun macroTrendRiskMultiplier(
-        m15Timeline: CandleTimeline,
-        setupAt: Instant,
+        macroTrendContext: MacroTrendContext?,
         side: Side,
         config: VolumeFlowBacktestConfig,
     ): Double {
         if (config.macroTrendMismatchRiskMultiplier >= 1.0) return 1.0
-        val movePct = macroTrendMovePct(m15Timeline, setupAt, config) ?: return 1.0
+        val context = macroTrendContext ?: return 1.0
         val threshold = config.minMacroTrendMovePct
         val isMismatch =
             when (side) {
-                Side.BUY -> movePct < -threshold
-                Side.SELL -> movePct > threshold
+                Side.BUY -> context.movePct < -threshold
+                Side.SELL -> context.movePct > threshold
             }
-        return if (isMismatch) config.macroTrendMismatchRiskMultiplier else 1.0
+        val isLowQuality =
+            config.minMacroTrendEfficiency?.let { minEfficiency ->
+                context.efficiency < minEfficiency
+            } ?: false
+        return if (isMismatch || isLowQuality) config.macroTrendMismatchRiskMultiplier else 1.0
     }
 
-    private fun macroTrendMovePct(
+    private fun macroTrendContext(
         m15Timeline: CandleTimeline,
         setupAt: Instant,
         config: VolumeFlowBacktestConfig,
-    ): Double? {
+    ): MacroTrendContext? {
         val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.macroTrendLookbackM15Candles)
         if (contextCandles.size < config.macroTrendLookbackM15Candles) return null
         val firstClose = contextCandles.first().close.toDouble()
         val latestClose = contextCandles.last().close.toDouble()
         if (firstClose <= 0.0 || latestClose <= 0.0) return null
-        return (latestClose - firstClose) / firstClose
+        val movePct = (latestClose - firstClose) / firstClose
+        var totalMovePct = 0.0
+        for (index in 1 until contextCandles.size) {
+            val previousClose = contextCandles[index - 1].close.toDouble()
+            val currentClose = contextCandles[index].close.toDouble()
+            if (previousClose > 0.0) {
+                totalMovePct += abs(currentClose - previousClose) / previousClose
+            }
+        }
+        val efficiency =
+            if (totalMovePct <= 0.0) {
+                0.0
+            } else {
+                (abs(movePct) / totalMovePct).coerceIn(0.0, 1.0)
+            }
+        return MacroTrendContext(
+            movePct = movePct,
+            efficiency = efficiency,
+        )
     }
 
     private fun contextRangeAllows(
@@ -1246,6 +1272,11 @@ private data class KeyLevelContext(
     val type: VolumeFlowKeyLevelType,
     val distancePct: Double,
     val isNearKeyLevel: Boolean,
+)
+
+private data class MacroTrendContext(
+    val movePct: Double,
+    val efficiency: Double,
 )
 
 private fun Candle.retestsAndConfirms(

@@ -1649,3 +1649,47 @@ Decision:
   macro trend slope/efficiency, realized volatility expansion, trend age,
   funding-independent range compression, and relative volume percentile by
   volatility regime.
+
+## Macro Trend Efficiency Instrumentation 2026-07-03
+
+Purpose: implement the first S2-quality discriminator input from the previous
+loop before doing more blind sizing. The added feature exposes macro trend
+quality in trade diagnostics and allows future configs to require or soft-size
+against low-quality macro trend contexts.
+
+Implemented surface:
+
+- `VolumeFlowBacktestConfig.minMacroTrendEfficiency`
+- `VolumeFlowBacktestTrade.macroTrendMovePct`
+- `VolumeFlowBacktestTrade.macroTrendEfficiency`
+- Equivalent composite trade/API response fields
+
+Current-candidate M5 trend-down diagnostics showed why this cannot be promoted
+as a simple threshold:
+
+| Segment | Weak macro efficiency finding | Interpretation |
+| --- | --- | --- |
+| S2 | M5 trend-down trades with efficiency `<=0.05`: `27` trades, PF `0.380`, PnL `-338,119.09` | Low-quality macro trend is a real S2 loss cluster |
+| S3 | M5 trend-down trades with efficiency `<=0.05`: `17` trades, PF `0.055`, PnL `-8,295,633.22` | Same weak-efficiency cluster is also bad in S3 |
+| S4 | M5 trend-down trades with efficiency `<=0.05`: `16` trades, PF `11.042`, PnL `+21,041,672.68` | Recent regime profits from low-efficiency macro contexts |
+
+Rejected macro-efficiency candidates:
+
+| Candidate | S2 CDR | S4 CDR | FULL CDR | FULL MTM MDD | Reason rejected |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `m5down_macro_eff_soft_l768_m0p003_e0p2_x0p25` | `0.06871%` | `0.33811%` | `0.22008%` | `43.62426%` | S2 improved, but S4 and FULL growth collapsed |
+| `m5down_macro_eff_soft_l192_m0p003_e0p25_x0p25` | `0.06846%` | `0.34098%` | `0.22091%` | `43.62426%` | Same failure pattern as the 768 lookback candidate |
+| `m5down_macro_eff_soft_l768_m0p003_e0p05_x0p25` | `0.06325%` | `0.14466%` | `0.24270%` | `43.80192%` | Preserved S3 (`0.76768%`) but destroyed S4 |
+| `m5down_macro_eff_hard_l768_m0p003_e0p05` | `0.06058%` | `0.03062%` | `0.21549%` | `45.64031%` | Hard filtering over-pruned the recent market |
+| Current baseline | `0.02981%` | `0.71539%` | `0.36678%` | `44.14056%` | Still best full-horizon candidate |
+
+Decision:
+
+- Do not promote a config change from macro efficiency alone.
+- Keep `config/volume-flow-composite-current.json` unchanged.
+- Keep the instrumentation/API surface because it makes the next discriminator
+  measurable instead of blind. The next candidate should combine macro
+  efficiency with a second condition that separates S4's profitable
+  low-efficiency pullback contexts from S2/S3's weak failed-trend contexts.
+  Candidate pairings: trend age, macro move band, post-spike realized
+  volatility compression, and relative-volume percentile by volatility regime.

@@ -554,6 +554,8 @@ private fun CompositeSignal.toCompositeTrade(
         pnl = pnl,
         returnR = returnR,
         riskMultiplier = sourceTrade.riskMultiplier * riskMultiplier,
+        macroTrendMovePct = sourceTrade.macroTrendMovePct,
+        macroTrendEfficiency = sourceTrade.macroTrendEfficiency,
         maxFavorableExcursionR = sourceTrade.maxFavorableExcursionR,
         maxAdverseExcursionR = sourceTrade.maxAdverseExcursionR,
         mfeCapturePct = mfeCapturePct,
