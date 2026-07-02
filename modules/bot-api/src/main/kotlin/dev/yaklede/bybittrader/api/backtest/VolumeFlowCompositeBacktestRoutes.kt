@@ -15,6 +15,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowLegExitSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowPeriodSummary
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowReplayCoverage
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowTagSummary
@@ -30,6 +31,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 
 fun Route.configureVolumeFlowCompositeBacktestRoutes(
     compositeBacktestService: VolumeFlowCompositeBacktestService,
@@ -73,6 +75,8 @@ data class VolumeFlowCompositeCurrentBacktestRequest(
     val m1Limit: Int? = null,
     val m5Limit: Int? = null,
     val m15Limit: Int? = null,
+    val replayStartAt: String? = null,
+    val replayEndAt: String? = null,
     val tradeLimit: Int? = null,
     val equityCurveLimit: Int? = null,
     val drawdownEventLimit: Int? = null,
@@ -84,6 +88,8 @@ data class VolumeFlowCompositeCurrentBacktestRequest(
                 m1Limit = m1Limit ?: base.m1Limit,
                 m5Limit = m5Limit ?: base.m5Limit,
                 m15Limit = m15Limit ?: base.m15Limit,
+                replayStartAt = replayStartAt ?: base.replayStartAt,
+                replayEndAt = replayEndAt ?: base.replayEndAt,
                 tradeLimit = tradeLimit ?: base.tradeLimit,
                 equityCurveLimit = equityCurveLimit ?: base.equityCurveLimit,
                 drawdownEventLimit = drawdownEventLimit ?: base.drawdownEventLimit,
@@ -96,6 +102,8 @@ data class VolumeFlowCompositeBacktestRequest(
     val m1Limit: Int = 3_000,
     val m5Limit: Int = 1_000,
     val m15Limit: Int = 500,
+    val replayStartAt: String? = null,
+    val replayEndAt: String? = null,
     val initialEquity: Double = 10_000.0,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
@@ -123,12 +131,24 @@ data class VolumeFlowCompositeBacktestRequest(
         require(m15Limit in 30..ResearchCandleLimits.MAX_M15_REPLAY_CANDLES) {
             "M15 limit must be between 30 and ${ResearchCandleLimits.MAX_M15_REPLAY_CANDLES}."
         }
+        val parsedReplayStartAt = replayStartAt?.let(::parseReplayInstant)
+        val parsedReplayEndAt = replayEndAt?.let(::parseReplayInstant)
+        require((parsedReplayStartAt == null) == (parsedReplayEndAt == null)) {
+            "Replay start and end timestamps must both be set or both be omitted."
+        }
+        require(parsedReplayStartAt == null || parsedReplayEndAt == null || parsedReplayEndAt.isAfter(parsedReplayStartAt)) {
+            "Replay end timestamp must be after replay start timestamp."
+        }
         require(tradeLimit in 0..10_000) { "Trade limit must be between 0 and 10000." }
         require(equityCurveLimit in 0..10_000) { "Equity curve limit must be between 0 and 10000." }
         require(drawdownEventLimit in 0..1_000) { "Drawdown event limit must be between 0 and 1000." }
         toConfig()
         return this
     }
+
+    fun replayStartInstant(): Instant? = replayStartAt?.let(::parseReplayInstant)
+
+    fun replayEndInstant(): Instant? = replayEndAt?.let(::parseReplayInstant)
 
     fun toConfig(): VolumeFlowCompositeBacktestConfig =
         VolumeFlowCompositeBacktestConfig(
@@ -146,6 +166,10 @@ data class VolumeFlowCompositeBacktestRequest(
             legs = legs.map { it.toLeg(initialEquity) },
         )
 }
+
+private fun parseReplayInstant(value: String): Instant =
+    runCatching { Instant.parse(value) }
+        .getOrElse { throw IllegalArgumentException("Replay timestamps must be ISO-8601 instants.") }
 
 @Serializable
 data class VolumeFlowCompositeLegRequest(
@@ -269,6 +293,9 @@ data class VolumeFlowCompositeBacktestResponse(
     val m15CandleCount: Int,
     val startAt: String?,
     val endAt: String?,
+    val requestedCoverage: List<VolumeFlowRequestedReplayCoverageResponse>,
+    val effectiveCoverage: List<VolumeFlowEffectiveReplayCoverageResponse>,
+    val commonReplayWindow: VolumeFlowReplayWindowResponse,
     val initialEquity: Double,
     val finalEquity: Double,
     val netPnl: Double,
@@ -319,6 +346,28 @@ data class VolumeFlowCompositeBacktestResponse(
     val equityCurve: List<VolumeFlowEquityCurvePointResponse>,
     val drawdownEvents: List<VolumeFlowEquityCurvePointResponse>,
     val trades: List<VolumeFlowCompositeTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowRequestedReplayCoverageResponse(
+    val timeframe: String,
+    val requestedLimit: Int,
+    val requestedStartAt: String?,
+    val requestedEndAt: String?,
+)
+
+@Serializable
+data class VolumeFlowEffectiveReplayCoverageResponse(
+    val timeframe: String,
+    val actualCount: Int,
+    val startAt: String?,
+    val endAt: String?,
+)
+
+@Serializable
+data class VolumeFlowReplayWindowResponse(
+    val startAt: String?,
+    val endAt: String?,
 )
 
 @Serializable
@@ -426,6 +475,13 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(
         m15CandleCount = m15CandleCount,
         startAt = startAt?.toString(),
         endAt = endAt?.toString(),
+        requestedCoverage = replayCoverage.map(VolumeFlowReplayCoverage::toRequestedResponse),
+        effectiveCoverage = replayCoverage.map(VolumeFlowReplayCoverage::toEffectiveResponse),
+        commonReplayWindow =
+            VolumeFlowReplayWindowResponse(
+                startAt = commonReplayWindow.startAt?.toString(),
+                endAt = commonReplayWindow.endAt?.toString(),
+            ),
         initialEquity = initialEquity.roundForApi(),
         finalEquity = finalEquity.roundForApi(),
         netPnl = netPnl.roundForApi(),
@@ -491,6 +547,8 @@ private suspend fun VolumeFlowCompositeBacktestService.run(
         m5Limit = request.m5Limit,
         m15Limit = request.m15Limit,
         config = request.toConfig(),
+        replayStartAt = request.replayStartInstant(),
+        replayEndAt = request.replayEndInstant(),
     )
 
 private fun VolumeFlowCompositeBacktestReport.toResponse(request: VolumeFlowCompositeBacktestRequest): VolumeFlowCompositeBacktestResponse =
@@ -498,6 +556,22 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(request: VolumeFlowComp
         tradeLimit = request.tradeLimit,
         equityCurveLimit = request.equityCurveLimit,
         drawdownEventLimit = request.drawdownEventLimit,
+    )
+
+private fun VolumeFlowReplayCoverage.toRequestedResponse(): VolumeFlowRequestedReplayCoverageResponse =
+    VolumeFlowRequestedReplayCoverageResponse(
+        timeframe = timeframe.name,
+        requestedLimit = requestedLimit,
+        requestedStartAt = requestedStartAt?.toString(),
+        requestedEndAt = requestedEndAt?.toString(),
+    )
+
+private fun VolumeFlowReplayCoverage.toEffectiveResponse(): VolumeFlowEffectiveReplayCoverageResponse =
+    VolumeFlowEffectiveReplayCoverageResponse(
+        timeframe = timeframe.name,
+        actualCount = actualCount,
+        startAt = startAt?.toString(),
+        endAt = endAt?.toString(),
     )
 
 private fun VolumeFlowEquityCurvePoint.toResponse(): VolumeFlowEquityCurvePointResponse =

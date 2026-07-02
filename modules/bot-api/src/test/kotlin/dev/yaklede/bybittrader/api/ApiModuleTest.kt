@@ -386,6 +386,8 @@ class ApiModuleTest :
                                   "m1Limit":80,
                                   "m5Limit":30,
                                   "m15Limit":30,
+                                  "replayStartAt":"2026-06-30T00:00:00Z",
+                                  "replayEndAt":"2026-06-30T07:15:00Z",
                                   "maxConcurrentPositions":2,
                                   "tradeLimit":0,
                                   "equityCurveLimit":1,
@@ -424,6 +426,12 @@ class ApiModuleTest :
                 body shouldContain """"payoffRatio":"""
                 body shouldContain """"breakevenWinRatePct":"""
                 body shouldContain """"winRateEdgePct":"""
+                body shouldContain """"requestedCoverage":[{"""
+                body shouldContain """"requestedLimit":80"""
+                body shouldContain """"requestedStartAt":"2026-06-30T00:00:00Z""""
+                body shouldContain """"effectiveCoverage":[{"""
+                body shouldContain """"actualCount":80"""
+                body shouldContain """"commonReplayWindow":{"startAt":"2026-06-30T00:00:00Z","endAt":"2026-06-30T01:19:00Z"}"""
                 body shouldContain """"equityCurve":[{"""
                 body shouldContain """"drawdownEvents":[{"""
                 body shouldContain """"markToMarketDrawdownPct":"""
@@ -494,6 +502,8 @@ class ApiModuleTest :
                                   "m1Limit":1600001,
                                   "m5Limit":320001,
                                   "m15Limit":110001,
+                                  "replayStartAt":"2026-06-30T00:00:00Z",
+                                  "replayEndAt":"2026-06-30T07:15:00Z",
                                   "tradeLimit":0,
                                   "equityCurveLimit":1,
                                   "drawdownEventLimit":1
@@ -504,6 +514,9 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 val body = response.bodyAsText()
                 body shouldContain """"symbol":"BTCUSDT""""
+                body shouldContain """"requestedLimit":1600001"""
+                body shouldContain """"requestedEndAt":"2026-06-30T07:15:00Z""""
+                body shouldContain """"effectiveCoverage":[{"""
                 body shouldContain """"equityCurve":[{"""
                 body shouldContain """"drawdownEvents":[{"""
                 body shouldContain """"trades":[]"""

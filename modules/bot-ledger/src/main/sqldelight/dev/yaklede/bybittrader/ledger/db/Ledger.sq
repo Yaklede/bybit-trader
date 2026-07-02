@@ -262,3 +262,13 @@ FROM marketCandles
 WHERE symbol = ? AND timeframe = ?
 ORDER BY opened_at DESC
 LIMIT ?;
+
+selectMarketCandlesBetween:
+SELECT symbol, timeframe, opened_at, open, high, low, close, volume
+FROM marketCandles
+WHERE symbol = :symbol
+  AND timeframe = :timeframe
+  AND opened_at >= :startAt
+  AND opened_at <= :endAt
+ORDER BY opened_at DESC
+LIMIT :limit;

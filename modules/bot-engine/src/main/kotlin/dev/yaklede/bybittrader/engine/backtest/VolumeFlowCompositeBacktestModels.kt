@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.domain.Timeframe
 import java.time.Instant
 
 data class VolumeFlowCompositeBacktestConfig(
@@ -66,6 +67,8 @@ data class VolumeFlowCompositeBacktestReport(
     val m15CandleCount: Int,
     val startAt: Instant?,
     val endAt: Instant?,
+    val replayCoverage: List<VolumeFlowReplayCoverage>,
+    val commonReplayWindow: VolumeFlowCommonReplayWindow,
     val initialEquity: Double,
     val finalEquity: Double,
     val netPnl: Double,
@@ -114,6 +117,21 @@ data class VolumeFlowCompositeBacktestReport(
     val walkForwardPerformance: List<VolumeFlowPeriodSummary>,
     val equityCurve: List<VolumeFlowEquityCurvePoint>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
+)
+
+data class VolumeFlowReplayCoverage(
+    val timeframe: Timeframe,
+    val requestedLimit: Int,
+    val requestedStartAt: Instant?,
+    val requestedEndAt: Instant?,
+    val actualCount: Int,
+    val startAt: Instant?,
+    val endAt: Instant?,
+)
+
+data class VolumeFlowCommonReplayWindow(
+    val startAt: Instant?,
+    val endAt: Instant?,
 )
 
 data class VolumeFlowLegExitSummary(

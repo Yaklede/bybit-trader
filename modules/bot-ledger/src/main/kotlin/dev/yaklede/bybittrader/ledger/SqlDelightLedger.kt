@@ -25,6 +25,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.PerformanceSnapshots
+import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBetween
 import dev.yaklede.bybittrader.ledger.db.SelectRecentMarketCandles
 import dev.yaklede.bybittrader.ledger.db.SelectRecentTrades
 import dev.yaklede.bybittrader.ledger.db.Signals
@@ -136,6 +137,28 @@ class SqlDelightLedger(
             .map(SelectRecentMarketCandles::toCandle)
     }
 
+    override suspend fun candlesBetween(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> {
+        require(limit in 1..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "Limit must be between 1 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
+        require(!endAt.isBefore(startAt)) { "End timestamp must be greater than or equal to start timestamp." }
+        return database.ledgerQueries
+            .selectMarketCandlesBetween(
+                symbol = symbol.value,
+                timeframe = timeframe.name,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectMarketCandlesBetween::toCandle)
+    }
+
     override suspend fun recordSignal(signal: PaperSignalRecord): Long {
         database.ledgerQueries.insertSignal(
             strategy = signal.strategy,
@@ -230,6 +253,18 @@ fun createLedgerDatabase(driver: SqlDriver): LedgerDatabase = LedgerDatabase(dri
 private const val REASON_SEPARATOR = ","
 
 private fun SelectRecentMarketCandles.toCandle(): Candle =
+    Candle(
+        symbol = Symbol(symbol),
+        timeframe = Timeframe.valueOf(timeframe),
+        openedAt = Instant.parse(opened_at),
+        open = BigDecimal(open_),
+        high = BigDecimal(high),
+        low = BigDecimal(low),
+        close = BigDecimal(close),
+        volume = BigDecimal(volume),
+    )
+
+private fun SelectMarketCandlesBetween.toCandle(): Candle =
     Candle(
         symbol = Symbol(symbol),
         timeframe = Timeframe.valueOf(timeframe),
