@@ -9,6 +9,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEquityCurvePoint
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowLegExitSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
@@ -36,7 +37,13 @@ fun Route.configureVolumeFlowCompositeBacktestRoutes(compositeBacktestService: V
                     m15Limit = request.m15Limit,
                     config = request.toConfig(),
                 )
-            call.respond(result.toResponse(request.tradeLimit))
+            call.respond(
+                result.toResponse(
+                    tradeLimit = request.tradeLimit,
+                    equityCurveLimit = request.equityCurveLimit,
+                    drawdownEventLimit = request.drawdownEventLimit,
+                ),
+            )
         }
     }
 }
@@ -59,6 +66,8 @@ data class VolumeFlowCompositeBacktestRequest(
     val portfolioDrawdownRiskMultiplier: Double = 1.0,
     val portfolioDrawdownCooldownDays: Int = 0,
     val tradeLimit: Int = 50,
+    val equityCurveLimit: Int = 500,
+    val drawdownEventLimit: Int = 20,
     val legs: List<VolumeFlowCompositeLegRequest>,
 ) {
     fun validated(): VolumeFlowCompositeBacktestRequest {
@@ -67,6 +76,8 @@ data class VolumeFlowCompositeBacktestRequest(
         require(m5Limit in 30..320_000) { "M5 limit must be between 30 and 320000." }
         require(m15Limit in 30..110_000) { "M15 limit must be between 30 and 110000." }
         require(tradeLimit in 0..10_000) { "Trade limit must be between 0 and 10000." }
+        require(equityCurveLimit in 0..10_000) { "Equity curve limit must be between 0 and 10000." }
+        require(drawdownEventLimit in 0..1_000) { "Drawdown event limit must be between 0 and 1000." }
         toConfig()
         return this
     }
@@ -257,7 +268,28 @@ data class VolumeFlowCompositeBacktestResponse(
     val performanceByVolumePattern: List<VolumeFlowTagSummaryResponse>,
     val monthlyPerformance: List<VolumeFlowPeriodSummaryResponse>,
     val walkForwardPerformance: List<VolumeFlowPeriodSummaryResponse>,
+    val equityCurve: List<VolumeFlowEquityCurvePointResponse>,
+    val drawdownEvents: List<VolumeFlowEquityCurvePointResponse>,
     val trades: List<VolumeFlowCompositeTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowEquityCurvePointResponse(
+    val sequence: Int,
+    val at: String,
+    val legId: String,
+    val side: String,
+    val exitReason: String,
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val peakEquity: Double,
+    val pnl: Double,
+    val returnR: Double,
+    val realizedDrawdownPct: Double,
+    val markToMarketLowEquity: Double,
+    val markToMarketDrawdownPct: Double,
+    val maxUnrealizedDrawdownPct: Double,
+    val maxAdverseExcursionR: Double,
 )
 
 @Serializable
@@ -334,7 +366,11 @@ data class VolumeFlowCompositeTradeResponse(
     val setupCloseLocation: Double,
 )
 
-private fun VolumeFlowCompositeBacktestReport.toResponse(tradeLimit: Int): VolumeFlowCompositeBacktestResponse =
+private fun VolumeFlowCompositeBacktestReport.toResponse(
+    tradeLimit: Int,
+    equityCurveLimit: Int,
+    drawdownEventLimit: Int,
+): VolumeFlowCompositeBacktestResponse =
     VolumeFlowCompositeBacktestResponse(
         symbol = symbol.value,
         m1CandleCount = m1CandleCount,
@@ -389,7 +425,32 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(tradeLimit: Int): Volum
         performanceByVolumePattern = performanceByVolumePattern.map(VolumeFlowTagSummary::toCompositeResponse),
         monthlyPerformance = monthlyPerformance.map(VolumeFlowPeriodSummary::toResponse),
         walkForwardPerformance = walkForwardPerformance.map(VolumeFlowPeriodSummary::toResponse),
+        equityCurve = equityCurve.takeLast(equityCurveLimit).map(VolumeFlowEquityCurvePoint::toResponse),
+        drawdownEvents =
+            equityCurve
+                .sortedWith(compareByDescending<VolumeFlowEquityCurvePoint> { it.markToMarketDrawdownPct }.thenBy { it.sequence })
+                .take(drawdownEventLimit)
+                .map(VolumeFlowEquityCurvePoint::toResponse),
         trades = trades.takeLast(tradeLimit).map(VolumeFlowCompositeBacktestTrade::toResponse),
+    )
+
+private fun VolumeFlowEquityCurvePoint.toResponse(): VolumeFlowEquityCurvePointResponse =
+    VolumeFlowEquityCurvePointResponse(
+        sequence = sequence,
+        at = at.toString(),
+        legId = legId,
+        side = side.name,
+        exitReason = exitReason.name,
+        startingEquity = startingEquity.roundForApi(),
+        endingEquity = endingEquity.roundForApi(),
+        peakEquity = peakEquity.roundForApi(),
+        pnl = pnl.roundForApi(),
+        returnR = returnR.roundForApi(),
+        realizedDrawdownPct = realizedDrawdownPct.roundForApi(),
+        markToMarketLowEquity = markToMarketLowEquity.roundForApi(),
+        markToMarketDrawdownPct = markToMarketDrawdownPct.roundForApi(),
+        maxUnrealizedDrawdownPct = maxUnrealizedDrawdownPct.roundForApi(),
+        maxAdverseExcursionR = maxAdverseExcursionR.roundForApi(),
     )
 
 private fun VolumeFlowPeriodSummary.toResponse(): VolumeFlowPeriodSummaryResponse =

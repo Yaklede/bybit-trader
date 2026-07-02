@@ -212,6 +212,7 @@ class VolumeFlowCompositeBacktestService(
                     endAt = endAt,
                     windowCount = WALK_FORWARD_WINDOW_COUNT,
                 ),
+            equityCurve = trades.equityCurve(config.initialEquity),
             trades = trades,
         )
     }
@@ -691,6 +692,48 @@ private fun List<VolumeFlowCompositeBacktestTrade>.walkForwardPerformance(
             tradeIndex += 1
         }
         state.toSummary()
+    }
+}
+
+private fun List<VolumeFlowCompositeBacktestTrade>.equityCurve(initialEquity: Double): List<VolumeFlowEquityCurvePoint> {
+    var equity = initialEquity
+    var peakEquity = initialEquity
+    return mapIndexed { index, trade ->
+        val startingEquity = equity
+        val markToMarketLowEquity = startingEquity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
+        val markToMarketDrawdownPct =
+            if (peakEquity <= 0.0) {
+                0.0
+            } else {
+                maxOf(0.0, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
+            }
+
+        equity += trade.pnl
+        peakEquity = maxOf(peakEquity, equity)
+        val realizedDrawdownPct =
+            if (peakEquity <= 0.0) {
+                0.0
+            } else {
+                maxOf(0.0, ((peakEquity - equity) / peakEquity) * 100.0)
+            }
+
+        VolumeFlowEquityCurvePoint(
+            sequence = index + 1,
+            at = trade.exitAt,
+            legId = trade.legId,
+            side = trade.side,
+            exitReason = trade.exitReason,
+            startingEquity = startingEquity,
+            endingEquity = equity,
+            peakEquity = peakEquity,
+            pnl = trade.pnl,
+            returnR = trade.returnR,
+            realizedDrawdownPct = realizedDrawdownPct,
+            markToMarketLowEquity = markToMarketLowEquity,
+            markToMarketDrawdownPct = markToMarketDrawdownPct,
+            maxUnrealizedDrawdownPct = trade.maxUnrealizedDrawdownPct,
+            maxAdverseExcursionR = trade.maxAdverseExcursionR,
+        )
     }
 }
 

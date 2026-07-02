@@ -112,6 +112,7 @@ data class VolumeFlowCompositeBacktestReport(
     val performanceByVolumePattern: List<VolumeFlowTagSummary>,
     val monthlyPerformance: List<VolumeFlowPeriodSummary>,
     val walkForwardPerformance: List<VolumeFlowPeriodSummary>,
+    val equityCurve: List<VolumeFlowEquityCurvePoint>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
 )
 
@@ -138,6 +139,24 @@ data class VolumeFlowPeriodSummary(
     val payoffRatio: Double?,
     val breakevenWinRatePct: Double?,
     val winRateEdgePct: Double?,
+)
+
+data class VolumeFlowEquityCurvePoint(
+    val sequence: Int,
+    val at: Instant,
+    val legId: String,
+    val side: Side,
+    val exitReason: VolumeFlowExitReason,
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val peakEquity: Double,
+    val pnl: Double,
+    val returnR: Double,
+    val realizedDrawdownPct: Double,
+    val markToMarketLowEquity: Double,
+    val markToMarketDrawdownPct: Double,
+    val maxUnrealizedDrawdownPct: Double,
+    val maxAdverseExcursionR: Double,
 )
 
 data class VolumeFlowCompositeBacktestTrade(

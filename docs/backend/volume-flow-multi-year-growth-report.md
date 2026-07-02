@@ -1015,3 +1015,41 @@ Next improvement list:
 3. Continue tuning around expectancy and adverse excursion reduction rather
    than broad risk expansion, because the remaining target candidates are
    already MDD-limited.
+
+## Equity Curve Diagnostics API Pass 2026-07-02
+
+Source note: this pass used the current promoted config and the same local
+three-year BTCUSDT dataset. It is an analysis tooling change, not a strategy
+parameter change.
+
+Implementation change:
+
+- Composite backtest reports now include an `equityCurve` list. Each point is
+  tied to an accepted trade and includes starting equity, ending equity, peak
+  equity, realized drawdown, mark-to-market low equity, and mark-to-market
+  drawdown.
+- The API request accepts `equityCurveLimit` to control how many latest curve
+  points are returned.
+- Composite responses now include `drawdownEvents`, sorted by worst
+  mark-to-market drawdown first.
+- The API request accepts `drawdownEventLimit` to control how many worst events
+  are returned.
+
+Current worst mark-to-market events from the promoted config:
+
+| Sequence | Exit at | Leg | Side | Exit | Start equity | End equity | MTM low equity | MTM drawdown | Realized drawdown | Return R |
+| ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `257` | `2026-06-04T00:54:00Z` | `m1_trend_down_breakout_assist` | `SELL` | `TIME` | `3,826,124,834 KRW` | `3,877,289,398 KRW` | `3,347,358,472 KRW` | `39.99456%` | `30.49491%` | `0.09248R` |
+| `124` | `2024-09-18T19:21:00Z` | `range_failed_break_loose` | `SELL` | `TARGET` | `25,419,309 KRW` | `26,652,983 KRW` | `25,176,387 KRW` | `39.53765%` | `35.99153%` | `1.67818R` |
+| `52` | `2024-03-19T07:43:00Z` | `trend_down_retest` | `SELL` | `TIME` | `946,810 KRW` | `943,699 KRW` | `933,144 KRW` | `39.15352%` | `38.46526%` | `-0.11306R` |
+| `123` | `2024-09-17T15:33:00Z` | `m1_trend_up_breakout_scalp` | `BUY` | `BREAKEVEN_STOP` | `25,511,570 KRW` | `25,419,309 KRW` | `25,381,061 KRW` | `39.04611%` | `38.95426%` | `-0.15068R` |
+| `53` | `2024-03-20T16:50:00Z` | `m1_failed_break_chop_scalp` | `BUY` | `TREND_BREAK` | `943,699 KRW` | `957,868 KRW` | `936,596 KRW` | `38.92841%` | `37.54134%` | `0.51918R` |
+
+Decision:
+
+- Promote this analysis API because it makes the remaining `40%` MTM gate
+  problem directly inspectable without requesting all raw trades and rebuilding
+  the equity path externally.
+- The next tuning pass should start with sequence `257`: it is the current
+  max-MTM event, comes from `m1_trend_down_breakout_assist`, exits by `TIME`,
+  and had only `0.09248R` realized return after a deep in-trade adverse move.

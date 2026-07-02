@@ -426,6 +426,10 @@ class VolumeFlowBacktestServiceTest :
             (result.markToMarketMaxDrawdownPct >= result.maxDrawdownPct) shouldBe true
             (result.averageMaxFavorableExcursionR > 0.0) shouldBe true
             (result.trades.single().maxUnrealizedProfitPct > 0.0) shouldBe true
+            result.equityCurve.single().sequence shouldBe 1
+            result.equityCurve.single().endingEquity shouldBe result.finalEquity
+            result.equityCurve.single().legId shouldBe "primary"
+            (result.equityCurve.single().markToMarketDrawdownPct > 0.0) shouldBe true
             (result.finalEquity > result.initialEquity) shouldBe true
         }
 

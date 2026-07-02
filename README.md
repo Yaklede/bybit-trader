@@ -23,7 +23,8 @@ Milestone 1 is the operational backend shell:
   `compoundDailyReturnPct`, `averageWinR`, `averageLossR`, `payoffRatio`,
   `breakevenWinRatePct`, `winRateEdgePct`, and `activeDayCoveragePct` so daily
   targets are evaluated on a compounding, coverage, and asymmetric-expectancy
-  basis.
+  basis. Composite responses also include a limitable `equityCurve` and worst
+  `drawdownEvents` list for balance-curve and mark-to-market breach analysis.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
@@ -80,7 +81,9 @@ curl -X POST \
   --data '{"symbol":"BTCUSDT","m1Limit":525600,"m5Limit":105120,"m15Limit":35040,"initialEquity":10000.0,"dailyTargetPct":null,"dailyStopPct":1.0,"maxConsecutiveLosses":3,"legs":[{"id":"trend_down_retest","riskFraction":0.02,"setupMode":"BREAKOUT_CONTINUATION","entryMode":"RETEST_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":5.0,"volumeZScoreThreshold":1.5,"setupRangeLookback":12,"requireM5Vwap":false,"requireContextVwap":true,"requireContextTrend":true,"allowedMarketRegimes":["TREND_DOWN"],"requireRegimeSideAlignment":true,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.45,"minDirectionalCloseStrength":0.70,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.2,"exitMode":"FIXED_TARGET","maxHoldM1Candles":30},{"id":"trend_down_close","riskFraction":0.02,"setupMode":"BREAKOUT_CONTINUATION","entryMode":"CLOSE_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":3.5,"volumeZScoreThreshold":0.5,"setupRangeLookback":8,"requireM5Vwap":false,"requireContextVwap":true,"requireContextTrend":true,"allowedMarketRegimes":["TREND_DOWN"],"requireRegimeSideAlignment":true,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.55,"minDirectionalCloseStrength":0.70,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.2,"exitMode":"FIXED_TARGET","maxHoldM1Candles":15},{"id":"range_failed_break","riskFraction":0.02,"setupMode":"FAILED_BREAK_REVERSAL","entryMode":"CLOSE_CONFIRMATION","setupTimeframe":"M5","relativeVolumeThreshold":3.5,"volumeZScoreThreshold":0.5,"setupRangeLookback":12,"requireM5Vwap":false,"requireContextVwap":false,"requireContextTrend":false,"allowedMarketRegimes":["RANGE"],"requireRegimeSideAlignment":false,"requireKeyLevelProximity":true,"keyLevelTolerancePct":0.0025,"avoidRangeMiddle":true,"minBodyRatio":0.25,"minDirectionalCloseStrength":0.70,"minRejectionWickRatio":0.25,"entryLookaheadM1Candles":5,"minEntryRiskPct":0.008,"maxEntryRiskPct":0.015,"targetR":1.0,"exitMode":"FIXED_TARGET","maxHoldM1Candles":30}]}' \
   http://127.0.0.1:8080/backtests/volume-flow/composite/run
 # Add "tradeLimit":10000 to the composite body when full accepted-trade
-# output is needed for tuning analysis. Set "maxConcurrentPositions" when
+# output is needed for tuning analysis. Add "equityCurveLimit":10000 for the
+# full balance curve, and tune "drawdownEventLimit" to inspect the worst
+# realized/mark-to-market drawdown points. Set "maxConcurrentPositions" when
 # testing concurrent futures-style execution; the default is 1.
 # The default response returns the latest 50 trades.
 curl -X POST \

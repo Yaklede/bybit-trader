@@ -383,6 +383,8 @@ class ApiModuleTest :
                                   "m15Limit":30,
                                   "maxConcurrentPositions":2,
                                   "tradeLimit":0,
+                                  "equityCurveLimit":1,
+                                  "drawdownEventLimit":1,
                                   "legs":[
                                     {
                                       "id":"primary",
@@ -417,6 +419,9 @@ class ApiModuleTest :
                 body shouldContain """"payoffRatio":"""
                 body shouldContain """"breakevenWinRatePct":"""
                 body shouldContain """"winRateEdgePct":"""
+                body shouldContain """"equityCurve":[{"""
+                body shouldContain """"drawdownEvents":[{"""
+                body shouldContain """"markToMarketDrawdownPct":"""
                 body shouldContain """"trades":[]"""
             }
         }
