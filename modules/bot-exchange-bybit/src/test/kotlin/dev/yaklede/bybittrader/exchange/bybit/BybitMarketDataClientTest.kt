@@ -128,6 +128,39 @@ class BybitMarketDataClientTest :
             }
         }
 
+        "fetchCandles accepts empty result without symbol" {
+            val engine =
+                MockEngine {
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "list": []
+                              },
+                              "time": 1719749900000
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val candles =
+                client.fetchCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M1,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749700000),
+                    limit = 2,
+                )
+
+            candles shouldBe emptyList()
+        }
+
         "fetchRecentCandles maps low timeframe intervals" {
             val requestedIntervals = mutableListOf<String?>()
             val engine =

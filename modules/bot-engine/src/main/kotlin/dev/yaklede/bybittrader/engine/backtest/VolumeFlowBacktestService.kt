@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Candle
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
@@ -23,9 +24,15 @@ class VolumeFlowBacktestService(
         m15Limit: Int,
         config: VolumeFlowBacktestConfig,
     ): VolumeFlowBacktestReport {
-        require(m1Limit in 60..1_600_000) { "M1 candle limit must be between 60 and 1600000." }
-        require(m5Limit in 30..320_000) { "M5 candle limit must be between 30 and 320000." }
-        require(m15Limit in 30..110_000) { "M15 candle limit must be between 30 and 110000." }
+        require(m1Limit in 60..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "M1 candle limit must be between 60 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
+        require(m5Limit in 30..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "M5 candle limit must be between 30 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(m15Limit in 30..ResearchCandleLimits.MAX_M15_REPLAY_CANDLES) {
+            "M15 candle limit must be between 30 and ${ResearchCandleLimits.MAX_M15_REPLAY_CANDLES}."
+        }
 
         val m1Candles = candleStore.recentCandles(symbol, Timeframe.M1, m1Limit).sortedBy { it.openedAt }
         val m5Candles = candleStore.recentCandles(symbol, Timeframe.M5, m5Limit).sortedBy { it.openedAt }

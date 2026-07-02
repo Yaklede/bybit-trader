@@ -185,7 +185,9 @@ class ApiModuleTest :
                                   "timeframes":["M15"],
                                   "startAt":"2026-06-30T00:00:00Z",
                                   "endAt":"2026-06-30T00:15:00Z",
-                                  "pageLimit":10
+                                  "daysBack":3650,
+                                  "pageLimit":10,
+                                  "maxRequestsPerTimeframe":10000
                                 }
                                 """.trimIndent(),
                             )
@@ -489,6 +491,9 @@ class ApiModuleTest :
                             setBody(
                                 """
                                 {
+                                  "m1Limit":1600001,
+                                  "m5Limit":320001,
+                                  "m15Limit":110001,
                                   "tradeLimit":0,
                                   "equityCurveLimit":1,
                                   "drawdownEventLimit":1

@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.engine.market
 
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import java.time.Clock
@@ -49,10 +50,12 @@ class MarketDataSyncService(
         maxRequestsPerTimeframe: Int,
     ): MarketDataSyncResult {
         require(timeframes.isNotEmpty()) { "At least one timeframe is required." }
-        require(daysBack in 1..1095) { "Days back must be between 1 and 1095." }
+        require(daysBack in 1..ResearchCandleLimits.MAX_HISTORY_DAYS_BACK) {
+            "Days back must be between 1 and ${ResearchCandleLimits.MAX_HISTORY_DAYS_BACK}."
+        }
         require(pageLimit in 1..1000) { "Page limit must be between 1 and 1000." }
-        require(maxRequestsPerTimeframe in 1..5000) {
-            "Max requests per timeframe must be between 1 and 5000."
+        require(maxRequestsPerTimeframe in 1..ResearchCandleLimits.MAX_HISTORY_REQUESTS_PER_TIMEFRAME) {
+            "Max requests per timeframe must be between 1 and ${ResearchCandleLimits.MAX_HISTORY_REQUESTS_PER_TIMEFRAME}."
         }
 
         val resolvedEndAt = endAt ?: Instant.now(clock)

@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.api.backtest
 
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestSummary
@@ -95,9 +96,15 @@ data class VolumeFlowSweepRequest(
 ) {
     fun validated(): VolumeFlowSweepRequest {
         Symbol(symbol)
-        require(m1Limit in 120..1_600_000) { "M1 limit must be between 120 and 1600000." }
-        require(m5Limit in 60..320_000) { "M5 limit must be between 60 and 320000." }
-        require(m15Limit in 60..110_000) { "M15 limit must be between 60 and 110000." }
+        require(m1Limit in 120..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "M1 limit must be between 120 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
+        require(m5Limit in 60..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "M5 limit must be between 60 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(m15Limit in 60..ResearchCandleLimits.MAX_M15_REPLAY_CANDLES) {
+            "M15 limit must be between 60 and ${ResearchCandleLimits.MAX_M15_REPLAY_CANDLES}."
+        }
         require(topResults in 1..50) { "Top results must be between 1 and 50." }
         allowedMarketRegimeValues?.flatten()?.forEach(VolumeFlowMarketRegime::valueOf)
         exitModes.forEach(VolumeFlowExitMode::valueOf)

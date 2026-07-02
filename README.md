@@ -150,6 +150,12 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
   `build/runtime-test/bybit-trader-3y-backtest.sqlite` covering
   `2023-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading
   return guarantee.
+- Full available BTCUSDT linear history from Bybit (`2020-03-25T10:36:00Z` to
+  `2026-07-02T05:40:00Z`) materially weakens the same config: the replay
+  returned `1,101.21%` net return, `0.10857%` compound daily return,
+  `76.72%` realized max drawdown, and `76.80%` mark-to-market max drawdown.
+  This rejects the current config as a new-market robust live strategy. See
+  `docs/backend/volume-flow-long-horizon-validation-report.md`.
 
 <!-- OPENDOCK:START id=files:README.md dock=opendock/business-ultrawork path=README.md -->
 # Business Ultrawork

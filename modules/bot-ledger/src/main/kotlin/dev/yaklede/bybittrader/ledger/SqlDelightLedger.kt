@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
@@ -123,7 +124,9 @@ class SqlDelightLedger(
         timeframe: Timeframe,
         limit: Int,
     ): List<Candle> {
-        require(limit in 1..1_600_000) { "Limit must be between 1 and 1600000." }
+        require(limit in 1..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "Limit must be between 1 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
         return database.ledgerQueries
             .selectRecentMarketCandles(
                 symbol = symbol.value,

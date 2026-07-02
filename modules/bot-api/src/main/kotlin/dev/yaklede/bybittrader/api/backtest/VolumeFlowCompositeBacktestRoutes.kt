@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.api.backtest
 
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
@@ -113,9 +114,15 @@ data class VolumeFlowCompositeBacktestRequest(
 ) {
     fun validated(): VolumeFlowCompositeBacktestRequest {
         Symbol(symbol)
-        require(m1Limit in 60..1_600_000) { "M1 limit must be between 60 and 1600000." }
-        require(m5Limit in 30..320_000) { "M5 limit must be between 30 and 320000." }
-        require(m15Limit in 30..110_000) { "M15 limit must be between 30 and 110000." }
+        require(m1Limit in 60..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "M1 limit must be between 60 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
+        require(m5Limit in 30..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "M5 limit must be between 30 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(m15Limit in 30..ResearchCandleLimits.MAX_M15_REPLAY_CANDLES) {
+            "M15 limit must be between 30 and ${ResearchCandleLimits.MAX_M15_REPLAY_CANDLES}."
+        }
         require(tradeLimit in 0..10_000) { "Trade limit must be between 0 and 10000." }
         require(equityCurveLimit in 0..10_000) { "Equity curve limit must be between 0 and 10000." }
         require(drawdownEventLimit in 0..1_000) { "Drawdown event limit must be between 0 and 1000." }

@@ -115,7 +115,7 @@ private data class BybitKlineResponse(
 
 @Serializable
 private data class BybitKlineResult(
-    val symbol: String,
+    val symbol: String? = null,
     val category: String? = null,
     val list: List<List<String>> = emptyList(),
 )
