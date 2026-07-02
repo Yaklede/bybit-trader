@@ -1542,3 +1542,57 @@ Decision:
   30-40% operating band.
 - The next loop should target the unchanged S1 drawdown cluster and keep S2 as
   the main validation guard.
+
+## M1 Trend-Down Soft Macro Sizing 2026-07-03
+
+Follow-up finding: S1 drawdown is dominated by `SELL`/`TREND_DOWN` exposure,
+especially `m1_trend_down_breakout_assist`, while S2 still needs some of that
+leg to survive. Hard removal or large risk cuts lower drawdown but collapse
+compound growth. The accepted adjustment keeps the leg active and only reduces
+risk when the M15 macro move is clearly against the short setup.
+
+Accepted config change:
+
+- `m1_trend_down_breakout_assist.macroTrendLookbackM15Candles=384`
+- `m1_trend_down_breakout_assist.minMacroTrendMovePct=0.005`
+- `m1_trend_down_breakout_assist.macroTrendMismatchRiskMultiplier=0.4`
+- `m1_failed_break_chop_scalp.riskFraction=0.15`
+
+Full-candle comparison:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Previous current | `398,501.97498%` | `0.36253%` | `45.53147%` | `400` | `2.46153` | `0.24489R` |
+| `m1down_soft_l384_r0.4_m1failed_r0.15` | `439,126.59458%` | `0.36678%` | `44.14056%` | `401` | `2.47280` | `0.24742R` |
+
+Segmented comparison for the accepted candidate:
+
+| Segment | Return | CDR | MTM MDD | Expectancy R | Trades | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| S1 | `12.34565%` | `0.02032%` | `44.14056%` | `0.07722R` | `30` | Improved return and reduced MTM MDD |
+| S2 | `19.11929%` | `0.02981%` | `40.96104%` | `0.05366R` | `133` | Lower return than previous current; still positive |
+| S3 | `8,307.16635%` | `0.76305%` | `32.67190%` | `0.39174R` | `128` | Slightly lower than previous current |
+| S4 | `4,871.93776%` | `0.71539%` | `34.00532%` | `0.36016R` | `110` | Slightly lower than previous current |
+| FULL | `439,126.59458%` | `0.36678%` | `44.14056%` | `0.24742R` | `401` | Improved return, CDR, expectancy, and MTM MDD |
+
+Rejected adjacent candidates:
+
+- `range_hold_45`: higher FULL CDR (`0.36475%`) than previous current, but S2
+  MTM MDD worsened to `42.12625%`.
+- `m1up_r015` and `m1up_m1failed_r015`: higher FULL CDR (`0.36933%` and
+  `0.36995%`) but S1/S2 MTM MDD stayed worse than the accepted risk-balanced
+  candidate.
+- `m1down_soft_l384_r0.4`: slightly lower FULL CDR (`0.36616%`) with slightly
+  better MDD (`43.97459%`); rejected in favor of the combined candidate because
+  the added MDD cost was small relative to the CDR gain.
+
+Decision:
+
+- Promote the accepted candidate into
+  `config/volume-flow-composite-current.json`.
+- This is still not a target hit. FULL CDR is `0.36678%`, below the `0.8%`
+  objective, and FULL/S1/S2 MTM MDD remain above the ideal 30-40% operating
+  band.
+- Next loop should focus on the remaining S1/S2 loss clusters rather than
+  globally increasing risk. The tests show that broad risk increases improve
+  headline CDR but keep drawdown above the operating band.

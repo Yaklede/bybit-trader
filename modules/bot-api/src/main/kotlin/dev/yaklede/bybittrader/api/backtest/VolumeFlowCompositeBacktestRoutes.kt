@@ -196,6 +196,7 @@ data class VolumeFlowCompositeLegRequest(
     val requireMacroTrendAlignment: Boolean = false,
     val macroTrendLookbackM15Candles: Int = 192,
     val minMacroTrendMovePct: Double = 0.0,
+    val macroTrendMismatchRiskMultiplier: Double = 1.0,
     val allowedMarketRegimes: List<String>? = null,
     val requireRegimeSideAlignment: Boolean = false,
     val minTrendMovePct: Double = 0.003,
@@ -260,6 +261,7 @@ data class VolumeFlowCompositeLegRequest(
                     requireMacroTrendAlignment = requireMacroTrendAlignment,
                     macroTrendLookbackM15Candles = macroTrendLookbackM15Candles,
                     minMacroTrendMovePct = minMacroTrendMovePct,
+                    macroTrendMismatchRiskMultiplier = macroTrendMismatchRiskMultiplier,
                     allowedMarketRegimes =
                         allowedMarketRegimes?.map(VolumeFlowMarketRegime::valueOf)?.toSet()
                             ?: defaultVolumeFlowMarketRegimes,
@@ -459,6 +461,7 @@ data class VolumeFlowCompositeTradeResponse(
     val fees: Double,
     val pnl: Double,
     val returnR: Double,
+    val riskMultiplier: Double,
     val maxFavorableExcursionR: Double,
     val maxAdverseExcursionR: Double,
     val mfeCapturePct: Double?,
@@ -681,6 +684,7 @@ private fun VolumeFlowCompositeBacktestTrade.toResponse(): VolumeFlowCompositeTr
         fees = fees.roundForApi(),
         pnl = pnl.roundForApi(),
         returnR = returnR.roundForApi(),
+        riskMultiplier = riskMultiplier.roundForApi(),
         maxFavorableExcursionR = maxFavorableExcursionR.roundForApi(),
         maxAdverseExcursionR = maxAdverseExcursionR.roundForApi(),
         mfeCapturePct = mfeCapturePct?.roundForApi(),

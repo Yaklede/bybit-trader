@@ -223,11 +223,14 @@
       "adverseExitCheckM1Candles": 3,
       "maxAdverseRBeforeExit": 0.9,
       "minFavorableRBeforeAdverseExit": 0.35,
-      "maxHoldM1Candles": 25
+      "maxHoldM1Candles": 25,
+      "macroTrendLookbackM15Candles": 384,
+      "minMacroTrendMovePct": 0.005,
+      "macroTrendMismatchRiskMultiplier": 0.4
     },
     {
       "id": "m1_failed_break_chop_scalp",
-      "riskFraction": 0.148,
+      "riskFraction": 0.15,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",

@@ -522,7 +522,7 @@ private fun CompositeSignal.toCompositeTrade(
         return null
     }
 
-    val effectiveRiskFraction = riskFraction * riskMultiplier
+    val effectiveRiskFraction = riskFraction * sourceTrade.riskMultiplier * riskMultiplier
     val riskAmount = equity * effectiveRiskFraction
     val quantity = riskAmount / riskPerUnit
     val quantityScale = if (sourceTrade.quantity <= 0.0) 0.0 else quantity / sourceTrade.quantity
@@ -553,6 +553,7 @@ private fun CompositeSignal.toCompositeTrade(
         fees = fees,
         pnl = pnl,
         returnR = returnR,
+        riskMultiplier = sourceTrade.riskMultiplier * riskMultiplier,
         maxFavorableExcursionR = sourceTrade.maxFavorableExcursionR,
         maxAdverseExcursionR = sourceTrade.maxAdverseExcursionR,
         mfeCapturePct = mfeCapturePct,

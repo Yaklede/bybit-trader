@@ -42,6 +42,10 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Minimum macro trend move percent must be between 0 and 0.50."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(macroTrendMismatchRiskMultiplier = 0.0)
+            }.message shouldBe "Macro trend mismatch risk multiplier must be between 0 and 1."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
 
@@ -92,7 +96,7 @@ class VolumeFlowBacktestServiceTest :
         }
 
         "macro trend alignment rejects setups against the longer M15 direction" {
-            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(macroDownVolumeFlowCandles()))
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(lateMacroDownVolumeFlowCandles()))
 
             val result =
                 service.run(
@@ -113,6 +117,41 @@ class VolumeFlowBacktestServiceTest :
             result.setupCount shouldBe 1
             result.tradeCount shouldBe 0
             result.noTradeReasonCounts["MACRO_TREND_REJECTED"] shouldBe 1
+        }
+
+        "macro trend mismatch can reduce risk without rejecting the setup" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(lateMacroDownVolumeFlowCandles()))
+            val baseConfig =
+                testVolumeFlowConfig()
+                    .copy(
+                        requireContextVwap = false,
+                        requireContextTrend = false,
+                        macroTrendLookbackM15Candles = 16,
+                    )
+            val reducedConfig = baseConfig.copy(macroTrendMismatchRiskMultiplier = 0.5)
+
+            val base =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = baseConfig,
+                )
+            val reduced =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = reducedConfig,
+                )
+
+            base.tradeCount shouldBe 1
+            reduced.tradeCount shouldBe 1
+            reduced.trades.single().riskMultiplier shouldBe 0.5
+            (reduced.trades.single().quantity < base.trades.single().quantity) shouldBe true
+            (reduced.trades.single().pnl < base.trades.single().pnl) shouldBe true
         }
 
         "does not enter when 1m data starts after the setup entry window" {
@@ -652,6 +691,47 @@ class VolumeFlowBacktestServiceTest :
             (throttled.trades[1].pnl < base.trades[1].pnl) shouldBe true
         }
 
+        "composite backtest preserves source trade risk multiplier" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(lateMacroDownVolumeFlowCandles()))
+            val baseLegConfig =
+                testVolumeFlowConfig()
+                    .copy(
+                        requireContextVwap = false,
+                        requireContextTrend = false,
+                        macroTrendLookbackM15Candles = 16,
+                    )
+            val reducedLegConfig = baseLegConfig.copy(macroTrendMismatchRiskMultiplier = 0.5)
+
+            val base =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", baseLegConfig)),
+                        ),
+                )
+            val reduced =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", reducedLegConfig)),
+                        ),
+                )
+
+            base.tradeCount shouldBe 1
+            reduced.tradeCount shouldBe 1
+            reduced.trades.single().riskMultiplier shouldBe 0.5
+            (reduced.trades.single().quantity < base.trades.single().quantity) shouldBe true
+            (reduced.trades.single().pnl < base.trades.single().pnl) shouldBe true
+        }
+
         "composite backtest cooldown skips entries after portfolio drawdown throttle is reached" {
             val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(twoSignalThrottleCandles()))
             val legConfig = testVolumeFlowConfig().copy(riskFraction = 0.05)
@@ -746,6 +826,9 @@ private class InMemoryVolumeFlowCandleStore(
 private fun volumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
 private fun macroDownVolumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + macroDownM15Candles()
+
+private fun lateMacroDownVolumeFlowCandles(): List<Candle> =
+    shiftedVolumeFlowM1Candles() + shiftedVolumeFlowM5Candles() + macroDownM15Candles()
 
 private fun runnerVolumeFlowCandles(): List<Candle> = runnerVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
@@ -909,6 +992,12 @@ private fun volumeFlowM5Candles(): List<Candle> =
             )
         }
     }
+
+private fun shiftedVolumeFlowM1Candles(): List<Candle> =
+    volumeFlowM1Candles().map { candle -> candle.copy(openedAt = candle.openedAt.plusSeconds(10_800L)) }
+
+private fun shiftedVolumeFlowM5Candles(): List<Candle> =
+    volumeFlowM5Candles().map { candle -> candle.copy(openedAt = candle.openedAt.plusSeconds(10_800L)) }
 
 private fun twoSignalThrottleM1Candles(): List<Candle> =
     (0 until 120).map { index ->

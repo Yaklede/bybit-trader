@@ -184,7 +184,8 @@ class VolumeFlowBacktestService(
             }
 
             val entryEquity = equity
-            val riskAmount = entryEquity * config.riskFraction
+            val riskMultiplier = macroTrendRiskMultiplier(m15Timeline, setupCandle.openedAt, candidate.side, config)
+            val riskAmount = entryEquity * config.riskFraction * riskMultiplier
             val quantity = riskAmount / riskPerUnit
             val exit = simulateExit(m1Candles, entry, config)
             val grossPnl = grossPnl(candidate.side, entry.entryPrice, exit.exitPrice, quantity)
@@ -225,6 +226,7 @@ class VolumeFlowBacktestService(
                     fees = fees,
                     pnl = pnl,
                     returnR = returnR,
+                    riskMultiplier = riskMultiplier,
                     maxFavorableExcursionR = exit.maxFavorableExcursionR,
                     maxAdverseExcursionR = exit.maxAdverseExcursionR,
                     mfeCapturePct = mfeCapturePct,
@@ -615,16 +617,41 @@ class VolumeFlowBacktestService(
         config: VolumeFlowBacktestConfig,
     ): Boolean {
         if (!config.requireMacroTrendAlignment) return true
-        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.macroTrendLookbackM15Candles)
-        if (contextCandles.size < config.macroTrendLookbackM15Candles) return false
-        val firstClose = contextCandles.first().close.toDouble()
-        val latestClose = contextCandles.last().close.toDouble()
-        if (firstClose <= 0.0 || latestClose <= 0.0) return false
-        val movePct = (latestClose - firstClose) / firstClose
+        val movePct = macroTrendMovePct(m15Timeline, setupAt, config) ?: return false
         return when (side) {
             Side.BUY -> movePct >= config.minMacroTrendMovePct
             Side.SELL -> movePct <= -config.minMacroTrendMovePct
         }
+    }
+
+    private fun macroTrendRiskMultiplier(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        side: Side,
+        config: VolumeFlowBacktestConfig,
+    ): Double {
+        if (config.macroTrendMismatchRiskMultiplier >= 1.0) return 1.0
+        val movePct = macroTrendMovePct(m15Timeline, setupAt, config) ?: return 1.0
+        val threshold = config.minMacroTrendMovePct
+        val isMismatch =
+            when (side) {
+                Side.BUY -> movePct < -threshold
+                Side.SELL -> movePct > threshold
+            }
+        return if (isMismatch) config.macroTrendMismatchRiskMultiplier else 1.0
+    }
+
+    private fun macroTrendMovePct(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        config: VolumeFlowBacktestConfig,
+    ): Double? {
+        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.macroTrendLookbackM15Candles)
+        if (contextCandles.size < config.macroTrendLookbackM15Candles) return null
+        val firstClose = contextCandles.first().close.toDouble()
+        val latestClose = contextCandles.last().close.toDouble()
+        if (firstClose <= 0.0 || latestClose <= 0.0) return null
+        return (latestClose - firstClose) / firstClose
     }
 
     private fun contextRangeAllows(

@@ -197,6 +197,7 @@ data class VolumeFlowCompositeBacktestTrade(
     val fees: Double,
     val pnl: Double,
     val returnR: Double,
+    val riskMultiplier: Double = 1.0,
     val maxFavorableExcursionR: Double,
     val maxAdverseExcursionR: Double,
     val mfeCapturePct: Double?,
