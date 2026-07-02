@@ -472,6 +472,30 @@ function volumeQualityStressVariants(config) {
     );
   }
 
+  variants.push(
+    namedVariant(
+      "m1_chop_rv_3_6",
+      withRunDefaults(
+        withLegIdPatch(config, "m1_failed_break_chop_scalp", {
+          relativeVolumeThreshold: 3,
+          maxRelativeVolumeThreshold: 6,
+        }),
+      ),
+    ),
+  );
+
+  variants.push(
+    namedVariant(
+      "m1_chop_rv_3_8",
+      withRunDefaults(
+        withLegIdPatch(config, "m1_failed_break_chop_scalp", {
+          relativeVolumeThreshold: 3,
+          maxRelativeVolumeThreshold: 8,
+        }),
+      ),
+    ),
+  );
+
   return variants;
 }
 
@@ -1420,6 +1444,20 @@ function withContextQuoteVolumeFloor(config, shouldApply, minContextQuoteVolume)
         ? {
             ...leg,
             minContextQuoteVolume,
+          }
+        : leg,
+    ),
+  };
+}
+
+function withLegIdPatch(config, legId, patch) {
+  return {
+    ...structuredClone(config),
+    legs: config.legs.map((leg) =>
+      leg.id === legId
+        ? {
+            ...leg,
+            ...patch,
           }
         : leg,
     ),

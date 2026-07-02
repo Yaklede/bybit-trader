@@ -1412,3 +1412,43 @@ Decision:
   `all_floor_30M_dd30_m0.2_d1` as the research baseline, then isolate S2 loss
   clusters with a higher-timeframe direction or market-phase filter instead of
   removing whole legs globally.
+
+## Loss-Leg RV Band Pass 2026-07-02
+
+Source note: this pass used `all_floor_30M_dd30_m0.2_d1` as the research
+baseline because it preserved the liquidity-floor CDR while reducing full
+MTM MDD from `55.45%` to `50.13%`.
+
+Trade-log diagnosis on the research baseline:
+
+- S1 became slightly positive on return (`3.07670%`) but still failed the
+  operating drawdown gate (`43.52199%` MTM MDD).
+- S2 remained the main blocker (`-49.62319%` return, `-0.05233R`
+  expectancy).
+- In S2, trend-down legs were positive or near-flat, while the main negative
+  contributors were:
+  - `m1_trend_up_breakout_scalp`: `-5.41R`
+  - `m1_failed_break_chop_scalp`: `-4.83R`
+  - `range_failed_break_loose`: `-3.07R`
+
+Focused RV-band candidates:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Worst segment return | Worst segment MDD | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `base_liq30_dd30` | `224,023.11%` | `0.33731%` | `50.13%` | `-49.62%` | `51.05%` | `S1`, `S2`, `FULL` |
+| `chop_rv3_6` | `179,994.61%` | `0.32773%` | `47.84%` | `-28.15%` | `47.84%` | `S1`, `S2`, `S3`, `FULL` |
+| `chop_rv4_6` | `147,075.87%` | `0.31889%` | `48.32%` | `-41.66%` | `48.32%` | `S1`, `S2`, `S3`, `FULL` |
+| `chop_rv3_8` | `80,125.97%` | `0.29233%` | `48.55%` | `-34.91%` | `51.14%` | `S1`, `S2`, `S3`, `FULL` |
+| `m1up_maxrv4` | `9,181.85%` | `0.19795%` | `62.30%` | `-49.14%` | `62.30%` | `S1`, `S2`, `S3`, `FULL` |
+
+Decision:
+
+- Do not promote a new trading config yet.
+- Add `m1_chop_rv_3_6` and `m1_chop_rv_3_8` as recursive tuner candidates.
+  The `3..6` band is the first S2-targeted filter that materially improves
+  worst segment return without destroying full-history CDR.
+- Do not cap `m1_trend_up_breakout_scalp` by relative volume in the current
+  strategy. It reduces S2 losses but removes too much S3/S4 tail profit.
+- The next tuning loop should search for an S2 market-phase filter that keeps
+  `m1_trend_up_breakout_scalp` during S3/S4-like conditions while disabling it
+  during S2 counter-trend bounce conditions.
