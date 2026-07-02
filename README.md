@@ -116,24 +116,25 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
 - Latest local BTCUSDT volume-flow snapshot: the current composite candidate in
-  `config/volume-flow-composite-current.json` uses `0.1446` risk on six legs
-  and caps `m1_trend_up_breakout_scalp` at `0.12` risk. The portfolio drawdown
-  throttle starts at `32%` realized drawdown, reduces new entries to `20%` of
-  normal risk, and applies a `1` day cooldown after closed-trade drawdown
-  triggers. It applies follow-through, breakeven, adverse-invalidation, and
-  selected profit-protect exits. On the local three-year dataset, the replay
-  returned `879,018.44%` net return, `0.83129%` compound daily return,
-  `38.95%` realized max drawdown, and `39.99%` mark-to-market max drawdown
-  over 266 trades.
+  `config/volume-flow-composite-current.json` uses `0.148` risk on five legs,
+  caps `m1_trend_up_breakout_scalp` at `0.12`, and caps
+  `m1_trend_down_breakout_assist` at `0.13` with adverse invalidation enabled
+  after `5` M1 candles if adverse movement reaches `0.9R` before at least
+  `0.35R` favorable movement. The portfolio drawdown throttle starts at `32%`
+  realized drawdown, reduces new entries to `20%` of normal risk, and applies a
+  `1` day cooldown after closed-trade drawdown triggers. On the local
+  three-year dataset, the replay returned `1,009,033.43%` net return,
+  `0.84396%` compound daily return, `39.23%` realized max drawdown, and
+  `39.70%` mark-to-market max drawdown over 266 trades.
   Composite reports now split `BREAKEVEN_STOP` from full-risk `STOP` and expose
   `performanceByLegExit` for leg-by-exit diagnostics. `BREAKEVEN_STOP` is
   treated as a neutral defensive exit for loss-streak locks, and the tuning
   scripts penalize full-risk `STOP` separately from breakeven defense.
-  This is improved but still below the `0.84390%` compound daily return required
-  for `1,000,000 KRW -> 10,000,000,000 KRW` over three years. Near-target and
-  target-hit candidates now exist around the `0.145` base-risk region, but the
-  closest tested candidates require roughly `40.4-41.2%+` mark-to-market max
-  drawdown and are not deployable under the current `40%` gate. See
+  This now narrowly clears the `0.84390%` compound daily return required for
+  `1,000,000 KRW -> 10,000,000,000 KRW` over three years while staying below
+  the current `40%` mark-to-market gate. The margin is thin, so this remains a
+  research backtest candidate until forward paper/testnet execution confirms
+  live signal parity, slippage, funding, and order behavior. See
   `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year
   reproduction notes, accepted/rejected tuning paths, and the next improvement
   list. Source note: measured on

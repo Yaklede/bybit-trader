@@ -1053,3 +1053,79 @@ Decision:
 - The next tuning pass should start with sequence `257`: it is the current
   max-MTM event, comes from `m1_trend_down_breakout_assist`, exits by `TIME`,
   and had only `0.09248R` realized return after a deep in-trade adverse move.
+
+## Target-Hit Risk Reallocation Pass 2026-07-02
+
+Source note: this pass used the current promoted config and the same local
+three-year BTCUSDT dataset. The objective remained the
+`1,000,000 KRW -> 10,000,000,000 KRW` three-year target, requiring `0.84390%`
+compound daily return while staying below the `40%` mark-to-market MDD gate.
+
+Analysis summary:
+
+- The equity diagnostics pass identified sequence `257`
+  (`m1_trend_down_breakout_assist`, `SELL`, `TIME`) as the previous max-MTM
+  event at `39.99456%` drawdown.
+- A focused sweep showed that simply changing the exit mode to runner or
+  trend-break did not improve the current candidate.
+- Reducing `m1_trend_down_breakout_assist` risk to `0.136` lowered MTM MDD to
+  `39.05052%` and still improved final equity to `8,909,525,250 KRW`.
+- Combining a stronger cap with adverse invalidation created enough MTM budget
+  to raise the other productive legs.
+
+Accepted config changes:
+
+- `trend_down_retest`, `trend_down_close`, `trend_down_retest_runner`,
+  `range_failed_break_loose`, and `m1_failed_break_chop_scalp`:
+  `riskFraction=0.148`.
+- `m1_trend_up_breakout_scalp`: remains capped at `riskFraction=0.12`.
+- `m1_trend_down_breakout_assist`: `riskFraction=0.13`.
+- `m1_trend_down_breakout_assist` adverse invalidation:
+  `adverseExitCheckM1Candles=5`, `maxAdverseRBeforeExit=0.9`,
+  `minFavorableRBeforeAdverseExit=0.35`.
+- Portfolio throttle remains `32%` drawdown, `0.2` risk multiplier, and `1`
+  cooldown day.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Cooldown skips |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `43,650,870 KRW` | `4,265.09%` | `1.03710%` | `30.81%` | `38.59%` | `85` | `64.71%` | `2.74` | `0.41281R` | `0` |
+| 2 years | `1,984,118,480 KRW` | `198,311.85%` | `1.04412%` | `38.52%` | `39.13%` | `181` | `62.98%` | `2.73` | `0.39246R` | `1` |
+| 3 years | `10,091,334,327 KRW` | `1,009,033.43%` | `0.84396%` | `39.23%` | `39.70%` | `266` | `58.27%` | `2.73` | `0.34700R` | `8` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `42,517,529 KRW` | `43,650,870 KRW` | `1.02983%` | `1.03710%` | `39.99%` | `38.59%` |
+| 2 years | `1,755,063,115 KRW` | `1,984,118,480 KRW` | `1.02716%` | `1.04412%` | `39.99%` | `39.13%` |
+| 3 years | `8,791,184,370 KRW` | `10,091,334,327 KRW` | `0.83129%` | `0.84396%` | `39.99%` | `39.70%` |
+
+Rejected or lower-ranked paths:
+
+- `base0.148_down0.142_adv` reached `10,140,039,540 KRW`, but crossed the
+  gate at `40.07123%` MTM MDD.
+- `base0.147_down0.136_m0.25` reached `10,277,453,494 KRW`, but crossed the
+  gate at `40.15886%` MTM MDD.
+- `base0.148_down0.14_adv` remained under the gate at `39.82665%` MTM MDD, but
+  its final equity was lower at `10,039,924,646 KRW`.
+
+Decision:
+
+- Promote `base0.148_down0.13_adv` to current. It is the first candidate that
+  clears the three-year `10,000x` target and remains below the strict `40%`
+  mark-to-market deployment gate in this local replay.
+- The margin is extremely thin: `0.84396%` compound daily versus the required
+  `0.84390%`. Treat this as a research target-hit candidate, not live proof.
+- The worst current drawdown event shifted from `m1_trend_down_breakout_assist`
+  to `trend_down_retest` sequence `52`, so the next strategy-improvement loop
+  should analyze that earlier 2024 drawdown cluster.
+
+Next implementation list:
+
+1. Preserve this target-hit config as the new current baseline.
+2. Build paper/live signal parity around this exact config before any private
+   Bybit order execution.
+3. Analyze sequence `52` and nearby 2024 drawdown events if more MDD margin is
+   needed before testnet.

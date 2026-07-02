@@ -134,6 +134,7 @@ function seedVariants(config) {
   variants.push(...wholePortfolioTargetVariants(config));
   variants.push(...wholePortfolioRiskVariants(config));
   variants.push(...wholePortfolioLegRiskCapVariants(config));
+  variants.push(...trendDownAssistRiskCapVariants(config));
   variants.push(...wholePortfolioDrawdownThrottleVariants(config));
   variants.push(...wholePortfolioTrendBreakVariants(config));
   variants.push(...additiveCoverageVariants(config));
@@ -161,6 +162,9 @@ function mutateConfig(parentName, config) {
   );
   variants.push(
     ...wholePortfolioLegRiskCapVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
+  );
+  variants.push(
+    ...trendDownAssistRiskCapVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
   );
 
   for (let legIndex = 0; legIndex < base.legs.length; legIndex += 1) {
@@ -253,6 +257,44 @@ function wholePortfolioLegRiskCapVariants(config) {
             ),
           );
         }
+      }
+    }
+  }
+  return variants;
+}
+
+function trendDownAssistRiskCapVariants(config) {
+  const variants = [];
+  for (const baseRiskFraction of [0.146, 0.147, 0.148]) {
+    for (const trendDownAssistRiskFraction of [0.13, 0.136, 0.14, 0.142]) {
+      for (const useAdverseInvalidation of [false, true]) {
+        variants.push(
+          namedVariant(
+            `down_assist_cap_base${baseRiskFraction}_down${trendDownAssistRiskFraction}${useAdverseInvalidation ? "_adv" : ""}`,
+            withRunDefaults({
+              ...config,
+              portfolioDrawdownThrottlePct: 32,
+              portfolioDrawdownRiskMultiplier: 0.2,
+              portfolioDrawdownCooldownDays: 1,
+              legs: config.legs.map((leg) => ({
+                ...leg,
+                riskFraction:
+                  leg.id === "m1_trend_up_breakout_scalp"
+                    ? 0.12
+                    : leg.id === "m1_trend_down_breakout_assist"
+                      ? trendDownAssistRiskFraction
+                      : baseRiskFraction,
+                ...(leg.id === "m1_trend_down_breakout_assist" && useAdverseInvalidation
+                  ? {
+                      adverseExitCheckM1Candles: 5,
+                      maxAdverseRBeforeExit: 0.9,
+                      minFavorableRBeforeAdverseExit: 0.35,
+                    }
+                  : {}),
+              })),
+            }),
+          ),
+        );
       }
     }
   }

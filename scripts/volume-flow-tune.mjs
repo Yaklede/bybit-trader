@@ -286,6 +286,40 @@ function generateVariants(config) {
     }
   }
 
+  for (const baseRiskFraction of [0.146, 0.147, 0.148]) {
+    for (const trendDownAssistRiskFraction of [0.13, 0.136, 0.14, 0.142]) {
+      for (const useAdverseInvalidation of [false, true]) {
+        variants.push(
+          namedVariant(
+            `down_assist_cap_base${baseRiskFraction}_down${trendDownAssistRiskFraction}${useAdverseInvalidation ? "_adv" : ""}`,
+            {
+              ...config,
+              portfolioDrawdownThrottlePct: 32,
+              portfolioDrawdownRiskMultiplier: 0.2,
+              portfolioDrawdownCooldownDays: 1,
+              legs: config.legs.map((leg) => ({
+                ...leg,
+                riskFraction:
+                  leg.id === "m1_trend_up_breakout_scalp"
+                    ? 0.12
+                    : leg.id === "m1_trend_down_breakout_assist"
+                      ? trendDownAssistRiskFraction
+                      : baseRiskFraction,
+                ...(leg.id === "m1_trend_down_breakout_assist" && useAdverseInvalidation
+                  ? {
+                      adverseExitCheckM1Candles: 5,
+                      maxAdverseRBeforeExit: 0.9,
+                      minFavorableRBeforeAdverseExit: 0.35,
+                    }
+                  : {}),
+              })),
+            },
+          ),
+        );
+      }
+    }
+  }
+
   config.legs.forEach((leg, legIndex) => {
     for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12]) {
       variants.push(
