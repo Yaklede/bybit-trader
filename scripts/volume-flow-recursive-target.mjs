@@ -177,6 +177,7 @@ function seedVariants(config) {
     }
   }
 
+  variants.push(...stressDefenseVariants(config));
   variants.push(...trendUpMirrorVariants(config));
   variants.push(...wholePortfolioTargetVariants(config));
   variants.push(...wholePortfolioRiskVariants(config));
@@ -192,6 +193,10 @@ function seedVariants(config) {
 function mutateConfig(parentName, config) {
   const variants = [];
   const base = stripRuntimeFields(config);
+
+  variants.push(
+    ...stressDefenseVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
+  );
 
   for (const dailyStopPct of nearby(base.dailyStopPct, [1, 2, 3, 5, 10])) {
     for (const maxConsecutiveLosses of nearby(base.maxConsecutiveLosses, [1, 2, 3, 5, 8, 13])) {
@@ -222,6 +227,106 @@ function mutateConfig(parentName, config) {
   }
 
   variants.push(...additiveCoverageVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)));
+
+  return variants;
+}
+
+function stressDefenseVariants(config) {
+  const variants = [];
+  const removalSpecs = [
+    {
+      name: "drop_range",
+      shouldKeep: (leg) => !leg.allowedMarketRegimes?.includes("RANGE"),
+    },
+    {
+      name: "drop_chop",
+      shouldKeep: (leg) => !leg.allowedMarketRegimes?.includes("HIGH_VOLATILITY_CHOP"),
+    },
+    {
+      name: "drop_range_chop",
+      shouldKeep: (leg) =>
+        !leg.allowedMarketRegimes?.some((regime) => regime === "RANGE" || regime === "HIGH_VOLATILITY_CHOP"),
+    },
+    {
+      name: "drop_trend_up",
+      shouldKeep: (leg) => !leg.allowedMarketRegimes?.includes("TREND_UP"),
+    },
+    {
+      name: "trend_down_only",
+      shouldKeep: (leg) => leg.allowedMarketRegimes?.includes("TREND_DOWN") === true,
+    },
+    {
+      name: "m1_down_assist_only",
+      shouldKeep: (leg) => leg.id === "m1_trend_down_breakout_assist",
+    },
+    {
+      name: "drop_m1_scalps",
+      shouldKeep: (leg) =>
+        leg.id !== "m1_trend_up_breakout_scalp" &&
+        leg.id !== "m1_trend_down_breakout_assist" &&
+        leg.id !== "m1_failed_break_chop_scalp",
+    },
+    {
+      name: "drop_s1_loss_cluster",
+      shouldKeep: (leg) =>
+        leg.id !== "range_failed_break_loose" &&
+        leg.id !== "m1_failed_break_chop_scalp" &&
+        leg.id !== "trend_down_close",
+    },
+  ];
+
+  for (const spec of removalSpecs) {
+    const pruned = withFilteredLegs(config, spec.shouldKeep);
+    if (pruned == null) continue;
+    variants.push(namedVariant(spec.name, withRunDefaults(pruned)));
+
+    for (const riskFraction of [0.03, 0.05, 0.07, 0.09]) {
+      variants.push(namedVariant(`${spec.name}_risk_${riskFraction}`, withRunDefaults(withLegRisk(pruned, riskFraction))));
+    }
+  }
+
+  for (const riskFraction of [0.025, 0.03, 0.05, 0.07, 0.09, 0.11]) {
+    variants.push(namedVariant(`all_risk_defense_${riskFraction}`, withRunDefaults(withLegRisk(config, riskFraction))));
+  }
+
+  for (const stressRiskFraction of [0.015, 0.02, 0.03, 0.05]) {
+    variants.push(
+      namedVariant(
+        `stress_regime_cap_${stressRiskFraction}`,
+        withRunDefaults({
+          ...config,
+          legs: config.legs.map((leg) =>
+            isStressRegimeLeg(leg)
+              ? {
+                  ...leg,
+                  riskFraction: stressRiskFraction,
+                  adverseExitCheckM1Candles: leg.adverseExitCheckM1Candles ?? 8,
+                  maxAdverseRBeforeExit: Math.min(leg.maxAdverseRBeforeExit ?? 0.8, 0.7),
+                  minFavorableRBeforeAdverseExit: leg.minFavorableRBeforeAdverseExit ?? 0.25,
+                }
+              : leg,
+          ),
+        }),
+      ),
+    );
+  }
+
+  for (const extraVolume of [0.5, 1.0]) {
+    variants.push(
+      namedVariant(
+        `stricter_signal_v${extraVolume}`,
+        withRunDefaults({
+          ...config,
+          legs: config.legs.map((leg) => ({
+            ...leg,
+            relativeVolumeThreshold: bounded((leg.relativeVolumeThreshold ?? 2) + extraVolume, 1.5, 8),
+            volumeZScoreThreshold: bounded((leg.volumeZScoreThreshold ?? 0.5) + 0.25, 0, 5),
+            minDirectionalCloseStrength: bounded((leg.minDirectionalCloseStrength ?? 0.6) + 0.05, 0.5, 1),
+          })),
+        }),
+      ),
+    );
+  }
 
   return variants;
 }
@@ -1092,6 +1197,30 @@ function withAddedLegs(config, legs) {
   const additions = legs.filter((leg) => !existingIds.has(leg.id));
   next.legs = [...next.legs, ...additions].slice(0, 10);
   return next;
+}
+
+function withFilteredLegs(config, shouldKeep) {
+  const next = structuredClone(config);
+  next.legs = next.legs.filter(shouldKeep);
+  if (next.legs.length === 0 || next.legs.length === config.legs.length) return null;
+  return next;
+}
+
+function withLegRisk(config, riskFraction) {
+  return {
+    ...structuredClone(config),
+    legs: config.legs.map((leg) => ({
+      ...leg,
+      riskFraction,
+    })),
+  };
+}
+
+function isStressRegimeLeg(leg) {
+  return (
+    leg.allowedMarketRegimes?.some((regime) => regime === "RANGE" || regime === "HIGH_VOLATILITY_CHOP") === true ||
+    leg.id === "m1_trend_up_breakout_scalp"
+  );
 }
 
 function nextCandidates(variants, limit) {

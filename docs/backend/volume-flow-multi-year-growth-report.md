@@ -1152,3 +1152,69 @@ Decision:
 - Use this endpoint as the parity baseline for paper/live work. The next
   implementation step should make the real-time evaluator consume the same
   current config path rather than duplicating strategy parameters in code.
+
+## Segmented Defense Tuning Pass 2026-07-02
+
+Source note: this pass used the full-history BTCUSDT local database and the
+segmented replay windows from `scripts/volume-flow-recursive-target.mjs`. The
+objective was not to promote a new config; it was to make the recursive tuner
+test defensive candidates against S1/S2 before optimizing recent high-return
+windows.
+
+Implementation change:
+
+- Added early stress-defense candidates to the recursive target tuner.
+- The new candidates can remove RANGE, HIGH_VOLATILITY_CHOP, TREND_UP, M1 scalp
+  clusters, or the observed S1 loss cluster.
+- The new candidates can also cap all leg risk or only stress-regime leg risk
+  and apply stricter volume and directional-close filters.
+- These candidates are evaluated immediately after `baseline`, so a small
+  segmented run no longer spends its first checks only on growth-seeking
+  variants.
+
+Command:
+
+```bash
+node scripts/volume-flow-recursive-target.mjs \
+  --api http://127.0.0.1:18080 \
+  --token local-test-token \
+  --segmented true \
+  --rounds 1 \
+  --maxPerRound 16 \
+  --beam 4 \
+  --out build/volume-flow-target-search-segmented-defense-r1
+```
+
+Best defensive candidate:
+
+| Candidate | Final equity | Net return | Compound daily | MTM MDD | Worst segment return | Worst segment CDR | Trades | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `drop_range_risk_0.03` | `3,135,478 KRW` | `213.54778%` | `0.04989%` | `40.85413%` | `-34.22853%` | `-0.07135%` | `618` | `S1`, `S2`, `FULL` |
+
+Segment detail for `drop_range_risk_0.03`:
+
+| Segment | Return | CDR | MTM MDD | Expectancy R | Pass |
+| --- | ---: | ---: | ---: | ---: | --- |
+| S1 | `-27.38422%` | `-0.05583%` | `35.60656%` | `-0.05385R` | FAIL |
+| S2 | `-34.22853%` | `-0.07135%` | `37.55361%` | `-0.07959R` | FAIL |
+| S3 | `159.36182%` | `0.16361%` | `15.91875%` | `0.24999R` | PASS |
+| S4 | `335.50676%` | `0.26885%` | `8.78265%` | `0.42967R` | PASS |
+| FULL | `213.54778%` | `0.04989%` | `40.85413%` | `0.08667R` | FAIL |
+
+Comparison with the current baseline:
+
+| Config | Full return | Full CDR | Full MTM MDD | S1 return | S2 return | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `baseline` | `1,101.20785%` | `0.10857%` | `76.80356%` | `-56.35231%` | `-60.34058%` | `S1`, `S2`, `FULL` |
+| `drop_range_risk_0.03` | `213.54778%` | `0.04989%` | `40.85413%` | `-27.38422%` | `-34.22853%` | `S1`, `S2`, `FULL` |
+
+Decision:
+
+- Do not promote the defensive candidate. It lowers MDD sharply, but S1/S2
+  still have negative expectancy and negative returns.
+- The useful signal is that RANGE removal plus low risk improves survivability
+  but does not create an edge. The remaining issue is entry quality in older
+  market regimes, not only position sizing.
+- The next tuning loop should build new S1/S2-specific entries or filters,
+  then keep S3/S4 as validation windows to avoid fitting only the historical
+  stress windows.
