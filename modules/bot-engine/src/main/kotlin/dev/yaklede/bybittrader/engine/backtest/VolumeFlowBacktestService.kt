@@ -102,6 +102,7 @@ class VolumeFlowBacktestService(
 
             val candidate = detectSetup(setupCandles, setupIndex, config, noTradeReasonCounts) ?: continue
             setupCount += 1
+            val contextQuality = contextQualityContext(m15Timeline, setupCandle.openedAt, config)
             val marketRegime = classifyMarketRegime(m15Timeline, setupCandle.openedAt, config)
 
             if (!config.allowedMarketRegimes.contains(marketRegime)) {
@@ -230,6 +231,10 @@ class VolumeFlowBacktestService(
                     riskMultiplier = riskMultiplier,
                     macroTrendMovePct = macroTrendContext?.movePct,
                     macroTrendEfficiency = macroTrendContext?.efficiency,
+                    contextTrendMovePct = contextQuality?.movePct,
+                    contextTrendEfficiency = contextQuality?.efficiency,
+                    contextRangePct = contextQuality?.rangePct,
+                    contextQuoteVolume = contextQuality?.quoteVolume,
                     maxFavorableExcursionR = exit.maxFavorableExcursionR,
                     maxAdverseExcursionR = exit.maxAdverseExcursionR,
                     mfeCapturePct = mfeCapturePct,
@@ -715,6 +720,39 @@ class VolumeFlowBacktestService(
                 m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback),
             ) ?: return false
         return averageQuoteVolume >= minContextQuoteVolume
+    }
+
+    private fun contextQualityContext(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        config: VolumeFlowBacktestConfig,
+    ): TrendQualityContext? {
+        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback)
+        if (contextCandles.size < config.contextVwapLookback) return null
+        val firstClose = contextCandles.first().close.toDouble()
+        val latestClose = contextCandles.last().close.toDouble()
+        if (firstClose <= 0.0 || latestClose <= 0.0) return null
+        val movePct = (latestClose - firstClose) / firstClose
+        var totalMovePct = 0.0
+        for (index in 1 until contextCandles.size) {
+            val previousClose = contextCandles[index - 1].close.toDouble()
+            val currentClose = contextCandles[index].close.toDouble()
+            if (previousClose > 0.0) {
+                totalMovePct += abs(currentClose - previousClose) / previousClose
+            }
+        }
+        val efficiency =
+            if (totalMovePct <= 0.0) {
+                0.0
+            } else {
+                (abs(movePct) / totalMovePct).coerceIn(0.0, 1.0)
+            }
+        return TrendQualityContext(
+            movePct = movePct,
+            efficiency = efficiency,
+            rangePct = averageRangePct(contextCandles),
+            quoteVolume = averageQuoteVolume(contextCandles),
+        )
     }
 
     private fun vwapSideAllows(
@@ -1288,6 +1326,13 @@ private data class KeyLevelContext(
 private data class MacroTrendContext(
     val movePct: Double,
     val efficiency: Double,
+)
+
+private data class TrendQualityContext(
+    val movePct: Double,
+    val efficiency: Double,
+    val rangePct: Double?,
+    val quoteVolume: Double?,
 )
 
 private fun Candle.retestsAndConfirms(

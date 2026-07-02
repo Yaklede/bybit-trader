@@ -105,6 +105,10 @@ class VolumeFlowBacktestServiceTest :
             result.trades.single().marketRegime shouldBe VolumeFlowMarketRegime.TREND_UP
             result.trades.single().keyLevelType shouldBe VolumeFlowKeyLevelType.RANGE_HIGH
             result.trades.single().volumePattern shouldBe VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE
+            (result.trades.single().contextTrendMovePct!! > 0.0) shouldBe true
+            (result.trades.single().contextTrendEfficiency!! in 0.0..1.0) shouldBe true
+            (result.trades.single().contextRangePct!! > 0.0) shouldBe true
+            (result.trades.single().contextQuoteVolume!! > 0.0) shouldBe true
             result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
             result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"

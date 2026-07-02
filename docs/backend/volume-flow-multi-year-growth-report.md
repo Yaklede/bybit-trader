@@ -1747,3 +1747,48 @@ Decision:
   expansion and toward a separate S4/S2 regime separator such as trend age,
   post-spike realized-volatility compression, or a 1m/5m continuation strength
   measure after the volume spike.
+
+## Context Quality Diagnostics 2026-07-03
+
+Purpose: add the next diagnostic layer required for an S4/S2 separator. Macro
+trend efficiency and relative-volume bands were not enough because the same
+low-efficiency setup family can be profitable in S4 and weak in S2/S3. This
+loop exposes short-context trend quality so future filters can inspect the
+local M15 state rather than only the long macro state.
+
+Implemented surface:
+
+- `VolumeFlowBacktestTrade.contextTrendMovePct`
+- `VolumeFlowBacktestTrade.contextTrendEfficiency`
+- `VolumeFlowBacktestTrade.contextRangePct`
+- `VolumeFlowBacktestTrade.contextQuoteVolume`
+- Equivalent composite trade/API response fields
+
+M5 trend-down context diagnostics:
+
+| Segment | M5-down PnL | Context range finding | Context efficiency finding |
+| --- | ---: | --- | --- |
+| S2 | `-471,241.25` | Range `0.004-0.006` lost `-747,345.08`; range `0.003-0.004` and `0.008-0.010` were positive | Both `0.30-0.45` and `0.45-0.60` efficiency bands were net negative |
+| S3 | `+41,202,142.24` | Range `0.004-0.006` won `+47,235,949.50`; range `0.003-0.004` lost `-10,844,958.05` | Efficiency `0.30-0.45` won strongly; `0.45-0.60` lost |
+| S4 | `+49,482,566.87` | Range `0.002-0.004` won `+58,999,951.08`; range `<0.002` lost `-10,676,864.59` | Efficiency `0.30-0.45` won strongly; `0.45-0.60` lost |
+
+Low macro-efficiency M5 trend-down diagnostics:
+
+| Segment | Low-eff PnL | Context range finding | Context move finding |
+| --- | ---: | --- | --- |
+| S2 | `-338,119.09` | Range `0.004-0.006` lost `-484,403.05`; range `0.003-0.004` and `0.006-0.010` were positive | Move `-0.05` to `-0.02` was weak; move `<-0.05` was positive |
+| S3 | `-8,295,633.22` | Range `0.002-0.004` lost `-8,280,630.34` | Most weak trades sat between move `-0.05` and `-0.02` |
+| S4 | `+21,041,672.68` | Range `0.002-0.004` won `+21,041,672.68` | Move `-0.02` to `0.00` won strongly |
+
+Decision:
+
+- Do not promote a config change from context quality alone.
+- Keep `config/volume-flow-composite-current.json` unchanged.
+- Keep the context diagnostics because they explain why prior blunt filters
+  fail: S4 and S3 both contain profitable trend-down trades, but their winning
+  context bands differ from S2's failure bands.
+- Next viable implementation should combine context quality with a path-based
+  feature, not another static setup-only threshold. The strongest next
+  candidates are post-entry M1 continuation strength, setup-to-entry delay
+  quality, or trend age since static context range/move bands still conflict
+  across S2/S3/S4.
