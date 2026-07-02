@@ -1,5 +1,56 @@
 # Volume Flow Tuning Log
 
+## 2026-07-03 Chop Cap + Trend Risk Recovery
+
+Source note: measured against
+`build/runtime-test/bybit-trader-full-history.sqlite`, covering
+`2020-03-25T10:36:00Z` to `2026-07-02T05:40:00Z`. These numbers are local
+backtest outputs, not live-trading return guarantees.
+
+This pass keeps the prior stress-recovery structure and applies the smallest
+candidate that improved both FULL compound return and the S2 stress bottleneck:
+
+- Lower `m1_failed_break_chop_scalp.maxRelativeVolumeThreshold` from `6` to
+  `5.5`. The raw trade diagnostic showed S1/S2 chop losses clustering in the
+  `5~8x` relative-volume band while the better chop reversals remained mostly
+  below `5.5x`.
+- Raise the three M5 trend-down legs from `riskFraction=0.148` to the configured
+  model cap of `0.15`: `trend_down_retest`, `trend_down_close`, and
+  `trend_down_retest_runner`.
+
+Accepted segmented result:
+
+| Segment | Return | Compound daily return | MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `S1 2020-03-25..2021-10-18` | `6.79%` | `0.01146%` | `45.53%` | `30` | `1.063` | `0.0772R` |
+| `S2 2021-10-19..2023-05-28` | `5.89%` | `0.00975%` | `44.39%` | `135` | `1.024` | `0.0338R` |
+| `S3 2023-05-29..2024-12-31` | `8293.95%` | `0.76277%` | `32.67%` | `129` | `2.903` | `0.3882R` |
+| `S4 2025-01-01..2026-07-02` | `4981.94%` | `0.71941%` | `33.99%` | `111` | `2.431` | `0.3558R` |
+| `FULL` | `374954.62%` | `0.35986%` | `45.53%` | `404` | `2.436` | `0.2356R` |
+
+Compared with the previous current config, FULL CDR improves
+`0.35399% -> 0.35986%`, S2 return improves `1.62% -> 5.89%`, and worst
+segment return improves `1.62% -> 5.89%`. MDD is essentially unchanged
+(`45.40% -> 45.53%`), so the strategy is still below the desired `0.8%` daily
+compound target and still above the preferred 30-40% MDD operating band.
+
+Rejected paths from this pass:
+
+- `range_failed_break_loose` hardening (`maxHoldM1Candles=45`,
+  `relativeVolumeThreshold=5`, and trend-break exits) improved S1/S2 but reduced
+  FULL CDR to roughly `0.34%` or lower. It is defensive, not growth-positive.
+- Stronger trend-down follow-through checks lifted S2 but cut S3/S4 winners,
+  reducing FULL CDR to roughly `0.25%`.
+- Lower chop caps below `5.5` or higher chop relative-volume floors turned at
+  least one stress segment negative.
+- Looser drawdown throttle multipliers raised headline CDR but pushed MDD into
+  the `56%~73%` range or made stress segments negative.
+
+Next diagnosis: the remaining gap to `0.8%` CDR is not from weak S3/S4 behavior;
+it comes from S1/S2 still compounding too slowly. The next useful axis is a
+new long-side or range-continuation edge that is independently positive in S1
+and S2, not additional risk on M1 trend-up or range reversal legs.
+
 ## 2026-07-02 Stress-Recovery Throttle Retune
 
 Source note: measured against
