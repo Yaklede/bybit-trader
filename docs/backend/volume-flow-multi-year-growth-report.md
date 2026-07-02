@@ -1596,3 +1596,56 @@ Decision:
 - Next loop should focus on the remaining S1/S2 loss clusters rather than
   globally increasing risk. The tests show that broad risk increases improve
   headline CDR but keep drawdown above the operating band.
+
+## No-Promotion Tuning Loop 2026-07-03
+
+Purpose: continue toward the `0.8%` FULL CDR objective without sacrificing the
+S1/S2 stress segments. This loop tested whether the remaining gap could be
+closed through risk-control tuning, extra high-performing leg sizing, or a new
+M5 trend-up clone.
+
+Current reference before this loop:
+
+| Segment | Return | CDR | MTM MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| S1 | `12.34565%` | `0.02032%` | `44.14056%` | `30` | `1.11788` | `0.07722R` |
+| S2 | `19.11929%` | `0.02981%` | `40.96104%` | `133` | `1.08410` | `0.05366R` |
+| S3 | `8,307.16635%` | `0.76305%` | `32.67190%` | `128` | `2.88922` | `0.39174R` |
+| S4 | `4,871.93776%` | `0.71539%` | `34.00532%` | `110` | `2.46784` | `0.36016R` |
+| FULL | `439,126.59458%` | `0.36678%` | `44.14056%` | `401` | `2.47280` | `0.24742R` |
+
+Rejected axes:
+
+| Axis | Best headline result | Reason rejected |
+| --- | --- | --- |
+| M5 trend-down follow-through retune | Current remained top: `0.36678%` FULL CDR | Shorter/longer follow-through checks reduced CDR; disabling follow-through collapsed CDR to `0.13859%` and raised MTM MDD to `52.28%` |
+| Daily stop / max trades / max loss retune | Current remained top among operating-risk candidates | Looser daily stop increased trades but reduced CDR and raised MTM MDD to `47.44%`; max trades above 5 had no effect |
+| Portfolio throttle loosening | `pth30_mult0p8`: `0.41249%` FULL CDR | MTM MDD expanded to `70.09%`; all higher-CDR throttle candidates exceeded operating risk |
+| M5 trend-up cloned legs | Best: `tu_runner_r0.05`, `0.32016%` FULL CDR | Added low-quality trades; all trend-up clone variants underperformed current |
+| Raw M5 trend-down clone sizing | Best: `clone_trend_down_close_r0p1`, `0.39377%` FULL CDR | MTM MDD rose to `46.36%`, max consecutive losses rose to `10`, and S2 deteriorated |
+| Macro-filtered `trend_down_close` clone | Best balanced FULL: `0.37940%` CDR with `44.14056%` MTM MDD | S2 CDR fell to `0.00488%`; S2 bottleneck worsened despite better S3/S4 |
+| Macro clone + range hold/risk compensation | Best FULL: `clone0.075_rangehold45`, `0.38168%` CDR | S2 turned negative (`-0.00614%` CDR), so it violates stress-validation intent |
+| Range hold/risk/target retune | Current remained top | Current `risk=0.12`, `target=1.85`, `maxHold=90` is still best in the current config context |
+
+Key finding:
+
+- The obvious path to higher FULL CDR is to increase S3/S4 trend-down sizing,
+  but that consistently damages S2. This means the next viable improvement
+  should not be another global risk or clone sizing pass.
+- S2 needs its own entry-quality discriminator. Current rejected candidates show
+  that the same `trend_down_close` pattern is profitable in S3/S4 but weak in
+  S2, so the missing feature is likely a regime-quality or liquidity/volatility
+  discriminator, not more leverage.
+- Remaining S1/S2 MDD is not caused by max-trade/day or daily-stop throttles.
+  It is caused by specific loss clusters that pass current volume, context,
+  and key-level filters.
+
+Decision:
+
+- Do not promote a config change in this loop.
+- Keep `config/volume-flow-composite-current.json` unchanged.
+- Next implementation loop should add a diagnostic feature for S2-quality
+  discrimination before more sizing work. Candidate inputs to inspect:
+  macro trend slope/efficiency, realized volatility expansion, trend age,
+  funding-independent range compression, and relative volume percentile by
+  volatility regime.
