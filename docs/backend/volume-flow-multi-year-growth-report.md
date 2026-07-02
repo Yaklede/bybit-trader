@@ -1218,3 +1218,37 @@ Decision:
 - The next tuning loop should build new S1/S2-specific entries or filters,
   then keep S3/S4 as validation windows to avoid fitting only the historical
   stress windows.
+
+Follow-up wide run:
+
+```bash
+node scripts/volume-flow-recursive-target.mjs \
+  --api http://127.0.0.1:18080 \
+  --token local-test-token \
+  --segmented true \
+  --rounds 1 \
+  --maxPerRound 48 \
+  --beam 6 \
+  --out build/volume-flow-target-search-segmented-defense-r1-wide
+```
+
+Top wide-run candidates:
+
+| Candidate | Full return | Full CDR | MTM MDD | Worst segment return | Failing segments |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `m1_down_assist_only_risk_0.03` | `6.33396%` | `0.00268%` | `29.32421%` | `-20.83473%` | `S1` |
+| `trend_down_only_risk_0.03` | `170.13210%` | `0.04339%` | `37.35279%` | `-33.76723%` | `S1`, `S2` |
+| `drop_s1_loss_cluster_risk_0.03` | `67.59409%` | `0.02254%` | `39.40760%` | `-31.54527%` | `S1`, `S2` |
+| `drop_range_risk_0.03` | `213.54778%` | `0.04989%` | `40.85413%` | `-34.22853%` | `S1`, `S2`, `FULL` |
+
+Wide-run decision:
+
+- The wider defensive search still found no deployable target-hit candidate.
+- `m1_down_assist_only_risk_0.03` is the cleanest survival profile, but its
+  full-history compound daily return is only `0.00268%`; it is a defensive
+  fallback, not a growth strategy.
+- `trend_down_only_risk_0.03` and `drop_s1_loss_cluster_risk_0.03` keep full
+  replay MDD below `40%`, but S1/S2 remain negative.
+- The next implementation should stop treating S1/S2 as a sizing problem. The
+  missing piece is a stress-window entry filter or setup that flips S1
+  expectancy positive without destroying S3/S4 validation performance.
