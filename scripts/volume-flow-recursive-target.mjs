@@ -233,6 +233,7 @@ function mutateConfig(parentName, config) {
 
 function stressDefenseVariants(config) {
   const variants = [];
+  variants.push(...volumeQualityStressVariants(config));
   const removalSpecs = [
     {
       name: "drop_range",
@@ -326,6 +327,77 @@ function stressDefenseVariants(config) {
         }),
       ),
     );
+  }
+
+  return variants;
+}
+
+function volumeQualityStressVariants(config) {
+  const variants = [];
+
+  for (const maxRelativeVolumeThreshold of [6, 8, 10, 12, 15]) {
+    variants.push(
+      namedVariant(
+        `all_volume_cap_${maxRelativeVolumeThreshold}`,
+        withRunDefaults(withVolumeCap(config, () => true, maxRelativeVolumeThreshold)),
+      ),
+    );
+  }
+
+  for (const maxRelativeVolumeThreshold of [6, 8, 10]) {
+    variants.push(
+      namedVariant(
+        `trend_up_volume_cap_${maxRelativeVolumeThreshold}`,
+        withRunDefaults(
+          withVolumeCap(
+            config,
+            (leg) => leg.allowedMarketRegimes?.includes("TREND_UP") === true,
+            maxRelativeVolumeThreshold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  for (const maxRelativeVolumeThreshold of [4, 6, 8]) {
+    variants.push(
+      namedVariant(
+        `range_chop_volume_cap_${maxRelativeVolumeThreshold}`,
+        withRunDefaults(
+          withVolumeCap(
+            config,
+            (leg) =>
+              leg.allowedMarketRegimes?.some(
+                (regime) => regime === "RANGE" || regime === "HIGH_VOLATILITY_CHOP",
+              ) === true,
+            maxRelativeVolumeThreshold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  for (const minTrendEfficiency of [0.45, 0.55, 0.65]) {
+    for (const minTrendMovePct of [0.005, 0.008]) {
+      variants.push(
+        namedVariant(
+          `trend_down_quality_eff${minTrendEfficiency}_move${minTrendMovePct}`,
+          withRunDefaults({
+            ...config,
+            legs: config.legs.map((leg) =>
+              leg.allowedMarketRegimes?.includes("TREND_DOWN") === true
+                ? {
+                    ...leg,
+                    minTrendEfficiency,
+                    minTrendMovePct,
+                    maxRelativeVolumeThreshold: Math.max((leg.relativeVolumeThreshold ?? 1.0) + 1.0, 12),
+                  }
+                : leg,
+            ),
+          }),
+        ),
+      );
+    }
   }
 
   return variants;
@@ -706,8 +778,9 @@ function coverageLeg(overrides) {
     entryMode: overrides.entryMode ?? "CLOSE_CONFIRMATION",
     sideMode: "BOTH",
     setupTimeframe: overrides.setupTimeframe ?? "M1",
-    relativeVolumeThreshold: overrides.relativeVolumeThreshold,
-    volumeZScoreThreshold: overrides.volumeZScoreThreshold ?? 0.5,
+      relativeVolumeThreshold: overrides.relativeVolumeThreshold,
+      maxRelativeVolumeThreshold: overrides.maxRelativeVolumeThreshold ?? null,
+      volumeZScoreThreshold: overrides.volumeZScoreThreshold ?? 0.5,
     setupRangeLookback: overrides.setupRangeLookback,
     requireM5Vwap: overrides.requireM5Vwap ?? false,
     requireContextVwap: overrides.requireContextVwap ?? false,
@@ -752,6 +825,7 @@ function legPatches(leg) {
       name: "looser_volume",
       patch: {
         relativeVolumeThreshold: bounded((leg.relativeVolumeThreshold ?? 3) - 0.5, 1.5, 8),
+        maxRelativeVolumeThreshold: null,
         volumeZScoreThreshold: Math.max(0, Math.min(leg.volumeZScoreThreshold ?? 0.5, 0.5)),
       },
     },
@@ -816,10 +890,29 @@ function legPatches(leg) {
         avoidRangeMiddle: false,
         keyLevelTolerancePct: Math.max(leg.keyLevelTolerancePct ?? 0.0025, 0.006),
         relativeVolumeThreshold: bounded((leg.relativeVolumeThreshold ?? 3) - 0.5, 1.5, 8),
+        maxRelativeVolumeThreshold: null,
         minBodyRatio: bounded((leg.minBodyRatio ?? 0.45) - 0.1, 0.1, 1),
         minEntryRiskPct: Math.min(leg.minEntryRiskPct ?? 0.008, 0.004),
         maxEntryRiskPct: Math.max(leg.maxEntryRiskPct ?? 0.015, 0.025),
         maxHoldM1Candles: Math.min((leg.maxHoldM1Candles ?? 30) + 10, 75),
+      },
+    },
+    {
+      name: "volume_cap_8",
+      patch: {
+        maxRelativeVolumeThreshold: Math.max((leg.relativeVolumeThreshold ?? 3) + 1.0, 8),
+      },
+    },
+    {
+      name: "volume_cap_12",
+      patch: {
+        maxRelativeVolumeThreshold: Math.max((leg.relativeVolumeThreshold ?? 3) + 1.0, 12),
+      },
+    },
+    {
+      name: "volume_cap_off",
+      patch: {
+        maxRelativeVolumeThreshold: null,
       },
     },
     {
@@ -1213,6 +1306,23 @@ function withLegRisk(config, riskFraction) {
       ...leg,
       riskFraction,
     })),
+  };
+}
+
+function withVolumeCap(config, shouldCap, maxRelativeVolumeThreshold) {
+  return {
+    ...structuredClone(config),
+    legs: config.legs.map((leg) =>
+      shouldCap(leg)
+        ? {
+            ...leg,
+            maxRelativeVolumeThreshold: Math.max(
+              (leg.relativeVolumeThreshold ?? 1.0) + 0.1,
+              maxRelativeVolumeThreshold,
+            ),
+          }
+        : leg,
+    ),
   };
 }
 

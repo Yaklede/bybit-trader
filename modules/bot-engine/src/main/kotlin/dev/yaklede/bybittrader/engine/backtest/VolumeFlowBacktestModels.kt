@@ -16,6 +16,7 @@ data class VolumeFlowBacktestConfig(
     val setupTimeframe: Timeframe = Timeframe.M5,
     val volumeLookback: Int = 20,
     val relativeVolumeThreshold: Double = 5.0,
+    val maxRelativeVolumeThreshold: Double? = null,
     val volumeZScoreThreshold: Double = 1.5,
     val setupRangeLookback: Int = 12,
     val requireM5Vwap: Boolean = false,
@@ -69,6 +70,9 @@ data class VolumeFlowBacktestConfig(
         }
         require(volumeLookback > 1) { "Volume lookback must be greater than 1." }
         require(relativeVolumeThreshold > 1.0) { "Relative volume threshold must be greater than 1." }
+        require(maxRelativeVolumeThreshold == null || maxRelativeVolumeThreshold > relativeVolumeThreshold) {
+            "Maximum relative volume threshold must be null or greater than relative volume threshold."
+        }
         require(volumeZScoreThreshold >= 0.0) { "Volume z-score threshold must not be negative." }
         require(setupRangeLookback > 1) { "Setup range lookback must be greater than 1." }
         require(m5VwapLookback > 1) { "M5 VWAP lookback must be greater than 1." }

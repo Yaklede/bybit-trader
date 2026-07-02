@@ -21,6 +21,11 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Risk fraction must be between 0 and 0.15."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(relativeVolumeThreshold = 5.0, maxRelativeVolumeThreshold = 5.0)
+            }.message shouldBe
+                "Maximum relative volume threshold must be null or greater than relative volume threshold."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
 
@@ -143,6 +148,31 @@ class VolumeFlowBacktestServiceTest :
 
             result.tradeCount shouldBe 0
             result.noTradeReasonCounts["WEAK_CLOSE_LOCATION"] shouldBe 1
+        }
+
+        "can reject setups when relative volume is above a configured exhaustion cap" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val rejected =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxRelativeVolumeThreshold = 5.0),
+                )
+            val accepted =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxRelativeVolumeThreshold = 10.0),
+                )
+
+            rejected.tradeCount shouldBe 0
+            rejected.noTradeReasonCounts["RELATIVE_VOLUME_TOO_HIGH"] shouldBe 1
+            accepted.tradeCount shouldBe 1
         }
 
         "can require m5 vwap alignment before entering volume flow trades" {

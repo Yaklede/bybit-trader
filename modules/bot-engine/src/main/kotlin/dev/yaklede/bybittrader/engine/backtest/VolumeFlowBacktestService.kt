@@ -257,6 +257,10 @@ class VolumeFlowBacktestService(
             incrementReason("RELATIVE_VOLUME_LOW", noTradeReasonCounts)
             return null
         }
+        if (config.maxRelativeVolumeThreshold != null && relativeVolume > config.maxRelativeVolumeThreshold) {
+            incrementReason("RELATIVE_VOLUME_TOO_HIGH", noTradeReasonCounts)
+            return null
+        }
         val volumeZScore = volumeZScoreAt(candles, index, config.volumeLookback)
         if (volumeZScore == null || volumeZScore < config.volumeZScoreThreshold) {
             incrementReason("VOLUME_ZSCORE_LOW", noTradeReasonCounts)

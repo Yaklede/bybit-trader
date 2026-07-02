@@ -1252,3 +1252,51 @@ Wide-run decision:
 - The next implementation should stop treating S1/S2 as a sizing problem. The
   missing piece is a stress-window entry filter or setup that flips S1
   expectancy positive without destroying S3/S4 validation performance.
+
+## Volume Exhaustion Filter Pass 2026-07-02
+
+Source note: this pass used the same full-history BTCUSDT database and the
+segmented S1/S2/S3/S4/FULL windows. The objective was to test whether
+"volume explosion" should be treated as a bounded acceptance signal rather than
+an unlimited continuation signal.
+
+Implementation change:
+
+- Added `maxRelativeVolumeThreshold` to volume-flow backtest config.
+- The engine now rejects setups with `RELATIVE_VOLUME_TOO_HIGH` when relative
+  volume is above the optional cap.
+- Single-leg and composite API requests now accept the same field.
+- The recursive tuner now prioritizes volume-exhaustion candidates before broad
+  leg-removal candidates:
+  - all-leg relative-volume caps
+  - TREND_UP-only relative-volume caps
+  - RANGE/HIGH_VOLATILITY_CHOP relative-volume caps
+  - TREND_DOWN quality candidates with stronger trend move/efficiency filters
+
+Focused candidate run:
+
+```bash
+node --input-type=module <focused volume-quality candidate evaluator>
+```
+
+Top candidates:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Worst segment return | Worst segment MDD | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `range_chop_cap_8` | `884,791.16455%` | `0.83189%` | `39.69854%` | `-52.08773%` | `59.48968%` | `S1`, `S2` |
+| `td_quality_0.55_0.005` | `5,516.00651%` | `0.36788%` | `35.11969%` | `-56.19339%` | `57.43641%` | `S1`, `S2` |
+| `combo_cap_quality` | `4,448.42932%` | `0.34859%` | `31.03486%` | `-43.56183%` | `54.56621%` | `S1`, `S2` |
+| `combo_cap_quality_lowrisk` | `413.26225%` | `0.14921%` | `10.77457%` | `-39.71373%` | `40.84136%` | `S1`, `S2` |
+| `all_cap_12` | `900,840.66927%` | `0.83354%` | `42.46550%` | `-64.90198%` | `66.34507%` | `S1`, `S2`, `S3`, `FULL` |
+
+Decision:
+
+- Do not promote a new trading config in this pass.
+- `range_chop_cap_8` is the best new direction: it keeps full-history MTM MDD
+  under `40%` and preserves near-target full-history CDR, but S1/S2 remain
+  negative and therefore still block deployment.
+- Unbounded high relative volume is confirmed to be dangerous in stress
+  windows, but a volume cap is not sufficient on its own.
+- The next strategy loop should focus on S1/S2 entry construction, not only
+  filters: older regimes need a positive-expectancy setup, while
+  `range_chop_cap_8` can be reused as a candidate safety guard.
