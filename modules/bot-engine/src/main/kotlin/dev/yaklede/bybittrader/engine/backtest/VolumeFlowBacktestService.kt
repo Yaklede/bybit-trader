@@ -110,6 +110,12 @@ class VolumeFlowBacktestService(
                 continue
             }
 
+            if (!contextRangeAllows(m15Timeline, setupCandle.openedAt, config)) {
+                rejectedSetupCount += 1
+                incrementReason("CONTEXT_RANGE_TOO_WIDE", noTradeReasonCounts)
+                continue
+            }
+
             if (config.requireRegimeSideAlignment && !marketRegime.allows(candidate.side)) {
                 rejectedSetupCount += 1
                 incrementReason("MARKET_REGIME_SIDE_MISMATCH", noTradeReasonCounts)
@@ -590,6 +596,19 @@ class VolumeFlowBacktestService(
         )
     }
 
+    private fun contextRangeAllows(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean {
+        val maxContextRangePct = config.maxContextRangePct ?: return true
+        val averageRangePct =
+            averageRangePct(
+                m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback),
+            ) ?: return false
+        return averageRangePct <= maxContextRangePct
+    }
+
     private fun vwapSideAllows(
         timeline: CandleTimeline,
         setupAt: Instant,
@@ -644,14 +663,10 @@ class VolumeFlowBacktestService(
         }
         val trendEfficiency = if (totalMovePct <= 0.0) 0.0 else abs(directionalMovePct) / totalMovePct
         val averageRangePct =
-            contextCandles
-                .mapNotNull { candle ->
-                    val close = candle.close.toDouble()
-                    if (close <= 0.0) null else (candle.high.toDouble() - candle.low.toDouble()) / close
-                }.average()
+            averageRangePct(contextCandles)
 
         if (
-            averageRangePct.isFinite() &&
+            averageRangePct != null &&
             averageRangePct >= config.highVolatilityRangePct &&
             trendEfficiency < config.minTrendEfficiency
         ) {
@@ -667,6 +682,15 @@ class VolumeFlowBacktestService(
             directionalMovePct < 0.0 && (vwap == null || latestClose <= vwap) -> VolumeFlowMarketRegime.TREND_DOWN
             else -> VolumeFlowMarketRegime.RANGE
         }
+    }
+
+    private fun averageRangePct(candles: List<Candle>): Double? {
+        val values =
+            candles.mapNotNull { candle ->
+                val close = candle.close.toDouble()
+                if (close <= 0.0) null else (candle.high.toDouble() - candle.low.toDouble()) / close
+            }
+        return values.takeIf { it.isNotEmpty() }?.average()
     }
 
     private fun estimatedRoundTripFeeR(

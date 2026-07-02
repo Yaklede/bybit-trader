@@ -1300,3 +1300,44 @@ Decision:
 - The next strategy loop should focus on S1/S2 entry construction, not only
   filters: older regimes need a positive-expectancy setup, while
   `range_chop_cap_8` can be reused as a candidate safety guard.
+
+## Context Range Filter Pass 2026-07-02
+
+Source note: this pass used the same full-history BTCUSDT database and
+segmented S1/S2/S3/S4/FULL windows. The objective was to test whether broad
+15-minute range expansion should reject otherwise valid volume-flow entries.
+
+Implementation change:
+
+- Added `maxContextRangePct` to volume-flow backtest config.
+- The engine now rejects setups with `CONTEXT_RANGE_TOO_WIDE` when the recent
+  M15 context average range is above the optional cap.
+- Single-leg and composite API requests now accept the same field.
+- The recursive tuner now includes context-range cap candidates for all legs,
+  trend legs, and the prior `range_chop_cap_8` defensive candidate.
+
+Focused candidate run:
+
+```bash
+node --input-type=module <focused context-range candidate evaluator>
+```
+
+Top candidates:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Worst segment return | Worst segment MDD | Failing segments |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `all_ctx_0.015` | `1,009,033.43273%` | `0.84396%` | `39.69854%` | `-60.08506%` | `66.14626%` | `S1`, `S2` |
+| `all_ctx_0.012` | `933,920.08403%` | `0.83685%` | `39.69854%` | `-62.83979%` | `68.48268%` | `S1`, `S2` |
+| `rc8_ctx_0.012` | `818,925.60460%` | `0.82478%` | `39.69854%` | `-59.30731%` | `65.48661%` | `S1`, `S2` |
+| `rc8_runner10_ctx_0.015` | `857,655.64297%` | `0.82902%` | `39.69854%` | `-54.63364%` | `61.73345%` | `S1`, `S2` |
+| `rc8_lowrisk007_ctx_0.015` | `28,468.00200%` | `0.51682%` | `29.24114%` | `-44.17135%` | `50.97496%` | `S1`, `S2` |
+
+Decision:
+
+- Do not promote a new trading config in this pass.
+- The context-range cap is useful as a research control, but it does not
+  create positive S1/S2 expectancy and often removes profitable continuation
+  trades from later windows.
+- The next strategy loop should test portfolio-level drawdown cooldown and
+  regime-level pause logic. S1/S2 need a mechanism that stops compounding
+  loss clusters without destroying the S3/S4 growth windows.

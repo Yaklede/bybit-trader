@@ -29,6 +29,7 @@ data class VolumeFlowBacktestConfig(
     val minTrendMovePct: Double = 0.003,
     val minTrendEfficiency: Double = 0.35,
     val highVolatilityRangePct: Double = 0.006,
+    val maxContextRangePct: Double? = null,
     val requireKeyLevelProximity: Boolean = false,
     val keyLevelTolerancePct: Double = 0.0025,
     val avoidRangeMiddle: Boolean = false,
@@ -86,6 +87,9 @@ data class VolumeFlowBacktestConfig(
         }
         require(highVolatilityRangePct > 0.0 && highVolatilityRangePct <= 0.05) {
             "High volatility range percent must be between 0 and 0.05."
+        }
+        require(maxContextRangePct == null || maxContextRangePct in 0.0..0.10) {
+            "Maximum context range percent must be null or between 0 and 0.10."
         }
         require(keyLevelTolerancePct >= 0.0 && keyLevelTolerancePct <= 0.02) {
             "Key level tolerance must be between 0 and 0.02."

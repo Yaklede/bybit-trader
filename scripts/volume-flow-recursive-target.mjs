@@ -400,6 +400,54 @@ function volumeQualityStressVariants(config) {
     }
   }
 
+  for (const maxContextRangePct of [0.006, 0.008, 0.01, 0.012, 0.015, 0.02]) {
+    variants.push(
+      namedVariant(
+        `all_context_range_cap_${maxContextRangePct}`,
+        withRunDefaults(withContextRangeCap(config, () => true, maxContextRangePct)),
+      ),
+    );
+  }
+
+  for (const maxContextRangePct of [0.008, 0.01, 0.012, 0.015]) {
+    variants.push(
+      namedVariant(
+        `trend_context_range_cap_${maxContextRangePct}`,
+        withRunDefaults(
+          withContextRangeCap(
+            config,
+            (leg) =>
+              leg.allowedMarketRegimes?.some((regime) => regime === "TREND_UP" || regime === "TREND_DOWN") ===
+              true,
+            maxContextRangePct,
+          ),
+        ),
+      ),
+    );
+  }
+
+  for (const maxContextRangePct of [0.008, 0.01, 0.012]) {
+    variants.push(
+      namedVariant(
+        `range_chop_cap8_context_range_cap_${maxContextRangePct}`,
+        withRunDefaults(
+          withContextRangeCap(
+            withVolumeCap(
+              config,
+              (leg) =>
+                leg.allowedMarketRegimes?.some(
+                  (regime) => regime === "RANGE" || regime === "HIGH_VOLATILITY_CHOP",
+                ) === true,
+              8,
+            ),
+            () => true,
+            maxContextRangePct,
+          ),
+        ),
+      ),
+    );
+  }
+
   return variants;
 }
 
@@ -1320,6 +1368,20 @@ function withVolumeCap(config, shouldCap, maxRelativeVolumeThreshold) {
               (leg.relativeVolumeThreshold ?? 1.0) + 0.1,
               maxRelativeVolumeThreshold,
             ),
+          }
+        : leg,
+    ),
+  };
+}
+
+function withContextRangeCap(config, shouldCap, maxContextRangePct) {
+  return {
+    ...structuredClone(config),
+    legs: config.legs.map((leg) =>
+      shouldCap(leg)
+        ? {
+            ...leg,
+            maxContextRangePct,
           }
         : leg,
     ),
