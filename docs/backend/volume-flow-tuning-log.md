@@ -1,5 +1,56 @@
 # Volume Flow Tuning Log
 
+## 2026-07-03 Runner Breakeven Micro-Retune
+
+Source note: measured against
+`build/runtime-test/bybit-trader-full-history.sqlite`, covering
+`2020-03-25T10:36:00Z` to `2026-07-02T05:40:00Z`. These numbers are local
+backtest outputs, not live-trading return guarantees.
+
+This pass rejected broad signal filtering and accepted only a narrow exit
+quality change:
+
+- Set `trend_down_retest_runner.breakevenTriggerR` from `null` to `0.65`.
+- Keep all risk fractions, trade caps, drawdown throttle, and entry filters
+  unchanged.
+
+Accepted segmented result:
+
+| Segment | Return | Compound daily return | MDD | MTM MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `S1 2020-03-25..2021-10-18` | `6.79%` | `0.01146%` | `44.77%` | `45.53%` | `30` | `1.063` | `0.0772R` |
+| `S2 2021-10-19..2023-05-28` | `7.35%` | `0.01209%` | `36.62%` | `43.62%` | `135` | `1.031` | `0.0360R` |
+| `S3 2023-05-29..2024-12-31` | `8293.95%` | `0.76277%` | `31.04%` | `32.67%` | `129` | `2.903` | `0.3882R` |
+| `S4 2025-01-01..2026-07-02` | `4980.97%` | `0.71938%` | `32.70%` | `34.01%` | `111` | `2.430` | `0.3558R` |
+| `FULL` | `378668.16%` | `0.36029%` | `44.77%` | `45.53%` | `404` | `2.436` | `0.2364R` |
+
+Compared with the prior current config, FULL CDR improves
+`0.35986% -> 0.36029%`, FULL return improves
+`374954.62% -> 378668.16%`, and S2 return improves
+`5.89% -> 7.35%`. This is a small robustness improvement, not a target hit:
+the strategy is still well below the `0.8%` compound daily return target and
+still above the preferred 30-40% mark-to-market drawdown band.
+
+Rejected paths from this pass:
+
+- Directional close-strength hardening on `m1_trend_down_breakout_assist`,
+  `m1_trend_up_breakout_scalp`, `range_failed_break_loose`, and the M5
+  trend-down legs either lowered FULL CDR or made an early stress segment
+  negative.
+- `range_failed_break_loose` profit protection and breakeven variants improved
+  some stress behavior but cut later compounding winners, reducing FULL CDR to
+  roughly `0.28%~0.33%`.
+- M1 down assist runner or trend-break exits reduced CDR and often made S1/S2
+  negative. The leg remains a short fixed-target assist, not a runner.
+- M5 fixed trend-down retest/close runner and trend-break conversions reduced
+  FULL CDR. The accepted change only protects the already-runner M5 retest leg
+  after `0.65R`.
+
+Next diagnosis: the current strategy has likely exhausted simple risk, entry
+filter, and exit-parameter retunes. The remaining gap to `0.8%` CDR requires a
+new independently positive setup family, especially for S1/S2, rather than more
+aggressive tuning of the existing legs.
+
 ## 2026-07-03 Chop Cap + Trend Risk Recovery
 
 Source note: measured against

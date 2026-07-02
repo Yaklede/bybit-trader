@@ -107,7 +107,7 @@
       "exitMode": "RUNNER",
       "runnerTrailActivationR": 0.8,
       "runnerTrailDistanceR": 0.75,
-      "breakevenTriggerR": null,
+      "breakevenTriggerR": 0.65,
       "maxHoldM1Candles": 30
     },
     {
