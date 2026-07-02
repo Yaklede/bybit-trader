@@ -28,6 +28,8 @@ data class VolumeFlowBacktestConfig(
     val macroTrendLookbackM15Candles: Int = 192,
     val minMacroTrendMovePct: Double = 0.0,
     val minMacroTrendEfficiency: Double? = null,
+    val macroTrendEfficiencyRelativeVolumeMin: Double? = null,
+    val macroTrendEfficiencyRelativeVolumeMax: Double? = null,
     val macroTrendMismatchRiskMultiplier: Double = 1.0,
     val allowedMarketRegimes: Set<VolumeFlowMarketRegime> = defaultVolumeFlowMarketRegimes,
     val requireRegimeSideAlignment: Boolean = false,
@@ -92,6 +94,19 @@ data class VolumeFlowBacktestConfig(
         }
         require(minMacroTrendEfficiency == null || minMacroTrendEfficiency in 0.0..1.0) {
             "Minimum macro trend efficiency must be null or between 0 and 1."
+        }
+        require(macroTrendEfficiencyRelativeVolumeMin == null || macroTrendEfficiencyRelativeVolumeMin > 1.0) {
+            "Macro trend efficiency relative volume minimum must be null or greater than 1."
+        }
+        require(macroTrendEfficiencyRelativeVolumeMax == null || macroTrendEfficiencyRelativeVolumeMax > 1.0) {
+            "Macro trend efficiency relative volume maximum must be null or greater than 1."
+        }
+        require(
+            macroTrendEfficiencyRelativeVolumeMin == null ||
+                macroTrendEfficiencyRelativeVolumeMax == null ||
+                macroTrendEfficiencyRelativeVolumeMin < macroTrendEfficiencyRelativeVolumeMax,
+        ) {
+            "Macro trend efficiency relative volume minimum must be less than maximum."
         }
         require(macroTrendMismatchRiskMultiplier > 0.0 && macroTrendMismatchRiskMultiplier <= 1.0) {
             "Macro trend mismatch risk multiplier must be between 0 and 1."

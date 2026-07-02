@@ -147,7 +147,7 @@ class VolumeFlowBacktestService(
             }
 
             val macroTrendContext = macroTrendContext(m15Timeline, setupCandle.openedAt, config)
-            if (!macroTrendAllows(macroTrendContext, candidate.side, config)) {
+            if (!macroTrendAllows(macroTrendContext, candidate, config)) {
                 rejectedSetupCount += 1
                 incrementReason("MACRO_TREND_REJECTED", noTradeReasonCounts)
                 continue
@@ -185,7 +185,7 @@ class VolumeFlowBacktestService(
             }
 
             val entryEquity = equity
-            val riskMultiplier = macroTrendRiskMultiplier(macroTrendContext, candidate.side, config)
+            val riskMultiplier = macroTrendRiskMultiplier(macroTrendContext, candidate, config)
             val riskAmount = entryEquity * config.riskFraction * riskMultiplier
             val quantity = riskAmount / riskPerUnit
             val exit = simulateExit(m1Candles, entry, config)
@@ -615,15 +615,15 @@ class VolumeFlowBacktestService(
 
     private fun macroTrendAllows(
         macroTrendContext: MacroTrendContext?,
-        side: Side,
+        candidate: SetupCandidate,
         config: VolumeFlowBacktestConfig,
     ): Boolean {
         if (!config.requireMacroTrendAlignment) return true
         val context = macroTrendContext ?: return false
-        if (config.minMacroTrendEfficiency != null && context.efficiency < config.minMacroTrendEfficiency) {
+        if (macroTrendQualityFails(context, candidate.relativeVolume, config)) {
             return false
         }
-        return when (side) {
+        return when (candidate.side) {
             Side.BUY -> context.movePct >= config.minMacroTrendMovePct
             Side.SELL -> context.movePct <= -config.minMacroTrendMovePct
         }
@@ -631,22 +631,33 @@ class VolumeFlowBacktestService(
 
     private fun macroTrendRiskMultiplier(
         macroTrendContext: MacroTrendContext?,
-        side: Side,
+        candidate: SetupCandidate,
         config: VolumeFlowBacktestConfig,
     ): Double {
         if (config.macroTrendMismatchRiskMultiplier >= 1.0) return 1.0
         val context = macroTrendContext ?: return 1.0
         val threshold = config.minMacroTrendMovePct
         val isMismatch =
-            when (side) {
+            when (candidate.side) {
                 Side.BUY -> context.movePct < -threshold
                 Side.SELL -> context.movePct > threshold
             }
-        val isLowQuality =
-            config.minMacroTrendEfficiency?.let { minEfficiency ->
-                context.efficiency < minEfficiency
-            } ?: false
+        val isLowQuality = macroTrendQualityFails(context, candidate.relativeVolume, config)
         return if (isMismatch || isLowQuality) config.macroTrendMismatchRiskMultiplier else 1.0
+    }
+
+    private fun macroTrendQualityFails(
+        context: MacroTrendContext,
+        relativeVolume: Double,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean {
+        val minEfficiency = config.minMacroTrendEfficiency ?: return false
+        if (context.efficiency >= minEfficiency) return false
+        val minRelativeVolume = config.macroTrendEfficiencyRelativeVolumeMin
+        val maxRelativeVolume = config.macroTrendEfficiencyRelativeVolumeMax
+        if (minRelativeVolume == null && maxRelativeVolume == null) return true
+        return (minRelativeVolume != null && relativeVolume < minRelativeVolume) ||
+            (maxRelativeVolume != null && relativeVolume > maxRelativeVolume)
     }
 
     private fun macroTrendContext(

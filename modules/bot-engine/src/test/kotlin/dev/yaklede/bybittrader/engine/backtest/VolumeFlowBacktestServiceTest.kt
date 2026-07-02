@@ -46,6 +46,17 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Minimum macro trend efficiency must be null or between 0 and 1."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(macroTrendEfficiencyRelativeVolumeMin = 1.0)
+            }.message shouldBe "Macro trend efficiency relative volume minimum must be null or greater than 1."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(
+                    macroTrendEfficiencyRelativeVolumeMin = 6.0,
+                    macroTrendEfficiencyRelativeVolumeMax = 6.0,
+                )
+            }.message shouldBe "Macro trend efficiency relative volume minimum must be less than maximum."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(macroTrendMismatchRiskMultiplier = 0.0)
             }.message shouldBe "Macro trend mismatch risk multiplier must be between 0 and 1."
 

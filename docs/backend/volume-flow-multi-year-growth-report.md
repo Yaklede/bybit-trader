@@ -1693,3 +1693,57 @@ Decision:
   low-efficiency pullback contexts from S2/S3's weak failed-trend contexts.
   Candidate pairings: trend age, macro move band, post-spike realized
   volatility compression, and relative-volume percentile by volatility regime.
+
+## Conditional Macro-Efficiency RV Band Loop 2026-07-03
+
+Purpose: test the first combined discriminator from the previous loop. The new
+config surface lets a leg reduce risk only when macro trend efficiency is low
+and setup relative volume is outside a configured acceptable band. This targets
+the observed split where S2/S3 weak macro-efficiency losses often occurred in
+low or exhaustion relative-volume bands, while S4 still profited from
+low-efficiency pullback contexts.
+
+Implemented surface:
+
+- `VolumeFlowBacktestConfig.macroTrendEfficiencyRelativeVolumeMin`
+- `VolumeFlowBacktestConfig.macroTrendEfficiencyRelativeVolumeMax`
+- API request mapping for single-leg and composite backtests
+
+Focused S2 sweep result:
+
+| Candidate | S2 return | S2 CDR | S2 MTM MDD | Trades | Profit factor | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Current baseline | `19.11929%` | `0.02981%` | `40.96104%` | `133` | `1.08410` | Reference |
+| `m5down_loweff_rvband_l768_m0p003_e0p1_rv5_10_x0p25` | `69.63231%` | `0.09007%` | `43.82153%` | `142` | `1.19456` | S2 winner |
+| `m5down_loweff_rvband_l768_m0p003_e0p05_rv5p5_10_x0p25` | `66.04067%` | `0.08642%` | `43.80192%` | `143` | `1.19159` | S2 runner-up |
+| `m5down_loweff_rvband_l768_m0p003_e0p05_rv5_10_x0p25` | `65.98274%` | `0.08636%` | `43.82153%` | `142` | `1.18431` | S2 runner-up |
+
+Segment validation rejected the S2 winner:
+
+| Candidate | S1 CDR | S2 CDR | S3 CDR | S4 CDR | FULL CDR | FULL MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Current baseline | `0.02032%` | `0.02981%` | `0.76305%` | `0.71539%` | `0.36678%` | `44.14056%` |
+| `m5down_loweff_rvband_l768_m0p003_e0p1_rv5_10_x0p25` | `0.01131%` | `0.09007%` | `0.84118%` | `0.39349%` | `0.29892%` | `43.82153%` |
+| `m5down_loweff_rvband_l768_m0p003_e0p05_rv5_10_x0p25` | `0.01131%` | `0.08636%` | `0.88365%` | `0.32395%` | `0.30446%` | `43.82153%` |
+| `m5down_loweff_rvband_l768_m0p003_e0p05_rv5p5_10_x0p25` | `0.01131%` | `0.08642%` | `0.88150%` | `0.32395%` | `0.30393%` | `43.80192%` |
+
+Clone recovery test:
+
+- Adding `trend_down_close` or `trend_down_retest_runner` clones with the new
+  RV-band defense did not recover the previously rejected M5 trend-down clone
+  idea.
+- Best clone S2 result was still the baseline. The best clone candidate was
+  only `0.00759%` S2 CDR and raised max consecutive losses to `10`.
+
+Decision:
+
+- Do not promote an RV-band config change.
+- Keep `config/volume-flow-composite-current.json` unchanged.
+- Keep the feature because it improves the search space: it can isolate weak
+  macro-efficiency trades by relative-volume band instead of bluntly penalizing
+  every low-efficiency setup.
+- The next improvement needs a condition that preserves S4's low-efficiency
+  trend-down winners. The current evidence points away from M5 trend-down clone
+  expansion and toward a separate S4/S2 regime separator such as trend age,
+  post-spike realized-volatility compression, or a 1m/5m continuation strength
+  measure after the volume spike.

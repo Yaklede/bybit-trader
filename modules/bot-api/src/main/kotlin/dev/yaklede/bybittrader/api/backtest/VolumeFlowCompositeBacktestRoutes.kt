@@ -197,6 +197,8 @@ data class VolumeFlowCompositeLegRequest(
     val macroTrendLookbackM15Candles: Int = 192,
     val minMacroTrendMovePct: Double = 0.0,
     val minMacroTrendEfficiency: Double? = null,
+    val macroTrendEfficiencyRelativeVolumeMin: Double? = null,
+    val macroTrendEfficiencyRelativeVolumeMax: Double? = null,
     val macroTrendMismatchRiskMultiplier: Double = 1.0,
     val allowedMarketRegimes: List<String>? = null,
     val requireRegimeSideAlignment: Boolean = false,
@@ -263,6 +265,8 @@ data class VolumeFlowCompositeLegRequest(
                     macroTrendLookbackM15Candles = macroTrendLookbackM15Candles,
                     minMacroTrendMovePct = minMacroTrendMovePct,
                     minMacroTrendEfficiency = minMacroTrendEfficiency,
+                    macroTrendEfficiencyRelativeVolumeMin = macroTrendEfficiencyRelativeVolumeMin,
+                    macroTrendEfficiencyRelativeVolumeMax = macroTrendEfficiencyRelativeVolumeMax,
                     macroTrendMismatchRiskMultiplier = macroTrendMismatchRiskMultiplier,
                     allowedMarketRegimes =
                         allowedMarketRegimes?.map(VolumeFlowMarketRegime::valueOf)?.toSet()
