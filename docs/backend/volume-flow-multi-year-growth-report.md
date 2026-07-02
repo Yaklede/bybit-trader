@@ -929,3 +929,89 @@ Next improvement list:
 4. Improve expectancy before further risk expansion. The promoted candidate's
    three-year expectancy is `0.34641R`; raising risk alone now hits the MDD
    ceiling before reaching the required CDR.
+
+## Leg Risk Cap Retune Pass 2026-07-02
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the portfolio drawdown throttle pass. The objective
+remained the `1,000,000 KRW -> 10,000,000,000 KRW` three-year target, requiring
+`0.84390%` compound daily return, while keeping deployment drawdown at or below
+`40%` mark-to-market MDD.
+
+Analysis summary:
+
+- The previous promoted candidate reached `6,742,664,126 KRW` over three years
+  with `0.80690%` compound daily return and `39.89428%` mark-to-market MDD.
+- Pure base-risk increases moved toward the target but crossed the MTM gate.
+  For example, `baseRisk=0.14465` already reached `40.00647%` mark-to-market
+  MDD, so it was rejected despite improving return.
+- A hard mark-to-market risk cap was tested and rejected. With `risk=0.143` and
+  a `40%` MTM limit, the three-year replay collapsed to `989,229 KRW`,
+  `-0.00099%` compound daily return, only `45` trades, and `230` MTM-limit
+  skips. It blocked recovery trades rather than improving the portfolio path.
+- The accepted path is selective risk concentration: raise the productive legs
+  while capping the long-biased `m1_trend_up_breakout_scalp` leg that pushed
+  MTM drawdown over the gate.
+
+Accepted config changes:
+
+- `trend_down_retest`, `trend_down_close`, `trend_down_retest_runner`,
+  `range_failed_break_loose`, `m1_trend_down_breakout_assist`, and
+  `m1_failed_break_chop_scalp`: `riskFraction=0.1446`.
+- `m1_trend_up_breakout_scalp`: `riskFraction=0.12`.
+- `portfolioDrawdownThrottlePct=32`.
+- `portfolioDrawdownRiskMultiplier=0.2`.
+- `portfolioDrawdownCooldownDays=1`.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Cooldown skips |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `42,517,529 KRW` | `4,151.75%` | `1.02983%` | `31.41%` | `39.99%` | `85` | `64.71%` | `2.73` | `0.41281R` | `0` |
+| 2 years | `1,755,063,115 KRW` | `175,406.31%` | `1.02716%` | `38.95%` | `39.99%` | `181` | `62.98%` | `2.71` | `0.39159R` | `1` |
+| 3 years | `8,791,184,370 KRW` | `879,018.44%` | `0.83129%` | `38.95%` | `39.99%` | `266` | `58.27%` | `2.71` | `0.34641R` | `8` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `37,147,044 KRW` | `42,517,529 KRW` | `0.99257%` | `1.02983%` | `37.93%` | `39.99%` |
+| 2 years | `1,366,388,044 KRW` | `1,755,063,115 KRW` | `0.99257%` | `1.02716%` | `39.89%` | `39.99%` |
+| 3 years | `6,742,664,126 KRW` | `8,791,184,370 KRW` | `0.80690%` | `0.83129%` | `39.89%` | `39.99%` |
+
+Rejected paths:
+
+- `baseRisk=0.14465`, `m1_trend_up_breakout_scalp=0.12`,
+  `portfolioDrawdownThrottlePct=32`, and
+  `portfolioDrawdownRiskMultiplier=0.2` improved equity to
+  `8,810,011,766 KRW`, but exceeded the gate at `40.00647%` MTM MDD.
+- `baseRisk=0.145`, `m1_trend_up_breakout_scalp=0.12`,
+  `portfolioDrawdownThrottlePct=32`, and
+  `portfolioDrawdownRiskMultiplier=0.25` reached `9,930,284,346 KRW` and
+  `0.84248%` compound daily return, but required `40.41480%` MTM MDD.
+- Raising that same candidate to `portfolioDrawdownRiskMultiplier=0.3` crossed
+  the target at `10,301,185,140 KRW` and `0.84586%` compound daily return, but
+  required `41.21718%` MTM MDD.
+
+Decision:
+
+- Promote this candidate to current because it improves all one-, two-, and
+  three-year compound results while staying inside the strict `40%`
+  mark-to-market deployment gate.
+- The target is still not reached. The current three-year compound daily return
+  is `0.83129%`, while the target requires `0.84390%`. In equity terms, the
+  replay reaches about `8.79B KRW`, short of `10B KRW`.
+- The remaining gap is narrow but drawdown-bound. The next pass should reduce
+  about `0.4-1.2pp` of MTM drawdown in the `baseRisk=0.145` region or improve
+  per-trade expectancy before raising base risk again.
+
+Next improvement list:
+
+1. Inspect the exact trade sequence causing the MTM breach in the
+   `baseRisk=0.145`, `m1_trend_up_breakout_scalp=0.12` region and target that
+   segment with side/leg-specific risk or an exit change.
+2. Avoid global hard MTM blockers for now. The tested hard cap prevented
+   recovery trades and destroyed compounding.
+3. Continue tuning around expectancy and adverse excursion reduction rather
+   than broad risk expansion, because the remaining target candidates are
+   already MDD-limited.

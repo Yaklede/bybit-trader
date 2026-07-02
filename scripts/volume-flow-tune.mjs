@@ -262,6 +262,30 @@ function generateVariants(config) {
     }
   }
 
+  for (const baseRiskFraction of [0.142, 0.143, 0.144, 0.1445, 0.1446, 0.145]) {
+    for (const cappedRiskFraction of [0.10, 0.11, 0.12, 0.125]) {
+      for (const portfolioDrawdownThrottlePct of [31, 32]) {
+        for (const portfolioDrawdownRiskMultiplier of [0.2, 0.25, 0.3]) {
+          variants.push(
+            namedVariant(
+              `up_risk_cap_base${baseRiskFraction}_up${cappedRiskFraction}_dd${portfolioDrawdownThrottlePct}_m${portfolioDrawdownRiskMultiplier}`,
+              {
+                ...config,
+                portfolioDrawdownThrottlePct,
+                portfolioDrawdownRiskMultiplier,
+                portfolioDrawdownCooldownDays: 1,
+                legs: config.legs.map((leg) => ({
+                  ...leg,
+                  riskFraction: leg.id === "m1_trend_up_breakout_scalp" ? cappedRiskFraction : baseRiskFraction,
+                })),
+              },
+            ),
+          );
+        }
+      }
+    }
+  }
+
   config.legs.forEach((leg, legIndex) => {
     for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12]) {
       variants.push(

@@ -133,6 +133,7 @@ function seedVariants(config) {
   variants.push(...trendUpMirrorVariants(config));
   variants.push(...wholePortfolioTargetVariants(config));
   variants.push(...wholePortfolioRiskVariants(config));
+  variants.push(...wholePortfolioLegRiskCapVariants(config));
   variants.push(...wholePortfolioDrawdownThrottleVariants(config));
   variants.push(...wholePortfolioTrendBreakVariants(config));
   variants.push(...additiveCoverageVariants(config));
@@ -157,6 +158,9 @@ function mutateConfig(parentName, config) {
 
   variants.push(
     ...wholePortfolioDrawdownThrottleVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
+  );
+  variants.push(
+    ...wholePortfolioLegRiskCapVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
   );
 
   for (let legIndex = 0; legIndex < base.legs.length; legIndex += 1) {
@@ -223,6 +227,34 @@ function wholePortfolioRiskVariants(config) {
         }),
       ),
     );
+  }
+  return variants;
+}
+
+function wholePortfolioLegRiskCapVariants(config) {
+  const variants = [];
+  for (const baseRiskFraction of [0.142, 0.143, 0.144, 0.1445, 0.1446, 0.145]) {
+    for (const cappedRiskFraction of [0.10, 0.11, 0.12, 0.125]) {
+      for (const portfolioDrawdownThrottlePct of [31, 32]) {
+        for (const portfolioDrawdownRiskMultiplier of [0.2, 0.25, 0.3]) {
+          variants.push(
+            namedVariant(
+              `up_risk_cap_base${baseRiskFraction}_up${cappedRiskFraction}_dd${portfolioDrawdownThrottlePct}_m${portfolioDrawdownRiskMultiplier}`,
+              withRunDefaults({
+                ...config,
+                portfolioDrawdownThrottlePct,
+                portfolioDrawdownRiskMultiplier,
+                portfolioDrawdownCooldownDays: 1,
+                legs: config.legs.map((leg) => ({
+                  ...leg,
+                  riskFraction: leg.id === "m1_trend_up_breakout_scalp" ? cappedRiskFraction : baseRiskFraction,
+                })),
+              }),
+            ),
+          );
+        }
+      }
+    }
   }
   return variants;
 }
