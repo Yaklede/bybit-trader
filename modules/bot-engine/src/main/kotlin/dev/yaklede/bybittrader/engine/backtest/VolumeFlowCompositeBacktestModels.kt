@@ -9,6 +9,7 @@ data class VolumeFlowCompositeBacktestConfig(
     val initialEquity: Double = 10_000.0,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
+    val monthlyStopPct: Double? = null,
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
@@ -25,6 +26,9 @@ data class VolumeFlowCompositeBacktestConfig(
             "Daily target percent must be null or between 0 and 10."
         }
         require(dailyStopPct > 0.0 && dailyStopPct <= 10.0) { "Daily stop percent must be between 0 and 10." }
+        require(monthlyStopPct == null || monthlyStopPct > 0.0 && monthlyStopPct <= 95.0) {
+            "Monthly stop percent must be null or between 0 and 95."
+        }
         require(minTradesPerDay > 0) { "Min trades per day must be positive." }
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
         require(minTradesPerDay <= maxTradesPerDay) { "Min trades per day must be less than or equal to max trades per day." }

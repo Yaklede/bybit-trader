@@ -1,5 +1,63 @@
 # Volume Flow Tuning Log
 
+## 2026-07-02 Full-Candle Segmented Retune
+
+Source note: measured against
+`build/runtime-test/bybit-trader-full-history.sqlite`, covering
+`2020-03-25T10:36:00Z` to `2026-07-02T05:40:00Z`. These numbers are local
+backtest outputs, not live-trading return guarantees.
+
+The current accepted config is stored at
+`config/volume-flow-composite-current.json`. This pass replaces the weaker
+current file with the best segmented robustness candidate from the S2 loss
+diagnostic loop:
+
+- Adds `minContextQuoteVolume=30000000` to every leg to avoid low-liquidity
+  context candles.
+- Sets `m1_failed_break_chop_scalp` to `relativeVolumeThreshold=3` and
+  `maxRelativeVolumeThreshold=6`.
+- Sets `m1_trend_up_breakout_scalp` to `minTrendEfficiency=0.45`,
+  `minTrendMovePct=0.003`, and `riskFraction=0.14`.
+- Sets `m1_trend_down_breakout_assist` to `riskFraction=0.14`.
+- Moves the portfolio drawdown throttle threshold from `32%` to `30%`.
+
+Accepted segmented result:
+
+| Segment | Return | Compound daily return | MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `S1 2020-03-25..2021-10-18` | `-1.12100%` | `-0.00197%` | `46.56604%` | `31` | `0.98940` | `0.03578R` |
+| `S2 2021-10-19..2023-05-28` | `-13.92410%` | `-0.02554%` | `45.37768%` | `133` | `0.89632` | `0.01445R` |
+| `S3 2023-05-29..2024-12-31` | `8813.58457%` | `0.77316%` | `40.47905%` | `132` | `2.13094` | `0.35832R` |
+| `S4 2025-01-01..2026-07-02` | `3668.73490%` | `0.66448%` | `33.22107%` | `111` | `2.21163` | `0.34152R` |
+| `FULL` | `172718.31666%` | `0.32593%` | `46.56604%` | `404` | `2.20789` | `0.22496R` |
+
+Compared with the previous best research candidate `chop_rv3_6`, FULL CDR is
+slightly lower (`0.32773% -> 0.32593%`), but S2 improves materially
+(`-28.14829% -> -13.92410%`) and S1 improves (`-4.43397% -> -1.12100%`).
+This is a better forward-robustness trade-off, but it still does not meet the
+`0.8%` compound daily return target.
+
+Rejected paths from this pass:
+
+- Monthly stop gates (`5%` to `30%`) were rejected for the active config. They
+  reduce some loss clusters but also cut same-month recovery trades, causing
+  lower compound growth. The best robustness trade-off,
+  `chop_rv3_6_monthly_20`, returned `0.31394%` CDR with `46.25825%` MDD.
+- M1 trend-up adverse invalidation was rejected. It improved some S2 losses but
+  turned S4 negative in the checked candidate.
+- Range RV cap combined with trend-efficiency filtering was rejected as the
+  primary config. It improved S1/S2 further but lowered FULL CDR to
+  `0.29481%`.
+- Drawdown-throttle loosening and max-risk combinations were rejected. The best
+  checked aggressive CDR was about `0.36715%`, but MDD rose to `82.93%`, which
+  is outside the current operating tolerance.
+
+Current diagnosis: the target miss is not primarily caused by insufficient
+position sizing. Most legs are already near the configured `0.15` risk ceiling,
+and loosening portfolio throttles increases MDD much faster than CDR. The next
+useful improvement axis is exit quality: capture more of the large favorable
+move on validated winners without increasing full-stop frequency.
+
 ## 2026-07-01 BTCUSDT 1-year replay
 
 Source note: measured against

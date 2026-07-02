@@ -343,6 +343,7 @@ private fun simulateSinglePositionComposite(
     var consecutiveLosses = 0
     val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
+    val monthlyStates = mutableMapOf<String, CompositeMonthlyBacktestState>()
 
     for (signal in signals) {
         val sourceTrade = signal.trade
@@ -352,6 +353,14 @@ private fun simulateSinglePositionComposite(
         }
         if (!sourceTrade.setupAt.isAfter(portfolioBlockedUntil)) {
             incrementCompositeReason("PORTFOLIO_DRAWDOWN_COOLDOWN", noTradeReasonCounts)
+            continue
+        }
+        val monthState =
+            monthlyStates.getOrPut(sourceTrade.setupAt.utcYearMonth()) {
+                CompositeMonthlyBacktestState(startingEquity = equity)
+            }
+        if (monthState.blocksNewEntries()) {
+            incrementCompositeReason(monthState.lockReason ?: "MONTHLY_LOCK", noTradeReasonCounts)
             continue
         }
         val dayState =
@@ -376,6 +385,7 @@ private fun simulateSinglePositionComposite(
 
         trades += trade
         dayState.recordTrade(trade.pnl, equity, config, consecutiveLosses)
+        monthState.recordTrade(equity, config)
         blockedUntil = sourceTrade.exitAt
     }
 
@@ -403,6 +413,7 @@ private fun simulateConcurrentComposite(
     val openTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val closedTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
+    val monthlyStates = mutableMapOf<String, CompositeMonthlyBacktestState>()
     val acceptedEntriesByDay = mutableMapOf<LocalDate, Int>()
     val acceptedSetupKeys = mutableSetOf<CompositeSetupKey>()
 
@@ -417,6 +428,10 @@ private fun simulateConcurrentComposite(
             .getOrPut(trade.setupAt.utcDate()) {
                 CompositeDailyBacktestState(startingEquity = equity)
             }.recordTrade(trade.pnl, equity, config, consecutiveLosses)
+        monthlyStates
+            .getOrPut(trade.setupAt.utcYearMonth()) {
+                CompositeMonthlyBacktestState(startingEquity = equity - trade.pnl)
+            }.recordTrade(equity, config)
     }
 
     fun closeMaturedTrades(setupAt: Instant) {
@@ -444,6 +459,15 @@ private fun simulateConcurrentComposite(
         }
 
         val setupDay = sourceTrade.setupAt.utcDate()
+        val setupMonth = sourceTrade.setupAt.utcYearMonth()
+        val monthState =
+            monthlyStates.getOrPut(setupMonth) {
+                CompositeMonthlyBacktestState(startingEquity = equity)
+            }
+        if (monthState.blocksNewEntries()) {
+            incrementCompositeReason(monthState.lockReason ?: "MONTHLY_LOCK", noTradeReasonCounts)
+            continue
+        }
         val dayState =
             dailyStates.getOrPut(setupDay) {
                 CompositeDailyBacktestState(startingEquity = equity)
@@ -642,6 +666,34 @@ private class CompositeDailyBacktestState(
                 tradeCount >= config.maxTradesPerDay -> "MAX_TRADES_PER_DAY"
                 consecutiveLosses >= config.maxConsecutiveLosses -> "MAX_CONSECUTIVE_LOSSES"
                 pnl.isNaN() -> "INVALID_PNL"
+                else -> null
+            }
+    }
+}
+
+private class CompositeMonthlyBacktestState(
+    val startingEquity: Double,
+) {
+    var tradeCount: Int = 0
+        private set
+    var netPnl: Double = 0.0
+        private set
+    var lockReason: String? = null
+        private set
+
+    fun blocksNewEntries(): Boolean = lockReason != null
+
+    fun recordTrade(
+        currentEquity: Double,
+        config: VolumeFlowCompositeBacktestConfig,
+    ) {
+        tradeCount += 1
+        netPnl = currentEquity - startingEquity
+        val monthlyReturnPct = (netPnl / startingEquity) * 100.0
+        lockReason =
+            when {
+                config.monthlyStopPct != null && monthlyReturnPct <= -config.monthlyStopPct -> "MONTHLY_STOP_HIT"
+                currentEquity.isNaN() -> "INVALID_EQUITY"
                 else -> null
             }
     }

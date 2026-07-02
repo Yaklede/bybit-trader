@@ -184,6 +184,7 @@ function seedVariants(config) {
   variants.push(...wholePortfolioLegRiskCapVariants(config));
   variants.push(...trendDownAssistRiskCapVariants(config));
   variants.push(...wholePortfolioDrawdownThrottleVariants(config));
+  variants.push(...wholePortfolioMonthlyStopVariants(config));
   variants.push(...wholePortfolioTrendBreakVariants(config));
   variants.push(...additiveCoverageVariants(config));
   variants.push(...executionVariants);
@@ -211,6 +212,9 @@ function mutateConfig(parentName, config) {
 
   variants.push(
     ...wholePortfolioDrawdownThrottleVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
+  );
+  variants.push(
+    ...wholePortfolioMonthlyStopVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
   );
   variants.push(
     ...wholePortfolioLegRiskCapVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
@@ -672,6 +676,40 @@ function wholePortfolioDrawdownThrottleVariants(config) {
       }
     }
   }
+  return variants;
+}
+
+function wholePortfolioMonthlyStopVariants(config) {
+  const variants = [];
+  for (const monthlyStopPct of [5, 8, 10, 12, 15, 20, 30]) {
+    variants.push(
+      namedVariant(
+        `monthly_stop_${monthlyStopPct}`,
+        withRunDefaults({
+          ...config,
+          monthlyStopPct,
+        }),
+      ),
+    );
+  }
+
+  for (const monthlyStopPct of [8, 10, 12, 15]) {
+    for (const portfolioDrawdownThrottlePct of [30, 32, 35]) {
+      variants.push(
+        namedVariant(
+          `monthly_stop_${monthlyStopPct}_dd${portfolioDrawdownThrottlePct}`,
+          withRunDefaults({
+            ...config,
+            monthlyStopPct,
+            portfolioDrawdownThrottlePct,
+            portfolioDrawdownRiskMultiplier: 0.2,
+            portfolioDrawdownCooldownDays: 1,
+          }),
+        ),
+      );
+    }
+  }
+
   return variants;
 }
 

@@ -643,6 +643,42 @@ class VolumeFlowBacktestServiceTest :
             result.tradeCount shouldBe 1
             result.noTradeReasonCounts["PORTFOLIO_DRAWDOWN_COOLDOWN"] shouldBe 1
         }
+
+        "composite backtest skips new entries for the rest of a month after monthly stop is reached" {
+            VolumeFlowCompositeBacktestConfig(
+                monthlyStopPct = 5.0,
+                legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
+            ).monthlyStopPct shouldBe 5.0
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowCompositeBacktestConfig(
+                    monthlyStopPct = 0.0,
+                    legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
+                )
+            }.message shouldBe "Monthly stop percent must be null or between 0 and 95."
+
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(twoSignalThrottleCandles()))
+            val legConfig = testVolumeFlowConfig().copy(riskFraction = 0.05)
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 40,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            monthlyStopPct = 1.0,
+                            maxConsecutiveLosses = 10,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            (result.trades.single().pnl < 0.0) shouldBe true
+            result.noTradeReasonCounts["MONTHLY_STOP_HIT"] shouldBe 1
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =
