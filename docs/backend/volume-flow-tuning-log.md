@@ -19,21 +19,24 @@ diagnostic loop:
 - Sets `m1_trend_up_breakout_scalp` to `minTrendEfficiency=0.45`,
   `minTrendMovePct=0.003`, and `riskFraction=0.14`.
 - Sets `m1_trend_down_breakout_assist` to `riskFraction=0.14`.
+- Moves `m1_trend_down_breakout_assist` adverse invalidation from `5` to `3`
+  M1 candles while keeping `maxAdverseRBeforeExit=0.9` and
+  `minFavorableRBeforeAdverseExit=0.35`.
 - Moves the portfolio drawdown throttle threshold from `32%` to `30%`.
 
 Accepted segmented result:
 
 | Segment | Return | Compound daily return | MDD | Trades | Profit factor | Expectancy |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `S1 2020-03-25..2021-10-18` | `-1.12100%` | `-0.00197%` | `46.56604%` | `31` | `0.98940` | `0.03578R` |
+| `S1 2020-03-25..2021-10-18` | `-0.83672%` | `-0.00147%` | `46.41242%` | `31` | `0.99207` | `0.03898R` |
 | `S2 2021-10-19..2023-05-28` | `-13.92410%` | `-0.02554%` | `45.37768%` | `133` | `0.89632` | `0.01445R` |
-| `S3 2023-05-29..2024-12-31` | `8813.58457%` | `0.77316%` | `40.47905%` | `132` | `2.13094` | `0.35832R` |
+| `S3 2023-05-29..2024-12-31` | `8958.91333%` | `0.77595%` | `40.47905%` | `132` | `2.15715` | `0.35906R` |
 | `S4 2025-01-01..2026-07-02` | `3668.73490%` | `0.66448%` | `33.22107%` | `111` | `2.21163` | `0.34152R` |
-| `FULL` | `172718.31666%` | `0.32593%` | `46.56604%` | `404` | `2.20789` | `0.22496R` |
+| `FULL` | `176040.93346%` | `0.32676%` | `46.41242%` | `404` | `2.20869` | `0.22545R` |
 
 Compared with the previous best research candidate `chop_rv3_6`, FULL CDR is
-slightly lower (`0.32773% -> 0.32593%`), but S2 improves materially
-(`-28.14829% -> -13.92410%`) and S1 improves (`-4.43397% -> -1.12100%`).
+slightly lower (`0.32773% -> 0.32676%`), but S2 improves materially
+(`-28.14829% -> -13.92410%`) and S1 improves (`-4.43397% -> -0.83672%`).
 This is a better forward-robustness trade-off, but it still does not meet the
 `0.8%` compound daily return target.
 

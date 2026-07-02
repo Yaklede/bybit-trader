@@ -217,7 +217,7 @@
       "runnerTrailActivationR": 1,
       "runnerTrailDistanceR": 0.5,
       "breakevenTriggerR": null,
-      "adverseExitCheckM1Candles": 5,
+      "adverseExitCheckM1Candles": 3,
       "maxAdverseRBeforeExit": 0.9,
       "minFavorableRBeforeAdverseExit": 0.35,
       "maxHoldM1Candles": 25
