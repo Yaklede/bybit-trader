@@ -189,7 +189,7 @@ function generateVariants(config) {
     }
   }
 
-  for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12, 0.15]) {
+  for (const riskFraction of [0.075, 0.09, 0.10, 0.11, 0.12, 0.13, 0.136, 0.14, 0.15]) {
     for (const maxConcurrentPositions of [2, 3, 4]) {
       for (const maxTradesPerDay of [3, 4, 5]) {
         for (const maxConsecutiveLosses of [2, 3, 4]) {
@@ -208,6 +208,56 @@ function generateVariants(config) {
             );
           }
         }
+      }
+    }
+  }
+
+  const throttleThresholds = [25, 28, 30, 31, 32, 35];
+  const riskMultipliers = [0.2, 0.25, 0.3, 0.35, 0.5, 0.75];
+  const cooldownDays = [1, 2, 3];
+  const combinedRiskMultipliers = [0.2, 0.25, 0.3, 0.35];
+  const combinedCooldownDays = [1, 2];
+
+  for (const portfolioDrawdownThrottlePct of throttleThresholds) {
+    for (const portfolioDrawdownRiskMultiplier of riskMultipliers) {
+      variants.push(
+        namedVariant(
+          `portfolio_dd_throttle_${portfolioDrawdownThrottlePct}_m${portfolioDrawdownRiskMultiplier}`,
+          {
+            ...config,
+            portfolioDrawdownThrottlePct,
+            portfolioDrawdownRiskMultiplier,
+            portfolioDrawdownCooldownDays: 0,
+          },
+        ),
+      );
+    }
+    for (const portfolioDrawdownCooldownDays of cooldownDays) {
+      variants.push(
+        namedVariant(
+          `portfolio_dd_cooldown_${portfolioDrawdownThrottlePct}_d${portfolioDrawdownCooldownDays}`,
+          {
+            ...config,
+            portfolioDrawdownThrottlePct,
+            portfolioDrawdownRiskMultiplier: 1.0,
+            portfolioDrawdownCooldownDays,
+          },
+        ),
+      );
+    }
+    for (const portfolioDrawdownRiskMultiplier of combinedRiskMultipliers) {
+      for (const portfolioDrawdownCooldownDays of combinedCooldownDays) {
+        variants.push(
+          namedVariant(
+            `portfolio_dd_combo_${portfolioDrawdownThrottlePct}_m${portfolioDrawdownRiskMultiplier}_d${portfolioDrawdownCooldownDays}`,
+            {
+              ...config,
+              portfolioDrawdownThrottlePct,
+              portfolioDrawdownRiskMultiplier,
+              portfolioDrawdownCooldownDays,
+            },
+          ),
+        );
       }
     }
   }
@@ -449,6 +499,7 @@ function summarize(report) {
     adverseInvalidationExpectancyR: exitSummary(report, "ADVERSE_INVALIDATION").expectancyR ?? 0,
     profitProtectTradeCount: exitSummary(report, "PROFIT_PROTECT").tradeCount ?? 0,
     profitProtectExpectancyR: exitSummary(report, "PROFIT_PROTECT").expectancyR ?? 0,
+    portfolioDrawdownCooldownSkipCount: report.noTradeReasonCounts?.PORTFOLIO_DRAWDOWN_COOLDOWN ?? 0,
     activeDays: report.activeDays,
     observedDays: report.observedDays,
     activeDayCoveragePct: report.activeDayCoveragePct,

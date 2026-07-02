@@ -13,6 +13,9 @@ data class VolumeFlowCompositeBacktestConfig(
     val maxConsecutiveLosses: Int = 3,
     val maxConcurrentPositions: Int = 1,
     val dedupeSameSetupSignals: Boolean = false,
+    val portfolioDrawdownThrottlePct: Double? = null,
+    val portfolioDrawdownRiskMultiplier: Double = 1.0,
+    val portfolioDrawdownCooldownDays: Int = 0,
     val legs: List<VolumeFlowCompositeBacktestLeg>,
 ) {
     init {
@@ -26,6 +29,21 @@ data class VolumeFlowCompositeBacktestConfig(
         require(minTradesPerDay <= maxTradesPerDay) { "Min trades per day must be less than or equal to max trades per day." }
         require(maxConsecutiveLosses > 0) { "Max consecutive losses must be positive." }
         require(maxConcurrentPositions in 1..10) { "Max concurrent positions must be between 1 and 10." }
+        require(
+            portfolioDrawdownThrottlePct != null ||
+                (portfolioDrawdownRiskMultiplier == 1.0 && portfolioDrawdownCooldownDays == 0),
+        ) {
+            "Portfolio drawdown throttle percent must be set when throttle multiplier or cooldown is configured."
+        }
+        require(portfolioDrawdownThrottlePct == null || portfolioDrawdownThrottlePct > 0.0 && portfolioDrawdownThrottlePct <= 95.0) {
+            "Portfolio drawdown throttle percent must be null or between 0 and 95."
+        }
+        require(portfolioDrawdownRiskMultiplier > 0.0 && portfolioDrawdownRiskMultiplier <= 1.0) {
+            "Portfolio drawdown risk multiplier must be between 0 and 1."
+        }
+        require(portfolioDrawdownCooldownDays in 0..365) {
+            "Portfolio drawdown cooldown days must be between 0 and 365."
+        }
         require(legs.isNotEmpty()) { "Composite volume-flow legs must not be empty." }
         require(legs.size <= 10) { "Composite volume-flow legs must be less than or equal to 10." }
         require(legs.map { it.id }.distinct().size == legs.size) { "Composite volume-flow leg ids must be unique." }

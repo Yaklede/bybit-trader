@@ -133,6 +133,7 @@ function seedVariants(config) {
   variants.push(...trendUpMirrorVariants(config));
   variants.push(...wholePortfolioTargetVariants(config));
   variants.push(...wholePortfolioRiskVariants(config));
+  variants.push(...wholePortfolioDrawdownThrottleVariants(config));
   variants.push(...wholePortfolioTrendBreakVariants(config));
   variants.push(...additiveCoverageVariants(config));
   variants.push(...executionVariants);
@@ -153,6 +154,10 @@ function mutateConfig(parentName, config) {
       );
     }
   }
+
+  variants.push(
+    ...wholePortfolioDrawdownThrottleVariants(base).map((variant) => namedVariant(`${parentName}_mut_${variant.name}`, variant.config)),
+  );
 
   for (let legIndex = 0; legIndex < base.legs.length; legIndex += 1) {
     const leg = base.legs[legIndex];
@@ -218,6 +223,60 @@ function wholePortfolioRiskVariants(config) {
         }),
       ),
     );
+  }
+  return variants;
+}
+
+function wholePortfolioDrawdownThrottleVariants(config) {
+  const variants = [];
+  const throttleThresholds = [25, 28, 30, 31, 32, 35];
+  const riskMultipliers = [0.2, 0.25, 0.3, 0.35, 0.5, 0.75];
+  const cooldownDays = [1, 2, 3];
+  const combinedRiskMultipliers = [0.2, 0.25, 0.3, 0.35];
+  const combinedCooldownDays = [1, 2];
+
+  for (const portfolioDrawdownThrottlePct of throttleThresholds) {
+    for (const portfolioDrawdownRiskMultiplier of riskMultipliers) {
+      variants.push(
+        namedVariant(
+          `dd_throttle_${portfolioDrawdownThrottlePct}_m${portfolioDrawdownRiskMultiplier}`,
+          withRunDefaults({
+            ...config,
+            portfolioDrawdownThrottlePct,
+            portfolioDrawdownRiskMultiplier,
+            portfolioDrawdownCooldownDays: 0,
+          }),
+        ),
+      );
+    }
+    for (const portfolioDrawdownCooldownDays of cooldownDays) {
+      variants.push(
+        namedVariant(
+          `dd_cooldown_${portfolioDrawdownThrottlePct}_d${portfolioDrawdownCooldownDays}`,
+          withRunDefaults({
+            ...config,
+            portfolioDrawdownThrottlePct,
+            portfolioDrawdownRiskMultiplier: 1.0,
+            portfolioDrawdownCooldownDays,
+          }),
+        ),
+      );
+    }
+    for (const portfolioDrawdownRiskMultiplier of combinedRiskMultipliers) {
+      for (const portfolioDrawdownCooldownDays of combinedCooldownDays) {
+        variants.push(
+          namedVariant(
+            `dd_combo_${portfolioDrawdownThrottlePct}_m${portfolioDrawdownRiskMultiplier}_d${portfolioDrawdownCooldownDays}`,
+            withRunDefaults({
+              ...config,
+              portfolioDrawdownThrottlePct,
+              portfolioDrawdownRiskMultiplier,
+              portfolioDrawdownCooldownDays,
+            }),
+          ),
+        );
+      }
+    }
   }
   return variants;
 }
@@ -751,6 +810,7 @@ function summarize(report) {
     adverseInvalidationExpectancyR: exitSummary(report, "ADVERSE_INVALIDATION").expectancyR ?? 0,
     profitProtectTradeCount: exitSummary(report, "PROFIT_PROTECT").tradeCount ?? 0,
     profitProtectExpectancyR: exitSummary(report, "PROFIT_PROTECT").expectancyR ?? 0,
+    portfolioDrawdownCooldownSkipCount: report.noTradeReasonCounts?.PORTFOLIO_DRAWDOWN_COOLDOWN ?? 0,
     worstWalkForwardReturnPct: Math.min(...report.walkForwardPerformance.map((period) => period.returnPct)),
   };
 }

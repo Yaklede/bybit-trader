@@ -839,3 +839,93 @@ Next improvement list:
 3. Expand active-day coverage beyond the current `14.86%` only with
    positive-expectancy setups; lower-quality coverage will increase MDD faster
    than CDR.
+
+## Portfolio Drawdown Throttle Pass 2026-07-02
+
+Source note: this pass used the same local three-year BTCUSDT dataset and the
+current config from the risk-allocation/profit-protect pass. The objective
+remained the `1,000,000 KRW -> 10,000,000,000 KRW` three-year target, requiring
+`0.84390%` compound daily return, while keeping the deployment drawdown gate at
+`40%` mark-to-market MDD.
+
+Implementation change:
+
+- Added portfolio-level drawdown controls to composite backtests:
+  `portfolioDrawdownThrottlePct`, `portfolioDrawdownRiskMultiplier`, and
+  `portfolioDrawdownCooldownDays`.
+- The throttle is based on closed-trade portfolio equity versus peak equity. If
+  realized drawdown is at or above the threshold, new accepted trades use the
+  configured risk multiplier.
+- The cooldown blocks new entries for the configured number of days after a
+  closed trade leaves realized portfolio drawdown at or above the threshold.
+- Exposed the fields through the composite backtest API request DTO.
+- Updated recursive/tuning scripts so portfolio throttle and cooldown variants
+  are searched and reported with `PORTFOLIO_DRAWDOWN_COOLDOWN` skip counts.
+
+Accepted config changes:
+
+- All seven current legs use uniform `riskFraction=0.136`.
+- `portfolioDrawdownThrottlePct=31`.
+- `portfolioDrawdownRiskMultiplier=0.25`.
+- `portfolioDrawdownCooldownDays=1`.
+
+Validated current result from `config/volume-flow-composite-current.json`:
+
+| Horizon | Final equity | Net return | Compound daily | Realized MDD | Mark-to-market MDD | Trades | Win rate | Profit factor | Expectancy R | Cooldown skips |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `37,147,044 KRW` | `3,614.70%` | `0.99257%` | `29.65%` | `37.93%` | `85` | `64.71%` | `2.71` | `0.41281R` | `0` |
+| 2 years | `1,366,388,044 KRW` | `136,538.80%` | `0.99257%` | `39.21%` | `39.89%` | `181` | `62.98%` | `2.69` | `0.39159R` | `1` |
+| 3 years | `6,742,664,126 KRW` | `674,166.41%` | `0.80690%` | `39.21%` | `39.89%` | `266` | `58.27%` | `2.69` | `0.34641R` | `8` |
+
+Comparison with the previous current:
+
+| Horizon | Previous final equity | New final equity | Previous compound daily | New compound daily | Previous MTM MDD | New MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 year | `21,029,973 KRW` | `37,147,044 KRW` | `0.83570%` | `0.99257%` | `28.51%` | `37.93%` |
+| 2 years | `456,645,741 KRW` | `1,366,388,044 KRW` | `0.84126%` | `0.99257%` | `39.97%` | `39.89%` |
+| 3 years | `2,578,793,786 KRW` | `6,742,664,126 KRW` | `0.71862%` | `0.80690%` | `39.97%` | `39.89%` |
+
+Rejected paths:
+
+- The focused throttle sweep found no deployable target hit. Its best
+  deployable candidate was `risk0.135_dd30_m0.25_d1`, reaching
+  `5,880,240,826 KRW`, `0.79433%` compound daily return, and `39.64622%`
+  mark-to-market MDD.
+- The micro sweep also found no deployable target hit. It improved the best
+  candidate to `risk0.136_dd31_m0.25_d1`, which is now promoted.
+- Raw target-hit candidates still exist, but they breach the deployment gate:
+  `risk0.143_dd32_m0.35_d1` reached `10,856,145,738 KRW` and `0.85068%`
+  compound daily return, but had `43.17942%` mark-to-market MDD.
+  `risk0.143_dd33_m0.3_d1` reached `10,364,413,003 KRW` and `0.84642%`
+  compound daily return, but had `42.39796%` mark-to-market MDD.
+- Portfolio throttle reduces the previous `49%+` raw-target drawdown problem,
+  but the last target-hit region is still roughly `2.4-3.2pp` above the current
+  `40%` mark-to-market gate.
+
+Decision:
+
+- Promote this candidate to current because it materially improves all
+  one-, two-, and three-year compound results while staying under the strict
+  `40%` mark-to-market deployment gate.
+- The target is still not reached. Current three-year compound daily return is
+  `0.80690%`, while `0.84390%` is required for `10,000x`. In equity terms, the
+  replay reaches about `6.74B KRW`, short of the `10B KRW` target.
+- The remaining blocker is no longer broad risk scaling. The same trade
+  sequence reaches the target only when risk is high enough to push
+  mark-to-market drawdown above the deployment gate.
+
+Next improvement list:
+
+1. Reduce the mark-to-market adverse excursion of the `0.142-0.143` raw-target
+   region by at least `3pp` without cutting the M5 trend-down target and runner
+   winners.
+2. Add a mark-to-market-aware risk throttle or entry blocker. The current
+   throttle only sees closed-trade equity, so it cannot react to in-position
+   adverse movement before the MTM gate is already breached.
+3. Test leg- and side-specific risk on top of the portfolio throttle. Uniform
+   `0.136` was the best deployable candidate in this pass, but the target-hit
+   gap likely needs finer risk concentration rather than another global risk
+   increase.
+4. Improve expectancy before further risk expansion. The promoted candidate's
+   three-year expectancy is `0.34641R`; raising risk alone now hits the MDD
+   ceiling before reaching the required CDR.

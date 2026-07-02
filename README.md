@@ -113,22 +113,23 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
 - Latest local BTCUSDT volume-flow snapshot: the current composite candidate in
-  `config/volume-flow-composite-current.json` uses leg-specific risk allocation:
-  `0.11` on the three M5 trend-down core legs, `0.09` on the range/up/assist
-  legs, and `0.12` on the high-volatility chop reversal leg. It applies
-  follow-through, breakeven, adverse-invalidation, and selected profit-protect
-  exits. On the local three-year dataset, the replay returned `257,779.38%` net
-  return, `0.71862%` compound daily return, `38.13%` realized max drawdown, and
-  `39.97%` mark-to-market max drawdown over 271 trades.
+  `config/volume-flow-composite-current.json` uses uniform `0.136` per-leg
+  risk with a portfolio drawdown throttle: after realized portfolio drawdown
+  reaches `31%`, new entries use `25%` of normal risk and a `1` day cooldown is
+  applied after closed-trade drawdown triggers. It applies follow-through,
+  breakeven, adverse-invalidation, and selected profit-protect exits. On the
+  local three-year dataset, the replay returned `674,166.41%` net return,
+  `0.80690%` compound daily return, `39.21%` realized max drawdown, and
+  `39.89%` mark-to-market max drawdown over 266 trades.
   Composite reports now split `BREAKEVEN_STOP` from full-risk `STOP` and expose
   `performanceByLegExit` for leg-by-exit diagnostics. `BREAKEVEN_STOP` is
   treated as a neutral defensive exit for loss-streak locks, and the tuning
   scripts penalize full-risk `STOP` separately from breakeven defense.
   This is improved but still below the `0.84390%` compound daily return required
   for `1,000,000 KRW -> 10,000,000,000 KRW` over three years. Raw target-hit
-  candidates now exist above `0.13` uniform risk, but they require roughly
-  `49%+` mark-to-market max drawdown and are not deployable under the current
-  `40%` gate. See
+  candidates now exist around `0.142-0.143` uniform risk, but they require
+  roughly `42%+` mark-to-market max drawdown and are not deployable under the
+  current `40%` gate. See
   `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year
   reproduction notes, accepted/rejected tuning paths, and the next improvement
   list. Source note: measured on

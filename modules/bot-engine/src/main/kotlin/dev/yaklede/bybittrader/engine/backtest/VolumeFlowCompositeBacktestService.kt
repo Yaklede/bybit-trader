@@ -244,6 +244,7 @@ private fun simulateSinglePositionComposite(
     var maxDrawdownPct = 0.0
     var markToMarketMaxDrawdownPct = 0.0
     var blockedUntil = Instant.MIN
+    var portfolioBlockedUntil = Instant.MIN
     var consecutiveLosses = 0
     val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
@@ -252,6 +253,10 @@ private fun simulateSinglePositionComposite(
         val sourceTrade = signal.trade
         if (!sourceTrade.setupAt.isAfter(blockedUntil)) {
             incrementCompositeReason("OVERLAPPING_POSITION", noTradeReasonCounts)
+            continue
+        }
+        if (!sourceTrade.setupAt.isAfter(portfolioBlockedUntil)) {
+            incrementCompositeReason("PORTFOLIO_DRAWDOWN_COOLDOWN", noTradeReasonCounts)
             continue
         }
         val dayState =
@@ -263,13 +268,15 @@ private fun simulateSinglePositionComposite(
             continue
         }
 
-        val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
+        val riskMultiplier = config.portfolioDrawdownRiskMultiplier(equity, peakEquity)
+        val trade = signal.toCompositeTrade(equity, riskMultiplier, noTradeReasonCounts) ?: continue
         val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
         markToMarketMaxDrawdownPct =
             maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
         equity += trade.pnl
         peakEquity = maxOf(peakEquity, equity)
         maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
+        portfolioBlockedUntil = config.nextPortfolioBlockedUntil(equity, peakEquity, sourceTrade.exitAt, portfolioBlockedUntil)
         consecutiveLosses = nextCompositeLossStreak(consecutiveLosses, trade)
 
         trades += trade
@@ -296,6 +303,7 @@ private fun simulateConcurrentComposite(
     var peakEquity = equity
     var maxDrawdownPct = 0.0
     var markToMarketMaxDrawdownPct = 0.0
+    var portfolioBlockedUntil = Instant.MIN
     var consecutiveLosses = 0
     val openTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val closedTrades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
@@ -307,6 +315,7 @@ private fun simulateConcurrentComposite(
         equity += trade.pnl
         peakEquity = maxOf(peakEquity, equity)
         maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
+        portfolioBlockedUntil = config.nextPortfolioBlockedUntil(equity, peakEquity, trade.exitAt, portfolioBlockedUntil)
         consecutiveLosses = nextCompositeLossStreak(consecutiveLosses, trade)
         closedTrades += trade
         dailyStates
@@ -330,6 +339,10 @@ private fun simulateConcurrentComposite(
         val sourceTrade = signal.trade
         closeMaturedTrades(sourceTrade.setupAt)
 
+        if (!sourceTrade.setupAt.isAfter(portfolioBlockedUntil)) {
+            incrementCompositeReason("PORTFOLIO_DRAWDOWN_COOLDOWN", noTradeReasonCounts)
+            continue
+        }
         if (openTrades.size >= config.maxConcurrentPositions) {
             incrementCompositeReason("OVERLAPPING_POSITION", noTradeReasonCounts)
             continue
@@ -354,7 +367,8 @@ private fun simulateConcurrentComposite(
             continue
         }
 
-        val trade = signal.toCompositeTrade(equity, noTradeReasonCounts) ?: continue
+        val riskMultiplier = config.portfolioDrawdownRiskMultiplier(equity, peakEquity)
+        val trade = signal.toCompositeTrade(equity, riskMultiplier, noTradeReasonCounts) ?: continue
         val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
         markToMarketMaxDrawdownPct =
             maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
@@ -379,6 +393,7 @@ private fun simulateConcurrentComposite(
 
 private fun CompositeSignal.toCompositeTrade(
     equity: Double,
+    riskMultiplier: Double,
     noTradeReasonCounts: MutableMap<String, Int>,
 ): VolumeFlowCompositeBacktestTrade? {
     val sourceTrade = trade
@@ -388,7 +403,8 @@ private fun CompositeSignal.toCompositeTrade(
         return null
     }
 
-    val riskAmount = equity * riskFraction
+    val effectiveRiskFraction = riskFraction * riskMultiplier
+    val riskAmount = equity * effectiveRiskFraction
     val quantity = riskAmount / riskPerUnit
     val quantityScale = if (sourceTrade.quantity <= 0.0) 0.0 else quantity / sourceTrade.quantity
     val grossPnl = sourceTrade.grossPnl * quantityScale
@@ -423,8 +439,8 @@ private fun CompositeSignal.toCompositeTrade(
         mfeCapturePct = mfeCapturePct,
         maxFavorablePrice = sourceTrade.maxFavorablePrice,
         maxAdversePrice = sourceTrade.maxAdversePrice,
-        maxUnrealizedProfitPct = sourceTrade.maxFavorableExcursionR * riskFraction * 100.0,
-        maxUnrealizedDrawdownPct = sourceTrade.maxAdverseExcursionR * riskFraction * 100.0,
+        maxUnrealizedProfitPct = sourceTrade.maxFavorableExcursionR * effectiveRiskFraction * 100.0,
+        maxUnrealizedDrawdownPct = sourceTrade.maxAdverseExcursionR * effectiveRiskFraction * 100.0,
         exitReason = sourceTrade.exitReason,
         marketRegime = sourceTrade.marketRegime,
         keyLevelType = sourceTrade.keyLevelType,
@@ -436,6 +452,35 @@ private fun CompositeSignal.toCompositeTrade(
         setupCloseLocation = sourceTrade.setupCloseLocation,
     )
 }
+
+private fun VolumeFlowCompositeBacktestConfig.portfolioDrawdownRiskMultiplier(
+    equity: Double,
+    peakEquity: Double,
+): Double =
+    if (portfolioDrawdownThrottlePct != null && portfolioDrawdownPct(equity, peakEquity) >= portfolioDrawdownThrottlePct) {
+        portfolioDrawdownRiskMultiplier
+    } else {
+        1.0
+    }
+
+private fun VolumeFlowCompositeBacktestConfig.nextPortfolioBlockedUntil(
+    equity: Double,
+    peakEquity: Double,
+    exitAt: Instant,
+    currentBlockedUntil: Instant,
+): Instant {
+    val throttlePct = portfolioDrawdownThrottlePct ?: return currentBlockedUntil
+    if (portfolioDrawdownCooldownDays <= 0) return currentBlockedUntil
+    if (portfolioDrawdownPct(equity, peakEquity) < throttlePct) return currentBlockedUntil
+
+    val nextBlockedUntil = exitAt.plus(Duration.ofDays(portfolioDrawdownCooldownDays.toLong()))
+    return if (nextBlockedUntil.isAfter(currentBlockedUntil)) nextBlockedUntil else currentBlockedUntil
+}
+
+private fun portfolioDrawdownPct(
+    equity: Double,
+    peakEquity: Double,
+): Double = if (peakEquity <= 0.0) 0.0 else ((peakEquity - equity) / peakEquity) * 100.0
 
 private data class CompositeSimulationResult(
     val finalEquity: Double,

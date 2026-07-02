@@ -486,6 +486,71 @@ class VolumeFlowBacktestServiceTest :
             result.maxConsecutiveLosses shouldBe 0
             result.performanceByLegExit.single().exitReason shouldBe VolumeFlowExitReason.BREAKEVEN_STOP
         }
+
+        "composite backtest reduces risk after portfolio drawdown throttle is reached" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(twoSignalThrottleCandles()))
+            val legConfig = testVolumeFlowConfig().copy(riskFraction = 0.05)
+
+            val base =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 40,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            maxConsecutiveLosses = 10,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+            val throttled =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 40,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            maxConsecutiveLosses = 10,
+                            portfolioDrawdownThrottlePct = 1.0,
+                            portfolioDrawdownRiskMultiplier = 0.5,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+
+            base.tradeCount shouldBe 2
+            throttled.tradeCount shouldBe 2
+            (base.trades[0].pnl < 0.0) shouldBe true
+            (base.trades[1].pnl > 0.0) shouldBe true
+            (throttled.trades[1].quantity < base.trades[1].quantity) shouldBe true
+            (throttled.trades[1].pnl < base.trades[1].pnl) shouldBe true
+        }
+
+        "composite backtest cooldown skips entries after portfolio drawdown throttle is reached" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(twoSignalThrottleCandles()))
+            val legConfig = testVolumeFlowConfig().copy(riskFraction = 0.05)
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 40,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            maxConsecutiveLosses = 10,
+                            portfolioDrawdownThrottlePct = 1.0,
+                            portfolioDrawdownCooldownDays = 1,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.noTradeReasonCounts["PORTFOLIO_DRAWDOWN_COOLDOWN"] shouldBe 1
+        }
     })
 
 private fun testVolumeFlowConfig(): VolumeFlowBacktestConfig =
@@ -532,6 +597,8 @@ private fun profitProtectVolumeFlowCandles(): List<Candle> =
 
 private fun failedBreakReversalCandles(): List<Candle> =
     failedBreakReversalM1Candles() + failedBreakReversalM5Candles() + volumeFlowM15Candles()
+
+private fun twoSignalThrottleCandles(): List<Candle> = twoSignalThrottleM1Candles() + twoSignalThrottleM5Candles() + volumeFlowM15Candles()
 
 private fun runnerVolumeFlowM1Candles(): List<Candle> =
     volumeFlowM1Candles().map { candle ->
@@ -678,6 +745,114 @@ private fun volumeFlowM5Candles(): List<Candle> =
                 close = close.toString(),
                 volume = volume,
             )
+        }
+    }
+
+private fun twoSignalThrottleM1Candles(): List<Candle> =
+    (0 until 120).map { index ->
+        when (index) {
+            65 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "112.0",
+                    high = "113.0",
+                    low = "111.8",
+                    close = "112.9",
+                    volume = "30",
+                )
+            66 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "112.9",
+                    high = "113.0",
+                    low = "103.0",
+                    close = "104.0",
+                    volume = "40",
+                )
+            80 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "122.0",
+                    high = "123.0",
+                    low = "121.8",
+                    close = "122.9",
+                    volume = "30",
+                )
+            81 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "122.9",
+                    high = "128.0",
+                    low = "122.8",
+                    close = "127.5",
+                    volume = "40",
+                )
+            else ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M1,
+                    seconds = 60L,
+                    open = "105",
+                    high = "106",
+                    low = "104",
+                    close = "105",
+                    volume = "10",
+                )
+        }
+    }
+
+private fun twoSignalThrottleM5Candles(): List<Candle> =
+    (0 until 40).map { index ->
+        when (index) {
+            12 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M5,
+                    seconds = 300L,
+                    open = "105",
+                    high = "112",
+                    low = "104",
+                    close = "111.5",
+                    volume = "60",
+                )
+            15 ->
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M5,
+                    seconds = 300L,
+                    open = "115",
+                    high = "122",
+                    low = "114",
+                    close = "121.5",
+                    volume = "300",
+                )
+            else -> {
+                val close = 100 + index.coerceAtMost(10)
+                val volume =
+                    when (index % 3) {
+                        0 -> "8"
+                        1 -> "10"
+                        else -> "12"
+                    }
+                volumeFlowCandle(
+                    index = index,
+                    timeframe = Timeframe.M5,
+                    seconds = 300L,
+                    open = close.toString(),
+                    high = (close + 1).toString(),
+                    low = (close - 1).toString(),
+                    close = close.toString(),
+                    volume = volume,
+                )
+            }
         }
     }
 
