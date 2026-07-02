@@ -9,6 +9,45 @@ const DEFAULT_LIMITS = {
   m15Limit: 105_216,
 };
 
+const FULL_REPLAY_LIMITS = {
+  m1Limit: 6_000_000,
+  m5Limit: 1_200_000,
+  m15Limit: 400_000,
+};
+
+const DEFAULT_SEGMENTS = [
+  {
+    id: "S1",
+    role: "stress-train",
+    replayStartAt: "2020-03-25T10:36:00Z",
+    replayEndAt: "2021-10-18T23:59:59Z",
+  },
+  {
+    id: "S2",
+    role: "stress-validation",
+    replayStartAt: "2021-10-19T00:00:00Z",
+    replayEndAt: "2023-05-28T23:59:59Z",
+  },
+  {
+    id: "S3",
+    role: "validation",
+    replayStartAt: "2023-05-29T00:00:00Z",
+    replayEndAt: "2024-12-31T23:59:59Z",
+  },
+  {
+    id: "S4",
+    role: "validation",
+    replayStartAt: "2025-01-01T00:00:00Z",
+    replayEndAt: "2026-07-02T05:40:00Z",
+  },
+  {
+    id: "FULL",
+    role: "final-gate",
+    replayStartAt: "2020-03-25T10:36:00Z",
+    replayEndAt: "2026-07-02T05:40:00Z",
+  },
+];
+
 const args = parseArgs(process.argv.slice(2));
 const apiBase = args.api ?? process.env.VOLUME_FLOW_API ?? "http://127.0.0.1:18080";
 const token = args.token ?? process.env.BOT_CONTROL_TOKEN ?? "local-test-token";
@@ -22,6 +61,13 @@ const targetMultiple = Number(args.targetMultiple ?? 10_000);
 const targetDays = Number(args.days ?? 1096);
 const maxDeployableDrawdownPct = Number(args.maxDeployableDrawdownPct ?? 40);
 const maxDeployableConsecutiveLosses = Number(args.maxDeployableConsecutiveLosses ?? 20);
+const segmented = args.segmented === "true";
+const segments = args.segments == null ? DEFAULT_SEGMENTS : JSON.parse(await fs.readFile(args.segments, "utf8"));
+const defaultReplayLimits = segmented ? FULL_REPLAY_LIMITS : DEFAULT_LIMITS;
+const minSegmentReturnPct = Number(args.minSegmentReturnPct ?? 0);
+const minSegmentExpectancyR = Number(args.minSegmentExpectancyR ?? 0);
+const minSegmentProfitFactor = Number(args.minSegmentProfitFactor ?? 1);
+const minSegmentTrades = Number(args.minSegmentTrades ?? 1);
 const targetCompoundDailyReturnPct = (Math.pow(targetMultiple, 1 / targetDays) - 1) * 100;
 
 const baseConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
@@ -39,6 +85,7 @@ console.log(
     `beam=${beam}`,
     `maxPerRound=${maxPerRound}`,
     `maxDeployableDrawdownPct=${maxDeployableDrawdownPct}`,
+    `segmented=${segmented}`,
   ].join(" "),
 );
 
@@ -765,24 +812,12 @@ function legPatches(leg) {
 }
 
 async function runComposite(variant, round) {
+  if (segmented) {
+    return runSegmentedComposite(variant, round);
+  }
+
   try {
-    const response = await fetch(`${apiBase}/backtests/volume-flow/composite/run`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(variant.config),
-    });
-    const body = await response.text();
-    if (!response.ok) {
-      return {
-        name: variant.name,
-        round,
-        error: `HTTP ${response.status}: ${body.slice(0, 500)}`,
-      };
-    }
-    const report = JSON.parse(body);
+    const report = await requestComposite(variant.config);
     const summary = summarize(report);
     return {
       name: variant.name,
@@ -802,6 +837,77 @@ async function runComposite(variant, round) {
   }
 }
 
+async function runSegmentedComposite(variant, round) {
+  try {
+    const segmentResults = [];
+    for (const segment of segments) {
+      const report = await requestComposite({
+        ...variant.config,
+        replayStartAt: segment.replayStartAt,
+        replayEndAt: segment.replayEndAt,
+        tradeLimit: 0,
+        equityCurveLimit: 0,
+        drawdownEventLimit: 20,
+      });
+      const summary = summarize(report);
+      segmentResults.push({
+        id: segment.id,
+        role: segment.role,
+        replayStartAt: segment.replayStartAt,
+        replayEndAt: segment.replayEndAt,
+        passed: segmentRejectionReasons(summary).length === 0,
+        rejectionReasons: segmentRejectionReasons(summary),
+        summary,
+      });
+    }
+
+    const fullSegment = segmentResults.find((segment) => segment.id === "FULL") ?? segmentResults.at(-1);
+    const summary = {
+      ...fullSegment.summary,
+      worstSegmentReturnPct: Math.min(...segmentResults.map((segment) => segment.summary.netReturnPct)),
+      worstSegmentCompoundDailyReturnPct: Math.min(
+        ...segmentResults.map((segment) => segment.summary.compoundDailyReturnPct),
+      ),
+      worstSegmentMarkToMarketMaxDrawdownPct: Math.max(
+        ...segmentResults.map((segment) => segment.summary.markToMarketMaxDrawdownPct),
+      ),
+      failingSegments: segmentResults.filter((segment) => !segment.passed).map((segment) => segment.id),
+    };
+    return {
+      name: variant.name,
+      round,
+      rawTargetHit: summary.compoundDailyReturnPct >= targetCompoundDailyReturnPct,
+      deployableTargetHit: passesSegmentedDeployableTarget(summary, segmentResults),
+      score: segmentedScore(summary, segmentResults),
+      summary,
+      segmentResults,
+      config: variant.config,
+    };
+  } catch (error) {
+    return {
+      name: variant.name,
+      round,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function requestComposite(config) {
+  const response = await fetch(`${apiBase}/backtests/volume-flow/composite/run`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(config),
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${body.slice(0, 500)}`);
+  }
+  return JSON.parse(body);
+}
+
 function passesDeployableTarget(summary, report) {
   const deployableDrawdownPct = deploymentDrawdownPct(summary);
   return (
@@ -809,6 +915,15 @@ function passesDeployableTarget(summary, report) {
     deployableDrawdownPct <= maxDeployableDrawdownPct &&
     summary.maxConsecutiveLosses <= maxDeployableConsecutiveLosses &&
     report.walkForwardPerformance.every((period) => period.returnPct > 0)
+  );
+}
+
+function passesSegmentedDeployableTarget(summary, segmentResults) {
+  return (
+    summary.compoundDailyReturnPct >= targetCompoundDailyReturnPct &&
+    deploymentDrawdownPct(summary) <= maxDeployableDrawdownPct &&
+    summary.maxConsecutiveLosses <= maxDeployableConsecutiveLosses &&
+    segmentResults.every((segment) => segment.passed)
   );
 }
 
@@ -831,6 +946,57 @@ function score(summary, report) {
     exitRiskPenalty(report, 800, 120, 300, 80) -
     Math.max(0, summary.maxConsecutiveLosses - 8) * 2_000
   );
+}
+
+function segmentedScore(summary, segmentResults) {
+  const rawTargetBonus = summary.compoundDailyReturnPct >= targetCompoundDailyReturnPct ? 1_000_000 : 0;
+  const deployableBonus = passesSegmentedDeployableTarget(summary, segmentResults) ? 3_000_000 : 0;
+  const failedSegmentPenalty = segmentResults.filter((segment) => !segment.passed).length * 750_000;
+  const rejectionPenalty =
+    segmentResults.reduce((total, segment) => total + segment.rejectionReasons.length, 0) * 125_000;
+  const worstSegmentCdr = Math.min(...segmentResults.map((segment) => segment.summary.compoundDailyReturnPct));
+  const medianSegmentCdr = median(segmentResults.map((segment) => segment.summary.compoundDailyReturnPct));
+  const worstSegmentMdd = Math.max(...segmentResults.map((segment) => segment.summary.markToMarketMaxDrawdownPct));
+  const worstSegmentExpectancy = Math.min(...segmentResults.map((segment) => segment.summary.expectancyR));
+  const drawdownOverGate = Math.max(0, worstSegmentMdd - maxDeployableDrawdownPct);
+  return (
+    rawTargetBonus +
+    deployableBonus +
+    summary.compoundDailyReturnPct * 350_000 +
+    medianSegmentCdr * 250_000 +
+    worstSegmentCdr * 500_000 +
+    worstSegmentExpectancy * 100_000 +
+    (summary.profitFactor ?? 0) * 500 +
+    summary.activeDayCoveragePct * 80 -
+    worstSegmentMdd * 800 -
+    drawdownOverGate * 25_000 -
+    failedSegmentPenalty -
+    rejectionPenalty -
+    Math.max(0, summary.maxConsecutiveLosses - maxDeployableConsecutiveLosses) * 10_000
+  );
+}
+
+function segmentRejectionReasons(summary) {
+  const reasons = [];
+  if (summary.tradeCount < minSegmentTrades) {
+    reasons.push(`TRADE_COUNT_LT_${minSegmentTrades}`);
+  }
+  if (summary.netReturnPct < minSegmentReturnPct) {
+    reasons.push(`RETURN_LT_${minSegmentReturnPct}`);
+  }
+  if (summary.expectancyR <= minSegmentExpectancyR) {
+    reasons.push(`EXPECTANCY_LE_${minSegmentExpectancyR}`);
+  }
+  if (summary.profitFactor != null && summary.profitFactor < minSegmentProfitFactor) {
+    reasons.push(`PROFIT_FACTOR_LT_${minSegmentProfitFactor}`);
+  }
+  if (deploymentDrawdownPct(summary) > maxDeployableDrawdownPct) {
+    reasons.push(`MDD_GT_${maxDeployableDrawdownPct}`);
+  }
+  if (summary.maxConsecutiveLosses > maxDeployableConsecutiveLosses) {
+    reasons.push(`LOSS_STREAK_GT_${maxDeployableConsecutiveLosses}`);
+  }
+  return reasons;
 }
 
 function exitRiskPenalty(report, fullRiskStopWeight, breakevenStopWeight, adverseInvalidationWeight, profitProtectWeight) {
@@ -899,7 +1065,7 @@ function namedVariant(name, config) {
 function withRunDefaults(config) {
   return {
     ...structuredClone(config),
-    ...DEFAULT_LIMITS,
+    ...defaultReplayLimits,
     initialEquity,
     tradeLimit: 0,
   };
@@ -954,7 +1120,24 @@ function toPrintableResult(result) {
     deployableTargetHit: result.deployableTargetHit,
     score: Number(result.score.toFixed(5)),
     ...result.summary,
+    segmentResults:
+      result.segmentResults?.map((segment) => ({
+        id: segment.id,
+        passed: segment.passed,
+        rejectionReasons: segment.rejectionReasons,
+        compoundDailyReturnPct: segment.summary.compoundDailyReturnPct,
+        markToMarketMaxDrawdownPct: segment.summary.markToMarketMaxDrawdownPct,
+        netReturnPct: segment.summary.netReturnPct,
+        expectancyR: segment.summary.expectancyR,
+      })) ?? undefined,
   };
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  if (sorted.length === 0) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 function nearby(current, values) {
