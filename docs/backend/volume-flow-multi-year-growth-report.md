@@ -1452,3 +1452,53 @@ Decision:
 - The next tuning loop should search for an S2 market-phase filter that keeps
   `m1_trend_up_breakout_scalp` during S3/S4-like conditions while disabling it
   during S2 counter-trend bounce conditions.
+
+## Macro Trend Filter Pass 2026-07-03
+
+Source note: this pass kept `config/volume-flow-composite-current.json` as the
+trading baseline and added a disabled-by-default macro trend alignment control
+for research. The new fields are:
+
+- `requireMacroTrendAlignment`
+- `macroTrendLookbackM15Candles`
+- `minMacroTrendMovePct`
+
+Baseline reproduction on the full available candle replay:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `baseline` | `378,668.16290%` | `0.36029%` | `45.53147%` | `404` | `2.43577` | `0.23635R` |
+
+Rejected full-history candidates:
+
+| Candidate | Full return | Full CDR | Full MTM MDD | Trades | Max losses | Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `macro_all_l96_m0.01` | `372,368.81853%` | `0.35956%` | `45.53147%` | `363` | `8` | Rejected: lower CDR than baseline |
+| `clone_close_1` | `663,965.31583%` | `0.38489%` | `48.76261%` | `461` | `10` | Rejected: higher risk without target hit |
+| `macro_all_clone_close` | `902,399.99483%` | `0.39834%` | `48.76261%` | `415` | `10` | Rejected after segmented gate |
+| `throttle20_mult05` | `494,344.15277%` | `0.37197%` | `55.64739%` | `405` | `8` | Rejected: drawdown expansion |
+| `range_maxrv_12` | `351,792.49042%` | `0.35707%` | `45.53147%` | `400` | `8` | Rejected: lower CDR than baseline |
+
+Segmented gate for the best CDR candidate, `macro_all_clone_close`:
+
+| Segment | Return | CDR | MTM MDD | Expectancy R | Trades | Pass |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| S1 | `0.45313%` | `0.00079%` | `48.76261%` | `0.03464R` | `32` | FAIL |
+| S2 | `-0.28341%` | `-0.00048%` | `44.03820%` | `0.02678R` | `134` | FAIL |
+| S3 | `44,306.75970%` | `1.05111%` | `33.36664%` | `0.52005R` | `127` | PASS |
+| S4 | `2,446.44002%` | `0.59249%` | `39.82097%` | `0.35080R` | `122` | FAIL |
+| FULL | `902,399.99483%` | `0.39834%` | `48.76261%` | `0.27359R` | `415` | FAIL |
+
+Decision:
+
+- Do not promote a new trading config yet. `config/volume-flow-composite-current.json`
+  remains unchanged.
+- Keep the macro trend filter as a first-class research control because it lets
+  future S1/S2 phase filters be expressed without date hard-coding.
+- The tested macro filters reduce trade count and sometimes increase
+  expectancy, but they remove too many S3/S4 high-convexity shorts to improve
+  the full compound curve.
+- Do not cap `m1_trend_up_breakout_scalp` or `range_failed_break_loose` by
+  relative volume in the current config. The best RV cap still underperformed
+  baseline (`range_maxrv_12` at `0.35707%` CDR), and tighter M1-up caps worsened
+  drawdown by removing the S1 survival winner.

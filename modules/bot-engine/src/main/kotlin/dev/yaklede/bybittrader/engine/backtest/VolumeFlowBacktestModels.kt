@@ -24,6 +24,9 @@ data class VolumeFlowBacktestConfig(
     val contextVwapLookback: Int = 32,
     val requireContextVwap: Boolean = true,
     val requireContextTrend: Boolean = true,
+    val requireMacroTrendAlignment: Boolean = false,
+    val macroTrendLookbackM15Candles: Int = 192,
+    val minMacroTrendMovePct: Double = 0.0,
     val allowedMarketRegimes: Set<VolumeFlowMarketRegime> = defaultVolumeFlowMarketRegimes,
     val requireRegimeSideAlignment: Boolean = false,
     val minTrendMovePct: Double = 0.003,
@@ -79,6 +82,12 @@ data class VolumeFlowBacktestConfig(
         require(setupRangeLookback > 1) { "Setup range lookback must be greater than 1." }
         require(m5VwapLookback > 1) { "M5 VWAP lookback must be greater than 1." }
         require(contextVwapLookback > 1) { "Context VWAP lookback must be greater than 1." }
+        require(macroTrendLookbackM15Candles in 16..2_000) {
+            "Macro trend lookback must be between 16 and 2000 M15 candles."
+        }
+        require(minMacroTrendMovePct >= 0.0 && minMacroTrendMovePct <= 0.50) {
+            "Minimum macro trend move percent must be between 0 and 0.50."
+        }
         require(allowedMarketRegimes.isNotEmpty()) { "Allowed market regimes must not be empty." }
         require(minTrendMovePct >= 0.0 && minTrendMovePct <= 0.05) {
             "Minimum trend move percent must be between 0 and 0.05."

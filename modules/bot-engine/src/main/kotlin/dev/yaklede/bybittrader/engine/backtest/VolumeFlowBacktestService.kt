@@ -146,6 +146,12 @@ class VolumeFlowBacktestService(
                 continue
             }
 
+            if (!macroTrendAllows(m15Timeline, setupCandle.openedAt, candidate.side, config)) {
+                rejectedSetupCount += 1
+                incrementReason("MACRO_TREND_REJECTED", noTradeReasonCounts)
+                continue
+            }
+
             val entry = findEntry(m1Timeline, setupCandle, candidate, config)
             if (entry == null) {
                 rejectedSetupCount += 1
@@ -600,6 +606,25 @@ class VolumeFlowBacktestService(
             requireVwap = config.requireContextVwap,
             requireTrend = config.requireContextTrend,
         )
+    }
+
+    private fun macroTrendAllows(
+        m15Timeline: CandleTimeline,
+        setupAt: Instant,
+        side: Side,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean {
+        if (!config.requireMacroTrendAlignment) return true
+        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.macroTrendLookbackM15Candles)
+        if (contextCandles.size < config.macroTrendLookbackM15Candles) return false
+        val firstClose = contextCandles.first().close.toDouble()
+        val latestClose = contextCandles.last().close.toDouble()
+        if (firstClose <= 0.0 || latestClose <= 0.0) return false
+        val movePct = (latestClose - firstClose) / firstClose
+        return when (side) {
+            Side.BUY -> movePct >= config.minMacroTrendMovePct
+            Side.SELL -> movePct <= -config.minMacroTrendMovePct
+        }
     }
 
     private fun contextRangeAllows(

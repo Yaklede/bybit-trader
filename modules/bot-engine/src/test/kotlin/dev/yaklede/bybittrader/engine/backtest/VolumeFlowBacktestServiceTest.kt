@@ -34,6 +34,14 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Minimum context quote volume must be null or positive."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(macroTrendLookbackM15Candles = 15)
+            }.message shouldBe "Macro trend lookback must be between 16 and 2000 M15 candles."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(minMacroTrendMovePct = 0.51)
+            }.message shouldBe "Minimum macro trend move percent must be between 0 and 0.50."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
 
@@ -81,6 +89,30 @@ class VolumeFlowBacktestServiceTest :
             result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
             result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
+        }
+
+        "macro trend alignment rejects setups against the longer M15 direction" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(macroDownVolumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig()
+                            .copy(
+                                requireContextVwap = false,
+                                requireContextTrend = false,
+                                requireMacroTrendAlignment = true,
+                                macroTrendLookbackM15Candles = 16,
+                            ),
+                )
+
+            result.setupCount shouldBe 1
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["MACRO_TREND_REJECTED"] shouldBe 1
         }
 
         "does not enter when 1m data starts after the setup entry window" {
@@ -713,6 +745,8 @@ private class InMemoryVolumeFlowCandleStore(
 
 private fun volumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
+private fun macroDownVolumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + macroDownM15Candles()
+
 private fun runnerVolumeFlowCandles(): List<Candle> = runnerVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 
 private fun trendBreakVolumeFlowCandles(): List<Candle> = trendBreakVolumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
@@ -1041,6 +1075,21 @@ private fun failedBreakReversalM5Candles(): List<Candle> =
 private fun volumeFlowM15Candles(): List<Candle> =
     (0 until 30).map { index ->
         val close = 100 + index.coerceAtMost(5)
+        volumeFlowCandle(
+            index = index,
+            timeframe = Timeframe.M15,
+            seconds = 900L,
+            open = close.toString(),
+            high = (close + 2).toString(),
+            low = (close - 2).toString(),
+            close = close.toString(),
+            volume = "20",
+        )
+    }
+
+private fun macroDownM15Candles(): List<Candle> =
+    (0 until 30).map { index ->
+        val close = 130 - index
         volumeFlowCandle(
             index = index,
             timeframe = Timeframe.M15,
