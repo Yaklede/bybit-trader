@@ -1,5 +1,55 @@
 # Volume Flow Tuning Log
 
+## 2026-07-02 Stress-Recovery Throttle Retune
+
+Source note: measured against
+`build/runtime-test/bybit-trader-full-history.sqlite`, covering
+`2020-03-25T10:36:00Z` to `2026-07-02T05:40:00Z`. These numbers are local
+backtest outputs, not live-trading return guarantees.
+
+This pass keeps the volume-flow strategy focused on realized compound equity,
+not raw win rate. The accepted config changes are:
+
+- Lower `range_failed_break_loose.riskFraction` from `0.148` to `0.12`.
+- Relax M5 fixed trend-down follow-through from `0.45R` to `0.35R` at the
+  existing `8` M1 candle check. Tighter checks cut too many eventual winners.
+- Move portfolio drawdown throttle from `30% / 0.2x` to `20% / 0.3x` with the
+  existing `1` day cooldown.
+
+Accepted segmented result:
+
+| Segment | Return | Compound daily return | MDD | Trades | Profit factor | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `S1 2020-03-25..2021-10-18` | `7.04%` | `0.01187%` | `45.40%` | `30` | `1.065` | `0.0772R` |
+| `S2 2021-10-19..2023-05-28` | `1.62%` | `0.00273%` | `47.06%` | `140` | `1.006` | `0.0243R` |
+| `S3 2023-05-29..2024-12-31` | `8141.55%` | `0.75961%` | `32.19%` | `129` | `2.900` | `0.3882R` |
+| `S4 2025-01-01..2026-07-02` | `4794.77%` | `0.71252%` | `33.74%` | `111` | `2.433` | `0.3558R` |
+| `FULL` | `327860.52%` | `0.35399%` | `45.40%` | `403` | `2.438` | `0.2328R` |
+
+Compared with the previous current config, FULL CDR improves
+`0.32676% -> 0.35399%`, S1 improves `-0.84% -> 7.04%`, and S2 improves
+`-13.92% -> 1.62%`. MDD improves only modestly (`46.41% -> 45.40%`), so the
+`0.8%` CDR and 30-40% MDD target is still not complete.
+
+Rejected paths from this pass:
+
+- `SCALE_OUT_RUNNER` style partial scale-out was tested across m1 assist,
+  trend-down, trend-only, and all-leg groups. The best full replay remained the
+  baseline; broad scale-out lowered CDR or pushed MDD above 50%.
+- Tighter m1-down, chop, and range adverse exits generally cut large recovery
+  trades faster than they reduced stop losses.
+- M5 trend-up mirror and coverage legs increased trade count but lowered edge;
+  the best checked mirror still underperformed the current base and several
+  variants raised MDD above 50%.
+- A stricter throttle (`20% / 0.2x / 1 day`) lowered FULL MDD to `40.33%` but
+  left S2 negative and reduced CDR to `0.34209%`. It is a viable defensive
+  preset, not the active growth config.
+
+Current diagnosis: the strategy now avoids the previous negative S1/S2
+walk-forward result, but FULL CDR remains far below `0.8%`. The next useful
+axis is not broader mirrored coverage; it is a higher-quality long-side or
+range-continuation setup that proves positive by segment before adding risk.
+
 ## 2026-07-02 Full-Candle Segmented Retune
 
 Source note: measured against

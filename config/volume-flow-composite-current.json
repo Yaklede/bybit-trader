@@ -40,7 +40,7 @@
       "targetR": 1.2,
       "exitMode": "FIXED_TARGET",
       "followThroughCheckM1Candles": 8,
-      "minFollowThroughR": 0.45,
+      "minFollowThroughR": 0.35,
       "maxHoldM1Candles": 35
     },
     {
@@ -71,7 +71,7 @@
       "targetR": 1.5,
       "exitMode": "FIXED_TARGET",
       "followThroughCheckM1Candles": 8,
-      "minFollowThroughR": 0.45,
+      "minFollowThroughR": 0.35,
       "breakevenTriggerR": 0.65,
       "maxHoldM1Candles": 35
     },
@@ -112,7 +112,7 @@
     },
     {
       "id": "range_failed_break_loose",
-      "riskFraction": 0.148,
+      "riskFraction": 0.12,
       "setupMode": "FAILED_BREAK_REVERSAL",
       "entryMode": "SETUP_CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -264,7 +264,7 @@
     }
   ],
   "tradeLimit": 0,
-  "portfolioDrawdownThrottlePct": 30,
-  "portfolioDrawdownRiskMultiplier": 0.2,
+  "portfolioDrawdownThrottlePct": 20,
+  "portfolioDrawdownRiskMultiplier": 0.3,
   "portfolioDrawdownCooldownDays": 1
 }
