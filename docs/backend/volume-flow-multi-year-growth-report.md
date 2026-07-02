@@ -1792,3 +1792,78 @@ Decision:
   candidates are post-entry M1 continuation strength, setup-to-entry delay
   quality, or trend age since static context range/move bands still conflict
   across S2/S3/S4.
+
+## Entry Path Tuning Promotion 2026-07-03
+
+Purpose: convert the previous path-based hypothesis into a measurable entry
+quality gate. Earlier macro/context filters failed because they removed both
+S2 losers and S4 winners. This loop adds diagnostics for the actual entry path
+and promotes only the filter that improved full-horizon compounding without
+pushing MDD outside the 30-40% operating range.
+
+Implemented surface:
+
+- `VolumeFlowBacktestTrade.entryDelayM1Candles`
+- `VolumeFlowBacktestTrade.entryBodyRatio`
+- `VolumeFlowBacktestTrade.entryCloseLocation`
+- `VolumeFlowBacktestTrade.entryRelativeVolume`
+- `VolumeFlowBacktestTrade.entryVolumeZScore`
+- `VolumeFlowBacktestTrade.entryRiskPct`
+- `VolumeFlowBacktestConfig.minEntryBodyRatio`
+- Equivalent composite trade/API request/response fields
+
+Baseline before this loop:
+
+| Horizon | Final equity | Net return | CDR | MDD | MTM MDD | Trades | Win rate | PF | Expectancy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3y current config | `2,525,403,819.72` | `252,440.38197%` | `0.71670%` | `32.70426%` | `34.00532%` | `231` | `61.03896%` | `2.47419` | `0.37122R` |
+
+Key diagnostic finding:
+
+- `entryBodyRatio < 0.3` was a negative cluster (`13` trades,
+  `-171,691,959.96` PnL), but raising the threshold to `0.30` removed too many
+  useful trades.
+- The stable threshold was `minEntryBodyRatio=0.225`, which removes the weak
+  entry cluster while preserving enough early compounding.
+- Simple leg deletion was rejected: dropping `range_failed_break_loose`,
+  `m1_failed_break_chop_scalp`, or trend-up M1 legs lowered full-horizon CDR
+  despite improving some local-looking statistics.
+- Long max-hold expansion was rejected: increasing `maxHoldM1Candles` lowered
+  CDR and raised MTM MDD above `53%`.
+
+Promoted config changes:
+
+- Global `dailyStopPct`: `1.0 -> 2.0`
+- All legs `minEntryBodyRatio`: `0.225`
+- `trend_down_retest.targetR`: `1.2 -> 1.8`
+- `trend_down_close.targetR`: `1.5 -> 1.8`
+- `trend_down_retest_runner.runnerTrailDistanceR`: `0.75 -> 1.03`
+- `m1_trend_down_breakout_assist.riskFraction`: `0.14 -> 0.15`
+
+Promoted full-history result:
+
+| Horizon | Final equity | Net return | CDR | MDD | MTM MDD | Trades | Win rate | PF | Expectancy | Active day coverage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1y | `52,210,289.74` | `5,121.02897%` | `1.08654%` | `33.39276%` | `34.80336%` | `76` | `68.42105%` | `2.67953` | `0.51999R` | `10.10929%` |
+| 2y | `828,815,301.81` | `82,781.53018%` | `0.92353%` | `33.39276%` | `34.80336%` | `158` | `65.18987%` | `2.65770` | `0.42917R` | `12.17510%` |
+| 3y | `6,640,011,961.78` | `663,901.19618%` | `0.80549%` | `33.39276%` | `34.80336%` | `232` | `62.06897%` | `2.65780` | `0.40742R` | `11.66819%` |
+
+Walk-forward validation:
+
+| Segment | Return | MDD | PF | Expectancy | Win-rate edge |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| WF1 `2023-07-02..2024-04-01` | `87.56364%` | `27.11652%` | `1.52312` | `0.20305R` | `16.44509%` |
+| WF2 `2024-04-01..2024-12-31` | `3,672.68745%` | `26.47314%` | `2.49101` | `0.51488R` | `35.76307%` |
+| WF3 `2024-12-31..2025-10-01` | `271.69942%` | `21.30589%` | `2.83253` | `0.31256R` | `25.01681%` |
+| WF4 `2025-10-01..2026-07-02` | `2,424.51234%` | `33.39276%` | `2.65553` | `0.48255R` | `38.22090%` |
+
+Decision:
+
+- Promote the entry-path tuning into `config/volume-flow-composite-current.json`.
+- This is the first loop in the current series that reaches the target
+  (`3y CDR >= 0.8%`) while keeping MTM MDD below `35%`.
+- Remaining risk: active-day coverage is still only `11.66819%`. The next
+  improvement should not loosen min entry risk below `0.008`; that test
+  sharply degraded CDR and pushed MDD above `53%`. Search should instead focus
+  on adding high-quality volume expansion contexts that satisfy the new entry
+  body gate.

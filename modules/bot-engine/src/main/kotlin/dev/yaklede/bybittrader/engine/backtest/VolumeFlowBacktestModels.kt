@@ -46,6 +46,7 @@ data class VolumeFlowBacktestConfig(
     val minRejectionWickRatio: Double = 0.25,
     val entryLookaheadM1Candles: Int = 5,
     val entryRetestTolerancePct: Double = 0.0015,
+    val minEntryBodyRatio: Double? = null,
     val minEntryRiskPct: Double? = null,
     val maxEntryRiskPct: Double? = null,
     val maxEstimatedFeeR: Double = 0.2,
@@ -137,6 +138,9 @@ data class VolumeFlowBacktestConfig(
         require(minRejectionWickRatio in 0.0..1.0) { "Minimum rejection wick ratio must be between 0 and 1." }
         require(entryLookaheadM1Candles in 1..30) { "Entry lookahead must be between 1 and 30 candles." }
         require(entryRetestTolerancePct in 0.0..0.02) { "Entry retest tolerance must be between 0 and 0.02." }
+        require(minEntryBodyRatio == null || minEntryBodyRatio in 0.0..1.0) {
+            "Minimum entry body ratio must be null or between 0 and 1."
+        }
         require(minEntryRiskPct == null || minEntryRiskPct in 0.0..0.05) {
             "Minimum entry risk percent must be null or between 0 and 0.05."
         }
@@ -379,6 +383,12 @@ data class VolumeFlowBacktestTrade(
     val contextTrendEfficiency: Double?,
     val contextRangePct: Double?,
     val contextQuoteVolume: Double?,
+    val entryDelayM1Candles: Int,
+    val entryBodyRatio: Double,
+    val entryCloseLocation: Double,
+    val entryRelativeVolume: Double?,
+    val entryVolumeZScore: Double?,
+    val entryRiskPct: Double,
     val maxFavorableExcursionR: Double,
     val maxAdverseExcursionR: Double,
     val mfeCapturePct: Double?,

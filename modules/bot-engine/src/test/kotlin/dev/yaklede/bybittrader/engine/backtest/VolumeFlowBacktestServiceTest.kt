@@ -61,6 +61,10 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Macro trend mismatch risk multiplier must be between 0 and 1."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(minEntryBodyRatio = 1.1)
+            }.message shouldBe "Minimum entry body ratio must be null or between 0 and 1."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
 
@@ -109,6 +113,11 @@ class VolumeFlowBacktestServiceTest :
             (result.trades.single().contextTrendEfficiency!! in 0.0..1.0) shouldBe true
             (result.trades.single().contextRangePct!! > 0.0) shouldBe true
             (result.trades.single().contextQuoteVolume!! > 0.0) shouldBe true
+            (result.trades.single().entryDelayM1Candles >= 0) shouldBe true
+            (result.trades.single().entryBodyRatio in 0.0..1.0) shouldBe true
+            (result.trades.single().entryCloseLocation in 0.0..1.0) shouldBe true
+            (result.trades.single().entryRelativeVolume!! > 0.0) shouldBe true
+            (result.trades.single().entryRiskPct > 0.0) shouldBe true
             result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
             result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
@@ -606,6 +615,10 @@ class VolumeFlowBacktestServiceTest :
             (result.markToMarketMaxDrawdownPct >= result.maxDrawdownPct) shouldBe true
             (result.averageMaxFavorableExcursionR > 0.0) shouldBe true
             (result.trades.single().maxUnrealizedProfitPct > 0.0) shouldBe true
+            (result.trades.single().entryDelayM1Candles >= 0) shouldBe true
+            (result.trades.single().entryBodyRatio in 0.0..1.0) shouldBe true
+            (result.trades.single().entryCloseLocation in 0.0..1.0) shouldBe true
+            (result.trades.single().entryRiskPct > 0.0) shouldBe true
             result.equityCurve.single().sequence shouldBe 1
             result.equityCurve.single().endingEquity shouldBe result.finalEquity
             result.equityCurve.single().legId shouldBe "primary"

@@ -235,6 +235,12 @@ class VolumeFlowBacktestService(
                     contextTrendEfficiency = contextQuality?.efficiency,
                     contextRangePct = contextQuality?.rangePct,
                     contextQuoteVolume = contextQuality?.quoteVolume,
+                    entryDelayM1Candles = entry.delayM1Candles,
+                    entryBodyRatio = entry.shape.bodyRatio,
+                    entryCloseLocation = entry.shape.closeLocation,
+                    entryRelativeVolume = entry.relativeVolume,
+                    entryVolumeZScore = entry.volumeZScore,
+                    entryRiskPct = entryRiskPct,
                     maxFavorableExcursionR = exit.maxFavorableExcursionR,
                     maxAdverseExcursionR = exit.maxAdverseExcursionR,
                     mfeCapturePct = mfeCapturePct,
@@ -876,6 +882,9 @@ class VolumeFlowBacktestService(
         if (config.entryMode == VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION) {
             val entryIndex = startIndex - 1
             if (entryIndex < 0) return null
+            val entryCandle = m1Candles[entryIndex]
+            val entryShape = VolumeFlowIndicators.candleShape(entryCandle)
+            if (config.minEntryBodyRatio != null && entryShape.bodyRatio < config.minEntryBodyRatio) return null
             val rawEntryPrice = setupCandle.close.toDouble()
             val entryPrice =
                 when (candidate.side) {
@@ -897,7 +906,11 @@ class VolumeFlowBacktestService(
                 side = candidate.side,
                 entryAt = setupClosedAt,
                 entryIndex = entryIndex,
-                entryCandle = m1Candles[entryIndex],
+                entryCandle = entryCandle,
+                delayM1Candles = 0,
+                shape = entryShape,
+                relativeVolume = relativeVolumeAt(m1Candles, entryIndex, config.volumeLookback),
+                volumeZScore = volumeZScoreAt(m1Candles, entryIndex, config.volumeLookback),
                 entryPrice = entryPrice,
                 stopPrice = stopPrice,
                 targetPrice = targetPrice,
@@ -909,6 +922,7 @@ class VolumeFlowBacktestService(
             val candle = m1Candles[index]
             if (candle.openedAt.isAfter(latestEntryAt)) return null
             val shape = VolumeFlowIndicators.candleShape(candle)
+            if (config.minEntryBodyRatio != null && shape.bodyRatio < config.minEntryBodyRatio) continue
             if (
                 shape.direction == candidate.side &&
                 shape.closesStronglyFor(candidate.side, config.minDirectionalCloseStrength) &&
@@ -936,6 +950,10 @@ class VolumeFlowBacktestService(
                     entryAt = candle.openedAt,
                     entryIndex = index,
                     entryCandle = candle,
+                    delayM1Candles = index - startIndex,
+                    shape = shape,
+                    relativeVolume = relativeVolumeAt(m1Candles, index, config.volumeLookback),
+                    volumeZScore = volumeZScoreAt(m1Candles, index, config.volumeLookback),
                     entryPrice = entryPrice,
                     stopPrice = stopPrice,
                     targetPrice = targetPrice,
@@ -1359,6 +1377,10 @@ private data class EntryPlan(
     val entryAt: Instant,
     val entryIndex: Int,
     val entryCandle: Candle,
+    val delayM1Candles: Int,
+    val shape: CandleShape,
+    val relativeVolume: Double?,
+    val volumeZScore: Double?,
     val entryPrice: Double,
     val stopPrice: Double,
     val targetPrice: Double,
