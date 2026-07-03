@@ -1867,3 +1867,53 @@ Decision:
   sharply degraded CDR and pushed MDD above `53%`. Search should instead focus
   on adding high-quality volume expansion contexts that satisfy the new entry
   body gate.
+
+## Full-DB Rolling Robustness Retune 2026-07-03
+
+Source note: this pass used independent 180-day and 365-day rolling windows
+from `2021-04-01T00:00:00Z` through `2026-07-02T05:40:00Z` against
+`build/runtime-test/bybit-trader-full-history.sqlite`. Results are backtest
+outputs, not live-trading guarantees.
+
+Promoted changes:
+
+- Removed `trend_down_close`, `range_failed_break_loose`, and
+  `m1_failed_break_chop_scalp` from
+  `config/volume-flow-composite-current.json`.
+- Tightened `m1_trend_up_breakout_scalp` profit protection from
+  `0.50R/0.10R` to `0.35R/0.20R`.
+
+Rolling robustness improved:
+
+| Gate | Before pass rate | After pass rate | After worst return | After worst MTM MDD |
+| --- | ---: | ---: | ---: | ---: |
+| 180d rolling | `72.41379%` | `82.75862%` | `-36.31126%` | `36.35382%` |
+| 365d rolling | `66.66667%` | `88.88889%` | `-22.73117%` | `38.80249%` |
+
+Max-limit long-horizon replay:
+
+| Period | Final equity | Return | CDR | MTM MDD | Trades | PF |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2021-04-01..2022-04-01` | `772,688.34` | `-22.73117%` | `-0.07043%` | `38.80249%` | `46` | `0.75112` |
+| `2021-04-01..2023-04-01` | `912,171.36` | `-8.78286%` | `-0.01257%` | `38.80249%` | `109` | `0.94749` |
+| `2021-04-01..2024-04-01` | `1,071,996.61` | `7.19966%` | `0.00634%` | `38.80249%` | `155` | `1.02579` |
+| `2021-04-01..2025-04-01` | `7,285,550.10` | `628.55501%` | `0.13593%` | `38.80249%` | `222` | `1.88450` |
+| `2021-04-01..2026-04-01` | `185,957,483.18` | `18,495.74832%` | `0.28643%` | `38.80249%` | `272` | `7.06869` |
+| `2021-04-01..2026-07-02` | `216,378,452.62` | `21,537.84526%` | `0.28059%` | `38.80249%` | `285` | `3.38215` |
+
+Rejected follow-up loops:
+
+- Extra M1 trend-down runner legs increased failed windows and introduced
+  2024-2025 drawdown failures.
+- M1 follow-through fail exits reduced some full-stop losses but cut too many
+  profitable continuation trades.
+- Monthly stops, dedupe, and lower concurrency remained weaker than the
+  promoted four-leg config.
+
+Decision:
+
+- Promote this config because it improves independent rolling robustness while
+  preserving full-history compounding.
+- Do not mark the robustness goal complete. The remaining failed windows are
+  return-only failures, so the next search should add a pre-entry market-state
+  selector rather than another static volume or exit threshold.

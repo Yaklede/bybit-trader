@@ -102,3 +102,80 @@ Next candidate direction:
 - add regime-level risk-down logic for early crash/transition markets,
 - gate `m1_failed_break_chop_scalp` by a broader trend/volatility condition,
 - keep `range_failed_break_loose` under review, but do not delete it globally.
+
+## Full-DB Rolling Robustness Promotion 2026-07-03
+
+Purpose: supersede the first candidate sweep with independent rolling-window
+validation across all locally held BTCUSDT candles. Each 180-day and 365-day
+window was replayed from the same starting equity so that the result measures
+period robustness instead of one continuous equity curve.
+
+Source artifacts:
+
+- Baseline: `build/volume-flow-recursive-robustness-20260703/independent-windows`
+- Candidate sweeps:
+  - `build/volume-flow-recursive-robustness-20260703/candidate-windows`
+  - `build/volume-flow-recursive-robustness-20260703/candidate-windows-trend-only`
+  - `build/volume-flow-recursive-robustness-20260703/candidate-windows-trend-only-exit`
+  - `build/volume-flow-recursive-robustness-20260703/candidate-windows-add-down-runner`
+  - `build/volume-flow-recursive-robustness-20260703/candidate-windows-m1-follow-through`
+- Promoted validation:
+  `build/volume-flow-recursive-robustness-20260703/current-config-validation`
+
+Baseline before this loop:
+
+| Gate | Windows | Passed | Failed | Pass rate | Worst return | Worst MTM MDD | Main weak leg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 180d rolling | `58` | `42` | `16` | `72.41379%` | `-40.86307%` | `68.43753%` | `m1_failed_break_chop_scalp` |
+| 365d rolling | `18` | `12` | `6` | `66.66667%` | `-30.67534%` | `68.43753%` | `range_failed_break_loose` |
+
+Promoted config:
+
+- Removed `trend_down_close`.
+- Removed `range_failed_break_loose`.
+- Removed `m1_failed_break_chop_scalp`.
+- Changed `m1_trend_up_breakout_scalp.profitProtectActivationR` from `0.50`
+  to `0.35`.
+- Changed `m1_trend_up_breakout_scalp.profitProtectFloorR` from `0.10` to
+  `0.20`.
+
+Promoted rolling result:
+
+| Gate | Windows | Passed | Failed | Pass rate | Worst return | Worst MTM MDD | Remaining weak leg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 180d rolling | `58` | `48` | `10` | `82.75862%` | `-36.31126%` | `36.35382%` | `m1_trend_up_breakout_scalp` |
+| 365d rolling | `18` | `16` | `2` | `88.88889%` | `-22.73117%` | `38.80249%` | `m1_trend_down_breakout_assist` |
+
+Long-horizon max-limit validation:
+
+| Period | Effective candles | Final equity | Return | CDR | MTM MDD | Trades | PF |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2021-04-01..2022-04-01` | `525,601` M1 | `772,688.34` | `-22.73117%` | `-0.07043%` | `38.80249%` | `46` | `0.75112` |
+| `2021-04-01..2023-04-01` | `1,051,201` M1 | `912,171.36` | `-8.78286%` | `-0.01257%` | `38.80249%` | `109` | `0.94749` |
+| `2021-04-01..2024-04-01` | `1,578,241` M1 | `1,071,996.61` | `7.19966%` | `0.00634%` | `38.80249%` | `155` | `1.02579` |
+| `2021-04-01..2025-04-01` | `2,103,841` M1 | `7,285,550.10` | `628.55501%` | `0.13593%` | `38.80249%` | `222` | `1.88450` |
+| `2021-04-01..2026-04-01` | `2,629,441` M1 | `185,957,483.18` | `18,495.74832%` | `0.28643%` | `38.80249%` | `272` | `7.06869` |
+| `2021-04-01..2026-07-02` | `2,762,261` M1 | `216,378,452.62` | `21,537.84526%` | `0.28059%` | `38.80249%` | `285` | `3.38215` |
+
+Rejected directions:
+
+- Removing only `m1_failed_break_chop_scalp` worsened 180d pass rate.
+- Removing only `range_failed_break_loose` raised 180d pass rate slightly but
+  left MTM MDD above `68%`.
+- Dedupe and lower max-concurrency reduced recovery trades.
+- Monthly stop and portfolio drawdown throttle reduced drawdown but lowered
+  rolling pass rate.
+- Extra M1 trend-down runner legs created new failed windows in 2024-2025.
+- M1 follow-through exits reduced some full stops but cut too many winning
+  continuation trades.
+
+Decision:
+
+- Promote the four-leg trend-only config because it improves both rolling
+  robustness gates and keeps MTM MDD inside the `40%` operating limit.
+- This does not complete the robustness goal. Remaining failed windows are
+  return-only failures, concentrated in `2021-04..2022-03`,
+  `2022-07..2023-01`, and `2023-07..2024-01`.
+- The next viable improvement should add a new market-state selector before
+  entry. Static relative-volume, macro-efficiency, follow-through, and runner
+  additions have been rejected by rolling-window evidence.
