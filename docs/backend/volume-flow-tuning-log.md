@@ -607,3 +607,53 @@ Current decision remains unchanged: no candidate is promoted to
 `config/volume-flow-composite-current.json`. The next improvement needs a new
 source of positive expectancy in the 2021-2022 transition regime rather than
 more loss suppression on the existing M1/M5 legs.
+
+## 2026-07-03 Transition Expectancy / MDD Trim Sweep
+
+Second stress-first pass used zero-failure budgets (`180d = 0`, `365d = 0`) to
+search for candidates that can actually satisfy the live robustness gate rather
+than merely improve the baseline count. `scripts/volume-flow-rolling-robustness-sweep.mjs`
+was hardened so one invalid/API-rejected candidate is recorded as
+`REQUEST_FAILED` instead of aborting the whole sweep.
+
+Observed failure structure:
+
+- Baseline failures are return failures, not MDD failures: MTM MDD stays below
+  `40%` on the failed baseline windows.
+- The 2021-2022 bottleneck has two different constraints:
+  - `2021-06-30..2022-06-29` 365d needs enough trend-down expectancy and MDD
+    below `40%`.
+  - `2021-07-30..2022-01-25` 180d remains negative after the 365d is fixed,
+    mostly because `m1_trend_up_breakout_scalp` loses into the transition.
+
+Rejected near-passes:
+
+- `move0p05e0p35__ctx0p006rv3p5__dr0p148__m5r0p13` cleared the first 365d
+  gate with `40.61696%` return and `39.62053%` MTM MDD, but immediately failed
+  the next ordered 180d window at `-31.34392%`.
+- Keeping M5 risk high preserved return but missed the MDD gate by a narrow
+  margin: `m5r0p14` produced about `39.73651%` return with `40.08811%` MTM MDD;
+  no-throttle baseline sizing produced `39.41768%` return with `40.40950%` MTM
+  MDD.
+- Existing portfolio throttle is too coarse for this transition regime. Strong
+  throttles reduced MDD but also flipped the 365d return negative or caused the
+  next 180d window to fail around `-30%`.
+- Direct M1-up trimming helped but was insufficient. Best sampled defensive
+  combo (`down risk 0.148`, `up risk 0.06`, `ctx rv >= 4`, adverse exit at
+  `0.7R`) still failed the remaining 180d at `-18.18484%`.
+- Adding simple M1 trend-down fixed-target/runner clone legs to the defensive
+  base did not add robust positive expectancy; the first 365d fell back to
+  negative returns, best sampled at `-7.66585%`.
+
+Decision: no config promotion. The current parameter space is stuck between
+`365d MDD just above 40%` and `180d return below 0%`. The next implementation
+should not be another broad risk sweep. It should add a more selective
+transition-regime signal or a finer risk-control primitive, for example:
+
+- per-leg mark-to-market-aware risk scaling that trims only the offending leg
+  during active drawdown instead of applying a coarse portfolio throttle;
+- an M1/M5 short continuation leg gated by post-break follow-through quality,
+  not a duplicate of the current M1 down assist; or
+- a transition-regime classifier that suppresses failed M1 trend-up continuation
+  after high-volume blow-off/failed follow-through while preserving later bull
+  regime winners.

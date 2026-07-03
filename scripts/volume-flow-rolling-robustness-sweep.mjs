@@ -86,9 +86,18 @@ async function evaluateCandidate(candidate) {
   const failures = { "180d": 0, "365d": 0 };
   let status = "complete";
   let rejectReason = null;
+  let error = null;
 
   for (const baselineWindow of windowOrder) {
-    const row = await runWindow(config, candidate.id, baselineWindow);
+    let row;
+    try {
+      row = await runWindow(config, candidate.id, baselineWindow);
+    } catch (caught) {
+      status = "rejected";
+      rejectReason = "REQUEST_FAILED";
+      error = caught instanceof Error ? caught.message : String(caught);
+      break;
+    }
     rows.push(row);
     if (!row.passed) failures[row.kind] += 1;
 
@@ -125,6 +134,7 @@ async function evaluateCandidate(candidate) {
     generatedAt: new Date().toISOString(),
     status,
     rejectReason,
+    error,
     completedAllWindows,
     meetsFailureBudget,
     improvesBaseline,
