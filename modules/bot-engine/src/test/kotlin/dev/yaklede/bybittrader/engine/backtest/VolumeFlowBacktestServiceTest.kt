@@ -26,6 +26,19 @@ class VolumeFlowBacktestServiceTest :
                 "Maximum relative volume threshold must be null or greater than relative volume threshold."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(relativeVolumeRiskThreshold = 1.0)
+            }.message shouldBe "Relative volume risk threshold must be null or greater than 1."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(relativeVolumeRiskMultiplier = 0.0)
+            }.message shouldBe "Relative volume risk multiplier must be between 0 and 1."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(relativeVolumeRiskMaxTrendMovePct = 0.51)
+            }.message shouldBe
+                "Relative volume risk maximum trend move percent must be null or between 0 and 0.50."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(maxContextRangePct = 0.11)
             }.message shouldBe "Maximum context range percent must be null or between 0 and 0.10."
 
@@ -225,6 +238,53 @@ class VolumeFlowBacktestServiceTest :
             reduced.trades.single().riskMultiplier shouldBe 0.5
             reduced.trades.single().quantity shouldBe base.trades.single().quantity * 0.5
             reduced.trades.single().pnl shouldBe base.trades.single().pnl * 0.5
+        }
+
+        "can reduce risk when setup relative volume reaches an exhaustion threshold" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+            val base =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+
+            val reduced =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            relativeVolumeRiskThreshold = 2.0,
+                            relativeVolumeRiskMultiplier = 0.5,
+                        ),
+                )
+            val gated =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            relativeVolumeRiskThreshold = 2.0,
+                            relativeVolumeRiskMultiplier = 0.5,
+                            relativeVolumeRiskMaxTrendMovePct = 0.0,
+                        ),
+                )
+
+            reduced.tradeCount shouldBe 1
+            reduced.trades.single().riskMultiplier shouldBe 0.5
+            reduced.trades.single().quantity shouldBe base.trades.single().quantity * 0.5
+            reduced.trades.single().pnl shouldBe base.trades.single().pnl * 0.5
+            gated.tradeCount shouldBe 1
+            gated.trades.single().riskMultiplier shouldBe 1.0
+            gated.trades.single().quantity shouldBe base.trades.single().quantity
+            gated.trades.single().pnl shouldBe base.trades.single().pnl
         }
 
         "can require stronger setup volume only when higher timeframe context range is wide" {

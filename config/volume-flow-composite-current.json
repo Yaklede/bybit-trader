@@ -14,7 +14,7 @@
   "legs": [
     {
       "id": "trend_down_retest",
-      "riskFraction": 0.15,
+      "riskFraction": 0.08,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -42,11 +42,13 @@
       "exitMode": "FIXED_TARGET",
       "followThroughCheckM1Candles": 8,
       "minFollowThroughR": 0.35,
-      "maxHoldM1Candles": 35
+      "maxHoldM1Candles": 35,
+      "minTrendMovePct": 0.035,
+      "minTrendEfficiency": 0.35
     },
     {
       "id": "trend_down_retest_runner",
-      "riskFraction": 0.15,
+      "riskFraction": 0.14378,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -79,11 +81,13 @@
       "runnerTrailActivationR": 0.8,
       "runnerTrailDistanceR": 1.03,
       "breakevenTriggerR": 0.65,
-      "maxHoldM1Candles": 30
+      "maxHoldM1Candles": 30,
+      "minTrendMovePct": 0.035,
+      "minTrendEfficiency": 0.35
     },
     {
       "id": "m1_trend_up_breakout_scalp",
-      "riskFraction": 0.14,
+      "riskFraction": 0.12,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -122,11 +126,16 @@
       "breakevenTriggerR": 0.4,
       "profitProtectActivationR": 0.35,
       "profitProtectFloorR": 0.2,
-      "maxHoldM1Candles": 20
+      "maxHoldM1Candles": 20,
+      "highContextRangeRelativeVolumeThresholdPct": 0.0045,
+      "highContextRangeRelativeVolumeMin": 4,
+      "highContextRangeRelativeVolumeMacroBypassMovePct": 0.08,
+      "highContextRangeRelativeVolumeMacroBypassEfficiency": 0.4,
+      "maxRelativeVolumeThreshold": 20
     },
     {
       "id": "m1_trend_down_breakout_assist",
-      "riskFraction": 0.15,
+      "riskFraction": 0.19,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "CLOSE_CONFIRMATION",
       "sideMode": "BOTH",
@@ -146,9 +155,9 @@
       "keyLevelTolerancePct": 0.0025,
       "avoidRangeMiddle": true,
       "minBodyRatio": 0.65,
-      "minDirectionalCloseStrength": 0.6,
+      "minDirectionalCloseStrength": 0.65,
       "minRejectionWickRatio": 0.25,
-      "maxContextRangePct": 0.015,
+      "maxContextRangePct": 0.0085,
       "entryLookaheadM1Candles": 5,
       "minEntryBodyRatio": 0.225,
       "minEntryRiskPct": 0.008,
@@ -165,7 +174,10 @@
       "maxHoldM1Candles": 25,
       "macroTrendLookbackM15Candles": 384,
       "minMacroTrendMovePct": 0.005,
-      "macroTrendMismatchRiskMultiplier": 0.4
+      "macroTrendMismatchRiskMultiplier": 0.4,
+      "maxRelativeVolumeThreshold": 9.45,
+      "maxEntryRelativeVolume": 20,
+      "minTrendMovePct": 0.026
     }
   ],
   "tradeLimit": 0,

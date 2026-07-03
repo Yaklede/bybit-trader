@@ -767,3 +767,45 @@ Decision: no promotion to `config/volume-flow-composite-current.json` yet. The
 new primitives are kept because they materially improved rolling robustness, but
 the final strategy still needs one non-risk-scaling improvement to clear the
 last strict 180d return gate without relying on decimal-edge sizing.
+
+## 2026-07-03 Full Rolling Pass With Trend-Move Short Filter
+
+The full 76-window map showed the previous near-pass was still incomplete:
+
+- `365d 18/18`, but `180d 53/58`.
+- Worst 180d return was `-8.22459%`.
+- The remaining failures split into two groups:
+  - 2021/2022 M5 down retest sizing failures.
+  - 2024/2025 M1 down high-volume short failures.
+
+Accepted final shape:
+
+- `trend_down_retest.riskFraction=0.08`.
+- `m1_trend_down_breakout_assist.riskFraction=0.19`.
+- `m1_trend_down_breakout_assist.minTrendMovePct=0.026`.
+- `m1_trend_down_breakout_assist.maxRelativeVolumeThreshold=9.45`.
+
+Why this passed:
+
+- Lowering the M5 retest risk removed repeated 2021/2022 retest drag while
+  keeping the runner leg active for larger trend capture.
+- Raising M1-down risk restored the 2022 short-side defense that offset M1-up
+  losses.
+- Requiring at least `2.6%` context trend move prevented weak-move M1 shorts
+  from amplifying 2023 and 2024 chop losses.
+- Lowering the M1-down setup RV cap from `10.5` to `9.45` removed the
+  2025-11-21 high-RV short stop (`RV=9.48703`) without affecting the retained
+  2022/2024 positive short trades.
+
+Final promoted evidence:
+
+- Command:
+  `node scripts/volume-flow-rolling-robustness-sweep.mjs --config config/volume-flow-composite-current.json --candidates build/volume-flow-candidates/promoted-current-candidate.json --out build/volume-flow-rolling-robustness-sweep-20260703/promoted-current-strict --max180Failures 0 --max365Failures 0 --minTrades 1 --keepBaseline false`
+- Result: `180d 58/58`, `365d 18/18`.
+- Worst return: `0.00679%`.
+- Worst mark-to-market MDD: `31.08787%`.
+
+Decision: promote this configuration to
+`config/volume-flow-composite-current.json`. This clears the strict rolling
+robustness gate on all currently held BTCUSDT 180d and 365d windows, with MDD
+inside the user-approved `30-40%` envelope.

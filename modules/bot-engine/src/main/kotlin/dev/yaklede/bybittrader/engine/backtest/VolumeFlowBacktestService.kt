@@ -201,7 +201,8 @@ class VolumeFlowBacktestService(
             val entryEquity = equity
             val riskMultiplier =
                 macroTrendRiskMultiplier(macroTrendContext, candidate, config) *
-                    contextRangeRiskMultiplier(contextQuality, config)
+                    contextRangeRiskMultiplier(contextQuality, config) *
+                    relativeVolumeRiskMultiplier(candidate, contextQuality, config)
             val riskAmount = entryEquity * config.riskFraction * riskMultiplier
             val quantity = riskAmount / riskPerUnit
             val exit = simulateExit(m1Candles, entry, config, contextQuality?.rangePct)
@@ -679,6 +680,20 @@ class VolumeFlowBacktestService(
         val threshold = config.contextRangeRiskThresholdPct ?: return 1.0
         val rangePct = contextQuality?.rangePct ?: return 1.0
         return if (rangePct >= threshold) config.contextRangeRiskMultiplier else 1.0
+    }
+
+    private fun relativeVolumeRiskMultiplier(
+        candidate: SetupCandidate,
+        contextQuality: TrendQualityContext?,
+        config: VolumeFlowBacktestConfig,
+    ): Double {
+        val threshold = config.relativeVolumeRiskThreshold ?: return 1.0
+        val maxTrendMovePct = config.relativeVolumeRiskMaxTrendMovePct
+        if (maxTrendMovePct != null) {
+            val trendMovePct = contextQuality?.movePct ?: return 1.0
+            if (abs(trendMovePct) > maxTrendMovePct) return 1.0
+        }
+        return if (candidate.relativeVolume >= threshold) config.relativeVolumeRiskMultiplier else 1.0
     }
 
     private fun highContextRangeRelativeVolumeAllows(

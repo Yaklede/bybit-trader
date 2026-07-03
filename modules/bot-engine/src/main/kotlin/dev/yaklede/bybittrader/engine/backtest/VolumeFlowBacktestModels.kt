@@ -17,6 +17,9 @@ data class VolumeFlowBacktestConfig(
     val volumeLookback: Int = 20,
     val relativeVolumeThreshold: Double = 5.0,
     val maxRelativeVolumeThreshold: Double? = null,
+    val relativeVolumeRiskThreshold: Double? = null,
+    val relativeVolumeRiskMultiplier: Double = 1.0,
+    val relativeVolumeRiskMaxTrendMovePct: Double? = null,
     val volumeZScoreThreshold: Double = 1.5,
     val setupRangeLookback: Int = 12,
     val requireM5Vwap: Boolean = false,
@@ -90,6 +93,15 @@ data class VolumeFlowBacktestConfig(
         require(relativeVolumeThreshold > 1.0) { "Relative volume threshold must be greater than 1." }
         require(maxRelativeVolumeThreshold == null || maxRelativeVolumeThreshold > relativeVolumeThreshold) {
             "Maximum relative volume threshold must be null or greater than relative volume threshold."
+        }
+        require(relativeVolumeRiskThreshold == null || relativeVolumeRiskThreshold > 1.0) {
+            "Relative volume risk threshold must be null or greater than 1."
+        }
+        require(relativeVolumeRiskMultiplier > 0.0 && relativeVolumeRiskMultiplier <= 1.0) {
+            "Relative volume risk multiplier must be between 0 and 1."
+        }
+        require(relativeVolumeRiskMaxTrendMovePct == null || relativeVolumeRiskMaxTrendMovePct in 0.0..0.50) {
+            "Relative volume risk maximum trend move percent must be null or between 0 and 0.50."
         }
         require(volumeZScoreThreshold >= 0.0) { "Volume z-score threshold must not be negative." }
         require(setupRangeLookback > 1) { "Setup range lookback must be greater than 1." }
