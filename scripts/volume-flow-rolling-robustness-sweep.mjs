@@ -139,6 +139,7 @@ async function evaluateCandidate(candidate) {
     meetsFailureBudget,
     improvesBaseline,
     patches: candidate.patches ?? null,
+    configPatch: candidate.configPatch ?? null,
     config,
     rollup,
     worstReturn,
@@ -279,6 +280,48 @@ function defaultCandidates(config) {
     }
   }
 
+  const legDrawdownTargets = ["m1_trend_up_breakout_scalp", "trend_down_retest_runner"];
+  for (const legId of legDrawdownTargets) {
+    for (const threshold of [5, 10, 15, 20]) {
+      for (const multiplier of [0.3, 0.5, 0.65, 0.8]) {
+        variants.push(
+          candidateWithConfig(`legdd_${legId}_${idNumber(threshold)}_${idNumber(multiplier)}`, {
+            legDrawdownRiskRules: [
+              {
+                legId,
+                drawdownThresholdPct: threshold,
+                riskMultiplier: multiplier,
+              },
+            ],
+          }),
+        );
+      }
+    }
+  }
+
+  for (const threshold of [5, 10, 15]) {
+    for (const m1Multiplier of [0.5, 0.65]) {
+      for (const runnerMultiplier of [0.5, 0.65, 0.8]) {
+        variants.push(
+          candidateWithConfig(`legdd_m1up_runner_${idNumber(threshold)}_${idNumber(m1Multiplier)}_${idNumber(runnerMultiplier)}`, {
+            legDrawdownRiskRules: [
+              {
+                legId: "m1_trend_up_breakout_scalp",
+                drawdownThresholdPct: threshold,
+                riskMultiplier: m1Multiplier,
+              },
+              {
+                legId: "trend_down_retest_runner",
+                drawdownThresholdPct: threshold,
+                riskMultiplier: runnerMultiplier,
+              },
+            ],
+          }),
+        );
+      }
+    }
+  }
+
   return variants.filter((variant) => variant.id === "baseline" || hasLegs(config, Object.keys(variant.patches)));
 }
 
@@ -286,9 +329,17 @@ function candidate(id, patches) {
   return { id, patches };
 }
 
+function candidateWithConfig(id, configPatch, patches = {}) {
+  return { id, patches, configPatch };
+}
+
 function applyCandidate(config, candidateDef) {
-  return {
+  const patchedConfig = {
     ...config,
+    ...(candidateDef.configPatch ?? {}),
+  };
+  return {
+    ...patchedConfig,
     legs: config.legs.map((leg) => {
       const patch = candidateDef.patches?.[leg.id];
       return patch == null ? leg : { ...leg, ...patch };

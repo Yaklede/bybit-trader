@@ -657,3 +657,50 @@ transition-regime signal or a finer risk-control primitive, for example:
 - a transition-regime classifier that suppresses failed M1 trend-up continuation
   after high-volume blow-off/failed follow-through while preserving later bull
   regime winners.
+
+## 2026-07-03 Leg Drawdown Risk Primitive / Short Follow-Through Check
+
+Added a composite-level `legDrawdownRiskRules` research primitive. Unlike the
+existing portfolio drawdown throttle, this scales only the target leg after that
+leg has active realized/mark-to-market drawdown above a configured threshold.
+The intent was to trim the offending continuation leg without reducing every
+open setup in the portfolio.
+
+Validation:
+
+- Unit/build guard: `./gradlew :modules:bot-engine:test --tests
+  dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestServiceTest`,
+  `node --check scripts/volume-flow-rolling-robustness-sweep.mjs`, and
+  `./gradlew build`.
+- Sweep output:
+  `build/volume-flow-rolling-robustness-sweep-20260703/leg-dd-risk`,
+  `near-pass-leg-dd`, `near-pass-m1kill`, and `short-ft-focused-v2`.
+
+Findings:
+
+- Generic leg-DD candidates did not produce a zero-failure robustness candidate.
+  The best ranked non-near-pass family remained the previous
+  `m1up_ctxvol_0p0045_*_downctx_0p5` shape: first checked 365d passed, but the
+  next 180d failed at `-13.17223%` with `33.53815%` MTM MDD.
+- On the known near-pass M5 base
+  `move0p05e0p35__ctx0p006rv3p5__dr0p148__m5r0p13`, M1-up leg drawdown scaling
+  improved the next failed 180d from `-31.34392%` to `-24.86629%` while keeping
+  the first 365d pass. MDD also fell to roughly `25-27%`, so the primitive is a
+  useful safety control, but it does not create enough positive expectancy.
+- Aggressive M1-up near-disable candidates (`riskMultiplier` down to `0.01`)
+  still bottomed around `-25.63477%` on the same 180d window. This proves the
+  remaining loss is not only an oversized M1-up problem.
+- A post-break M1 short follow-through family was sampled at low risk. The best
+  checked variant (`riskFraction=0.01`, relative volume `3.5`, runner
+  follow-through `3 candles / 0.2R`) only improved the failed 180d to
+  `-30.38409%`; `0.02` risk variants worsened to about `-33%`. This simple
+  short-continuation leg is rejected.
+
+Decision: no strategy config promotion. Keep the leg-level drawdown risk
+primitive because it gives controlled per-leg risk scaling for future research,
+but do not apply it to `config/volume-flow-composite-current.json` yet. The next
+improvement needs a true transition-regime selector or a different setup family,
+not more static risk reduction. The most promising next target is a classifier
+around the `2021-07-30..2022-01-25` window that detects failed high-volume
+trend-up continuation after blow-off and either suppresses that leg before entry
+or switches to a separately validated reversal setup.

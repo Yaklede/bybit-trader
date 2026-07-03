@@ -115,6 +115,32 @@ class VolumeFlowBacktestServiceTest :
                     legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
                 )
             }.message shouldBe "Robustness window days must be between 30 and 3650."
+
+            VolumeFlowCompositeBacktestConfig(
+                legDrawdownRiskRules =
+                    listOf(
+                        VolumeFlowCompositeLegDrawdownRiskRule(
+                            legId = "primary",
+                            drawdownThresholdPct = 5.0,
+                            riskMultiplier = 0.5,
+                        ),
+                    ),
+                legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
+            ).legDrawdownRiskRules.single().riskMultiplier shouldBe 0.5
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowCompositeBacktestConfig(
+                    legDrawdownRiskRules =
+                        listOf(
+                            VolumeFlowCompositeLegDrawdownRiskRule(
+                                legId = "missing",
+                                drawdownThresholdPct = 5.0,
+                                riskMultiplier = 0.5,
+                            ),
+                        ),
+                    legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
+                )
+            }.message shouldBe "Composite leg drawdown risk rules must target existing leg ids."
         }
 
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {
@@ -842,6 +868,55 @@ class VolumeFlowBacktestServiceTest :
 
             base.tradeCount shouldBe 2
             throttled.tradeCount shouldBe 2
+            (base.trades[0].pnl < 0.0) shouldBe true
+            (base.trades[1].pnl > 0.0) shouldBe true
+            (throttled.trades[1].quantity < base.trades[1].quantity) shouldBe true
+            (throttled.trades[1].pnl < base.trades[1].pnl) shouldBe true
+        }
+
+        "composite backtest can reduce risk for a leg after its own drawdown threshold is reached" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(twoSignalThrottleCandles()))
+            val legConfig = testVolumeFlowConfig().copy(riskFraction = 0.05)
+
+            val base =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 40,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            maxConsecutiveLosses = 10,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+            val throttled =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 40,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            maxConsecutiveLosses = 10,
+                            legDrawdownRiskRules =
+                                listOf(
+                                    VolumeFlowCompositeLegDrawdownRiskRule(
+                                        legId = "primary",
+                                        drawdownThresholdPct = 1.0,
+                                        riskMultiplier = 0.5,
+                                    ),
+                                ),
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", legConfig)),
+                        ),
+                )
+
+            base.tradeCount shouldBe 2
+            throttled.tradeCount shouldBe 2
+            throttled.trades[0].riskMultiplier shouldBe 1.0
+            throttled.trades[1].riskMultiplier shouldBe 0.5
             (base.trades[0].pnl < 0.0) shouldBe true
             (base.trades[1].pnl > 0.0) shouldBe true
             (throttled.trades[1].quantity < base.trades[1].quantity) shouldBe true

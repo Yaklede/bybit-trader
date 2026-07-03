@@ -9,6 +9,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestLeg
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestTrade
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeLegDrawdownRiskRule
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEquityCurvePoint
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
@@ -128,6 +129,7 @@ data class VolumeFlowCompositeBacktestRequest(
     val portfolioDrawdownThrottlePct: Double? = null,
     val portfolioDrawdownRiskMultiplier: Double = 1.0,
     val portfolioDrawdownCooldownDays: Int = 0,
+    val legDrawdownRiskRules: List<VolumeFlowCompositeLegDrawdownRiskRuleRequest> = emptyList(),
     val robustnessWindowDays: Int = 365,
     val robustnessStepDays: Int = 90,
     val robustnessMinReturnPct: Double = 0.0,
@@ -182,6 +184,7 @@ data class VolumeFlowCompositeBacktestRequest(
             portfolioDrawdownThrottlePct = portfolioDrawdownThrottlePct,
             portfolioDrawdownRiskMultiplier = portfolioDrawdownRiskMultiplier,
             portfolioDrawdownCooldownDays = portfolioDrawdownCooldownDays,
+            legDrawdownRiskRules = legDrawdownRiskRules.map(VolumeFlowCompositeLegDrawdownRiskRuleRequest::toRule),
             robustnessWindowDays = robustnessWindowDays,
             robustnessStepDays = robustnessStepDays,
             robustnessMinReturnPct = robustnessMinReturnPct,
@@ -194,6 +197,20 @@ data class VolumeFlowCompositeBacktestRequest(
 private fun parseReplayInstant(value: String): Instant =
     runCatching { Instant.parse(value) }
         .getOrElse { throw IllegalArgumentException("Replay timestamps must be ISO-8601 instants.") }
+
+@Serializable
+data class VolumeFlowCompositeLegDrawdownRiskRuleRequest(
+    val legId: String,
+    val drawdownThresholdPct: Double,
+    val riskMultiplier: Double,
+) {
+    fun toRule(): VolumeFlowCompositeLegDrawdownRiskRule =
+        VolumeFlowCompositeLegDrawdownRiskRule(
+            legId = legId,
+            drawdownThresholdPct = drawdownThresholdPct,
+            riskMultiplier = riskMultiplier,
+        )
+}
 
 @Serializable
 data class VolumeFlowCompositeLegRequest(

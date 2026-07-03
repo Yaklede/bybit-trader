@@ -18,6 +18,7 @@ data class VolumeFlowCompositeBacktestConfig(
     val portfolioDrawdownThrottlePct: Double? = null,
     val portfolioDrawdownRiskMultiplier: Double = 1.0,
     val portfolioDrawdownCooldownDays: Int = 0,
+    val legDrawdownRiskRules: List<VolumeFlowCompositeLegDrawdownRiskRule> = emptyList(),
     val robustnessWindowDays: Int = 365,
     val robustnessStepDays: Int = 90,
     val robustnessMinReturnPct: Double = 0.0,
@@ -66,6 +67,29 @@ data class VolumeFlowCompositeBacktestConfig(
         require(legs.isNotEmpty()) { "Composite volume-flow legs must not be empty." }
         require(legs.size <= 10) { "Composite volume-flow legs must be less than or equal to 10." }
         require(legs.map { it.id }.distinct().size == legs.size) { "Composite volume-flow leg ids must be unique." }
+        val legIds = legs.map { it.id }.toSet()
+        require(legDrawdownRiskRules.map { it.legId }.distinct().size == legDrawdownRiskRules.size) {
+            "Composite leg drawdown risk rules must target unique leg ids."
+        }
+        require(legDrawdownRiskRules.all { it.legId in legIds }) {
+            "Composite leg drawdown risk rules must target existing leg ids."
+        }
+    }
+}
+
+data class VolumeFlowCompositeLegDrawdownRiskRule(
+    val legId: String,
+    val drawdownThresholdPct: Double,
+    val riskMultiplier: Double,
+) {
+    init {
+        require(legId.isNotBlank()) { "Composite leg drawdown rule leg id must not be blank." }
+        require(drawdownThresholdPct > 0.0 && drawdownThresholdPct <= 95.0) {
+            "Composite leg drawdown threshold percent must be between 0 and 95."
+        }
+        require(riskMultiplier > 0.0 && riskMultiplier <= 1.0) {
+            "Composite leg drawdown risk multiplier must be between 0 and 1."
+        }
     }
 }
 

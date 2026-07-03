@@ -352,6 +352,10 @@ private fun simulateSinglePositionComposite(
     val trades = mutableListOf<VolumeFlowCompositeBacktestTrade>()
     val dailyStates = mutableMapOf<LocalDate, CompositeDailyBacktestState>()
     val monthlyStates = mutableMapOf<String, CompositeMonthlyBacktestState>()
+    val legDrawdownStates = mutableMapOf<String, CompositeLegDrawdownState>()
+
+    fun legDrawdownState(legId: String): CompositeLegDrawdownState =
+        legDrawdownStates.getOrPut(legId) { CompositeLegDrawdownState(config.initialEquity) }
 
     for (signal in signals) {
         val sourceTrade = signal.trade
@@ -380,7 +384,9 @@ private fun simulateSinglePositionComposite(
             continue
         }
 
-        val riskMultiplier = config.portfolioDrawdownRiskMultiplier(equity, peakEquity)
+        val riskMultiplier =
+            config.portfolioDrawdownRiskMultiplier(equity, peakEquity) *
+                config.legDrawdownRiskMultiplier(signal.legId, legDrawdownState(signal.legId).riskDrawdownPct)
         val trade = signal.toCompositeTrade(equity, riskMultiplier, noTradeReasonCounts) ?: continue
         val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
         markToMarketMaxDrawdownPct =
@@ -394,6 +400,7 @@ private fun simulateSinglePositionComposite(
         trades += trade
         dayState.recordTrade(trade.pnl, equity, config, consecutiveLosses)
         monthState.recordTrade(equity, config)
+        legDrawdownState(trade.legId).recordTrade(trade)
         blockedUntil = sourceTrade.exitAt
     }
 
@@ -424,6 +431,10 @@ private fun simulateConcurrentComposite(
     val monthlyStates = mutableMapOf<String, CompositeMonthlyBacktestState>()
     val acceptedEntriesByDay = mutableMapOf<LocalDate, Int>()
     val acceptedSetupKeys = mutableSetOf<CompositeSetupKey>()
+    val legDrawdownStates = mutableMapOf<String, CompositeLegDrawdownState>()
+
+    fun legDrawdownState(legId: String): CompositeLegDrawdownState =
+        legDrawdownStates.getOrPut(legId) { CompositeLegDrawdownState(config.initialEquity) }
 
     fun closeTrade(trade: VolumeFlowCompositeBacktestTrade) {
         equity += trade.pnl
@@ -440,6 +451,7 @@ private fun simulateConcurrentComposite(
             .getOrPut(trade.setupAt.utcYearMonth()) {
                 CompositeMonthlyBacktestState(startingEquity = equity - trade.pnl)
             }.recordTrade(equity, config)
+        legDrawdownState(trade.legId).recordTrade(trade)
     }
 
     fun closeMaturedTrades(setupAt: Instant) {
@@ -494,7 +506,9 @@ private fun simulateConcurrentComposite(
             continue
         }
 
-        val riskMultiplier = config.portfolioDrawdownRiskMultiplier(equity, peakEquity)
+        val riskMultiplier =
+            config.portfolioDrawdownRiskMultiplier(equity, peakEquity) *
+                config.legDrawdownRiskMultiplier(signal.legId, legDrawdownState(signal.legId).riskDrawdownPct)
         val trade = signal.toCompositeTrade(equity, riskMultiplier, noTradeReasonCounts) ?: continue
         val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
         markToMarketMaxDrawdownPct =
@@ -603,6 +617,14 @@ private fun VolumeFlowCompositeBacktestConfig.portfolioDrawdownRiskMultiplier(
         1.0
     }
 
+private fun VolumeFlowCompositeBacktestConfig.legDrawdownRiskMultiplier(
+    legId: String,
+    drawdownPct: Double,
+): Double {
+    val rule = legDrawdownRiskRules.firstOrNull { it.legId == legId } ?: return 1.0
+    return if (drawdownPct >= rule.drawdownThresholdPct) rule.riskMultiplier else 1.0
+}
+
 private fun VolumeFlowCompositeBacktestConfig.nextPortfolioBlockedUntil(
     equity: Double,
     peakEquity: Double,
@@ -621,6 +643,26 @@ private fun portfolioDrawdownPct(
     equity: Double,
     peakEquity: Double,
 ): Double = if (peakEquity <= 0.0) 0.0 else ((peakEquity - equity) / peakEquity) * 100.0
+
+private class CompositeLegDrawdownState(
+    private val initialEquity: Double,
+) {
+    var riskDrawdownPct: Double = 0.0
+        private set
+
+    private var equity: Double = initialEquity
+    private var peakEquity: Double = initialEquity
+
+    fun recordTrade(trade: VolumeFlowCompositeBacktestTrade) {
+        val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
+        val markToMarketDrawdownPct = portfolioDrawdownPct(markToMarketLowEquity, peakEquity)
+
+        equity += trade.pnl
+        peakEquity = maxOf(peakEquity, equity)
+        val realizedDrawdownPct = portfolioDrawdownPct(equity, peakEquity)
+        riskDrawdownPct = maxOf(markToMarketDrawdownPct, realizedDrawdownPct)
+    }
+}
 
 private data class CompositeSimulationResult(
     val finalEquity: Double,
