@@ -30,6 +30,34 @@ class VolumeFlowBacktestServiceTest :
             }.message shouldBe "Maximum context range percent must be null or between 0 and 0.10."
 
             shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(contextRangeRiskThresholdPct = 0.11)
+            }.message shouldBe "Context range risk threshold percent must be null or between 0 and 0.10."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(contextRangeRiskMultiplier = 0.0)
+            }.message shouldBe "Context range risk multiplier must be between 0 and 1."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(highContextRangeRelativeVolumeThresholdPct = 0.005)
+            }.message shouldBe
+                "High context range relative volume threshold and minimum must both be null or both be set."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(
+                    highContextRangeRelativeVolumeThresholdPct = 0.11,
+                    highContextRangeRelativeVolumeMin = 4.0,
+                )
+            }.message shouldBe
+                "High context range relative volume threshold percent must be null or between 0 and 0.10."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(
+                    highContextRangeRelativeVolumeThresholdPct = 0.005,
+                    highContextRangeRelativeVolumeMin = 1.0,
+                )
+            }.message shouldBe "High context range relative volume minimum must be null or greater than 1."
+
+            shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(minContextQuoteVolume = 0.0)
             }.message shouldBe "Minimum context quote volume must be null or positive."
 
@@ -67,6 +95,10 @@ class VolumeFlowBacktestServiceTest :
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(followThroughCheckM1Candles = 3)
             }.message shouldBe "Follow-through check candles and minimum R must both be null or both be set."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(followThroughMinContextRangePct = 0.11)
+            }.message shouldBe "Follow-through minimum context range percent must be null or between 0 and 0.10."
 
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(adverseExitCheckM1Candles = 3)
@@ -128,6 +160,56 @@ class VolumeFlowBacktestServiceTest :
             result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
             result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
+        }
+
+        "can reduce risk when higher timeframe context range is wide" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+            val base =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+
+            val reduced =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            contextRangeRiskThresholdPct = 0.0,
+                            contextRangeRiskMultiplier = 0.5,
+                        ),
+                )
+
+            reduced.tradeCount shouldBe 1
+            reduced.trades.single().riskMultiplier shouldBe 0.5
+            reduced.trades.single().quantity shouldBe base.trades.single().quantity * 0.5
+            reduced.trades.single().pnl shouldBe base.trades.single().pnl * 0.5
+        }
+
+        "can require stronger setup volume only when higher timeframe context range is wide" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val rejected =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            highContextRangeRelativeVolumeThresholdPct = 0.0,
+                            highContextRangeRelativeVolumeMin = 100.0,
+                        ),
+                )
+
+            rejected.tradeCount shouldBe 0
+            rejected.noTradeReasonCounts["HIGH_CONTEXT_RANGE_RELATIVE_VOLUME_LOW"] shouldBe 1
         }
 
         "macro trend alignment rejects setups against the longer M15 direction" {
@@ -441,6 +523,37 @@ class VolumeFlowBacktestServiceTest :
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.FOLLOW_THROUGH_FAIL
             (result.trades.single().maxFavorableExcursionR < 0.2) shouldBe true
             result.performanceByExitReason.single().tag shouldBe "FOLLOW_THROUGH_FAIL"
+        }
+
+        "follow-through check can be armed only for wide higher timeframe context" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(followThroughFailVolumeFlowCandles()))
+            val baseConfig =
+                testVolumeFlowConfig().copy(
+                    followThroughCheckM1Candles = 1,
+                    minFollowThroughR = 0.2,
+                )
+
+            val disarmed =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = baseConfig.copy(followThroughMinContextRangePct = 0.10),
+                )
+            val armed =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = baseConfig.copy(followThroughMinContextRangePct = 0.0),
+                )
+
+            disarmed.tradeCount shouldBe 1
+            disarmed.trades.single().exitReason shouldBe VolumeFlowExitReason.STOP
+            armed.tradeCount shouldBe 1
+            armed.trades.single().exitReason shouldBe VolumeFlowExitReason.FOLLOW_THROUGH_FAIL
         }
 
         "adverse invalidation exits weak trades that move against entry before time expiry" {

@@ -117,6 +117,12 @@ class VolumeFlowBacktestService(
                 continue
             }
 
+            if (!highContextRangeRelativeVolumeAllows(contextQuality, candidate, config)) {
+                rejectedSetupCount += 1
+                incrementReason("HIGH_CONTEXT_RANGE_RELATIVE_VOLUME_LOW", noTradeReasonCounts)
+                continue
+            }
+
             if (!contextQuoteVolumeAllows(m15Timeline, setupCandle.openedAt, config)) {
                 rejectedSetupCount += 1
                 incrementReason("CONTEXT_QUOTE_VOLUME_TOO_LOW", noTradeReasonCounts)
@@ -186,10 +192,12 @@ class VolumeFlowBacktestService(
             }
 
             val entryEquity = equity
-            val riskMultiplier = macroTrendRiskMultiplier(macroTrendContext, candidate, config)
+            val riskMultiplier =
+                macroTrendRiskMultiplier(macroTrendContext, candidate, config) *
+                    contextRangeRiskMultiplier(contextQuality, config)
             val riskAmount = entryEquity * config.riskFraction * riskMultiplier
             val quantity = riskAmount / riskPerUnit
-            val exit = simulateExit(m1Candles, entry, config)
+            val exit = simulateExit(m1Candles, entry, config, contextQuality?.rangePct)
             val grossPnl = grossPnl(candidate.side, entry.entryPrice, exit.exitPrice, quantity)
             val fees = ((entry.entryPrice * quantity) + (exit.exitPrice * quantity)) * config.feeRate
             val pnl = grossPnl - fees
@@ -657,6 +665,26 @@ class VolumeFlowBacktestService(
         return if (isMismatch || isLowQuality) config.macroTrendMismatchRiskMultiplier else 1.0
     }
 
+    private fun contextRangeRiskMultiplier(
+        contextQuality: TrendQualityContext?,
+        config: VolumeFlowBacktestConfig,
+    ): Double {
+        val threshold = config.contextRangeRiskThresholdPct ?: return 1.0
+        val rangePct = contextQuality?.rangePct ?: return 1.0
+        return if (rangePct >= threshold) config.contextRangeRiskMultiplier else 1.0
+    }
+
+    private fun highContextRangeRelativeVolumeAllows(
+        contextQuality: TrendQualityContext?,
+        candidate: SetupCandidate,
+        config: VolumeFlowBacktestConfig,
+    ): Boolean {
+        val threshold = config.highContextRangeRelativeVolumeThresholdPct ?: return true
+        val minRelativeVolume = config.highContextRangeRelativeVolumeMin ?: return true
+        val rangePct = contextQuality?.rangePct ?: return true
+        return rangePct < threshold || candidate.relativeVolume >= minRelativeVolume
+    }
+
     private fun macroTrendQualityFails(
         context: MacroTrendContext,
         relativeVolume: Double,
@@ -978,12 +1006,17 @@ class VolumeFlowBacktestService(
         m1Candles: List<Candle>,
         entry: EntryPlan,
         config: VolumeFlowBacktestConfig,
+        contextRangePct: Double?,
     ): ExitPlan {
         val startIndex = minOf(entry.entryIndex + 1, m1Candles.lastIndex)
         val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles, m1Candles.lastIndex)
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
         val followThroughCheckIndex = config.followThroughCheckM1Candles?.let { entry.entryIndex + it }
         val minFollowThroughMove = config.minFollowThroughR?.let { initialRiskPerUnit * it }
+        val followThroughRangeArmed =
+            config.followThroughMinContextRangePct?.let { minRangePct ->
+                contextRangePct != null && contextRangePct >= minRangePct
+            } ?: true
         val adverseExitCheckIndex = config.adverseExitCheckM1Candles?.let { entry.entryIndex + it }
         val maxAdverseMoveBeforeExit = config.maxAdverseRBeforeExit?.let { initialRiskPerUnit * it }
         val minFavorableMoveBeforeAdverseExit =
@@ -1143,6 +1176,7 @@ class VolumeFlowBacktestService(
                 }
             }
             if (
+                followThroughRangeArmed &&
                 followThroughCheckIndex != null &&
                 minFollowThroughMove != null &&
                 initialRiskPerUnit > 0.0 &&

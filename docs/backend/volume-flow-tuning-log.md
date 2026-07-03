@@ -535,3 +535,44 @@ compound daily target. Future risk increases need a new setup-quality or
 exit-quality improvement and must preserve monthly and walk-forward drawdown
 controls. The daily target gate must use `compoundDailyReturnPct`, not
 `netReturnPct / observedDays`.
+
+## 2026-07-03 Rolling Robustness Tuning Notes
+
+Baseline independent rolling validation remains the accepted config:
+
+- 180d windows: `54/58` pass, worst `2021-07-30..2022-01-25` at `-35.13523%`.
+- 365d windows: `17/18` pass, worst `2021-06-30..2022-06-29` at `-13.11783%`.
+- Gate used for candidate promotion: `netReturnPct >= 0`, MTM MDD `<= 40%`,
+  and at least 5 trades per window.
+
+Rejected candidates:
+
+- M1 context/risk + M5 follow-through combo
+  (`m1ctx055_risk014_runner_ft_c8_r0p15`) improved several 2021 target windows
+  but full independent validation regressed to 180d `50/58`, 365d `17/18`.
+- M1 hard `relativeVolumeThreshold` increases and M5 context-risk reductions
+  reached target `4/5`, but representative stress windows fell as low as
+  `18/26` to `21/26`.
+- Portfolio drawdown throttle sweeps did not solve the target set; best target
+  result was only `2/5`.
+- Ultra-low M5 risk and M1 down macro-mismatch risk candidates reached target
+  `5/5`, but stress validation fell to `13/20` or `18/26`; these are overfit
+  and must not be promoted.
+- Conditional M1-up high-context relative-volume gate plus M5/M1-down risk
+  controls reached target `5/5`, but representative stress validation still
+  fell to `18/26`. This confirms the feature is useful for diagnostics but not
+  yet sufficient as an accepted production setting.
+
+Engine capability added for future non-overfit searches:
+
+- `contextRangeRiskThresholdPct` + `contextRangeRiskMultiplier` can scale risk
+  only when the higher-timeframe context range is wide.
+- `highContextRangeRelativeVolumeThresholdPct` +
+  `highContextRangeRelativeVolumeMin` can require stronger setup relative
+  volume only when higher-timeframe context is wide.
+
+Current decision: do not change `config/volume-flow-composite-current.json`.
+The next tuning step should use a full-window objective earlier in the search
+loop, not target-window-first promotion. Any future candidate must preserve the
+baseline stress pass rate before it is allowed into the 76-window independent
+validation.

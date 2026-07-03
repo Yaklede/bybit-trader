@@ -36,6 +36,10 @@ data class VolumeFlowBacktestConfig(
     val minTrendMovePct: Double = 0.003,
     val minTrendEfficiency: Double = 0.35,
     val highVolatilityRangePct: Double = 0.006,
+    val contextRangeRiskThresholdPct: Double? = null,
+    val contextRangeRiskMultiplier: Double = 1.0,
+    val highContextRangeRelativeVolumeThresholdPct: Double? = null,
+    val highContextRangeRelativeVolumeMin: Double? = null,
     val maxContextRangePct: Double? = null,
     val minContextQuoteVolume: Double? = null,
     val requireKeyLevelProximity: Boolean = false,
@@ -58,6 +62,7 @@ data class VolumeFlowBacktestConfig(
     val breakevenTriggerR: Double? = null,
     val followThroughCheckM1Candles: Int? = null,
     val minFollowThroughR: Double? = null,
+    val followThroughMinContextRangePct: Double? = null,
     val adverseExitCheckM1Candles: Int? = null,
     val maxAdverseRBeforeExit: Double? = null,
     val minFavorableRBeforeAdverseExit: Double? = null,
@@ -122,6 +127,27 @@ data class VolumeFlowBacktestConfig(
         require(highVolatilityRangePct > 0.0 && highVolatilityRangePct <= 0.05) {
             "High volatility range percent must be between 0 and 0.05."
         }
+        require(contextRangeRiskThresholdPct == null || contextRangeRiskThresholdPct in 0.0..0.10) {
+            "Context range risk threshold percent must be null or between 0 and 0.10."
+        }
+        require(contextRangeRiskMultiplier > 0.0 && contextRangeRiskMultiplier <= 1.0) {
+            "Context range risk multiplier must be between 0 and 1."
+        }
+        require(
+            (highContextRangeRelativeVolumeThresholdPct == null) ==
+                (highContextRangeRelativeVolumeMin == null),
+        ) {
+            "High context range relative volume threshold and minimum must both be null or both be set."
+        }
+        require(
+            highContextRangeRelativeVolumeThresholdPct == null ||
+                highContextRangeRelativeVolumeThresholdPct in 0.0..0.10,
+        ) {
+            "High context range relative volume threshold percent must be null or between 0 and 0.10."
+        }
+        require(highContextRangeRelativeVolumeMin == null || highContextRangeRelativeVolumeMin > 1.0) {
+            "High context range relative volume minimum must be null or greater than 1."
+        }
         require(maxContextRangePct == null || maxContextRangePct in 0.0..0.10) {
             "Maximum context range percent must be null or between 0 and 0.10."
         }
@@ -168,6 +194,9 @@ data class VolumeFlowBacktestConfig(
         }
         require(minFollowThroughR == null || minFollowThroughR > 0.0 && minFollowThroughR <= 5.0) {
             "Minimum follow-through R must be null or between 0 and 5."
+        }
+        require(followThroughMinContextRangePct == null || followThroughMinContextRangePct in 0.0..0.10) {
+            "Follow-through minimum context range percent must be null or between 0 and 0.10."
         }
         val adverseExitFields =
             listOf(
