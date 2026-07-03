@@ -576,3 +576,34 @@ The next tuning step should use a full-window objective earlier in the search
 loop, not target-window-first promotion. Any future candidate must preserve the
 baseline stress pass rate before it is allowed into the 76-window independent
 validation.
+
+## 2026-07-03 Stress-First Rolling Sweep
+
+Added `scripts/volume-flow-rolling-robustness-sweep.mjs` to prevent the
+target-window overfit found above. The script consumes the 76-window
+`summary.json`, orders windows by failed/low-return stress first, and rejects a
+candidate as soon as it exceeds the allowed failure budget. The default
+improvement budget used in this pass was:
+
+- 180d failures: `<= 3` versus baseline `4`.
+- 365d failures: `0` versus baseline `1`.
+
+Sweep evidence:
+
+- M1-up conditional high-context relative-volume candidates reduced early 180d
+  target failures to `2/4`, but still hit `365D_FAILURE_BUDGET_EXCEEDED`
+  (`365d 9/10`, worst `-15.47502%` in the early ordered run).
+- M5-only defense candidates (`maxRelativeVolumeThreshold`, context-range risk,
+  runner follow-through, and context-risk+maxRV combinations) could either
+  preserve 180d or clear 365d, but not both. The best 365-clearing candidates
+  exceeded the 180d budget, commonly reaching `180d 4/8`, `6/10`, or `9/13`
+  before rejection.
+- M1-up conditional volume + M5 defense combinations repeated the same
+  trade-off. Weak M5 defense left the 365d failure (`365D_FAILURE_BUDGET_EXCEEDED`);
+  stronger M5 defense cleared sampled 365d windows but exceeded the 180d
+  failure budget (`180D_FAILURE_BUDGET_EXCEEDED`), e.g. `180d 9/13` or `2/6`.
+
+Current decision remains unchanged: no candidate is promoted to
+`config/volume-flow-composite-current.json`. The next improvement needs a new
+source of positive expectancy in the 2021-2022 transition regime rather than
+more loss suppression on the existing M1/M5 legs.
