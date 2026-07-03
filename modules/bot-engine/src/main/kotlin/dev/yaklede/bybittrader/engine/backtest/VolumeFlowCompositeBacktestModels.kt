@@ -18,6 +18,11 @@ data class VolumeFlowCompositeBacktestConfig(
     val portfolioDrawdownThrottlePct: Double? = null,
     val portfolioDrawdownRiskMultiplier: Double = 1.0,
     val portfolioDrawdownCooldownDays: Int = 0,
+    val robustnessWindowDays: Int = 365,
+    val robustnessStepDays: Int = 90,
+    val robustnessMinReturnPct: Double = 0.0,
+    val robustnessMaxDrawdownPct: Double = 40.0,
+    val robustnessMinTrades: Int = 5,
     val legs: List<VolumeFlowCompositeBacktestLeg>,
 ) {
     init {
@@ -49,6 +54,15 @@ data class VolumeFlowCompositeBacktestConfig(
         require(portfolioDrawdownCooldownDays in 0..365) {
             "Portfolio drawdown cooldown days must be between 0 and 365."
         }
+        require(robustnessWindowDays in 30..3_650) { "Robustness window days must be between 30 and 3650." }
+        require(robustnessStepDays in 7..3_650) { "Robustness step days must be between 7 and 3650." }
+        require(robustnessMinReturnPct in -95.0..1_000_000.0) {
+            "Robustness minimum return percent must be between -95 and 1000000."
+        }
+        require(robustnessMaxDrawdownPct > 0.0 && robustnessMaxDrawdownPct <= 95.0) {
+            "Robustness maximum drawdown percent must be between 0 and 95."
+        }
+        require(robustnessMinTrades >= 0) { "Robustness minimum trades must not be negative." }
         require(legs.isNotEmpty()) { "Composite volume-flow legs must not be empty." }
         require(legs.size <= 10) { "Composite volume-flow legs must be less than or equal to 10." }
         require(legs.map { it.id }.distinct().size == legs.size) { "Composite volume-flow leg ids must be unique." }
@@ -119,8 +133,52 @@ data class VolumeFlowCompositeBacktestReport(
     val performanceByVolumePattern: List<VolumeFlowTagSummary>,
     val monthlyPerformance: List<VolumeFlowPeriodSummary>,
     val walkForwardPerformance: List<VolumeFlowPeriodSummary>,
+    val robustnessSummary: VolumeFlowRobustnessSummary,
     val equityCurve: List<VolumeFlowEquityCurvePoint>,
     val trades: List<VolumeFlowCompositeBacktestTrade>,
+)
+
+data class VolumeFlowRobustnessSummary(
+    val windowDays: Int,
+    val stepDays: Int,
+    val minReturnPct: Double,
+    val maxDrawdownPct: Double,
+    val minTrades: Int,
+    val windowCount: Int,
+    val passedWindowCount: Int,
+    val failedWindowCount: Int,
+    val passRatePct: Double,
+    val worstReturnWindow: VolumeFlowRobustnessWindowSummary?,
+    val worstDrawdownWindow: VolumeFlowRobustnessWindowSummary?,
+    val windows: List<VolumeFlowRobustnessWindowSummary>,
+)
+
+data class VolumeFlowRobustnessWindowSummary(
+    val period: String,
+    val startAt: Instant,
+    val endAt: Instant,
+    val observedDays: Int,
+    val tradeCount: Int,
+    val wins: Int,
+    val losses: Int,
+    val activeDays: Int,
+    val activeDayCoveragePct: Double,
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val netPnl: Double,
+    val netReturnPct: Double,
+    val compoundDailyReturnPct: Double,
+    val maxDrawdownPct: Double,
+    val markToMarketMaxDrawdownPct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
+    val winRatePct: Double,
+    val maxConsecutiveLosses: Int,
+    val worstLegId: String?,
+    val worstLegNetPnl: Double?,
+    val worstLegTradeCount: Int,
+    val passed: Boolean,
+    val failReasons: List<String>,
 )
 
 data class VolumeFlowReplayCoverage(

@@ -16,6 +16,8 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowLegExitSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowPeriodSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowReplayCoverage
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowRobustnessSummary
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowRobustnessWindowSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSetupMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowTagSummary
@@ -80,6 +82,11 @@ data class VolumeFlowCompositeCurrentBacktestRequest(
     val tradeLimit: Int? = null,
     val equityCurveLimit: Int? = null,
     val drawdownEventLimit: Int? = null,
+    val robustnessWindowDays: Int? = null,
+    val robustnessStepDays: Int? = null,
+    val robustnessMinReturnPct: Double? = null,
+    val robustnessMaxDrawdownPct: Double? = null,
+    val robustnessMinTrades: Int? = null,
 ) {
     fun toRunRequest(base: VolumeFlowCompositeBacktestRequest): VolumeFlowCompositeBacktestRequest =
         base
@@ -93,6 +100,11 @@ data class VolumeFlowCompositeCurrentBacktestRequest(
                 tradeLimit = tradeLimit ?: base.tradeLimit,
                 equityCurveLimit = equityCurveLimit ?: base.equityCurveLimit,
                 drawdownEventLimit = drawdownEventLimit ?: base.drawdownEventLimit,
+                robustnessWindowDays = robustnessWindowDays ?: base.robustnessWindowDays,
+                robustnessStepDays = robustnessStepDays ?: base.robustnessStepDays,
+                robustnessMinReturnPct = robustnessMinReturnPct ?: base.robustnessMinReturnPct,
+                robustnessMaxDrawdownPct = robustnessMaxDrawdownPct ?: base.robustnessMaxDrawdownPct,
+                robustnessMinTrades = robustnessMinTrades ?: base.robustnessMinTrades,
             ).validated()
 }
 
@@ -116,6 +128,11 @@ data class VolumeFlowCompositeBacktestRequest(
     val portfolioDrawdownThrottlePct: Double? = null,
     val portfolioDrawdownRiskMultiplier: Double = 1.0,
     val portfolioDrawdownCooldownDays: Int = 0,
+    val robustnessWindowDays: Int = 365,
+    val robustnessStepDays: Int = 90,
+    val robustnessMinReturnPct: Double = 0.0,
+    val robustnessMaxDrawdownPct: Double = 40.0,
+    val robustnessMinTrades: Int = 5,
     val tradeLimit: Int = 50,
     val equityCurveLimit: Int = 500,
     val drawdownEventLimit: Int = 20,
@@ -165,6 +182,11 @@ data class VolumeFlowCompositeBacktestRequest(
             portfolioDrawdownThrottlePct = portfolioDrawdownThrottlePct,
             portfolioDrawdownRiskMultiplier = portfolioDrawdownRiskMultiplier,
             portfolioDrawdownCooldownDays = portfolioDrawdownCooldownDays,
+            robustnessWindowDays = robustnessWindowDays,
+            robustnessStepDays = robustnessStepDays,
+            robustnessMinReturnPct = robustnessMinReturnPct,
+            robustnessMaxDrawdownPct = robustnessMaxDrawdownPct,
+            robustnessMinTrades = robustnessMinTrades,
             legs = legs.map { it.toLeg(initialEquity) },
         )
 }
@@ -367,9 +389,55 @@ data class VolumeFlowCompositeBacktestResponse(
     val performanceByVolumePattern: List<VolumeFlowTagSummaryResponse>,
     val monthlyPerformance: List<VolumeFlowPeriodSummaryResponse>,
     val walkForwardPerformance: List<VolumeFlowPeriodSummaryResponse>,
+    val robustnessSummary: VolumeFlowRobustnessSummaryResponse,
     val equityCurve: List<VolumeFlowEquityCurvePointResponse>,
     val drawdownEvents: List<VolumeFlowEquityCurvePointResponse>,
     val trades: List<VolumeFlowCompositeTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowRobustnessSummaryResponse(
+    val windowDays: Int,
+    val stepDays: Int,
+    val minReturnPct: Double,
+    val maxDrawdownPct: Double,
+    val minTrades: Int,
+    val windowCount: Int,
+    val passedWindowCount: Int,
+    val failedWindowCount: Int,
+    val passRatePct: Double,
+    val worstReturnWindow: VolumeFlowRobustnessWindowSummaryResponse?,
+    val worstDrawdownWindow: VolumeFlowRobustnessWindowSummaryResponse?,
+    val windows: List<VolumeFlowRobustnessWindowSummaryResponse>,
+)
+
+@Serializable
+data class VolumeFlowRobustnessWindowSummaryResponse(
+    val period: String,
+    val startAt: String,
+    val endAt: String,
+    val observedDays: Int,
+    val tradeCount: Int,
+    val wins: Int,
+    val losses: Int,
+    val activeDays: Int,
+    val activeDayCoveragePct: Double,
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val netPnl: Double,
+    val netReturnPct: Double,
+    val compoundDailyReturnPct: Double,
+    val maxDrawdownPct: Double,
+    val markToMarketMaxDrawdownPct: Double,
+    val profitFactor: Double?,
+    val expectancyR: Double,
+    val winRatePct: Double,
+    val maxConsecutiveLosses: Int,
+    val worstLegId: String?,
+    val worstLegNetPnl: Double?,
+    val worstLegTradeCount: Int,
+    val passed: Boolean,
+    val failReasons: List<String>,
 )
 
 @Serializable
@@ -566,6 +634,7 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(
         performanceByVolumePattern = performanceByVolumePattern.map(VolumeFlowTagSummary::toCompositeResponse),
         monthlyPerformance = monthlyPerformance.map(VolumeFlowPeriodSummary::toResponse),
         walkForwardPerformance = walkForwardPerformance.map(VolumeFlowPeriodSummary::toResponse),
+        robustnessSummary = robustnessSummary.toResponse(),
         equityCurve = equityCurve.takeLast(equityCurveLimit).map(VolumeFlowEquityCurvePoint::toResponse),
         drawdownEvents =
             equityCurve
@@ -648,6 +717,51 @@ private fun VolumeFlowPeriodSummary.toResponse(): VolumeFlowPeriodSummaryRespons
         payoffRatio = payoffRatio?.roundForApi(),
         breakevenWinRatePct = breakevenWinRatePct?.roundForApi(),
         winRateEdgePct = winRateEdgePct?.roundForApi(),
+    )
+
+private fun VolumeFlowRobustnessSummary.toResponse(): VolumeFlowRobustnessSummaryResponse =
+    VolumeFlowRobustnessSummaryResponse(
+        windowDays = windowDays,
+        stepDays = stepDays,
+        minReturnPct = minReturnPct.roundForApi(),
+        maxDrawdownPct = maxDrawdownPct.roundForApi(),
+        minTrades = minTrades,
+        windowCount = windowCount,
+        passedWindowCount = passedWindowCount,
+        failedWindowCount = failedWindowCount,
+        passRatePct = passRatePct.roundForApi(),
+        worstReturnWindow = worstReturnWindow?.toResponse(),
+        worstDrawdownWindow = worstDrawdownWindow?.toResponse(),
+        windows = windows.map(VolumeFlowRobustnessWindowSummary::toResponse),
+    )
+
+private fun VolumeFlowRobustnessWindowSummary.toResponse(): VolumeFlowRobustnessWindowSummaryResponse =
+    VolumeFlowRobustnessWindowSummaryResponse(
+        period = period,
+        startAt = startAt.toString(),
+        endAt = endAt.toString(),
+        observedDays = observedDays,
+        tradeCount = tradeCount,
+        wins = wins,
+        losses = losses,
+        activeDays = activeDays,
+        activeDayCoveragePct = activeDayCoveragePct.roundForApi(),
+        startingEquity = startingEquity.roundForApi(),
+        endingEquity = endingEquity.roundForApi(),
+        netPnl = netPnl.roundForApi(),
+        netReturnPct = netReturnPct.roundForApi(),
+        compoundDailyReturnPct = compoundDailyReturnPct.roundForApi(),
+        maxDrawdownPct = maxDrawdownPct.roundForApi(),
+        markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct.roundForApi(),
+        profitFactor = profitFactor?.roundForApi(),
+        expectancyR = expectancyR.roundForApi(),
+        winRatePct = winRatePct.roundForApi(),
+        maxConsecutiveLosses = maxConsecutiveLosses,
+        worstLegId = worstLegId,
+        worstLegNetPnl = worstLegNetPnl?.roundForApi(),
+        worstLegTradeCount = worstLegTradeCount,
+        passed = passed,
+        failReasons = failReasons,
     )
 
 private fun VolumeFlowTagSummary.toCompositeResponse(): VolumeFlowTagSummaryResponse =

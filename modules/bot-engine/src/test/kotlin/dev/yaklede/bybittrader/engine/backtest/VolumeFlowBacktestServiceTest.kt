@@ -76,6 +76,13 @@ class VolumeFlowBacktestServiceTest :
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(profitProtectActivationR = 0.5)
             }.message shouldBe "Profit protect activation R and floor R must both be null or both be set."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowCompositeBacktestConfig(
+                    robustnessWindowDays = 29,
+                    legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
+                )
+            }.message shouldBe "Robustness window days must be between 30 and 3650."
         }
 
         "runs a long trade from 15m context 5m volume breakout and 1m retest" {
@@ -612,6 +619,9 @@ class VolumeFlowBacktestServiceTest :
             result.monthlyPerformance.single().tradeCount shouldBe 1
             result.walkForwardPerformance.size shouldBe 4
             result.walkForwardPerformance.sumOf { it.tradeCount } shouldBe 1
+            result.robustnessSummary.windowDays shouldBe 365
+            result.robustnessSummary.stepDays shouldBe 90
+            result.robustnessSummary.windowCount shouldBe 0
             (result.markToMarketMaxDrawdownPct >= result.maxDrawdownPct) shouldBe true
             (result.averageMaxFavorableExcursionR > 0.0) shouldBe true
             (result.trades.single().maxUnrealizedProfitPct > 0.0) shouldBe true

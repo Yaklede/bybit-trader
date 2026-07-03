@@ -13,6 +13,7 @@ import java.time.YearMonth
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
+import kotlin.math.pow
 
 private const val WALK_FORWARD_WINDOW_COUNT = 4
 
@@ -265,6 +266,13 @@ class VolumeFlowCompositeBacktestService(
                     startAt = startAt,
                     endAt = endAt,
                     windowCount = WALK_FORWARD_WINDOW_COUNT,
+                ),
+            robustnessSummary =
+                trades.robustnessSummary(
+                    initialEquity = config.initialEquity,
+                    startAt = startAt,
+                    endAt = endAt,
+                    config = config,
                 ),
             equityCurve = trades.equityCurve(config.initialEquity),
             trades = trades,
@@ -893,6 +901,187 @@ private fun List<VolumeFlowCompositeBacktestTrade>.equityCurve(initialEquity: Do
             maxUnrealizedDrawdownPct = trade.maxUnrealizedDrawdownPct,
             maxAdverseExcursionR = trade.maxAdverseExcursionR,
         )
+    }
+}
+
+private fun List<VolumeFlowCompositeBacktestTrade>.robustnessSummary(
+    initialEquity: Double,
+    startAt: Instant?,
+    endAt: Instant?,
+    config: VolumeFlowCompositeBacktestConfig,
+): VolumeFlowRobustnessSummary {
+    if (startAt == null || endAt == null || !endAt.isAfter(startAt)) {
+        return emptyRobustnessSummary(config)
+    }
+
+    val replayStartAt = requireNotNull(startAt)
+    val replayEndAt = requireNotNull(endAt)
+    val windowDuration = Duration.ofDays(config.robustnessWindowDays.toLong())
+    val stepDuration = Duration.ofDays(config.robustnessStepDays.toLong())
+    val sortedPoints =
+        sortedBy { it.exitAt }
+            .zip(equityCurve(initialEquity))
+            .sortedBy { it.first.exitAt }
+    val windows = mutableListOf<VolumeFlowRobustnessWindowSummary>()
+    var windowStart = replayStartAt
+    while (!windowStart.plus(windowDuration).isAfter(replayEndAt)) {
+        val windowEnd = windowStart.plus(windowDuration)
+        val points =
+            sortedPoints.filter { (trade, _) ->
+                !trade.exitAt.isBefore(windowStart) && trade.exitAt.isBefore(windowEnd)
+            }
+        windows +=
+            points.toRobustnessWindowSummary(
+                initialEquity = initialEquity,
+                windowStart = windowStart,
+                windowEnd = windowEnd,
+                config = config,
+            )
+        windowStart = windowStart.plus(stepDuration)
+    }
+
+    val passedCount = windows.count { it.passed }
+    return VolumeFlowRobustnessSummary(
+        windowDays = config.robustnessWindowDays,
+        stepDays = config.robustnessStepDays,
+        minReturnPct = config.robustnessMinReturnPct,
+        maxDrawdownPct = config.robustnessMaxDrawdownPct,
+        minTrades = config.robustnessMinTrades,
+        windowCount = windows.size,
+        passedWindowCount = passedCount,
+        failedWindowCount = windows.size - passedCount,
+        passRatePct = if (windows.isEmpty()) 0.0 else (passedCount.toDouble() / windows.size) * 100.0,
+        worstReturnWindow = windows.minByOrNull { it.netReturnPct },
+        worstDrawdownWindow = windows.maxByOrNull { it.markToMarketMaxDrawdownPct },
+        windows = windows,
+    )
+}
+
+private fun emptyRobustnessSummary(config: VolumeFlowCompositeBacktestConfig): VolumeFlowRobustnessSummary =
+    VolumeFlowRobustnessSummary(
+        windowDays = config.robustnessWindowDays,
+        stepDays = config.robustnessStepDays,
+        minReturnPct = config.robustnessMinReturnPct,
+        maxDrawdownPct = config.robustnessMaxDrawdownPct,
+        minTrades = config.robustnessMinTrades,
+        windowCount = 0,
+        passedWindowCount = 0,
+        failedWindowCount = 0,
+        passRatePct = 0.0,
+        worstReturnWindow = null,
+        worstDrawdownWindow = null,
+        windows = emptyList(),
+    )
+
+private fun List<Pair<VolumeFlowCompositeBacktestTrade, VolumeFlowEquityCurvePoint>>.toRobustnessWindowSummary(
+    initialEquity: Double,
+    windowStart: Instant,
+    windowEnd: Instant,
+    config: VolumeFlowCompositeBacktestConfig,
+): VolumeFlowRobustnessWindowSummary {
+    var equity = initialEquity
+    var peakEquity = initialEquity
+    var maxDrawdownPct = 0.0
+    var markToMarketMaxDrawdownPct = 0.0
+    var maxConsecutiveLosses = 0
+    var currentLosses = 0
+    val syntheticPnls = mutableListOf<Double>()
+    val returnRs = mutableListOf<Double>()
+    val legStates = mutableMapOf<String, RobustnessLegState>()
+    val activeDays = mutableSetOf<LocalDate>()
+
+    forEach { (trade, point) ->
+        val tradeReturnPct = if (point.startingEquity <= 0.0) 0.0 else point.pnl / point.startingEquity
+        val syntheticPnl = equity * tradeReturnPct
+        val markToMarketLowEquity = equity * (1.0 - (point.maxUnrealizedDrawdownPct / 100.0))
+        markToMarketMaxDrawdownPct =
+            maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
+        equity += syntheticPnl
+        peakEquity = maxOf(peakEquity, equity)
+        maxDrawdownPct = maxOf(maxDrawdownPct, ((peakEquity - equity) / peakEquity) * 100.0)
+        currentLosses = nextRobustnessLossStreak(currentLosses, syntheticPnl, trade.exitReason)
+        maxConsecutiveLosses = maxOf(maxConsecutiveLosses, currentLosses)
+        syntheticPnls += syntheticPnl
+        returnRs += point.returnR
+        activeDays += trade.exitAt.utcDate()
+        legStates.getOrPut(trade.legId) { RobustnessLegState() }.record(syntheticPnl)
+    }
+
+    val wins = syntheticPnls.count { it > 0.0 }
+    val losses = syntheticPnls.count { it < 0.0 }
+    val grossProfit = syntheticPnls.filter { it > 0.0 }.sum()
+    val grossLoss = syntheticPnls.filter { it < 0.0 }.sumOf { abs(it) }
+    val netPnl = equity - initialEquity
+    val netReturnPct = if (initialEquity <= 0.0) 0.0 else (netPnl / initialEquity) * 100.0
+    val observedDays = observedDaysBetween(windowStart, windowEnd.minusNanos(1))
+    val worstLeg = legStates.minByOrNull { it.value.netPnl }
+    val failReasons =
+        buildList {
+            if (syntheticPnls.size < config.robustnessMinTrades) add("TOO_FEW_TRADES")
+            if (netReturnPct < config.robustnessMinReturnPct) add("RETURN_BELOW_MIN")
+            if (markToMarketMaxDrawdownPct > config.robustnessMaxDrawdownPct) add("DRAWDOWN_ABOVE_MAX")
+        }
+
+    return VolumeFlowRobustnessWindowSummary(
+        period = "${windowStart.utcDate()}..${windowEnd.minusNanos(1).utcDate()}",
+        startAt = windowStart,
+        endAt = windowEnd,
+        observedDays = observedDays,
+        tradeCount = syntheticPnls.size,
+        wins = wins,
+        losses = losses,
+        activeDays = activeDays.size,
+        activeDayCoveragePct = if (observedDays == 0) 0.0 else (activeDays.size.toDouble() / observedDays) * 100.0,
+        startingEquity = initialEquity,
+        endingEquity = equity,
+        netPnl = netPnl,
+        netReturnPct = netReturnPct,
+        compoundDailyReturnPct = compoundDailyReturnPct(initialEquity, equity, observedDays),
+        maxDrawdownPct = maxDrawdownPct,
+        markToMarketMaxDrawdownPct = markToMarketMaxDrawdownPct,
+        profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
+        expectancyR = if (returnRs.isEmpty()) 0.0 else returnRs.average(),
+        winRatePct = if (syntheticPnls.isEmpty()) 0.0 else (wins.toDouble() / syntheticPnls.size) * 100.0,
+        maxConsecutiveLosses = maxConsecutiveLosses,
+        worstLegId = worstLeg?.key,
+        worstLegNetPnl = worstLeg?.value?.netPnl,
+        worstLegTradeCount = worstLeg?.value?.tradeCount ?: 0,
+        passed = failReasons.isEmpty(),
+        failReasons = failReasons,
+    )
+}
+
+private fun nextRobustnessLossStreak(
+    current: Int,
+    pnl: Double,
+    exitReason: VolumeFlowExitReason,
+): Int =
+    when {
+        pnl >= 0.0 -> 0
+        exitReason == VolumeFlowExitReason.BREAKEVEN_STOP -> current
+        else -> current + 1
+    }
+
+private fun compoundDailyReturnPct(
+    startingEquity: Double,
+    endingEquity: Double,
+    observedDays: Int,
+): Double =
+    if (startingEquity <= 0.0 || endingEquity <= 0.0 || observedDays <= 0) {
+        0.0
+    } else {
+        ((endingEquity / startingEquity).pow(1.0 / observedDays.toDouble()) - 1.0) * 100.0
+    }
+
+private class RobustnessLegState {
+    var tradeCount: Int = 0
+        private set
+    var netPnl: Double = 0.0
+        private set
+
+    fun record(pnl: Double) {
+        tradeCount += 1
+        netPnl += pnl
     }
 }
 
