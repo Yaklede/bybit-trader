@@ -52,6 +52,7 @@
       "sideMode": "BOTH",
       "setupTimeframe": "M5",
       "relativeVolumeThreshold": 3.5,
+      "maxRelativeVolumeThreshold": 13,
       "volumeZScoreThreshold": 0.5,
       "minContextQuoteVolume": 30000000,
       "setupRangeLookback": 8,
@@ -121,7 +122,7 @@
       "breakevenTriggerR": 0.4,
       "profitProtectActivationR": 0.35,
       "profitProtectFloorR": 0.2,
-      "maxHoldM1Candles": 30
+      "maxHoldM1Candles": 20
     },
     {
       "id": "m1_trend_down_breakout_assist",
@@ -147,10 +148,11 @@
       "minBodyRatio": 0.65,
       "minDirectionalCloseStrength": 0.6,
       "minRejectionWickRatio": 0.25,
+      "maxContextRangePct": 0.015,
       "entryLookaheadM1Candles": 5,
       "minEntryBodyRatio": 0.225,
       "minEntryRiskPct": 0.008,
-      "maxEntryRiskPct": 0.015,
+      "maxEntryRiskPct": 0.0148,
       "maxEstimatedFeeR": 0.2,
       "targetR": 0.8,
       "exitMode": "FIXED_TARGET",

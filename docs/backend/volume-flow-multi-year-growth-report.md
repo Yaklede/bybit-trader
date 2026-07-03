@@ -1917,3 +1917,44 @@ Decision:
 - Do not mark the robustness goal complete. The remaining failed windows are
   return-only failures, so the next search should add a pre-entry market-state
   selector rather than another static volume or exit threshold.
+
+## Recursive Rolling Robustness Retune 2026-07-03
+
+Source note: this pass continued the independent full-DB rolling validation
+against `build/runtime-test/bybit-trader-full-history.sqlite`. The accepted
+result is stored under
+`build/volume-flow-recursive-robustness-20260703/final-config-validation-20260703`.
+
+Accepted changes:
+
+- `trend_down_retest_runner.maxRelativeVolumeThreshold=13`
+- `m1_trend_down_breakout_assist.maxContextRangePct=0.015`
+- `m1_trend_down_breakout_assist.maxEntryRiskPct=0.0148`
+- `m1_trend_up_breakout_scalp.maxHoldM1Candles=20`
+
+Rolling robustness after the retune:
+
+| Gate | Previous | Current | Current pass rate | Worst return | Worst MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 180d rolling | `48/58` | `54/58` | `93.10345%` | `-35.13523%` | `35.17858%` |
+| 365d rolling | `16/18` | `17/18` | `94.44444%` | `-13.11783%` | `33.53815%` |
+
+Rejected recursive follow-ups:
+
+- Stronger M5 relative-volume caps improved the known early failed window but
+  regressed full validation to as low as `50/58` 180d and `15/18` 365d.
+- M1 trend-up context, macro-efficiency, adverse-exit, follow-through, and
+  shorter-hold variants reduced isolated losses but created more failed
+  rolling windows.
+- The best combined local candidate
+  (`m1adv1_0.5 + m5rv8 + m1downrv13`) regressed full validation to `44/58`
+  180d and `14/18` 365d, so it was rejected.
+
+Decision:
+
+- Keep the accepted retune in `config/volume-flow-composite-current.json`.
+- Do not continue static threshold tuning as the primary path. The evidence now
+  points to local overfit: known failed windows improve while broader rolling
+  robustness gets worse.
+- The next strategy work should add a new setup family or market-state selector
+  that is independently positive in the remaining 2021-2022 stress windows.

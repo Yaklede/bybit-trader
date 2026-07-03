@@ -1,5 +1,42 @@
 # Volume Flow Tuning Log
 
+## 2026-07-03 Recursive Rolling Robustness Retune
+
+Source note: measured against
+`build/runtime-test/bybit-trader-full-history.sqlite` with independent 180-day
+and 365-day rolling windows. These numbers are local backtest outputs, not
+live-trading return guarantees.
+
+Accepted config changes:
+
+- `trend_down_retest_runner.maxRelativeVolumeThreshold=13`
+- `m1_trend_down_breakout_assist.maxContextRangePct=0.015`
+- `m1_trend_down_breakout_assist.maxEntryRiskPct=0.0148`
+- `m1_trend_up_breakout_scalp.maxHoldM1Candles=20`
+
+Accepted rolling result:
+
+| Gate | Passed | Failed | Pass rate | Worst return | Worst MTM MDD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 180d rolling | `54/58` | `4` | `93.10345%` | `-35.13523%` | `35.17858%` |
+| 365d rolling | `17/18` | `1` | `94.44444%` | `-13.11783%` | `33.53815%` |
+
+Rejected after the accepted retune:
+
+- M5 RV caps at `8` improved the known failed 365-day window but lowered full
+  rolling validation to `50/58` 180d and `15/18` 365d.
+- M1 trend-up context, macro-efficiency, adverse-exit, follow-through, and
+  shorter-hold variants reduced selected losses but did not increase rolling
+  pass count.
+- The strongest combined local candidate
+  (`m1adv1_0.5 + m5rv8 + m1downrv13`) regressed full validation to `44/58`
+  180d and `14/18` 365d, so it was rejected.
+
+Current diagnosis: the existing four-leg structure is now near the limit of
+static threshold tuning. The remaining failed windows need a new independently
+positive setup family or market-state selector, not more local retuning of the
+same entry/exit thresholds.
+
 ## 2026-07-03 Runner Breakeven Micro-Retune
 
 Source note: measured against

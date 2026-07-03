@@ -179,3 +179,66 @@ Decision:
 - The next viable improvement should add a new market-state selector before
   entry. Static relative-volume, macro-efficiency, follow-through, and runner
   additions have been rejected by rolling-window evidence.
+
+## Recursive Robustness Retune 2026-07-03
+
+Purpose: continue the full-DB rolling-window loop from the promoted four-leg
+config and only accept changes that improve independent 180-day and 365-day
+windows without creating new failed windows.
+
+Source artifacts:
+
+- Accepted validation:
+  `build/volume-flow-recursive-robustness-20260703/final-config-validation-20260703`
+- Rejected focused sweeps:
+  - `build/volume-flow-recursive-market-state-20260703/focused-failure-window-sweep`
+  - `build/volume-flow-recursive-market-state-20260703/focused-full-window-validation`
+  - `build/volume-flow-recursive-market-state-20260703/m1up-exit-quality-sweep`
+  - `build/volume-flow-recursive-market-state-20260703/m1up-adverse-m5-combo-check`
+  - `build/volume-flow-recursive-market-state-20260703/m1adv-m5-downrv-full-validation`
+
+Accepted config changes:
+
+- Set `trend_down_retest_runner.maxRelativeVolumeThreshold=13`.
+- Set `m1_trend_down_breakout_assist.maxContextRangePct=0.015`.
+- Set `m1_trend_down_breakout_assist.maxEntryRiskPct=0.0148`.
+- Set `m1_trend_up_breakout_scalp.maxHoldM1Candles=20`.
+
+Rolling robustness result:
+
+| Gate | Previous passed | Current passed | Pass rate | Worst return | Worst MTM MDD | Remaining weak leg |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 180d rolling | `48/58` | `54/58` | `93.10345%` | `-35.13523%` | `35.17858%` | `m1_trend_up_breakout_scalp` |
+| 365d rolling | `16/18` | `17/18` | `94.44444%` | `-13.11783%` | `33.53815%` | `trend_down_retest_runner` |
+
+Remaining failed windows:
+
+| Gate | Period | Return | MTM MDD | Trades | Worst leg |
+| --- | --- | ---: | ---: | ---: | --- |
+| 180d | `2021-05-31..2021-11-26` | `-3.21409%` | `33.53815%` | `19` | `trend_down_retest` |
+| 180d | `2021-06-30..2021-12-26` | `-21.56059%` | `33.53815%` | `12` | `trend_down_retest_runner` |
+| 180d | `2021-07-30..2022-01-25` | `-35.13523%` | `35.17858%` | `12` | `m1_trend_up_breakout_scalp` |
+| 180d | `2022-03-27..2022-09-22` | `-2.11043%` | `30.55377%` | `42` | `m1_trend_up_breakout_scalp` |
+| 365d | `2021-06-30..2022-06-29` | `-13.11783%` | `33.53815%` | `57` | `trend_down_retest_runner` |
+
+Rejected follow-up findings:
+
+- M5 `maxRelativeVolumeThreshold=8` fixed the early failed 365-day window, but
+  full validation regressed to `50/58` 180d and `15/18` 365d.
+- M1 trend-up context caps and macro-efficiency filters reduced selected 2021
+  losses but created more failures in already-passing windows.
+- M1 trend-up adverse/follow-through/shorter-hold exits reduced stop size in
+  some windows, but the best full-check combo regressed to `44/58` 180d and
+  `14/18` 365d.
+- M1 trend-down RV caps improved one stress window locally, but full rolling
+  validation showed the same overfit pattern.
+
+Decision:
+
+- Promote only the accepted retune above. It improves both rolling gates and
+  keeps MTM MDD inside the `40%` operating limit.
+- Do not promote the later focused filter/exit candidates. They optimize the
+  known failed windows but reduce full rolling robustness.
+- The remaining gap likely needs a new independently positive setup family or
+  market-state selector. More static threshold tuning on the existing four legs
+  is now producing local overfit rather than robustness.
