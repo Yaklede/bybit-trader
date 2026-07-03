@@ -40,6 +40,8 @@ data class VolumeFlowBacktestConfig(
     val contextRangeRiskMultiplier: Double = 1.0,
     val highContextRangeRelativeVolumeThresholdPct: Double? = null,
     val highContextRangeRelativeVolumeMin: Double? = null,
+    val highContextRangeRelativeVolumeMacroBypassMovePct: Double? = null,
+    val highContextRangeRelativeVolumeMacroBypassEfficiency: Double? = null,
     val maxContextRangePct: Double? = null,
     val minContextQuoteVolume: Double? = null,
     val requireKeyLevelProximity: Boolean = false,
@@ -53,6 +55,7 @@ data class VolumeFlowBacktestConfig(
     val minEntryBodyRatio: Double? = null,
     val minEntryRiskPct: Double? = null,
     val maxEntryRiskPct: Double? = null,
+    val maxEntryRelativeVolume: Double? = null,
     val maxEstimatedFeeR: Double = 0.2,
     val targetR: Double = 1.2,
     val exitMode: VolumeFlowExitMode = VolumeFlowExitMode.FIXED_TARGET,
@@ -77,7 +80,7 @@ data class VolumeFlowBacktestConfig(
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
-        require(riskFraction > 0.0 && riskFraction <= 0.15) { "Risk fraction must be between 0 and 0.15." }
+        require(riskFraction > 0.0 && riskFraction <= 0.20) { "Risk fraction must be between 0 and 0.20." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
         require(setupTimeframe == Timeframe.M1 || setupTimeframe == Timeframe.M5) {
@@ -148,6 +151,24 @@ data class VolumeFlowBacktestConfig(
         require(highContextRangeRelativeVolumeMin == null || highContextRangeRelativeVolumeMin > 1.0) {
             "High context range relative volume minimum must be null or greater than 1."
         }
+        require(
+            (highContextRangeRelativeVolumeMacroBypassMovePct == null) ==
+                (highContextRangeRelativeVolumeMacroBypassEfficiency == null),
+        ) {
+            "High context range relative volume macro bypass move and efficiency must both be null or both be set."
+        }
+        require(
+            highContextRangeRelativeVolumeMacroBypassMovePct == null ||
+                highContextRangeRelativeVolumeMacroBypassMovePct in 0.0..0.50,
+        ) {
+            "High context range relative volume macro bypass move percent must be null or between 0 and 0.50."
+        }
+        require(
+            highContextRangeRelativeVolumeMacroBypassEfficiency == null ||
+                highContextRangeRelativeVolumeMacroBypassEfficiency in 0.0..1.0,
+        ) {
+            "High context range relative volume macro bypass efficiency must be null or between 0 and 1."
+        }
         require(maxContextRangePct == null || maxContextRangePct in 0.0..0.10) {
             "Maximum context range percent must be null or between 0 and 0.10."
         }
@@ -175,6 +196,9 @@ data class VolumeFlowBacktestConfig(
         }
         require(minEntryRiskPct == null || maxEntryRiskPct == null || minEntryRiskPct <= maxEntryRiskPct) {
             "Minimum entry risk percent must be less than or equal to maximum entry risk percent."
+        }
+        require(maxEntryRelativeVolume == null || maxEntryRelativeVolume > 1.0) {
+            "Maximum entry relative volume must be null or greater than 1."
         }
         require(maxEstimatedFeeR > 0.0 && maxEstimatedFeeR <= 5.0) {
             "Max estimated fee R must be between 0 and 5."

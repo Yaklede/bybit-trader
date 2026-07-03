@@ -13,12 +13,12 @@ import java.time.Instant
 
 class VolumeFlowBacktestServiceTest :
     StringSpec({
-        "allows volume-flow tuning risk up to fifteen percent" {
-            VolumeFlowBacktestConfig(riskFraction = 0.15).riskFraction shouldBe 0.15
+        "allows volume-flow tuning risk up to twenty percent" {
+            VolumeFlowBacktestConfig(riskFraction = 0.20).riskFraction shouldBe 0.20
 
             shouldThrow<IllegalArgumentException> {
-                VolumeFlowBacktestConfig(riskFraction = 0.1501)
-            }.message shouldBe "Risk fraction must be between 0 and 0.15."
+                VolumeFlowBacktestConfig(riskFraction = 0.2001)
+            }.message shouldBe "Risk fraction must be between 0 and 0.20."
 
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(relativeVolumeThreshold = 5.0, maxRelativeVolumeThreshold = 5.0)
@@ -28,6 +28,10 @@ class VolumeFlowBacktestServiceTest :
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(maxContextRangePct = 0.11)
             }.message shouldBe "Maximum context range percent must be null or between 0 and 0.10."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(maxEntryRelativeVolume = 1.0)
+            }.message shouldBe "Maximum entry relative volume must be null or greater than 1."
 
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(contextRangeRiskThresholdPct = 0.11)
@@ -56,6 +60,11 @@ class VolumeFlowBacktestServiceTest :
                     highContextRangeRelativeVolumeMin = 1.0,
                 )
             }.message shouldBe "High context range relative volume minimum must be null or greater than 1."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(highContextRangeRelativeVolumeMacroBypassMovePct = 0.08)
+            }.message shouldBe
+                "High context range relative volume macro bypass move and efficiency must both be null or both be set."
 
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowBacktestConfig(minContextQuoteVolume = 0.0)
@@ -238,6 +247,43 @@ class VolumeFlowBacktestServiceTest :
             rejected.noTradeReasonCounts["HIGH_CONTEXT_RANGE_RELATIVE_VOLUME_LOW"] shouldBe 1
         }
 
+        "can bypass high context range volume requirement when macro trend is strong" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(lateMacroUpVolumeFlowCandles()))
+
+            val rejected =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            highContextRangeRelativeVolumeThresholdPct = 0.0,
+                            highContextRangeRelativeVolumeMin = 100.0,
+                            macroTrendLookbackM15Candles = 16,
+                        ),
+                )
+            val accepted =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            highContextRangeRelativeVolumeThresholdPct = 0.0,
+                            highContextRangeRelativeVolumeMin = 100.0,
+                            highContextRangeRelativeVolumeMacroBypassMovePct = 0.03,
+                            highContextRangeRelativeVolumeMacroBypassEfficiency = 0.5,
+                            macroTrendLookbackM15Candles = 16,
+                        ),
+                )
+
+            rejected.tradeCount shouldBe 0
+            rejected.noTradeReasonCounts["HIGH_CONTEXT_RANGE_RELATIVE_VOLUME_LOW"] shouldBe 1
+            accepted.tradeCount shouldBe 1
+        }
+
         "macro trend alignment rejects setups against the longer M15 direction" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(lateMacroDownVolumeFlowCandles()))
 
@@ -396,6 +442,31 @@ class VolumeFlowBacktestServiceTest :
 
             rejected.tradeCount shouldBe 0
             rejected.noTradeReasonCounts["RELATIVE_VOLUME_TOO_HIGH"] shouldBe 1
+            accepted.tradeCount shouldBe 1
+        }
+
+        "can reject entries when entry relative volume is above a configured chase cap" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val rejected =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxEntryRelativeVolume = 2.0),
+                )
+            val accepted =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxEntryRelativeVolume = 3.0),
+                )
+
+            rejected.tradeCount shouldBe 0
+            rejected.noTradeReasonCounts["ENTRY_RELATIVE_VOLUME_TOO_HIGH"] shouldBe 1
             accepted.tradeCount shouldBe 1
         }
 
@@ -1059,6 +1130,9 @@ private fun volumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFl
 
 private fun macroDownVolumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + macroDownM15Candles()
 
+private fun lateMacroUpVolumeFlowCandles(): List<Candle> =
+    shiftedVolumeFlowM1Candles() + shiftedVolumeFlowM5Candles() + strongMacroUpM15Candles()
+
 private fun lateMacroDownVolumeFlowCandles(): List<Candle> =
     shiftedVolumeFlowM1Candles() + shiftedVolumeFlowM5Candles() + macroDownM15Candles()
 
@@ -1411,6 +1485,21 @@ private fun volumeFlowM15Candles(): List<Candle> =
 private fun macroDownM15Candles(): List<Candle> =
     (0 until 30).map { index ->
         val close = 130 - index
+        volumeFlowCandle(
+            index = index,
+            timeframe = Timeframe.M15,
+            seconds = 900L,
+            open = close.toString(),
+            high = (close + 2).toString(),
+            low = (close - 2).toString(),
+            close = close.toString(),
+            volume = "20",
+        )
+    }
+
+private fun strongMacroUpM15Candles(): List<Candle> =
+    (0 until 30).map { index ->
+        val close = 100 + index
         volumeFlowCandle(
             index = index,
             timeframe = Timeframe.M15,

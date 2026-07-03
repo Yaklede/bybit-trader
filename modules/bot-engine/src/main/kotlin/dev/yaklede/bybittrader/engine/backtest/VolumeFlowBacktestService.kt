@@ -104,6 +104,7 @@ class VolumeFlowBacktestService(
             setupCount += 1
             val contextQuality = contextQualityContext(m15Timeline, setupCandle.openedAt, config)
             val marketRegime = classifyMarketRegime(m15Timeline, setupCandle.openedAt, config)
+            val macroTrendContext = macroTrendContext(m15Timeline, setupCandle.openedAt, config)
 
             if (!config.allowedMarketRegimes.contains(marketRegime)) {
                 rejectedSetupCount += 1
@@ -117,7 +118,7 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            if (!highContextRangeRelativeVolumeAllows(contextQuality, candidate, config)) {
+            if (!highContextRangeRelativeVolumeAllows(contextQuality, macroTrendContext, candidate, config)) {
                 rejectedSetupCount += 1
                 incrementReason("HIGH_CONTEXT_RANGE_RELATIVE_VOLUME_LOW", noTradeReasonCounts)
                 continue
@@ -153,7 +154,6 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            val macroTrendContext = macroTrendContext(m15Timeline, setupCandle.openedAt, config)
             if (!macroTrendAllows(macroTrendContext, candidate, config)) {
                 rejectedSetupCount += 1
                 incrementReason("MACRO_TREND_REJECTED", noTradeReasonCounts)
@@ -165,6 +165,13 @@ class VolumeFlowBacktestService(
                 rejectedSetupCount += 1
                 incrementReason("NO_M1_RETEST_TRIGGER", noTradeReasonCounts)
                 continue
+            }
+            if (config.maxEntryRelativeVolume != null && entry.relativeVolume != null) {
+                if (entry.relativeVolume > config.maxEntryRelativeVolume) {
+                    rejectedSetupCount += 1
+                    incrementReason("ENTRY_RELATIVE_VOLUME_TOO_HIGH", noTradeReasonCounts)
+                    continue
+                }
             }
 
             val riskPerUnit = abs(entry.entryPrice - entry.stopPrice)
@@ -676,13 +683,23 @@ class VolumeFlowBacktestService(
 
     private fun highContextRangeRelativeVolumeAllows(
         contextQuality: TrendQualityContext?,
+        macroTrendContext: MacroTrendContext?,
         candidate: SetupCandidate,
         config: VolumeFlowBacktestConfig,
     ): Boolean {
         val threshold = config.highContextRangeRelativeVolumeThresholdPct ?: return true
         val minRelativeVolume = config.highContextRangeRelativeVolumeMin ?: return true
         val rangePct = contextQuality?.rangePct ?: return true
-        return rangePct < threshold || candidate.relativeVolume >= minRelativeVolume
+        if (rangePct < threshold || candidate.relativeVolume >= minRelativeVolume) return true
+
+        val bypassMovePct = config.highContextRangeRelativeVolumeMacroBypassMovePct ?: return false
+        val bypassEfficiency = config.highContextRangeRelativeVolumeMacroBypassEfficiency ?: return false
+        val macroContext = macroTrendContext ?: return false
+        if (macroContext.efficiency < bypassEfficiency) return false
+        return when (candidate.side) {
+            Side.BUY -> macroContext.movePct >= bypassMovePct
+            Side.SELL -> macroContext.movePct <= -bypassMovePct
+        }
     }
 
     private fun macroTrendQualityFails(

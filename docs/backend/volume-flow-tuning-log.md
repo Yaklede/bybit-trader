@@ -704,3 +704,66 @@ not more static risk reduction. The most promising next target is a classifier
 around the `2021-07-30..2022-01-25` window that detects failed high-volume
 trend-up continuation after blow-off and either suppresses that leg before entry
 or switches to a separately validated reversal setup.
+
+## 2026-07-03 Entry Exhaustion / Macro Bypass Robustness Pass
+
+Added two narrower execution-quality primitives:
+
+- `maxEntryRelativeVolume` rejects the actual M1 entry candle when its relative
+  volume is above a configured chase/exhaustion cap. This is separate from the
+  existing setup-candle `maxRelativeVolumeThreshold`.
+- `highContextRangeRelativeVolumeMacroBypassMovePct` and
+  `highContextRangeRelativeVolumeMacroBypassEfficiency` let the high-context
+  range relative-volume filter pass low setup-RV long/short setups only when
+  the larger M15 macro trend is strong and aligned with the trade side.
+
+The model risk guard was also widened from `0.15` to `0.20` per leg so future
+research can test the user-approved higher-MDD envelope. The current best
+candidate still keeps live leg risks close to the old limit.
+
+Best near-pass shape:
+
+- M5 retest legs: `minTrendMovePct=0.035`, `minTrendEfficiency=0.35`.
+- `trend_down_retest`: `riskFraction=0.1452`.
+- `trend_down_retest_runner`: `riskFraction=0.14378`.
+- `m1_trend_up_breakout_scalp`: `riskFraction=0.12`,
+  `maxRelativeVolumeThreshold=20`,
+  `highContextRangeRelativeVolumeThresholdPct=0.0045`,
+  `highContextRangeRelativeVolumeMin=4.0`,
+  macro bypass `move=0.08`, `efficiency=0.4`.
+- `m1_trend_down_breakout_assist`: `minDirectionalCloseStrength=0.65`,
+  `maxRelativeVolumeThreshold=10.5`, `maxContextRangePct=0.0085`,
+  `maxEntryRelativeVolume=20`.
+
+Evidence:
+
+- Targeted entry-RV sweep first cleared the known 2021/2022 target windows, but
+  full rolling exposed a new `2023-06-20..2024-06-18` 365d regression caused by
+  over-tight M5 filters.
+- Moderating M5 filters to `0.035/0.35` restored 365d robustness: sampled full
+  candidates reached `365d 18/18` while reducing 180d failures to one remaining
+  near-zero window.
+- Macro bypass restored the 2023-10 M1-up macro winner that the high-context RV
+  filter had removed, while still blocking weaker 2021 transition longs.
+- With `--minTrades 1` to match the latest requirement that trade frequency is
+  not itself a success metric, the best strict result is:
+  `365d 18/18`, `180d 5/6`, worst return `-0.00001%`, worst MTM MDD about
+  `30.34465%`.
+- The remaining failed row is effectively flat but still below the strict
+  `0%` gate:
+  `2022-06-25..2022-12-21`, after micro-tuning M5 runner/retest risk.
+
+Rejected final micro-tuning:
+
+- Increasing `m1_trend_down_breakout_assist` risk above `0.15` immediately
+  created another 180d failure around `-1.30%`, so broad risk amplification is
+  rejected even though the engine now permits research above `0.15`.
+- Lowering M1-up risk below `0.12` also shifted the failure to other 180d
+  windows and worsened worst return.
+- M5 runner/retest risk values below the `0.14378/0.1452` edge broke a later
+  180d window; values above it kept the original near-zero negative row.
+
+Decision: no promotion to `config/volume-flow-composite-current.json` yet. The
+new primitives are kept because they materially improved rolling robustness, but
+the final strategy still needs one non-risk-scaling improvement to clear the
+last strict 180d return gate without relying on decimal-edge sizing.
