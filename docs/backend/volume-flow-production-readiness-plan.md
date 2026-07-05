@@ -17,6 +17,11 @@ and is not the current blocking goal.
   `VolumeFlowAggressiveBacktestService`.
 - Operators can run the current aggressive profile through:
   `POST /backtests/volume-flow/aggressive/current/run`.
+- The paper loop can run `VolumeFlowAggressiveStrategy` through
+  `BOT_PAPER_STRATEGY=volume-flow-aggressive`, using stored M5 history for the
+  60-day side-regime rules and syncing the latest 1000 public candles per loop.
+- `scripts/bot-preflight.mjs` checks the on-prem paper deployment environment
+  before startup.
 - Existing testnet/live Bybit private execution is still not implemented.
 
 ## Milestones
@@ -48,8 +53,12 @@ Acceptance criteria:
 - Paper loop uses the aggressive M5 profile, not the mean-reversion strategy.
 - Signals, paper orders, fills, positions, and performance snapshots are linked.
 - Pause/resume blocks or allows new aggressive entries.
-- Telegram/Discord alerts cover signal, fill, rejection, startup, shutdown, and
-  daily summary events.
+- Telegram/Discord alerts cover startup, shutdown, paper fills, paper
+  rejections, control actions, and loop failures.
+- Duplicate paper entries for the same `ENTRY_AT_*` signal are skipped.
+
+Status: implemented for paper/shadow operation. Daily summary events remain a
+future reporting enhancement, not a blocker for on-prem paper deployment.
 
 ### M3. Testnet Execution
 
@@ -95,7 +104,6 @@ Acceptance criteria:
 
 ## Next Engineering Step
 
-Finish M1 parity by running the new Kotlin aggressive endpoint or service over
-the same historical windows used by the raw script and comparing trade-level
-outputs. After parity is accepted, move the paper loop from `MeanReversionStrategy`
-to the aggressive volume-flow strategy path.
+Run on-prem preflight with real operator and alert tokens, bootstrap 90 days of
+M5 history, and start the aggressive paper loop behind Twingate. The next
+capital-bearing milestone remains testnet private execution with reconciliation.

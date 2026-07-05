@@ -33,7 +33,7 @@ feature-discovery profile `absorption-adaptive-regime-final`
 
 | ID | Risk | Impact | Deferred mitigation |
 | --- | --- | --- | --- |
-| R1 | Raw feature-discovery strategy is not yet represented in the Kotlin production engine. | Backtest result cannot be trusted for live behavior until signal parity is proven. | Implement `absa_final_us_v1` in the production volume-flow engine and add parity tests against script traces. |
+| R1 | Raw feature-discovery strategy is represented in Kotlin, but raw-script versus Kotlin trade-level parity is not fully proven. | Backtest result can diverge if candle boundaries, setup indexing, or runtime signal timing differ. | Keep `VolumeFlowAggressiveBacktestService` and `VolumeFlowAggressiveStrategy` as the implementation baseline, then add trace-level parity checks against script outputs before testnet execution. |
 | R2 | Aggressive compounding allows 50-77% peak-to-trough drawdowns. | Live account may become unusable before long-run recovery, especially with futures leverage and margin rules. | Add optional risk presets later: max leverage, max account risk, consecutive-loss throttle, and stress-regime size reducer. |
 | R3 | Backtest assumes simplified fills, fees, and slippage. | Real execution may reduce or invert expected edge during high-volume candles. | Run paper and testnet shadow mode with realized spread, slippage, rejection, and funding records. |
 | R4 | Large simulated balance growth ignores exchange liquidity and order-size limits. | Later-stage compounding is unrealistic if position size becomes too large for BTCUSDT depth. | Add notional caps, depth-aware sizing, and liquidity cap reporting before scaling capital. |

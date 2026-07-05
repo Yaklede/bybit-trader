@@ -47,6 +47,19 @@ Content-Type: application/json
   "maxRequestsPerTimeframe": 1000
 }
 
+### Bootstrap aggressive paper M5 history
+POST http://localhost:8080/market-data/history/sync
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframes": ["M5"],
+  "daysBack": 90,
+  "pageLimit": 1000,
+  "maxRequestsPerTimeframe": 1000
+}
+
 ### Run a backtest over stored candles
 POST http://localhost:8080/backtests/run
 Authorization: Bearer {{controlCredential}}
@@ -215,8 +228,8 @@ Content-Type: application/json
 
 {
   "symbol": "BTCUSDT",
-  "timeframe": "M15",
-  "candleLimit": 200
+  "timeframe": "M5",
+  "candleLimit": 18000
 }
 
 ### Recent paper signals

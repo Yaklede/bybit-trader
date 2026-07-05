@@ -17,6 +17,9 @@ Milestone 1 is the operational backend shell:
   metrics.
 - Paper evaluation endpoint that records strategy signals, paper market orders,
   fills, positions, and performance snapshots without private Bybit order calls.
+- Aggressive M5 paper loop support for the current `absa_final_us_v1` profile,
+  using stored M5 history for 60-day regime rules and syncing the latest public
+  Bybit candles on each loop.
 - Volume-flow composite backtest endpoint that replays multiple strategy legs on
   one equity curve with overlap, daily stop, trade-count controls, and monthly
   and walk-forward performance summaries. Volume-flow responses include
@@ -41,13 +44,22 @@ export BOT_DATABASE_PATH="$PWD/data/bybit-trader.sqlite"
 export BOT_SYMBOL="BTCUSDT"
 export BOT_TIMEFRAMES="M1,M5,M15"
 export BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH="$PWD/config/volume-flow-composite-current.json"
-export BOT_PAPER_LOOP_ENABLED="false"
+export BOT_PAPER_LOOP_ENABLED="true"
+export BOT_PAPER_STRATEGY="volume-flow-aggressive"
+export BOT_PAPER_TIMEFRAME="M5"
+export BOT_PAPER_CANDLE_LIMIT="18000"
+export BOT_PAPER_SYNC_LIMIT="1000"
+export BOT_PAPER_INTERVAL_SECONDS="300"
+export BOT_PAPER_INITIAL_EQUITY="1000000"
+export BOT_PAPER_RISK_FRACTION="0.055"
 ./gradlew :modules:bot-app:run
 ```
 
-Set `BOT_PAPER_LOOP_ENABLED=true` to run the paper loop automatically. Optional
-loop settings are `BOT_PAPER_TIMEFRAME`, `BOT_PAPER_CANDLE_LIMIT`, and
-`BOT_PAPER_INTERVAL_SECONDS`.
+The default paper strategy is `volume-flow-aggressive`. Set
+`BOT_PAPER_STRATEGY=mean-reversion` only when testing the older baseline.
+Aggressive paper mode needs at least `17281` stored BTCUSDT M5 candles; sync
+about 90 days of M5 history before enabling the loop. Run
+`node scripts/bot-preflight.mjs` before on-prem deployment.
 
 Smoke test:
 
@@ -62,7 +74,7 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","timeframes":["M1","M5","M15"],"daysBack":365,"pageLimit":1000,"maxRequestsPerTimeframe":1000}' \
+  --data '{"symbol":"BTCUSDT","timeframes":["M5"],"daysBack":90,"pageLimit":1000,"maxRequestsPerTimeframe":1000}' \
   http://127.0.0.1:8080/market-data/history/sync
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
@@ -106,7 +118,7 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":200}' \
+  --data '{"symbol":"BTCUSDT","timeframe":"M5","candleLimit":18000}' \
   http://127.0.0.1:8080/paper/evaluate
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   "http://127.0.0.1:8080/signals/recent?limit=10"
