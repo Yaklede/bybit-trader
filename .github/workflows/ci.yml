@@ -24,3 +24,6 @@ jobs:
 
       - name: Verify
         run: ./gradlew test lint build
+
+      - name: Build Docker image
+        run: docker build --tag bybit-trader:ci .

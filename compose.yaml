@@ -1,0 +1,26 @@
+services:
+  bybit-trader:
+    image: ${BOT_IMAGE:-bybit-trader:local}
+    container_name: ${BOT_CONTAINER_NAME:-bybit-trader}
+    restart: unless-stopped
+    env_file:
+      - ${BOT_ENV_FILE:-./deploy/docker/env/bybit-trader.env}
+    ports:
+      - "${BOT_BIND_HOST:-127.0.0.1}:${BOT_API_PORT:-8080}:8080"
+    volumes:
+      - bybit_trader_data:/data
+      - ./config:/opt/bybit-trader/config:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  bybit_trader_data:

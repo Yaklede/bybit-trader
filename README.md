@@ -21,6 +21,9 @@ Milestone 1 is the operational backend shell:
   market order create with TP/SL, cancel order, open-order query, position
   query, and execution query. Order-create responses are persisted as
   `SUBMITTED`; fills must be verified through reconciliation.
+- Docker deployment assets: multi-stage `Dockerfile`, `compose.yaml`, Docker
+  env template, healthcheck, and Twingate-backed GitHub Actions deployment that
+  uploads a Docker image tarball to the on-prem host.
 - Aggressive M5 paper loop support for the current `absa_final_us_v1` profile,
   using stored M5 history for 60-day regime rules and syncing the latest public
   Bybit candles on each loop.
@@ -38,8 +41,9 @@ Milestone 1 is the operational backend shell:
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
-Credentialed Bybit testnet smoke verification is still required before live
-capital is enabled.
+For live tuning, start with `BOT_EXECUTION_LOOP_ENABLED=false` and a small
+`BOT_EXECUTION_MAX_NOTIONAL`, submit one manual order, reconcile it, then enable
+the loop.
 
 ## Local Run
 
@@ -66,10 +70,17 @@ Aggressive paper mode needs at least `17281` stored BTCUSDT M5 candles; sync
 about 90 days of M5 history before enabling the loop. Run
 `node scripts/bot-preflight.mjs` before on-prem deployment.
 
-For Bybit testnet execution, use `BOT_MODE=TESTNET`, set `BYBIT_API_KEY` and
-`BYBIT_API_SECRET`, and explicitly enable both `BOT_PRIVATE_EXECUTION_ENABLED`
-and `BOT_EXECUTION_LOOP_ENABLED`. Keep `BOT_EXECUTION_MAX_NOTIONAL` capped while
-testing.
+For Docker live execution, use `BOT_MODE=LIVE`, set `BYBIT_API_KEY` and
+`BYBIT_API_SECRET`, and enable `BOT_PRIVATE_EXECUTION_ENABLED`. Keep
+`BOT_EXECUTION_LOOP_ENABLED=false` until the first manual live order and
+reconcile pass.
+
+Docker build:
+
+```bash
+docker build -t bybit-trader:local .
+docker compose -f compose.yaml up -d
+```
 
 Smoke test:
 

@@ -114,9 +114,27 @@ Acceptance criteria:
 - Operator can pause, resume, and emergency-stop through the Twingate-protected
   API.
 
+### M6. Docker On-Prem Deployment
+
+Objective: run the bot as a Docker Compose service on the Twingate-protected
+on-prem host.
+
+Acceptance criteria:
+
+- Multi-stage Docker image builds the app and includes the current strategy
+  config.
+- Compose mounts SQLite data and strategy config outside the image.
+- App secrets are supplied through a host env file, never baked into the image.
+- GitHub Actions can build the image, upload it through Twingate+SSH, load it on
+  the host, and restart Docker Compose.
+- Healthcheck uses `/health`.
+
+Status: implemented. Host smoke remains pending until Docker/Twingate/Bybit
+live credentials are provided.
+
 ## Next Engineering Step
 
-Run on-prem preflight with real operator, alert, and Bybit testnet tokens,
-bootstrap 90 days of M5 history, then run `TESTNET` execution smoke tests behind
-Twingate. The next live-blocking milestone is automatic emergency order
-handling and credentialed testnet reconciliation evidence.
+Run Docker preflight with real operator, alert, Twingate, SSH, and Bybit live
+tokens. Start live with `BOT_EXECUTION_LOOP_ENABLED=false` and a small
+`BOT_EXECUTION_MAX_NOTIONAL`, submit one manual order, reconcile, then enable
+the loop.

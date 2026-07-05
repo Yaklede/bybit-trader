@@ -10,25 +10,15 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: onprem-testnet
+    environment: onprem-live
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Verify and assemble app
+      - name: Build Docker image
         run: |
-          ./gradlew test lint build :modules:bot-app:installDist
-          mkdir -p modules/bot-app/build/install/bot-app/config
-          cp config/volume-flow-composite-current.json modules/bot-app/build/install/bot-app/config/
+          docker build --tag "bybit-trader:${GITHUB_SHA}" .
+          docker save "bybit-trader:${GITHUB_SHA}" | gzip > bybit-trader-image.tar.gz
 
       - name: Connect to Twingate
         uses: twingate/github-action@v1
@@ -51,20 +41,35 @@ jobs:
           ONPREM_SSH_USER: ${{ secrets.ONPREM_SSH_USER }}
           ONPREM_DEPLOY_DIR: ${{ secrets.ONPREM_DEPLOY_DIR }}
         run: |
-          release_dir="${ONPREM_DEPLOY_DIR}/releases/${GITHUB_SHA}"
-          ssh -i ~/.ssh/onprem_deploy_key "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}" "mkdir -p '${release_dir}'"
+          ssh -i ~/.ssh/onprem_deploy_key "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}" \
+            "mkdir -p '${ONPREM_DEPLOY_DIR}/config' '${ONPREM_DEPLOY_DIR}/env' '${ONPREM_DEPLOY_DIR}/images'"
           rsync -az --delete -e "ssh -i ~/.ssh/onprem_deploy_key" \
-            modules/bot-app/build/install/bot-app/ \
-            "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}:${release_dir}/"
+            compose.yaml \
+            "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}:${ONPREM_DEPLOY_DIR}/compose.yaml"
+          rsync -az --delete -e "ssh -i ~/.ssh/onprem_deploy_key" \
+            config/volume-flow-composite-current.json \
+            "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}:${ONPREM_DEPLOY_DIR}/config/volume-flow-composite-current.json"
+          rsync -az -e "ssh -i ~/.ssh/onprem_deploy_key" \
+            bybit-trader-image.tar.gz \
+            "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}:${ONPREM_DEPLOY_DIR}/images/bybit-trader-${GITHUB_SHA}.tar.gz"
 
-      - name: Activate release
+      - name: Load image and restart compose service
         env:
           ONPREM_SSH_HOST: ${{ secrets.ONPREM_SSH_HOST }}
           ONPREM_SSH_USER: ${{ secrets.ONPREM_SSH_USER }}
           ONPREM_DEPLOY_DIR: ${{ secrets.ONPREM_DEPLOY_DIR }}
-          ONPREM_SYSTEMD_SERVICE: ${{ secrets.ONPREM_SYSTEMD_SERVICE }}
+          ONPREM_DOCKER_BIND_HOST: ${{ secrets.ONPREM_DOCKER_BIND_HOST }}
         run: |
-          service_name="${ONPREM_SYSTEMD_SERVICE:-bybit-trader.service}"
-          release_dir="${ONPREM_DEPLOY_DIR}/releases/${GITHUB_SHA}"
+          bind_host="${ONPREM_DOCKER_BIND_HOST:-127.0.0.1}"
           ssh -i ~/.ssh/onprem_deploy_key "${ONPREM_SSH_USER}@${ONPREM_SSH_HOST}" \
-            "ln -sfn '${release_dir}' '${ONPREM_DEPLOY_DIR}/current' && sudo systemctl restart '${service_name}' && sudo systemctl status --no-pager '${service_name}'"
+            "set -euo pipefail
+             cd '${ONPREM_DEPLOY_DIR}'
+             docker load -i 'images/bybit-trader-${GITHUB_SHA}.tar.gz'
+             printf '%s\n' \
+               'BOT_IMAGE=bybit-trader:${GITHUB_SHA}' \
+               'BOT_BIND_HOST=${bind_host}' \
+               'BOT_API_PORT=8080' \
+               'BOT_ENV_FILE=${ONPREM_DEPLOY_DIR}/env/bybit-trader.env' > .env
+             test -f '${ONPREM_DEPLOY_DIR}/env/bybit-trader.env'
+             docker compose --env-file .env -f compose.yaml up -d
+             docker compose --env-file .env -f compose.yaml ps"

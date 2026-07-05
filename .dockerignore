@@ -1,0 +1,13 @@
+.git
+.gradle
+.serena
+build
+**/build
+data
+*.sqlite
+*.db
+.env
+deploy/docker/env
+node_modules
+coverage
+README.local.md
