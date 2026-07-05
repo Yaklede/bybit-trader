@@ -17,6 +17,10 @@ Milestone 1 is the operational backend shell:
   metrics.
 - Paper evaluation endpoint that records strategy signals, paper market orders,
   fills, positions, and performance snapshots without private Bybit order calls.
+- Private Bybit V5 execution endpoint and loop for `TESTNET`/`LIVE` modes:
+  market order create with TP/SL, cancel order, open-order query, position
+  query, and execution query. Order-create responses are persisted as
+  `SUBMITTED`; fills must be verified through reconciliation.
 - Aggressive M5 paper loop support for the current `absa_final_us_v1` profile,
   using stored M5 history for 60-day regime rules and syncing the latest public
   Bybit candles on each loop.
@@ -34,7 +38,8 @@ Milestone 1 is the operational backend shell:
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
-No live or testnet exchange trading is implemented yet.
+Credentialed Bybit testnet smoke verification is still required before live
+capital is enabled.
 
 ## Local Run
 
@@ -60,6 +65,11 @@ The default paper strategy is `volume-flow-aggressive`. Set
 Aggressive paper mode needs at least `17281` stored BTCUSDT M5 candles; sync
 about 90 days of M5 history before enabling the loop. Run
 `node scripts/bot-preflight.mjs` before on-prem deployment.
+
+For Bybit testnet execution, use `BOT_MODE=TESTNET`, set `BYBIT_API_KEY` and
+`BYBIT_API_SECRET`, and explicitly enable both `BOT_PRIVATE_EXECUTION_ENABLED`
+and `BOT_EXECUTION_LOOP_ENABLED`. Keep `BOT_EXECUTION_MAX_NOTIONAL` capped while
+testing.
 
 Smoke test:
 
@@ -120,6 +130,16 @@ curl -X POST \
   -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT","timeframe":"M5","candleLimit":18000}' \
   http://127.0.0.1:8080/paper/evaluate
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","timeframe":"M5","candleLimit":18000}' \
+  http://127.0.0.1:8080/execution/evaluate-and-submit
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT"}' \
+  http://127.0.0.1:8080/execution/reconcile
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   "http://127.0.0.1:8080/signals/recent?limit=10"
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \

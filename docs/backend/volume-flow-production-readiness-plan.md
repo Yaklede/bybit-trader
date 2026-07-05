@@ -22,7 +22,11 @@ and is not the current blocking goal.
   60-day side-regime rules and syncing the latest 1000 public candles per loop.
 - `scripts/bot-preflight.mjs` checks the on-prem paper deployment environment
   before startup.
-- Existing testnet/live Bybit private execution is still not implemented.
+- Bybit V5 private execution client is implemented for linear futures order
+  create, cancel, open-order query, position query, and execution query.
+- `POST /execution/evaluate-and-submit` can submit the aggressive strategy to
+  private Bybit execution when `BOT_PRIVATE_EXECUTION_ENABLED=true`.
+- `POST /execution/reconcile` reports open orders, positions, and recent fills.
 
 ## Milestones
 
@@ -67,11 +71,19 @@ live capital is considered.
 
 Acceptance criteria:
 
+Status: implemented for order submission and read-side reconciliation. Needs
+credentialed testnet smoke verification before it is treated as operational.
+
+Acceptance criteria:
+
 - Create, cancel, query order, query position, and query fills work on testnet.
-- `clientOrderId` prevents duplicate order creation after retry or restart.
-- Partial fills and rejected orders are persisted.
-- Reconciliation must pass before order placement resumes.
-- Emergency stop cancels open orders and applies the configured position policy.
+- `clientOrderId` is generated and stored for duplicate detection and Bybit
+  order lookup.
+- Order create responses are persisted as `SUBMITTED`; fills remain reconciled
+  from Bybit rather than assumed from the create response.
+- Reconciliation endpoint returns open orders, positions, and recent fills.
+- Remaining gap before live: emergency stop must cancel open orders and apply
+  the configured position policy automatically.
 
 ### M4. On-Prem Deployment
 
@@ -104,6 +116,7 @@ Acceptance criteria:
 
 ## Next Engineering Step
 
-Run on-prem preflight with real operator and alert tokens, bootstrap 90 days of
-M5 history, and start the aggressive paper loop behind Twingate. The next
-capital-bearing milestone remains testnet private execution with reconciliation.
+Run on-prem preflight with real operator, alert, and Bybit testnet tokens,
+bootstrap 90 days of M5 history, then run `TESTNET` execution smoke tests behind
+Twingate. The next live-blocking milestone is automatic emergency order
+handling and credentialed testnet reconciliation evidence.

@@ -39,11 +39,12 @@ feature-discovery profile `absorption-adaptive-regime-final`
 | R4 | Large simulated balance growth ignores exchange liquidity and order-size limits. | Later-stage compounding is unrealistic if position size becomes too large for BTCUSDT depth. | Add notional caps, depth-aware sizing, and liquidity cap reporting before scaling capital. |
 | R5 | Same drawdown event appears in overlapping random windows. | Window-level risk can be overcounted or misinterpreted. | Track independent drawdown events by peak/trough timestamp instead of only replay-window MDD. |
 | R6 | On-prem deployment is protected by Twingate, but local API compromise remains possible inside the private network. | Any exposed control endpoint could pause, resume, or eventually place orders if token handling is weak. | Keep API bound to private interfaces, require `BOT_CONTROL_TOKEN`, restrict Twingate resource membership, and log all control actions. |
-| R7 | Live/testnet private Bybit execution is not implemented yet. | Current app cannot place real orders safely. | Implement private execution only after paper parity, idempotent order creation, reconciliation, and emergency stop tests pass. |
+| R7 | Private Bybit execution is implemented, but credentialed testnet smoke evidence is not recorded yet. | Code-level tests can pass while exchange permissions, account mode, quantity step, or symbol limits still reject real orders. | Run testnet order create/cancel/reconcile with real Bybit testnet credentials before any live capital. |
+| R8 | Emergency stop currently changes bot mode but does not automatically cancel Bybit open orders or close/reduce positions. | A private order may remain live after an operator emergency action. | Add emergency-stop execution policy: cancel open orders first, then apply configured reduce/hold/close position behavior. |
 
 ## Revisit Triggers
 
-- Before enabling Bybit testnet private order placement.
+- Before enabling Bybit live private order placement.
 - Before enabling live mode with any capital.
 - When paper/testnet signal parity differs from backtest by more than one trade
   over a replayable sample.

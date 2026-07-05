@@ -1,0 +1,22 @@
+[Unit]
+Description=Bybit Trader Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bybit-trader
+Group=bybit-trader
+WorkingDirectory=/opt/bybit-trader/current
+EnvironmentFile=/etc/bybit-trader/bybit-trader.env
+ExecStart=/opt/bybit-trader/current/bin/bot-app
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bybit-trader /var/lib/bybit-trader /var/log/bybit-trader
+
+[Install]
+WantedBy=multi-user.target

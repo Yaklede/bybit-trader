@@ -1,0 +1,32 @@
+@baseUrl = http://127.0.0.1:8080
+@controlToken = replace-with-BOT_CONTROL_TOKEN
+
+### Evaluate strategy and submit a Bybit testnet/live order
+POST {{baseUrl}}/execution/evaluate-and-submit
+Authorization: Bearer {{controlToken}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "timeframe": "M5",
+  "candleLimit": 18000
+}
+
+### Reconcile Bybit open orders, positions, and executions
+POST {{baseUrl}}/execution/reconcile
+Authorization: Bearer {{controlToken}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT"
+}
+
+### Cancel an open order by local client order id
+POST {{baseUrl}}/execution/orders/cancel
+Authorization: Bearer {{controlToken}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "clientOrderId": "bt-BTCUSDT-1719705600000-1-B"
+}
