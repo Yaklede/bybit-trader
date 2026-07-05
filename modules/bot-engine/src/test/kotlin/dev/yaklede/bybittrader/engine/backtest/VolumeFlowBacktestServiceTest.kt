@@ -210,6 +210,29 @@ class VolumeFlowBacktestServiceTest :
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
         }
 
+        "runs a long trade from volume follow-through continuation and 1m close confirmation" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            setupMode = VolumeFlowSetupMode.VOLUME_FOLLOW_THROUGH_CONTINUATION,
+                            entryMode = VolumeFlowEntryMode.CLOSE_CONFIRMATION,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().setupMode shouldBe VolumeFlowSetupMode.VOLUME_FOLLOW_THROUGH_CONTINUATION
+            result.trades.single().volumePattern shouldBe VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+            result.performanceBySetupMode.single().tag shouldBe "VOLUME_FOLLOW_THROUGH_CONTINUATION"
+        }
+
         "can reduce risk when higher timeframe context range is wide" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
             val base =

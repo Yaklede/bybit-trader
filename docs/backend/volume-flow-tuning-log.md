@@ -809,3 +809,302 @@ Decision: promote this configuration to
 `config/volume-flow-composite-current.json`. This clears the strict rolling
 robustness gate on all currently held BTCUSDT 180d and 365d windows, with MDD
 inside the user-approved `30-40%` envelope.
+
+## 2026-07-04 Coverage-Oriented Current Promotion
+
+The strict 2026-07-03 current config proved too sparse for the intended
+compounding objective. On `2025-07-01..2026-07-01`, it traded only `9` times
+with `2.18579%` active-day coverage and `0.17778%` compound daily return.
+
+Rechecked alternatives against full-history BTCUSDT data in
+`build/runtime-test/bybit-trader-full-history.sqlite`:
+
+- Reopening the M5 trend-down retest family with `riskFraction=0.08` and no
+  `minTrendMovePct/minTrendEfficiency` gate improved full-history compound
+  daily return from `0.12887%` to `0.22624%`, but still left yearly trade
+  coverage low.
+- Higher M5 risk (`0.12`) pushed the recent one-year replay near the target
+  (`0.77332%` compound daily), but weakened `2021-04..2022-06` to `0.11342%`
+  and raised drawdown to `36.88977%`. This is treated as too regime-sensitive
+  for the current baseline.
+- Adding a low-risk M1 trend-down loose runner increased trade coverage
+  materially. The selected added leg uses `riskFraction=0.02`,
+  `relativeVolumeThreshold=1.5`, `minTrendMovePct=0.01`, and `RUNNER` exit.
+
+Promoted current evidence:
+
+| Window | Compound daily | Net return | Trades | Active-day coverage | MTM/realized max DD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `2021-04-01..2022-07-01` | `0.15916%` | `106.83899%` | `135` | `19.47484%` | `28.87465%` |
+| `2025-07-01..2026-07-01` | `0.62761%` | `887.37690%` | `64` | `9.28962%` | `15.05958%` |
+| `2023-07-01..2026-07-01` | `0.37464%` | `5,946.93697%` | `186` | `10.11868%` | `25.24563%` |
+| Full available | `0.22272%` | `16,252.27128%` | `436` | `12.82660%` | `26.11278%` |
+
+Decision: promote this coverage-oriented candidate to
+`config/volume-flow-composite-current.json` because it materially improves
+trade coverage and full-history compounding while keeping drawdown below the
+`30-40%` risk envelope. It is not the final target strategy: the daily
+compound target of about `0.8%` is still not consistently reached across
+arbitrary start windows. The selected M1 loose runner is also negative in the
+`2021-04..2022-06` isolated leg analysis, so the next loop must add a regime
+selector or a new positive-expectancy setup rather than continuing to loosen
+static entry gates.
+
+## 2026-07-05 Random Window 0.8% Target Pass
+
+The target was tightened to require `compoundDailyReturnPct >= 0.8` across a
+deterministic random sample of `20` windows. The windows use seed `20260705`,
+range from `1` to `60` months, and span the available full-history BTCUSDT
+dataset.
+
+Baseline with the 2026-07-04 coverage config failed all windows:
+
+- Pass count: `0/20`.
+- Worst compound daily: `-0.13113%`.
+- Median compound daily: `0.16116%`.
+- Average compound daily: `0.12703%`.
+- Max drawdown: `29.76226%`.
+- Average active-day coverage: `14.20784%`.
+
+Diagnostics showed the added M1 down loose runner was the common drag in the
+early failure windows:
+
+- `2020-11-20..2021-03-20`: `add_m1_down_loose...` PnL `-146,810`.
+- `2021-02-01..2021-06-01`: `add_m1_down_loose...` PnL `-79,384`.
+- `2021-04-09..2022-02-09`: `add_m1_down_loose...` PnL `-191,462`.
+
+Tested follow-up candidate families:
+
+- M5 trend-down risk expansion: did not produce any `0.8%` window pass and
+  exceeded the drawdown envelope at higher risk.
+- M1 down loose risk/volume variants: worsened worst windows and are rejected.
+- M1 up loose variants: improved some early windows but reduced median/average
+  or raised drawdown; not promoted.
+- M5 trend-up mirror variants: worsened worst windows and are rejected.
+- Static RANGE/CHOP failed-break/rejection variants: increased trade coverage
+  but consistently worsened the worst random windows.
+- Execution loosening (`dailyStopPct`, `maxConsecutiveLosses`): did not solve
+  the target and often worsened worst windows.
+
+Accepted current change:
+
+- Remove `add_m1_down_loose_r0.02_rv1.5_keyfalse`.
+
+Evidence for the promoted removal-only candidate:
+
+- Pass count: `0/20`.
+- Worst compound daily: `-0.01330%`.
+- Median compound daily: `0.16609%`.
+- Average compound daily: `0.15204%`.
+- Max drawdown: `29.41526%`.
+- Average active-day coverage: `6.04%`.
+
+Decision: promote the removal because it materially improves random-window
+robustness and removes the clearest negative-expectancy coverage leg. This does
+not achieve the `0.8%` all-window target. The next implementation step must be
+a new regime-aware signal family, not another static loose-entry leg. The
+current engine can trade both directions, but the existing setup families do
+not yet produce a positive edge in every sampled market regime.
+
+Additional tuning after the removal-only promotion rejected two broader
+coverage families:
+
+- M1 dual-direction impulse probe:
+  - `riskFraction=0.01`, `relativeVolumeThreshold=1.2`, `FIXED_TARGET`:
+    `0/20` pass, worst `-0.21870%`, median `-0.02411%`, average
+    `-0.02400%`, max drawdown `35.03%`, active coverage `49.52%`.
+  - `riskFraction=0.01`, `relativeVolumeThreshold=2.0`, `RUNNER`: `0/20`
+    pass, worst `-0.16362%`, median `-0.00319%`, average `0.04013%`, max
+    drawdown `39.39%`, active coverage `48.54%`.
+  - `riskFraction=0.02`, `relativeVolumeThreshold=1.2`, `RUNNER`: `0/20`
+    pass, worst `-0.22398%`, median `-0.04800%`, average `-0.06172%`, max
+    drawdown `63.16%`, active coverage `47.18%`.
+- Failed-break and volume-rejection reversal probe:
+  - Best retained baseline remained `base_drop`: `0/20` pass, worst
+    `-0.01330%`, median `0.16609%`, average `0.15204%`, max drawdown
+    `29.41526%`, active coverage `6.03931%`.
+  - Best coverage reversal by worst-case tie was
+    `m5_failed_r002_rv2_setup_fixed`: `0/20` pass, worst `-0.01330%`,
+    median `0.15054%`, average `0.13851%`, max drawdown `32.34916%`,
+    active coverage `9.36340%`.
+  - Best median reversal was `m1_failed_r002_rv3_close_runner`: `0/20`
+    pass, worst `-0.02152%`, median `0.17118%`, average `0.14997%`, max
+    drawdown `31.09753%`, active coverage `6.57692%`.
+
+Decision: reject both families. They prove that simply increasing two-way
+future-market participation does not create the compounding edge. The next
+strategy work should add a stronger entry-quality model before increasing risk:
+post-volume follow-through confirmation, setup-level volatility normalization,
+and regime-specific side selection trained on rolling out-of-sample windows.
+
+## 2026-07-05 Follow-Through Setup Probe
+
+Added an engine-level setup mode:
+`VOLUME_FOLLOW_THROUGH_CONTINUATION`. It converts a high-volume directional
+candle into a setup without requiring a range breakout, but still requires the
+entry candle to confirm through the setup high/low via the existing
+`CLOSE_CONFIRMATION` path. This was added to make the engine capable of testing
+post-volume follow-through separately from static range breakout logic.
+
+Random-window evidence:
+
+- Broad M1 follow-through, both sides, `riskFraction=0.02`, `rv=2.0`:
+  `0/20` pass, worst `-0.16005%`, median `0.03617%`, average `0.03717%`,
+  max drawdown `34.30111%`, active coverage `17.71831%`.
+- Broad M1 follow-through, both sides, `riskFraction=0.04`, `rv=2.0`:
+  `0/20` pass, worst `-0.32328%`, median `-0.00754%`, average `-0.01604%`,
+  max drawdown `39.20504%`.
+- Macro-aligned M1 follow-through, both sides, `riskFraction=0.04`, `rv=2.0`:
+  `0/20` pass, worst `-0.01330%`, median `0.18247%`, average `0.15843%`,
+  max drawdown `29.41526%`.
+- Strong-macro fixed-target variants improved some isolated trades but reduced
+  random-window median/average or worsened worst-case return. The best
+  short-only strong-macro variant had worst `-0.00844%` but average only
+  `0.12854%`, below the removal-only baseline.
+
+Failure-window source scans:
+
+- W16 (`2020-11-20..2021-03-20`): direct M1 volume follow-through and
+  mean-reversion scans remained negative. The best sampled M1 trend-follow
+  profile was still `sumR=-32.59` before sequential compounding.
+- W09 (`2021-02-01..2021-06-01`): direct M1 reversal had a high hit rate but
+  remained negative after fees and stop distance (`sumR=-1.50` best sampled).
+- W01 (`2025-09-01..2025-10-01`): M1 trend-follow was nearly breakeven before
+  compounding (`sumR=-0.34` best sampled) but not positive enough to justify
+  risk.
+- M5 Donchian/channel BUY breakout showed positive non-blocking raw R in W16
+  and near-breakeven in W09, but a sequential compound replay at `4%` risk
+  overtraded and collapsed most random windows. This family needs strict daily
+  throttling, volatility normalization, and out-of-sample selection before it
+  can be considered for the engine.
+
+Decision: keep the new follow-through mode as a tested engine capability, but
+do not promote any follow-through leg into the current config yet. The current
+target remains unmet. The main blocker is no longer implementation mechanics:
+the sampled failure windows do not show a robust positive edge from single
+volume-spike trend or reversal rules. The next viable strategy direction is a
+rolling, regime-aware selector that can decide when M1 continuation, M1
+reversal, or M5 channel breakout is active, and when no trade is the highest
+expectancy choice.
+
+## 2026-07-05 Selector and Channel Oracle Probe
+
+Tested whether the gap is caused by poor selection or by insufficient candidate
+edge.
+
+Oracle best across the saved candidate families
+(`current-after-drop`, drop-loose variants, range/chop reversal, M1-up regime
+variants, follow-through, strong-macro follow-through) still failed the target:
+
+- Pass count: `1/20`.
+- Worst best-window compound daily: `0.10770%`.
+- Median best-window compound daily: `0.18878%`.
+- Average best-window compound daily: `0.26916%`.
+- Only W15 exceeded `0.8%`; most windows remained between `0.10%` and
+  `0.43%` even with hindsight selection.
+
+Warmup selector probe:
+
+- Method: for each random window, evaluate `9` candidate configs on the prior
+  `180` days, select only candidates with warmup `compoundDailyReturnPct > 0`,
+  at least `2` trades, and max drawdown `<= 35%`; otherwise fall back to
+  `base_drop`.
+- Result: `0/20` pass, worst `-0.05963%`, median `0.09886%`, average
+  `0.12478%`, max drawdown `35.76151%`.
+- Failure: recent warmup winners overfit W10/W17 and selected losing
+  follow-through candidates. Early windows had no passing warmup candidates and
+  fell back to sparse base behavior.
+
+M5 channel-breakout approximation:
+
+- Tested M5 `BREAKOUT_CONTINUATION` as a Donchian/channel proxy using
+  `LONG_ONLY`/`BOTH`, `rv=2..3`, lookback `12..24`, `SETUP_CLOSE_CONFIRMATION`
+  and `CLOSE_CONFIRMATION`, with larger `targetR`.
+- Broad application increased active coverage to `22%..59%`, but all variants
+  failed `0/20` and most had negative median/average return.
+- Best context-filtered channel proxy still had worst `-0.41090%`, median
+  `0.02724%`, average `-0.00359%`, max drawdown `43.59658%`.
+
+Decision: selector logic alone cannot achieve the objective with the current
+candidate set. Even hindsight selection over saved candidates cannot make the
+random windows hit `0.8%` compound daily. The next work must discover a new
+positive-expectancy family from raw candle/volume features before adding more
+runtime selection machinery. Promising directions are order-flow proxies that
+use multi-candle volume absorption/exhaustion, volatility-normalized breakout
+distance, and time-of-day/session filters rather than single-candle volume
+spikes.
+
+## 2026-07-05 M5 Absorption Regime Final Candidate
+
+Added a raw M5 feature-discovery strategy profile:
+`absorption-adaptive-regime-final` / `absa_final_us_v1`.
+
+The profile is a single-leg, US-session BTCUSDT futures strategy built around
+multi-candle volume absorption and breakout continuation:
+
+- Setup: M5 absorption cluster, `clusterCandles=2`, `clusterVolumeMin=1.2`,
+  `relativeVolumeMin=1.0`, `maxDisplacementAtr=1.2`, `maxRangeAtr=3.0`.
+- Entry: M5 close breaks the cluster high/low within `3` candles.
+- Risk: `riskFraction=0.055`, base `stopAtr=1.0`, base `targetR=2.2`,
+  `maxHoldCandles=36`, `maxTradesPerDay=5`.
+- Adaptive target: reduce to `targetR=1.5` after weak 14-day regimes
+  (`4032` M5 candles, return `<= -10%`, average volume `>= 300`, average
+  range `>= 0.10%`).
+- Adaptive stop: widen to `stopAtr=1.2` after strong 30-day regimes
+  (`8640` M5 candles, return `>= 25%`, average volume `>= 200`, average
+  range `>= 0.12%`).
+- Side/regime blocks:
+  - Block shorts after extreme 60-day selloffs (`return < -25%`).
+  - Block weak-regime longs only when 60-day return is `-12%..2%` and
+    60-day average volume is `200..300`.
+  - Block low-volume stale longs when 14-day return is `0%..10%`, 60-day
+    return is `>= 20%`, and 60-day average volume is `< 300`.
+  - Block 60-day `10%..20%` longs only when 60-day average volume is `< 300`
+    and 14-day return is `0%..10%`.
+  - Block shorts in 60-day `0%..10%` regimes only when 60-day average volume
+    is `>= 300` and 14-day return is `>= 4%`.
+  - Block overheated longs when both 60-day and 14-day returns are `>= 20%`.
+
+Validation command pattern:
+
+```bash
+node scripts/volume-flow-feature-discovery.mjs \
+  --db build/runtime-test/bybit-trader-full-history.sqlite \
+  --windows <windows.json> \
+  --out <out-dir> \
+  --timeframe M5 \
+  --profile absorption-adaptive-regime-final \
+  --maxCandidates 1 \
+  --targetCdrPct 0.8 \
+  --quiet true
+```
+
+Validation sets:
+
+| Set | Windows | Pass | Worst CDR | Median CDR | Avg CDR | Max DD | Avg active-day coverage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `combined180` | 180 | 180 | `0.93650%` | `3.54702%` | `3.63277%` | `77.53498%` | `84.05706%` |
+| `next100` | 100 | 100 | `1.17439%` | `3.47176%` | `3.49001%` | `77.53498%` | `83.34795%` |
+| `holdout100` | 100 | 100 | `1.02930%` | `3.66545%` | `3.68181%` | `77.53498%` | `84.27225%` |
+| `final100` | 100 | 100 | `1.11239%` | `3.72608%` | `3.74517%` | `77.53498%` | `84.36288%` |
+| Aggregate | 480 | 480 | `0.93650%` | n/a | `3.63666%` | `77.53498%` | n/a |
+
+Worst windows after finalization:
+
+- `combined180`: `2022-11-09..2023-02-09`, `0.93650%` CDR, `131` trades,
+  PF `1.17389`.
+- `next100`: `2025-07-06..2025-11-06`, `1.17439%` CDR, `204` trades,
+  PF `1.26778`.
+- `holdout100`: `2023-12-03..2024-01-03`, `1.02930%` CDR, `84` trades,
+  PF `1.05621`.
+- `final100`: `2022-10-15..2022-12-15`, `1.11239%` CDR, `85` trades,
+  PF `1.15380`.
+
+Decision: the raw feature strategy meets the current random-window target
+(`0.8%` compound daily across 1-60 month windows) at research-simulator level.
+It is not yet promoted to `config/volume-flow-composite-current.json` because
+the production composite engine does not currently express this exact M5
+absorption cluster entry model or the multi-lookback side-regime block rules.
+The next implementation step is to add an engine-native absorption setup mode
+and side-regime block model, then replay the same `480` windows through the API
+before enabling live/paper execution.

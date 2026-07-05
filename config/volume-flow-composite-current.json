@@ -4,7 +4,6 @@
   "m5Limit": 315648,
   "m15Limit": 105216,
   "initialEquity": 1000000,
-  "dailyTargetPct": null,
   "dailyStopPct": 2,
   "minTradesPerDay": 1,
   "maxTradesPerDay": 5,
@@ -43,12 +42,12 @@
       "followThroughCheckM1Candles": 8,
       "minFollowThroughR": 0.35,
       "maxHoldM1Candles": 35,
-      "minTrendMovePct": 0.035,
-      "minTrendEfficiency": 0.35
+      "runnerTrailActivationR": 0.8,
+      "runnerTrailDistanceR": 0.75
     },
     {
       "id": "trend_down_retest_runner",
-      "riskFraction": 0.14378,
+      "riskFraction": 0.08,
       "setupMode": "BREAKOUT_CONTINUATION",
       "entryMode": "RETEST_CONFIRMATION",
       "sideMode": "BOTH",
@@ -79,11 +78,9 @@
       "targetR": 1.2,
       "exitMode": "RUNNER",
       "runnerTrailActivationR": 0.8,
-      "runnerTrailDistanceR": 1.03,
+      "runnerTrailDistanceR": 0.75,
       "breakevenTriggerR": 0.65,
-      "maxHoldM1Candles": 30,
-      "minTrendMovePct": 0.035,
-      "minTrendEfficiency": 0.35
+      "maxHoldM1Candles": 30
     },
     {
       "id": "m1_trend_up_breakout_scalp",
@@ -167,7 +164,6 @@
       "exitMode": "FIXED_TARGET",
       "runnerTrailActivationR": 1,
       "runnerTrailDistanceR": 0.5,
-      "breakevenTriggerR": null,
       "adverseExitCheckM1Candles": 3,
       "maxAdverseRBeforeExit": 0.9,
       "minFavorableRBeforeAdverseExit": 0.35,

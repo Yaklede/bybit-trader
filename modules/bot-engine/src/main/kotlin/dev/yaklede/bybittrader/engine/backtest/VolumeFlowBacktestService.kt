@@ -343,6 +343,16 @@ class VolumeFlowBacktestService(
                     config,
                     noTradeReasonCounts,
                 )
+            VolumeFlowSetupMode.VOLUME_FOLLOW_THROUGH_CONTINUATION ->
+                detectVolumeFollowThroughContinuation(
+                    candles[index],
+                    shape,
+                    keyLevel,
+                    relativeVolume,
+                    volumeZScore,
+                    config,
+                    noTradeReasonCounts,
+                )
             VolumeFlowSetupMode.FAILED_BREAK_REVERSAL ->
                 detectFailedBreakReversal(
                     candles[index],
@@ -402,6 +412,44 @@ class VolumeFlowBacktestService(
         }
         return SetupCandidate(
             setupMode = VolumeFlowSetupMode.BREAKOUT_CONTINUATION,
+            side = side,
+            entryLevel =
+                when (side) {
+                    Side.BUY -> candle.high.toDouble()
+                    Side.SELL -> candle.low.toDouble()
+                },
+            relativeVolume = relativeVolume,
+            volumeZScore = volumeZScore,
+            shape = shape,
+            keyLevel = keyLevel,
+            volumePattern = VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE,
+        )
+    }
+
+    private fun detectVolumeFollowThroughContinuation(
+        candle: Candle,
+        shape: CandleShape,
+        keyLevel: KeyLevelContext,
+        relativeVolume: Double,
+        volumeZScore: Double,
+        config: VolumeFlowBacktestConfig,
+        noTradeReasonCounts: MutableMap<String, Int>,
+    ): SetupCandidate? {
+        val side = shape.direction
+        if (side == null) {
+            incrementReason("CANDLE_DIRECTION_MISMATCH", noTradeReasonCounts)
+            return null
+        }
+        if (shape.bodyRatio < config.minBodyRatio) {
+            incrementReason("BODY_TOO_SMALL", noTradeReasonCounts)
+            return null
+        }
+        if (!shape.closesStronglyFor(side, config.minDirectionalCloseStrength)) {
+            incrementReason("WEAK_CLOSE_LOCATION", noTradeReasonCounts)
+            return null
+        }
+        return SetupCandidate(
+            setupMode = VolumeFlowSetupMode.VOLUME_FOLLOW_THROUGH_CONTINUATION,
             side = side,
             entryLevel =
                 when (side) {
