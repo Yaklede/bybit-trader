@@ -22,6 +22,7 @@ import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.control.ControlEventRecorder
+import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
@@ -101,6 +102,7 @@ class ApiModuleTest :
         "authorized pause all request changes bot mode" {
             testApplication {
                 val stateStore = InMemoryStateStore()
+                val controlResults = mutableListOf<ControlResult>()
                 application {
                     configureApi(
                         stateStore = stateStore,
@@ -109,6 +111,7 @@ class ApiModuleTest :
                         backtestService = testBacktestService(),
                         meanReversionSweepService = testMeanReversionSweepService(),
                         volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        onControlResult = { controlResults += it },
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -121,6 +124,7 @@ class ApiModuleTest :
                     }.status shouldBe HttpStatusCode.OK
 
                 stateStore.current().mode shouldBe BotMode.PAUSE_ALL
+                controlResults.single().newMode shouldBe BotMode.PAUSE_ALL
             }
         }
 

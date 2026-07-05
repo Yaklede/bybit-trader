@@ -19,17 +19,21 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
+import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationStatus
+import dev.yaklede.bybittrader.engine.paper.PaperTradingConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
+import dev.yaklede.bybittrader.engine.strategy.VolumeFlowAggressiveStrategy
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.strategy.MeanReversionStrategy
+import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
@@ -85,7 +89,13 @@ fun main() {
             stateStore = ledger,
             candleStore = ledger,
             paperTradingStore = ledger,
-            strategy = MeanReversionStrategy(),
+            strategy = createPaperStrategy(config.paperLoop.strategy),
+            config =
+                PaperTradingConfig(
+                    initialEquity = config.paperTrading.initialEquity,
+                    riskFraction = config.paperTrading.riskFraction,
+                    feeRate = config.paperTrading.feeRate,
+                ),
         )
     val paperLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val paperLoopJob =
@@ -98,6 +108,7 @@ fun main() {
                         symbol = config.marketData.symbol,
                         timeframe = config.paperLoop.timeframe,
                         candleLimit = config.paperLoop.candleLimit,
+                        syncLimit = config.paperLoop.syncLimit,
                         interval = Duration.ofSeconds(config.paperLoop.intervalSeconds),
                     ),
                 onResult = { result -> alertingService.sendPaperLoopResult(result) },
@@ -152,6 +163,7 @@ fun main() {
                 volumeFlowSweepService = volumeFlowSweepService,
                 paperTradingService = paperTradingService,
                 paperTradingReportStore = ledger,
+                onControlResult = { result -> alertingService.sendControlResult(result) },
                 controlCredential = config.api.controlCredential,
             )
         }
@@ -209,6 +221,31 @@ private fun createAlertSink(
         1 -> sinks.single()
         else -> CompositeAlertSink(sinks)
     }
+}
+
+private fun createPaperStrategy(strategy: PaperStrategyKind): TradingStrategy =
+    when (strategy) {
+        PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE -> VolumeFlowAggressiveStrategy()
+        PaperStrategyKind.MEAN_REVERSION -> MeanReversionStrategy()
+    }
+
+private suspend fun AlertingService.sendControlResult(result: ControlResult) {
+    send(
+        AlertMessage(
+            severity =
+                when (result.action.name) {
+                    "EMERGENCY_STOP" -> AlertSeverity.CRITICAL
+                    "PAUSE_ALL",
+                    "PAUSE_NEW_ENTRIES",
+                    -> AlertSeverity.WARNING
+                    else -> AlertSeverity.INFO
+                },
+            title = "control-${result.action.name.lowercase()}",
+            body =
+                "${result.action.name} changed bot mode " +
+                    "${result.previousMode.name} -> ${result.newMode.name} at ${result.changedAt}.",
+        ),
+    )
 }
 
 private suspend fun AlertingService.sendPaperLoopResult(result: PaperEvaluationResult) {

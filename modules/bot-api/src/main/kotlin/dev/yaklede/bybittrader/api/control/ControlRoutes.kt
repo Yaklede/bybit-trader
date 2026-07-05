@@ -11,7 +11,10 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 
-fun Route.configureControlRoutes(controlService: BotControlService) {
+fun Route.configureControlRoutes(
+    controlService: BotControlService,
+    onControlResult: suspend (ControlResult) -> Unit = {},
+) {
     authenticate("control") {
         post("/control/pause-new-entries") {
             val request = call.receive<ControlRequest>().validated()
@@ -20,6 +23,7 @@ fun Route.configureControlRoutes(controlService: BotControlService) {
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
+            notifyControlResult(result, onControlResult)
             call.respond(result.toResponse())
         }
 
@@ -30,6 +34,7 @@ fun Route.configureControlRoutes(controlService: BotControlService) {
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
+            notifyControlResult(result, onControlResult)
             call.respond(result.toResponse())
         }
 
@@ -40,6 +45,7 @@ fun Route.configureControlRoutes(controlService: BotControlService) {
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
+            notifyControlResult(result, onControlResult)
             call.respond(result.toResponse())
         }
 
@@ -50,8 +56,20 @@ fun Route.configureControlRoutes(controlService: BotControlService) {
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
+            notifyControlResult(result, onControlResult)
             call.respond(result.toResponse())
         }
+    }
+}
+
+private suspend fun notifyControlResult(
+    result: ControlResult,
+    onControlResult: suspend (ControlResult) -> Unit,
+) {
+    try {
+        onControlResult(result)
+    } catch (_: Throwable) {
+        // Control plane commands must not fail because a webhook or push sink is unavailable.
     }
 }
 

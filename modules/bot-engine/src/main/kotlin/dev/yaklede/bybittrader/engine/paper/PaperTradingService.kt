@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.paper
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.BotStateStore
@@ -26,8 +27,8 @@ class PaperTradingService(
         timeframe: Timeframe,
         candleLimit: Int,
     ): PaperEvaluationResult {
-        require(candleLimit in strategy.warmupCandles..1000) {
-            "Candle limit must be between strategy warmup candles and 1000."
+        require(candleLimit in strategy.warmupCandles..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "Candle limit must be between strategy warmup candles and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
 
         val now = Instant.now(clock)
@@ -71,6 +72,35 @@ class PaperTradingService(
                 quantity = null,
                 fee = null,
             )
+        }
+        val signalKey = signal.score.reasonCodes.firstOrNull { it.startsWith(SIGNAL_KEY_PREFIX) }
+        if (signalKey != null) {
+            val duplicateSignal =
+                paperTradingStore
+                    .recentSignals(config.duplicateSignalLookback)
+                    .any { recentSignal ->
+                        recentSignal.accepted &&
+                            recentSignal.strategy == signal.strategy &&
+                            recentSignal.symbol == signal.symbol &&
+                            recentSignal.side == signal.side &&
+                            signalKey in recentSignal.reasonCodes
+                    }
+            if (duplicateSignal) {
+                return PaperEvaluationResult(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    mode = mode.name,
+                    status = PaperEvaluationStatus.NO_TRADE,
+                    evaluatedAt = now,
+                    candleCount = candles.size,
+                    reasonCodes = listOf("DUPLICATE_SIGNAL", signalKey),
+                    signalId = null,
+                    orderId = null,
+                    fillPrice = null,
+                    quantity = null,
+                    fee = null,
+                )
+            }
         }
 
         val entryPrice = candles.last().close
@@ -197,3 +227,5 @@ private fun Int.toGrade(): String =
         this >= 75 -> "B"
         else -> "C"
     }
+
+private const val SIGNAL_KEY_PREFIX = "ENTRY_AT_"

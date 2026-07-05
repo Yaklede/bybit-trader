@@ -12,15 +12,17 @@ data class PaperTradingConfig(
     val initialEquity: BigDecimal = BigDecimal("10000"),
     val riskFraction: BigDecimal = BigDecimal("0.005"),
     val feeRate: BigDecimal = BigDecimal("0.0006"),
+    val duplicateSignalLookback: Int = 50,
 ) {
     init {
         require(initialEquity > BigDecimal.ZERO) { "Initial equity must be positive." }
-        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.05")) {
-            "Risk fraction must be between 0 and 0.05."
+        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.20")) {
+            "Risk fraction must be between 0 and 0.20."
         }
         require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
             "Fee rate must be between 0 and 0.01."
         }
+        require(duplicateSignalLookback in 1..100) { "Duplicate signal lookback must be between 1 and 100." }
     }
 }
 

@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.api.paper
 
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
@@ -30,13 +31,15 @@ fun Route.configurePaperTradingRoutes(paperTradingService: PaperTradingService) 
 data class PaperEvaluationRequest(
     val symbol: String,
     val timeframe: String,
-    val candleLimit: Int = 120,
+    val candleLimit: Int = 18_000,
 ) {
     fun validated(): PaperEvaluationRequest {
         val normalizedSymbol = symbol.trim().uppercase()
         Symbol(normalizedSymbol)
         Timeframe.valueOf(timeframe.trim().uppercase())
-        require(candleLimit in 20..1000) { "Candle limit must be between 20 and 1000." }
+        require(candleLimit in 20..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "Candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
         return copy(
             symbol = normalizedSymbol,
             timeframe = timeframe.trim().uppercase(),

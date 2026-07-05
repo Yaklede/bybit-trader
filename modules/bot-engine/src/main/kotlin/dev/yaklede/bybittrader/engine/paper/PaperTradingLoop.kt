@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.engine.paper
 
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
@@ -22,7 +23,7 @@ class PaperTradingLoop(
         marketDataSyncService.sync(
             symbol = config.symbol,
             timeframes = listOf(config.timeframe),
-            limit = config.candleLimit,
+            limit = minOf(config.syncLimit, config.candleLimit),
         )
         val result =
             paperTradingService.evaluateOnce(
@@ -53,10 +54,14 @@ data class PaperTradingLoopConfig(
     val symbol: Symbol,
     val timeframe: Timeframe,
     val candleLimit: Int = 200,
+    val syncLimit: Int = 1000,
     val interval: Duration = Duration.ofMinutes(15),
 ) {
     init {
-        require(candleLimit in 20..1000) { "Paper loop candle limit must be between 20 and 1000." }
+        require(candleLimit in 20..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "Paper loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(syncLimit in 1..1000) { "Paper loop sync limit must be between 1 and 1000." }
         require(!interval.isNegative && !interval.isZero) { "Paper loop interval must be positive." }
     }
 }

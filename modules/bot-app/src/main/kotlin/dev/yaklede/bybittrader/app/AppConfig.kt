@@ -1,7 +1,9 @@
 package dev.yaklede.bybittrader.app
 
+import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import java.math.BigDecimal
 
 data class AppConfig(
     val runtimeMode: RuntimeMode,
@@ -10,6 +12,7 @@ data class AppConfig(
     val database: DatabaseConfig,
     val alerts: AlertsConfig,
     val paperLoop: PaperLoopSettings,
+    val paperTrading: PaperTradingSettings,
     val volumeFlowComposite: VolumeFlowCompositeSettings,
 ) {
     companion object {
@@ -30,6 +33,7 @@ data class AppConfig(
             }
 
             val marketData = MarketDataConfig.fromEnvironment(environment)
+            val paperStrategy = PaperStrategyKind.fromEnvironment(environment)
             return AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,
@@ -44,7 +48,8 @@ data class AppConfig(
                         path = environment["BOT_DATABASE_PATH"] ?: "data/bybit-trader.sqlite",
                     ),
                 alerts = AlertsConfig.fromEnvironment(environment),
-                paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first()),
+                paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first(), paperStrategy),
+                paperTrading = PaperTradingSettings.fromEnvironment(environment, paperStrategy),
                 volumeFlowComposite = VolumeFlowCompositeSettings.fromEnvironment(environment),
             )
         }
@@ -113,12 +118,17 @@ data class DatabaseConfig(
 
 data class PaperLoopSettings(
     val enabled: Boolean,
+    val strategy: PaperStrategyKind,
     val timeframe: Timeframe,
     val candleLimit: Int,
+    val syncLimit: Int,
     val intervalSeconds: Long,
 ) {
     init {
-        require(candleLimit in 20..1000) { "Paper loop candle limit must be between 20 and 1000." }
+        require(candleLimit in 20..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "Paper loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(syncLimit in 1..1000) { "Paper loop sync limit must be between 1 and 1000." }
         require(intervalSeconds in 10..86_400) { "Paper loop interval seconds must be between 10 and 86400." }
     }
 
@@ -126,20 +136,95 @@ data class PaperLoopSettings(
         fun fromEnvironment(
             environment: Map<String, String>,
             defaultTimeframe: Timeframe,
+            strategy: PaperStrategyKind,
         ): PaperLoopSettings =
             PaperLoopSettings(
                 enabled = environment["BOT_PAPER_LOOP_ENABLED"].toBooleanStrictOrFalse(),
+                strategy = strategy,
                 timeframe =
                     environment["BOT_PAPER_TIMEFRAME"]
                         ?.trim()
                         ?.uppercase()
                         ?.let(Timeframe::valueOf)
-                        ?: defaultTimeframe,
-                candleLimit = environment["BOT_PAPER_CANDLE_LIMIT"]?.toIntOrNull() ?: 200,
-                intervalSeconds = environment["BOT_PAPER_INTERVAL_SECONDS"]?.toLongOrNull() ?: 900,
+                        ?: strategy.defaultTimeframe(defaultTimeframe),
+                candleLimit = environment["BOT_PAPER_CANDLE_LIMIT"]?.toIntOrNull() ?: strategy.defaultCandleLimit,
+                syncLimit = environment["BOT_PAPER_SYNC_LIMIT"]?.toIntOrNull() ?: 1000,
+                intervalSeconds = environment["BOT_PAPER_INTERVAL_SECONDS"]?.toLongOrNull() ?: strategy.defaultIntervalSeconds,
             )
     }
 }
+
+enum class PaperStrategyKind(
+    val configValue: String,
+    val defaultCandleLimit: Int,
+    val defaultIntervalSeconds: Long,
+) {
+    VOLUME_FLOW_AGGRESSIVE(
+        configValue = "volume-flow-aggressive",
+        defaultCandleLimit = 18_000,
+        defaultIntervalSeconds = 300,
+    ),
+    MEAN_REVERSION(
+        configValue = "mean-reversion",
+        defaultCandleLimit = 200,
+        defaultIntervalSeconds = 900,
+    ),
+    ;
+
+    fun defaultTimeframe(fallback: Timeframe): Timeframe =
+        when (this) {
+            VOLUME_FLOW_AGGRESSIVE -> Timeframe.M5
+            MEAN_REVERSION -> fallback
+        }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): PaperStrategyKind =
+            environment["BOT_PAPER_STRATEGY"]
+                ?.trim()
+                ?.lowercase()
+                ?.let { value ->
+                    entries.firstOrNull { it.configValue == value || it.name.lowercase() == value }
+                        ?: throw IllegalArgumentException("Unsupported paper strategy: $value.")
+                }
+                ?: VOLUME_FLOW_AGGRESSIVE
+    }
+}
+
+data class PaperTradingSettings(
+    val initialEquity: BigDecimal,
+    val riskFraction: BigDecimal,
+    val feeRate: BigDecimal,
+) {
+    init {
+        require(initialEquity > BigDecimal.ZERO) { "Paper initial equity must be positive." }
+        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.20")) {
+            "Paper risk fraction must be between 0 and 0.20."
+        }
+        require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
+            "Paper fee rate must be between 0 and 0.01."
+        }
+    }
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            strategy: PaperStrategyKind,
+        ): PaperTradingSettings =
+            PaperTradingSettings(
+                initialEquity = environment["BOT_PAPER_INITIAL_EQUITY"]?.let(::BigDecimal) ?: BigDecimal("1000000"),
+                riskFraction =
+                    environment["BOT_PAPER_RISK_FRACTION"]?.let(::BigDecimal)
+                        ?: strategy.defaultRiskFraction(),
+                feeRate = environment["BOT_PAPER_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0006"),
+            )
+    }
+}
+
+private fun PaperStrategyKind.defaultRiskFraction(): BigDecimal =
+    when (this) {
+        PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE -> BigDecimal("0.055")
+        PaperStrategyKind.MEAN_REVERSION -> BigDecimal("0.005")
+    }
 
 enum class RuntimeMode {
     PAPER,

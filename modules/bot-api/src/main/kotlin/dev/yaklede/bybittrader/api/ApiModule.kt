@@ -21,6 +21,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestServic
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotStateStore
+import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.paper.EmptyPaperTradingReportStore
@@ -49,6 +50,7 @@ fun Application.configureApi(
     volumeFlowSweepService: VolumeFlowSweepService? = null,
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
+    onControlResult: suspend (ControlResult) -> Unit = {},
     controlCredential: String?,
 ) {
     install(ContentNegotiation) {
@@ -76,7 +78,7 @@ fun Application.configureApi(
     routing {
         configureHealthRoutes()
         configureStatusRoutes(stateStore, paperTradingReportStore)
-        configureControlRoutes(controlService)
+        configureControlRoutes(controlService, onControlResult)
         configureMarketDataRoutes(marketDataSyncService)
         configureBacktestRoutes(backtestService)
         configureMeanReversionSweepRoutes(meanReversionSweepService)

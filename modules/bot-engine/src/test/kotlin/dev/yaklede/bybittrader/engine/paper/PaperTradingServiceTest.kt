@@ -63,6 +63,26 @@ class PaperTradingServiceTest :
             paperStore.orders shouldHaveSize 0
             paperStore.fills shouldHaveSize 0
         }
+
+        "duplicate keyed paper signal is skipped without recording another order" {
+            val paperStore = InMemoryPaperTradingStore()
+            val service =
+                PaperTradingService(
+                    stateStore = InMemoryStateStore(BotMode.RUNNING),
+                    candleStore = InMemoryCandleStore(paperCandles()),
+                    paperTradingStore = paperStore,
+                    strategy = KeyedAlwaysBuyPaperStrategy(),
+                    clock = fixedPaperClock(),
+                )
+
+            service.evaluateOnce(Symbol("BTCUSDT"), Timeframe.M15, 30).status shouldBe PaperEvaluationStatus.FILLED
+            val second = service.evaluateOnce(Symbol("BTCUSDT"), Timeframe.M15, 30)
+
+            second.status shouldBe PaperEvaluationStatus.NO_TRADE
+            second.reasonCodes shouldBe listOf("DUPLICATE_SIGNAL", "ENTRY_AT_2026-06-30T07:15:00Z")
+            paperStore.orders shouldHaveSize 1
+            paperStore.fills shouldHaveSize 1
+        }
     })
 
 private class InMemoryStateStore(
@@ -180,6 +200,28 @@ private class AlwaysBuyPaperStrategy : TradingStrategy {
                     expectedR = BigDecimal("1.5"),
                 ),
             reasonCodes = listOf("TEST_EDGE"),
+        )
+    }
+}
+
+private class KeyedAlwaysBuyPaperStrategy : TradingStrategy {
+    override val name: String = "keyed-always-buy-paper-test"
+    override val warmupCandles: Int = 20
+
+    override fun evaluate(candles: List<Candle>): StrategyDecision {
+        val latest = candles.last()
+        val reasonCodes = listOf("TEST_EDGE", "ENTRY_AT_${latest.openedAt}")
+        return StrategyDecision(
+            intent =
+                SignalIntent(
+                    symbol = latest.symbol,
+                    side = Side.BUY,
+                    strategy = name,
+                    score = SignalScore(88, reasonCodes),
+                    invalidationPrice = Price(latest.close.subtract(BigDecimal("5"))),
+                    expectedR = BigDecimal("1.5"),
+                ),
+            reasonCodes = reasonCodes,
         )
     }
 }

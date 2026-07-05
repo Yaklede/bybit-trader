@@ -15,7 +15,13 @@ class AppConfigTest :
             config.api.host shouldBe "127.0.0.1"
             config.api.port shouldBe 8080
             config.paperLoop.enabled shouldBe false
-            config.paperLoop.timeframe.name shouldBe "M1"
+            config.paperLoop.strategy shouldBe PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE
+            config.paperLoop.timeframe.name shouldBe "M5"
+            config.paperLoop.candleLimit shouldBe 18000
+            config.paperLoop.syncLimit shouldBe 1000
+            config.paperLoop.intervalSeconds shouldBe 300
+            config.paperTrading.initialEquity.toPlainString() shouldBe "1000000"
+            config.paperTrading.riskFraction.toPlainString() shouldBe "0.055"
             config.volumeFlowComposite.currentConfigPath shouldBe "config/volume-flow-composite-current.json"
         }
 
@@ -59,14 +65,34 @@ class AppConfigTest :
                         "BOT_PAPER_LOOP_ENABLED" to "true",
                         "BOT_PAPER_TIMEFRAME" to "H1",
                         "BOT_PAPER_CANDLE_LIMIT" to "300",
+                        "BOT_PAPER_SYNC_LIMIT" to "400",
                         "BOT_PAPER_INTERVAL_SECONDS" to "1800",
+                        "BOT_PAPER_RISK_FRACTION" to "0.02",
                     ),
                 )
 
             config.paperLoop.enabled shouldBe true
+            config.paperLoop.strategy shouldBe PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE
             config.paperLoop.timeframe.name shouldBe "H1"
             config.paperLoop.candleLimit shouldBe 300
+            config.paperLoop.syncLimit shouldBe 400
             config.paperLoop.intervalSeconds shouldBe 1800
+            config.paperTrading.riskFraction.toPlainString() shouldBe "0.02"
+        }
+
+        "paper strategy can be switched back to mean reversion" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_PAPER_STRATEGY" to "mean-reversion",
+                    ),
+                )
+
+            config.paperLoop.strategy shouldBe PaperStrategyKind.MEAN_REVERSION
+            config.paperLoop.timeframe.name shouldBe "M1"
+            config.paperLoop.candleLimit shouldBe 200
+            config.paperLoop.intervalSeconds shouldBe 900
+            config.paperTrading.riskFraction.toPlainString() shouldBe "0.005"
         }
 
         "volume-flow composite current config path can be read from environment" {
