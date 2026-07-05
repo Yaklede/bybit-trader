@@ -23,6 +23,18 @@ import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.control.ControlEventRecorder
 import dev.yaklede.bybittrader.engine.control.ControlResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationStatus
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionConfig
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
+import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
+import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
+import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
@@ -630,6 +642,85 @@ class ApiModuleTest :
                     }.status shouldBe HttpStatusCode.OK
             }
         }
+
+        "authorized execution evaluate request submits a private exchange order" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val paperStore = InMemoryPaperTradingStore()
+                val gateway = RecordingExecutionGateway()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = paperStore,
+                                strategy = AlwaysBuyApiStrategy(),
+                                gateway = gateway,
+                                config = ExchangeExecutionConfig(enabled = true),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                            ),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/execution/evaluate-and-submit") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":30}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"status":"${ExchangeEvaluationStatus.SUBMITTED.name}""""
+                gateway.placedOrders.size shouldBe 1
+                paperStore.orders.single().exchangeOrderId shouldBe "exchange-1"
+            }
+        }
+
+        "execution provider errors return sanitized bad gateway response" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = InMemoryPaperTradingStore(),
+                                strategy = AlwaysBuyApiStrategy(),
+                                gateway = FailingExecutionGateway(),
+                                config = ExchangeExecutionConfig(enabled = true),
+                            ),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/execution/reconcile") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.BadGateway
+                response.bodyAsText() shouldContain "EXCHANGE_EXECUTION_UNAVAILABLE"
+            }
+        }
     })
 
 private class InMemoryStateStore : BotStateStore {
@@ -781,6 +872,45 @@ private class InMemoryPaperTradingStore : PaperTradingStore {
                     filledAt = fill?.filledAt,
                 )
             }
+}
+
+private class RecordingExecutionGateway : ExchangeExecutionGateway {
+    val placedOrders = mutableListOf<ExchangeOrderRequest>()
+
+    override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
+        placedOrders += request
+        return ExchangeOrderResult(
+            exchangeOrderId = "exchange-1",
+            clientOrderId = request.clientOrderId,
+            status = dev.yaklede.bybittrader.domain.OrderStatus.SUBMITTED,
+        )
+    }
+
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
+        ExchangeCancelResult(
+            exchangeOrderId = request.exchangeOrderId,
+            clientOrderId = request.clientOrderId,
+        )
+
+    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = emptyList()
+
+    override suspend fun positions(symbol: Symbol): List<ExchangePosition> = emptyList()
+
+    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = emptyList()
+}
+
+private class FailingExecutionGateway : ExchangeExecutionGateway {
+    override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult =
+        throw ExchangeExecutionException("raw exchange detail")
+
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
+        throw ExchangeExecutionException("raw exchange detail")
+
+    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = throw ExchangeExecutionException("raw exchange detail")
+
+    override suspend fun positions(symbol: Symbol): List<ExchangePosition> = throw ExchangeExecutionException("raw exchange detail")
+
+    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = throw ExchangeExecutionException("raw exchange detail")
 }
 
 private class NoTradeApiStrategy : TradingStrategy {

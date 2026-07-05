@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowCompositeBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowSweepRoutes
 import dev.yaklede.bybittrader.api.control.configureControlRoutes
+import dev.yaklede.bybittrader.api.execution.configureExecutionRoutes
 import dev.yaklede.bybittrader.api.health.configureHealthRoutes
 import dev.yaklede.bybittrader.api.market.configureMarketDataRoutes
 import dev.yaklede.bybittrader.api.paper.configurePaperTradingRoutes
@@ -22,6 +23,8 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.paper.EmptyPaperTradingReportStore
@@ -50,6 +53,7 @@ fun Application.configureApi(
     volumeFlowSweepService: VolumeFlowSweepService? = null,
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
+    executionService: ExchangeExecutionService? = null,
     onControlResult: suspend (ControlResult) -> Unit = {},
     controlCredential: String?,
 ) {
@@ -73,6 +77,16 @@ fun Application.configureApi(
                     ),
             )
         }
+        exception<ExchangeExecutionException> { call, _ ->
+            call.respond(
+                status = HttpStatusCode.BadGateway,
+                message =
+                    ErrorResponse(
+                        code = "EXCHANGE_EXECUTION_UNAVAILABLE",
+                        message = "Private exchange execution provider is unavailable.",
+                    ),
+            )
+        }
     }
     configureControlAuthentication(controlCredential)
     routing {
@@ -89,6 +103,7 @@ fun Application.configureApi(
         }
         volumeFlowSweepService?.let(::configureVolumeFlowSweepRoutes)
         paperTradingService?.let(::configurePaperTradingRoutes)
+        executionService?.let(::configureExecutionRoutes)
     }
 }
 

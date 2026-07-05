@@ -8,11 +8,14 @@ import java.math.BigDecimal
 data class AppConfig(
     val runtimeMode: RuntimeMode,
     val marketData: MarketDataConfig,
+    val bybitPrivate: BybitPrivateSettings,
     val api: ApiConfig,
     val database: DatabaseConfig,
     val alerts: AlertsConfig,
     val paperLoop: PaperLoopSettings,
     val paperTrading: PaperTradingSettings,
+    val executionLoop: ExecutionLoopSettings,
+    val execution: ExecutionSettings,
     val volumeFlowComposite: VolumeFlowCompositeSettings,
 ) {
     companion object {
@@ -23,20 +26,31 @@ data class AppConfig(
                     ?.let(RuntimeMode::valueOf)
                     ?: RuntimeMode.PAPER
 
-            if (runtimeMode.requiresPrivateExchangeAccess()) {
+            val privateExecutionEnabled = environment["BOT_PRIVATE_EXECUTION_ENABLED"].toBooleanStrictOrFalse()
+            val executionLoopEnabled = environment["BOT_EXECUTION_LOOP_ENABLED"].toBooleanStrictOrFalse()
+            if (runtimeMode.requiresPrivateExchangeAccess() || privateExecutionEnabled || executionLoopEnabled) {
                 require(!environment["BYBIT_API_KEY"].isNullOrBlank()) {
-                    "Bybit key is required outside paper mode."
+                    "Bybit key is required for private exchange access."
                 }
                 require(!environment["BYBIT_API_SECRET"].isNullOrBlank()) {
-                    "Bybit secret is required outside paper mode."
+                    "Bybit secret is required for private exchange access."
                 }
             }
 
             val marketData = MarketDataConfig.fromEnvironment(environment)
             val paperStrategy = PaperStrategyKind.fromEnvironment(environment)
+            val execution = ExecutionSettings.fromEnvironment(environment)
+            val executionLoop = ExecutionLoopSettings.fromEnvironment(environment, Timeframe.M5)
+            require(!execution.enabled || runtimeMode != RuntimeMode.PAPER) {
+                "BOT_MODE=TESTNET or LIVE is required when BOT_PRIVATE_EXECUTION_ENABLED=true."
+            }
+            require(!executionLoop.enabled || execution.enabled) {
+                "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_LOOP_ENABLED=true."
+            }
             return AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,
+                bybitPrivate = BybitPrivateSettings.fromEnvironment(environment, runtimeMode),
                 api =
                     ApiConfig(
                         host = environment["BOT_API_HOST"] ?: "127.0.0.1",
@@ -50,9 +64,51 @@ data class AppConfig(
                 alerts = AlertsConfig.fromEnvironment(environment),
                 paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first(), paperStrategy),
                 paperTrading = PaperTradingSettings.fromEnvironment(environment, paperStrategy),
+                executionLoop = executionLoop,
+                execution = execution,
                 volumeFlowComposite = VolumeFlowCompositeSettings.fromEnvironment(environment),
             )
         }
+    }
+}
+
+data class BybitPrivateSettings(
+    val keyId: String?,
+    val signingCredential: String?,
+    val baseUrl: String,
+    val recvWindowMillis: Long,
+    val category: String,
+    val positionIdx: Int,
+) {
+    init {
+        require(baseUrl.isNotBlank()) { "Bybit private base URL must not be blank." }
+        require(recvWindowMillis in 1_000..60_000) { "Bybit recv window must be between 1000 and 60000 ms." }
+        require(category == "linear") { "Only Bybit linear category is supported for execution." }
+        require(positionIdx in 0..2) { "Bybit position index must be 0, 1, or 2." }
+    }
+
+    val credentialsAvailable: Boolean
+        get() = !keyId.isNullOrBlank() && !signingCredential.isNullOrBlank()
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            runtimeMode: RuntimeMode,
+        ): BybitPrivateSettings =
+            BybitPrivateSettings(
+                keyId = environment["BYBIT_API_KEY"]?.takeIf { it.isNotBlank() },
+                signingCredential = environment["BYBIT_API_SECRET"]?.takeIf { it.isNotBlank() },
+                baseUrl =
+                    environment["BYBIT_PRIVATE_BASE_URL"]
+                        ?: when (runtimeMode) {
+                            RuntimeMode.TESTNET -> "https://api-testnet.bybit.com"
+                            RuntimeMode.LIVE -> "https://api.bybit.com"
+                            RuntimeMode.PAPER -> "https://api-testnet.bybit.com"
+                        },
+                recvWindowMillis = environment["BYBIT_RECV_WINDOW_MILLIS"]?.toLongOrNull() ?: 5_000,
+                category = environment["BYBIT_PRIVATE_CATEGORY"]?.trim()?.lowercase() ?: "linear",
+                positionIdx = environment["BYBIT_POSITION_IDX"]?.toIntOrNull() ?: 0,
+            )
     }
 }
 
@@ -216,6 +272,82 @@ data class PaperTradingSettings(
                     environment["BOT_PAPER_RISK_FRACTION"]?.let(::BigDecimal)
                         ?: strategy.defaultRiskFraction(),
                 feeRate = environment["BOT_PAPER_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0006"),
+            )
+    }
+}
+
+data class ExecutionLoopSettings(
+    val enabled: Boolean,
+    val timeframe: Timeframe,
+    val candleLimit: Int,
+    val syncLimit: Int,
+    val intervalSeconds: Long,
+) {
+    init {
+        require(candleLimit in 20..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "Execution loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(syncLimit in 1..1000) { "Execution loop sync limit must be between 1 and 1000." }
+        require(intervalSeconds in 10..86_400) { "Execution loop interval seconds must be between 10 and 86400." }
+    }
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            defaultTimeframe: Timeframe,
+        ): ExecutionLoopSettings =
+            ExecutionLoopSettings(
+                enabled = environment["BOT_EXECUTION_LOOP_ENABLED"].toBooleanStrictOrFalse(),
+                timeframe =
+                    environment["BOT_EXECUTION_TIMEFRAME"]
+                        ?.trim()
+                        ?.uppercase()
+                        ?.let(Timeframe::valueOf)
+                        ?: defaultTimeframe,
+                candleLimit = environment["BOT_EXECUTION_CANDLE_LIMIT"]?.toIntOrNull() ?: 18_000,
+                syncLimit = environment["BOT_EXECUTION_SYNC_LIMIT"]?.toIntOrNull() ?: 1000,
+                intervalSeconds = environment["BOT_EXECUTION_INTERVAL_SECONDS"]?.toLongOrNull() ?: 300,
+            )
+    }
+}
+
+data class ExecutionSettings(
+    val enabled: Boolean,
+    val accountEquity: BigDecimal,
+    val riskFraction: BigDecimal,
+    val feeRate: BigDecimal,
+    val quantityStep: BigDecimal,
+    val minQuantity: BigDecimal,
+    val maxQuantity: BigDecimal?,
+    val maxNotional: BigDecimal?,
+) {
+    init {
+        require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
+        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.20")) {
+            "Execution risk fraction must be between 0 and 0.20."
+        }
+        require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
+            "Execution fee rate must be between 0 and 0.01."
+        }
+        require(quantityStep > BigDecimal.ZERO) { "Execution quantity step must be positive." }
+        require(minQuantity > BigDecimal.ZERO) { "Execution min quantity must be positive." }
+        require(maxQuantity == null || maxQuantity >= minQuantity) {
+            "Execution max quantity must be greater than or equal to min quantity."
+        }
+        require(maxNotional == null || maxNotional > BigDecimal.ZERO) { "Execution max notional must be positive." }
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): ExecutionSettings =
+            ExecutionSettings(
+                enabled = environment["BOT_PRIVATE_EXECUTION_ENABLED"].toBooleanStrictOrFalse(),
+                accountEquity = environment["BOT_EXECUTION_ACCOUNT_EQUITY"]?.let(::BigDecimal) ?: BigDecimal("1000000"),
+                riskFraction = environment["BOT_EXECUTION_RISK_FRACTION"]?.let(::BigDecimal) ?: BigDecimal("0.055"),
+                feeRate = environment["BOT_EXECUTION_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0006"),
+                quantityStep = environment["BOT_EXECUTION_QTY_STEP"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
+                minQuantity = environment["BOT_EXECUTION_MIN_QTY"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
+                maxQuantity = environment["BOT_EXECUTION_MAX_QTY"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
+                maxNotional = environment["BOT_EXECUTION_MAX_NOTIONAL"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
             )
     }
 }

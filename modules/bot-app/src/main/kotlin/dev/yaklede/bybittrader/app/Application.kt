@@ -20,6 +20,12 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestServic
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.ControlResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationStatus
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionConfig
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
+import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoop
+import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoopConfig
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationStatus
@@ -29,6 +35,9 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.VolumeFlowAggressiveStrategy
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
+import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClient
+import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClientConfig
+import dev.yaklede.bybittrader.exchange.bybit.BybitTradingCategory
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
@@ -97,6 +106,41 @@ fun main() {
                     feeRate = config.paperTrading.feeRate,
                 ),
         )
+    val executionService =
+        if (config.bybitPrivate.credentialsAvailable) {
+            ExchangeExecutionService(
+                stateStore = ledger,
+                candleStore = ledger,
+                tradingStore = ledger,
+                strategy = VolumeFlowAggressiveStrategy(),
+                gateway =
+                    BybitPrivateClient(
+                        httpClient = httpClient,
+                        config =
+                            BybitPrivateClientConfig(
+                                keyId = config.bybitPrivate.keyId!!,
+                                signingCredential = config.bybitPrivate.signingCredential!!,
+                                baseUrl = config.bybitPrivate.baseUrl,
+                                recvWindowMillis = config.bybitPrivate.recvWindowMillis,
+                                category = BybitTradingCategory.valueOf(config.bybitPrivate.category.uppercase()),
+                                positionIdx = config.bybitPrivate.positionIdx,
+                            ),
+                    ),
+                config =
+                    ExchangeExecutionConfig(
+                        enabled = config.execution.enabled,
+                        accountEquity = config.execution.accountEquity,
+                        riskFraction = config.execution.riskFraction,
+                        feeRate = config.execution.feeRate,
+                        quantityStep = config.execution.quantityStep,
+                        minQuantity = config.execution.minQuantity,
+                        maxQuantity = config.execution.maxQuantity,
+                        maxNotional = config.execution.maxNotional,
+                    ),
+            )
+        } else {
+            null
+        }
     val paperLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val paperLoopJob =
         if (config.runtimeMode == RuntimeMode.PAPER && config.paperLoop.enabled) {
@@ -114,6 +158,26 @@ fun main() {
                 onResult = { result -> alertingService.sendPaperLoopResult(result) },
                 onFailure = { error -> alertingService.sendPaperLoopFailure(error) },
             ).start(paperLoopScope)
+        } else {
+            null
+        }
+    val executionLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val executionLoopJob =
+        if (executionService != null && config.executionLoop.enabled) {
+            ExchangeTradingLoop(
+                marketDataSyncService = marketDataSyncService,
+                executionService = executionService,
+                config =
+                    ExchangeTradingLoopConfig(
+                        symbol = config.marketData.symbol,
+                        timeframe = config.executionLoop.timeframe,
+                        candleLimit = config.executionLoop.candleLimit,
+                        syncLimit = config.executionLoop.syncLimit,
+                        intervalSeconds = config.executionLoop.intervalSeconds,
+                    ),
+                onResult = { result -> alertingService.sendExecutionLoopResult(result) },
+                onFailure = { error -> alertingService.sendExecutionLoopFailure(error) },
+            ).start(executionLoopScope)
         } else {
             null
         }
@@ -140,7 +204,9 @@ fun main() {
                 )
             }
             paperLoopJob?.cancel()
+            executionLoopJob?.cancel()
             paperLoopScope.cancel()
+            executionLoopScope.cancel()
             httpClient.close()
         },
     )
@@ -163,6 +229,7 @@ fun main() {
                 volumeFlowSweepService = volumeFlowSweepService,
                 paperTradingService = paperTradingService,
                 paperTradingReportStore = ledger,
+                executionService = executionService,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
                 controlCredential = config.api.controlCredential,
             )
@@ -284,6 +351,48 @@ private suspend fun AlertingService.sendPaperLoopFailure(error: Throwable) {
             severity = AlertSeverity.WARNING,
             title = "paper-loop-error",
             body = "Paper loop failed with ${error::class.simpleName ?: "unknown error"}.",
+        ),
+    )
+}
+
+private suspend fun AlertingService.sendExecutionLoopResult(result: ExchangeEvaluationResult) {
+    when (result.status) {
+        ExchangeEvaluationStatus.SUBMITTED ->
+            send(
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "execution-submitted",
+                    body =
+                        "${result.symbol.value} ${result.timeframe.name} ${result.status.name} " +
+                            "signal=${result.signalId} order=${result.orderId} exchangeOrder=${result.exchangeOrderId} " +
+                            "qty=${result.quantity?.toPlainString()}",
+                ),
+            )
+
+        ExchangeEvaluationStatus.REJECTED ->
+            send(
+                AlertMessage(
+                    severity = AlertSeverity.WARNING,
+                    title = "execution-signal-rejected",
+                    body =
+                        "${result.symbol.value} ${result.timeframe.name} rejected: " +
+                            result.reasonCodes.joinToString(","),
+                ),
+            )
+
+        ExchangeEvaluationStatus.DISABLED,
+        ExchangeEvaluationStatus.SKIPPED_BY_MODE,
+        ExchangeEvaluationStatus.NO_TRADE,
+        -> Unit
+    }
+}
+
+private suspend fun AlertingService.sendExecutionLoopFailure(error: Throwable) {
+    send(
+        AlertMessage(
+            severity = AlertSeverity.WARNING,
+            title = "execution-loop-error",
+            body = "Execution loop failed with ${error::class.simpleName ?: "unknown error"}.",
         ),
     )
 }
