@@ -15,6 +15,8 @@
 | TDD | [tdd/README.md](tdd/README.md) | 기능 또는 변경 단위 기술 설계 산출물 |
 | API specs | [api-specs/README.md](api-specs/README.md) | HTTP API 계약과 frontend 연동 계약 |
 | ADR | [adr/README.md](adr/README.md) | 장기 보존할 백엔드 아키텍처 의사결정 |
+| Volume-flow aggressive risks | [volume-flow-aggressive-risk-register.md](volume-flow-aggressive-risk-register.md) | 공격형 전략 운영 전 후속 관리할 리스크 목록 |
+| Volume-flow production readiness | [volume-flow-production-readiness-plan.md](volume-flow-production-readiness-plan.md) | 공격형 전략을 온프레미스 운영 봇으로 전환하기 위한 마일스톤 |
 
 ## 규칙
 
