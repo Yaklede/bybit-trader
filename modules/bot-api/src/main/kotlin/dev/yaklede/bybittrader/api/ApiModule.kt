@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.backtest.configureBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureMeanReversionSweepRoutes
+import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowAggressiveBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowCompositeBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowSweepRoutes
@@ -14,6 +15,7 @@ import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
@@ -41,6 +43,7 @@ fun Application.configureApi(
     backtestService: BacktestService,
     meanReversionSweepService: MeanReversionSweepService,
     volumeFlowBacktestService: VolumeFlowBacktestService,
+    volumeFlowAggressiveBacktestService: VolumeFlowAggressiveBacktestService? = null,
     volumeFlowCompositeBacktestService: VolumeFlowCompositeBacktestService? = null,
     volumeFlowCompositeCurrentConfigProvider: VolumeFlowCompositeCurrentConfigProvider? = null,
     volumeFlowSweepService: VolumeFlowSweepService? = null,
@@ -78,6 +81,7 @@ fun Application.configureApi(
         configureBacktestRoutes(backtestService)
         configureMeanReversionSweepRoutes(meanReversionSweepService)
         configureVolumeFlowBacktestRoutes(volumeFlowBacktestService)
+        volumeFlowAggressiveBacktestService?.let(::configureVolumeFlowAggressiveBacktestRoutes)
         volumeFlowCompositeBacktestService?.let {
             configureVolumeFlowCompositeBacktestRoutes(it, volumeFlowCompositeCurrentConfigProvider)
         }

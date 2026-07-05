@@ -157,6 +157,19 @@ Content-Type: application/json
 
 < ../../../config/volume-flow-composite-current.json
 
+### Run the current aggressive M5 absorption profile
+POST http://localhost:8080/backtests/volume-flow/aggressive/current/run
+Authorization: Bearer {{controlCredential}}
+Content-Type: application/json
+
+{
+  "symbol": "BTCUSDT",
+  "m5Limit": 315648,
+  "replayStartAt": "2026-01-01T00:00:00Z",
+  "replayEndAt": "2026-07-02T05:40:00Z",
+  "tradeLimit": 50
+}
+
 ### Sweep multi-timeframe volume-flow backtest parameters
 POST http://localhost:8080/backtests/volume-flow/sweep
 Authorization: Bearer {{controlCredential}}

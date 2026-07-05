@@ -25,6 +25,9 @@ Milestone 1 is the operational backend shell:
   targets are evaluated on a compounding, coverage, and asymmetric-expectancy
   basis. Composite responses also include a limitable `equityCurve` and worst
   `drawdownEvents` list for balance-curve and mark-to-market breach analysis.
+- Aggressive M5 absorption profile backtest endpoint for the current
+  `absa_final_us_v1` research profile:
+  `POST /backtests/volume-flow/aggressive/current/run`.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 

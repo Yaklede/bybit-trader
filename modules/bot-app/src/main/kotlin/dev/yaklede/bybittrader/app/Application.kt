@@ -14,6 +14,7 @@ import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
@@ -76,6 +77,7 @@ fun main() {
         )
     val meanReversionSweepService = MeanReversionSweepService(candleStore = ledger)
     val volumeFlowBacktestService = VolumeFlowBacktestService(candleStore = ledger)
+    val volumeFlowAggressiveBacktestService = VolumeFlowAggressiveBacktestService(candleStore = ledger)
     val volumeFlowCompositeBacktestService = VolumeFlowCompositeBacktestService(candleStore = ledger)
     val volumeFlowSweepService = VolumeFlowSweepService(candleStore = ledger)
     val paperTradingService =
@@ -141,6 +143,7 @@ fun main() {
                 backtestService = backtestService,
                 meanReversionSweepService = meanReversionSweepService,
                 volumeFlowBacktestService = volumeFlowBacktestService,
+                volumeFlowAggressiveBacktestService = volumeFlowAggressiveBacktestService,
                 volumeFlowCompositeBacktestService = volumeFlowCompositeBacktestService,
                 volumeFlowCompositeCurrentConfigProvider =
                     FileVolumeFlowCompositeCurrentConfigProvider(
