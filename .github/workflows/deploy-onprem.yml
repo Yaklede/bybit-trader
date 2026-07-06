@@ -35,7 +35,7 @@ jobs:
           BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH: ${{ vars.BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH || '/opt/bybit-trader/config/volume-flow-composite-current.json' }}
           "BYBIT_API_KEY": ${{ secrets.BYBIT_API_KEY }}
           "BYBIT_API_SECRET": ${{ secrets.BYBIT_API_SECRET }}
-          BYBIT_PRIVATE_BASE_URL: ${{ vars.BYBIT_PRIVATE_BASE_URL || 'https://api.bybit.com' }}
+          BYBIT_PRIVATE_BASE_URL: ${{ vars.BYBIT_PRIVATE_BASE_URL }}
           BYBIT_RECV_WINDOW_MILLIS: ${{ vars.BYBIT_RECV_WINDOW_MILLIS || '5000' }}
           BYBIT_POSITION_IDX: ${{ vars.BYBIT_POSITION_IDX || '0' }}
           BOT_PRIVATE_EXECUTION_ENABLED: ${{ vars.BOT_PRIVATE_EXECUTION_ENABLED || 'true' }}
@@ -65,6 +65,10 @@ jobs:
           if (missing.length > 0) {
             console.error(`Missing required runtime environment values: ${missing.join(", ")}`);
             process.exit(1);
+          }
+          if (!String(process.env.BYBIT_PRIVATE_BASE_URL || "").trim()) {
+            process.env.BYBIT_PRIVATE_BASE_URL =
+              process.env.BOT_MODE === "TESTNET" ? "https://api-testnet.bybit.com" : "https://api.bybit.com";
           }
           const keys = [
             "BOT_MODE",
