@@ -5,6 +5,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
+import dev.yaklede.bybittrader.engine.market.MarketTicker
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -37,6 +38,29 @@ class BybitMarketDataClient(
     ): List<Candle> {
         require(!startAt.isAfter(endAt)) { "Start time must be before or equal to end time." }
         return fetchKlines(symbol = symbol, timeframe = timeframe, limit = limit, startAt = startAt, endAt = endAt)
+    }
+
+    override suspend fun fetchTicker(symbol: Symbol): MarketTicker {
+        val response =
+            httpClient
+                .get("${baseUrl.trimEnd('/')}/v5/market/tickers") {
+                    parameter("category", category.apiValue)
+                    parameter("symbol", symbol.value)
+                }.body<BybitTickerResponse>()
+
+        if (response.retCode != 0) {
+            throw BybitMarketDataException(
+                "Bybit ticker request failed with code ${response.retCode}: ${response.retMsg}",
+            )
+        }
+
+        val ticker =
+            response.result
+                ?.list
+                ?.firstOrNull { item -> item.symbol == symbol.value }
+                ?: throw BybitMarketDataException("Bybit ticker response had no ticker for ${symbol.value}.")
+
+        return ticker.toMarketTicker(capturedAt = Instant.ofEpochMilli(response.time ?: System.currentTimeMillis()))
     }
 
     private suspend fun fetchKlines(
@@ -106,6 +130,18 @@ private fun List<String>.toCandle(
     )
 }
 
+private fun BybitTickerItem.toMarketTicker(capturedAt: Instant): MarketTicker =
+    MarketTicker(
+        symbol = Symbol(symbol),
+        lastPrice = BigDecimal(lastPrice),
+        markPrice = markPrice?.toBigDecimalOrNull(),
+        indexPrice = indexPrice?.toBigDecimalOrNull(),
+        price24hPcnt = price24hPcnt?.toBigDecimalOrNull(),
+        fundingRate = fundingRate?.toBigDecimalOrNull(),
+        nextFundingTime = nextFundingTime?.toLongOrNull()?.let(Instant::ofEpochMilli),
+        capturedAt = capturedAt,
+    )
+
 @Serializable
 private data class BybitKlineResponse(
     val retCode: Int,
@@ -118,4 +154,29 @@ private data class BybitKlineResult(
     val symbol: String? = null,
     val category: String? = null,
     val list: List<List<String>> = emptyList(),
+)
+
+@Serializable
+private data class BybitTickerResponse(
+    val retCode: Int,
+    val retMsg: String,
+    val result: BybitTickerResult? = null,
+    val time: Long? = null,
+)
+
+@Serializable
+private data class BybitTickerResult(
+    val category: String? = null,
+    val list: List<BybitTickerItem> = emptyList(),
+)
+
+@Serializable
+private data class BybitTickerItem(
+    val symbol: String,
+    val lastPrice: String,
+    val markPrice: String? = null,
+    val indexPrice: String? = null,
+    val price24hPcnt: String? = null,
+    val fundingRate: String? = null,
+    val nextFundingTime: String? = null,
 )

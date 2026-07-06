@@ -10,11 +10,13 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
+import org.slf4j.LoggerFactory
 
 fun Route.configureControlRoutes(
     controlService: BotControlService,
     onControlResult: suspend (ControlResult) -> Unit = {},
 ) {
+    val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.api.control")
     authenticate("control") {
         post("/control/pause-new-entries") {
             val request = call.receive<ControlRequest>().validated()
@@ -24,6 +26,7 @@ fun Route.configureControlRoutes(
                     reason = request.reason,
                 )
             notifyControlResult(result, onControlResult)
+            logger.info("control action completed action={} mode={}->{}", result.action.name, result.previousMode.name, result.newMode.name)
             call.respond(result.toResponse())
         }
 
@@ -35,6 +38,7 @@ fun Route.configureControlRoutes(
                     reason = request.reason,
                 )
             notifyControlResult(result, onControlResult)
+            logger.info("control action completed action={} mode={}->{}", result.action.name, result.previousMode.name, result.newMode.name)
             call.respond(result.toResponse())
         }
 
@@ -46,6 +50,7 @@ fun Route.configureControlRoutes(
                     reason = request.reason,
                 )
             notifyControlResult(result, onControlResult)
+            logger.info("control action completed action={} mode={}->{}", result.action.name, result.previousMode.name, result.newMode.name)
             call.respond(result.toResponse())
         }
 
@@ -57,6 +62,7 @@ fun Route.configureControlRoutes(
                     reason = request.reason,
                 )
             notifyControlResult(result, onControlResult)
+            logger.warn("control action completed action={} mode={}->{}", result.action.name, result.previousMode.name, result.newMode.name)
             call.respond(result.toResponse())
         }
     }

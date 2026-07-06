@@ -10,6 +10,9 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationReport
+import dev.yaklede.bybittrader.engine.market.MarketDataException
+import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.market.MarketTicker
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
@@ -19,14 +22,17 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import kotlinx.serialization.Serializable
+import org.slf4j.LoggerFactory
 import java.time.Instant
 
 fun Route.configureDashboardRoutes(
     stateStore: BotStateStore,
     paperTradingReportStore: PaperTradingReportStore,
+    marketDataSyncService: MarketDataSyncService,
     executionService: ExchangeExecutionService?,
     runtimeMode: String? = null,
 ) {
+    val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.api.dashboard")
     authenticate("control") {
         get("/dashboard/summary") {
             val request =
@@ -36,6 +42,13 @@ fun Route.configureDashboardRoutes(
                     limit = call.request.queryParameters["limit"],
                 ).validated()
             val status = stateStore.current()
+            val market =
+                try {
+                    marketDataSyncService.ticker(request.symbol)
+                } catch (cause: MarketDataException) {
+                    logger.warn("dashboard market ticker unavailable symbol={} error={}", request.symbol.value, cause::class.simpleName)
+                    null
+                }
             val balance = executionService?.accountBalance(request.coin)
             val reconciliation = executionService?.reconcile(request.symbol)
             val response =
@@ -44,6 +57,7 @@ fun Route.configureDashboardRoutes(
                     executionAvailable = executionService != null,
                     runtimeMode = runtimeMode,
                     bot = status.toResponse(),
+                    market = market?.toResponse(),
                     account = balance?.toResponse(),
                     reconciliation = reconciliation?.toResponse(),
                     performance = paperTradingReportStore.latestPerformanceSummary().toResponse(),
@@ -100,11 +114,24 @@ data class DashboardSummaryResponse(
     val executionAvailable: Boolean,
     val runtimeMode: String?,
     val bot: DashboardBotStatusResponse,
+    val market: DashboardMarketResponse?,
     val account: DashboardAccountBalanceResponse?,
     val reconciliation: DashboardReconciliationResponse?,
     val performance: DashboardPerformanceResponse,
     val recentSignals: List<DashboardSignalResponse>,
     val recentTrades: List<DashboardTradeResponse>,
+)
+
+@Serializable
+data class DashboardMarketResponse(
+    val symbol: String,
+    val lastPrice: String,
+    val markPrice: String?,
+    val indexPrice: String?,
+    val price24hPcnt: String?,
+    val fundingRate: String?,
+    val nextFundingTime: String?,
+    val capturedAt: String,
 )
 
 @Serializable
@@ -252,6 +279,18 @@ private fun ExchangeCoinBalance.toResponse(): DashboardCoinBalanceResponse =
         walletBalance = walletBalance?.toPlainString(),
         locked = locked?.toPlainString(),
         unrealizedPnl = unrealizedPnl?.toPlainString(),
+    )
+
+private fun MarketTicker.toResponse(): DashboardMarketResponse =
+    DashboardMarketResponse(
+        symbol = symbol.value,
+        lastPrice = lastPrice.toPlainString(),
+        markPrice = markPrice?.toPlainString(),
+        indexPrice = indexPrice?.toPlainString(),
+        price24hPcnt = price24hPcnt?.toPlainString(),
+        fundingRate = fundingRate?.toPlainString(),
+        nextFundingTime = nextFundingTime?.toString(),
+        capturedAt = capturedAt.toString(),
     )
 
 private fun ExchangeReconciliationReport.toResponse(): DashboardReconciliationResponse =

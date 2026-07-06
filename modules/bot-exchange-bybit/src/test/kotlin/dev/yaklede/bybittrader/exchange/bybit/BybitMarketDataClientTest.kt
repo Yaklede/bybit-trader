@@ -193,6 +193,53 @@ class BybitMarketDataClientTest :
 
             requestedIntervals.shouldContainExactly(listOf("1", "5"))
         }
+
+        "fetchTicker maps Bybit linear ticker" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/market/tickers"
+                    request.url.parameters["category"] shouldBe "linear"
+                    request.url.parameters["symbol"] shouldBe "BTCUSDT"
+
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "category": "linear",
+                                "list": [
+                                  {
+                                    "symbol": "BTCUSDT",
+                                    "lastPrice": "61234.5",
+                                    "markPrice": "61230.1",
+                                    "indexPrice": "61220.2",
+                                    "price24hPcnt": "0.0123",
+                                    "fundingRate": "0.0001",
+                                    "nextFundingTime": "1719752400000"
+                                  }
+                                ]
+                              },
+                              "time": 1719749900000
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val ticker = client.fetchTicker(Symbol("BTCUSDT"))
+
+            ticker.symbol shouldBe Symbol("BTCUSDT")
+            ticker.lastPrice shouldBe BigDecimal("61234.5")
+            ticker.markPrice shouldBe BigDecimal("61230.1")
+            ticker.price24hPcnt shouldBe BigDecimal("0.0123")
+            ticker.fundingRate shouldBe BigDecimal("0.0001")
+            ticker.nextFundingTime shouldBe Instant.ofEpochMilli(1719752400000)
+            ticker.capturedAt shouldBe Instant.ofEpochMilli(1719749900000)
+        }
     })
 
 private fun jsonClient(engine: MockEngine): HttpClient =

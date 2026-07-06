@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.market
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -12,6 +13,8 @@ class MarketDataSyncService(
     private val candleStore: MarketCandleStore,
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    private val logger = LoggerFactory.getLogger(MarketDataSyncService::class.java)
+
     suspend fun sync(
         symbol: Symbol,
         timeframes: List<Timeframe>,
@@ -20,6 +23,12 @@ class MarketDataSyncService(
         require(timeframes.isNotEmpty()) { "At least one timeframe is required." }
         require(limit in 1..1000) { "Limit must be between 1 and 1000." }
 
+        logger.info(
+            "market-data sync requested symbol={} timeframes={} limit={}",
+            symbol.value,
+            timeframes.joinToString(",") { it.name },
+            limit,
+        )
         val timeframeResults =
             timeframes.distinct().map { timeframe ->
                 val candles = marketDataFeed.fetchRecentCandles(symbol, timeframe, limit)
@@ -32,12 +41,19 @@ class MarketDataSyncService(
                 )
             }
 
-        return MarketDataSyncResult(
-            symbol = symbol,
-            timeframeResults = timeframeResults,
-            totalFetchedCandles = timeframeResults.sumOf { it.fetchedCandles },
-            syncedAt = Instant.now(clock),
+        val result =
+            MarketDataSyncResult(
+                symbol = symbol,
+                timeframeResults = timeframeResults,
+                totalFetchedCandles = timeframeResults.sumOf { it.fetchedCandles },
+                syncedAt = Instant.now(clock),
+            )
+        logger.info(
+            "market-data sync completed symbol={} totalFetchedCandles={}",
+            symbol.value,
+            result.totalFetchedCandles,
         )
+        return result
     }
 
     suspend fun syncHistory(
@@ -62,6 +78,14 @@ class MarketDataSyncService(
         val resolvedStartAt = startAt ?: resolvedEndAt.minus(Duration.ofDays(daysBack.toLong()))
         require(resolvedStartAt.isBefore(resolvedEndAt)) { "Start time must be before end time." }
 
+        logger.info(
+            "market-data history sync requested symbol={} timeframes={} startAt={} endAt={} pageLimit={}",
+            symbol.value,
+            timeframes.joinToString(",") { it.name },
+            resolvedStartAt,
+            resolvedEndAt,
+            pageLimit,
+        )
         val timeframeResults =
             timeframes.distinct().map { timeframe ->
                 val requiredRequests = requiredRequests(resolvedStartAt, resolvedEndAt, timeframe, pageLimit)
@@ -78,12 +102,26 @@ class MarketDataSyncService(
                 )
             }
 
-        return MarketDataSyncResult(
-            symbol = symbol,
-            timeframeResults = timeframeResults,
-            totalFetchedCandles = timeframeResults.sumOf { it.fetchedCandles },
-            syncedAt = Instant.now(clock),
+        val result =
+            MarketDataSyncResult(
+                symbol = symbol,
+                timeframeResults = timeframeResults,
+                totalFetchedCandles = timeframeResults.sumOf { it.fetchedCandles },
+                syncedAt = Instant.now(clock),
+            )
+        logger.info(
+            "market-data history sync completed symbol={} totalFetchedCandles={}",
+            symbol.value,
+            result.totalFetchedCandles,
         )
+        return result
+    }
+
+    suspend fun ticker(symbol: Symbol): MarketTicker {
+        logger.info("market ticker requested symbol={}", symbol.value)
+        val ticker = marketDataFeed.fetchTicker(symbol)
+        logger.info("market ticker completed symbol={} lastPrice={}", symbol.value, ticker.lastPrice.toPlainString())
+        return ticker
     }
 
     private suspend fun syncHistoryTimeframe(

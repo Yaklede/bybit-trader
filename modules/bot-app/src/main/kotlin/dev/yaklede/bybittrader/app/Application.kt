@@ -11,6 +11,7 @@ import dev.yaklede.bybittrader.alerts.NoopAlertSink
 import dev.yaklede.bybittrader.alerts.TelegramAlertSink
 import dev.yaklede.bybittrader.api.backtest.FileVolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.configureApi
+import dev.yaklede.bybittrader.api.operations.SmokeAlertDeliveryResponse
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
@@ -53,14 +54,27 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.server.cio.CIO as ServerCIO
 
+private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
+
 fun main() {
     val config = AppConfig.fromEnvironment()
+    logger.info(
+        "application starting mode={} api={}:{} privateExecution={} executionLoop={} symbol={} timeframes={}",
+        config.runtimeMode.name,
+        config.api.host,
+        config.api.port,
+        config.execution.enabled,
+        config.executionLoop.enabled,
+        config.marketData.symbol.value,
+        config.marketData.timeframes.joinToString(",") { it.name },
+    )
     val database = openLedgerDatabase(Path.of(config.database.path))
     val ledger = SqlDelightLedger(database)
     val httpClient = createJsonHttpClient()
@@ -108,6 +122,12 @@ fun main() {
         )
     val executionService =
         if (config.bybitPrivate.credentialsAvailable) {
+            logger.info(
+                "private exchange client configured baseUrl={} accountType={} executionEnabled={}",
+                config.bybitPrivate.baseUrl,
+                config.bybitPrivate.accountType,
+                config.execution.enabled,
+            )
             ExchangeExecutionService(
                 stateStore = ledger,
                 candleStore = ledger,
@@ -140,11 +160,13 @@ fun main() {
                     ),
             )
         } else {
+            logger.info("private exchange client not configured")
             null
         }
     val paperLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val paperLoopJob =
         if (config.runtimeMode == RuntimeMode.PAPER && config.paperLoop.enabled) {
+            logger.info("paper trading loop enabled")
             PaperTradingLoop(
                 marketDataSyncService = marketDataSyncService,
                 paperTradingService = paperTradingService,
@@ -160,11 +182,13 @@ fun main() {
                 onFailure = { error -> alertingService.sendPaperLoopFailure(error) },
             ).start(paperLoopScope)
         } else {
+            logger.info("paper trading loop disabled")
             null
         }
     val executionLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val executionLoopJob =
         if (executionService != null && config.executionLoop.enabled) {
+            logger.info("execution loop enabled intervalSeconds={}", config.executionLoop.intervalSeconds)
             ExchangeTradingLoop(
                 marketDataSyncService = marketDataSyncService,
                 executionService = executionService,
@@ -180,6 +204,7 @@ fun main() {
                 onFailure = { error -> alertingService.sendExecutionLoopFailure(error) },
             ).start(executionLoopScope)
         } else {
+            logger.info("execution loop disabled")
             null
         }
 
@@ -233,10 +258,12 @@ fun main() {
                 executionService = executionService,
                 runtimeMode = config.runtimeMode.name,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
+                onSmokeAlert = { message -> alertingService.sendSmokeAlert(message) },
                 controlCredential = config.api.controlCredential,
             )
         }
 
+    logger.info("http server starting host={} port={}", config.api.host, config.api.port)
     server.start(wait = true)
 }
 
@@ -314,6 +341,22 @@ private suspend fun AlertingService.sendControlResult(result: ControlResult) {
                 "${result.action.name} changed bot mode " +
                     "${result.previousMode.name} -> ${result.newMode.name} at ${result.changedAt}.",
         ),
+    )
+}
+
+private suspend fun AlertingService.sendSmokeAlert(message: String): SmokeAlertDeliveryResponse {
+    val result =
+        send(
+            AlertMessage(
+                severity = AlertSeverity.INFO,
+                title = "smoke-test",
+                body = message,
+            ),
+        )
+    return SmokeAlertDeliveryResponse(
+        delivered = result.delivered,
+        sinkName = result.sinkName,
+        failureReason = result.failureReason,
     )
 }
 

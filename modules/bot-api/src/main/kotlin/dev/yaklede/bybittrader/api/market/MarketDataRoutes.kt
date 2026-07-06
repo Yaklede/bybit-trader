@@ -5,10 +5,12 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncResult
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.market.MarketTicker
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -16,6 +18,14 @@ import java.time.format.DateTimeParseException
 
 fun Route.configureMarketDataRoutes(marketDataSyncService: MarketDataSyncService) {
     authenticate("control") {
+        get("/market-data/ticker") {
+            val request =
+                MarketTickerRequest(
+                    symbol = call.request.queryParameters["symbol"] ?: "BTCUSDT",
+                ).validated()
+            call.respond(marketDataSyncService.ticker(Symbol(request.symbol)).toResponse())
+        }
+
         post("/market-data/sync") {
             val request = call.receive<MarketDataSyncRequest>().validated()
             val result =
@@ -41,6 +51,17 @@ fun Route.configureMarketDataRoutes(marketDataSyncService: MarketDataSyncService
                 )
             call.respond(result.toResponse())
         }
+    }
+}
+
+@Serializable
+data class MarketTickerRequest(
+    val symbol: String,
+) {
+    fun validated(): MarketTickerRequest {
+        val normalizedSymbol = symbol.trim().uppercase()
+        Symbol(normalizedSymbol)
+        return copy(symbol = normalizedSymbol)
     }
 }
 
@@ -105,6 +126,30 @@ data class TimeframeSyncResponse(
     val earliestOpenedAt: String?,
     val latestOpenedAt: String?,
 )
+
+@Serializable
+data class MarketTickerResponse(
+    val symbol: String,
+    val lastPrice: String,
+    val markPrice: String?,
+    val indexPrice: String?,
+    val price24hPcnt: String?,
+    val fundingRate: String?,
+    val nextFundingTime: String?,
+    val capturedAt: String,
+)
+
+fun MarketTicker.toResponse(): MarketTickerResponse =
+    MarketTickerResponse(
+        symbol = symbol.value,
+        lastPrice = lastPrice.toPlainString(),
+        markPrice = markPrice?.toPlainString(),
+        indexPrice = indexPrice?.toPlainString(),
+        price24hPcnt = price24hPcnt?.toPlainString(),
+        fundingRate = fundingRate?.toPlainString(),
+        nextFundingTime = nextFundingTime?.toString(),
+        capturedAt = capturedAt.toString(),
+    )
 
 private fun MarketDataSyncResult.toResponse(): MarketDataSyncResponse =
     MarketDataSyncResponse(

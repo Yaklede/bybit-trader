@@ -158,6 +158,17 @@ data class ExchangeEvaluationResult(
     val intendedRisk: BigDecimal?,
 )
 
+data class ExchangeSmokeOrderResult(
+    val symbol: Symbol,
+    val side: Side,
+    val quantity: BigDecimal,
+    val exchangeOrderId: String?,
+    val clientOrderId: String,
+    val orderId: Long,
+    val status: String,
+    val submittedAt: Instant,
+)
+
 enum class ExchangeEvaluationStatus {
     DISABLED,
     SKIPPED_BY_MODE,

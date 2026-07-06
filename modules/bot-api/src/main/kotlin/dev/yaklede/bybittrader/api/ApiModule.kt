@@ -12,6 +12,8 @@ import dev.yaklede.bybittrader.api.dashboard.configureDashboardRoutes
 import dev.yaklede.bybittrader.api.execution.configureExecutionRoutes
 import dev.yaklede.bybittrader.api.health.configureHealthRoutes
 import dev.yaklede.bybittrader.api.market.configureMarketDataRoutes
+import dev.yaklede.bybittrader.api.operations.SmokeAlertDeliveryResponse
+import dev.yaklede.bybittrader.api.operations.configureOperationsSmokeRoutes
 import dev.yaklede.bybittrader.api.paper.configurePaperTradingRoutes
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
@@ -35,11 +37,16 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
+import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.httpMethod
+import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import org.slf4j.LoggerFactory
+import org.slf4j.event.Level
 
 fun Application.configureApi(
     stateStore: BotStateStore,
@@ -57,19 +64,34 @@ fun Application.configureApi(
     executionService: ExchangeExecutionService? = null,
     runtimeMode: String? = null,
     onControlResult: suspend (ControlResult) -> Unit = {},
+    onSmokeAlert: (suspend (String) -> SmokeAlertDeliveryResponse)? = null,
     controlCredential: String?,
 ) {
+    val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.api")
     install(ContentNegotiation) {
         json()
     }
+    install(CallLogging) {
+        level = Level.INFO
+        format { call ->
+            val status =
+                call.response
+                    .status()
+                    ?.value
+                    ?.toString() ?: "unhandled"
+            "http ${call.request.httpMethod.value} ${call.request.path()} -> $status"
+        }
+    }
     install(StatusPages) {
         exception<IllegalArgumentException> { call, cause ->
+            logger.warn("api validation failed path={} reason={}", call.request.path(), cause.message)
             call.respond(
                 status = HttpStatusCode.BadRequest,
                 message = ErrorResponse(code = "VALIDATION_ERROR", message = cause.message ?: "Invalid request."),
             )
         }
-        exception<MarketDataException> { call, _ ->
+        exception<MarketDataException> { call, cause ->
+            logger.warn("market data provider unavailable path={} error={}", call.request.path(), cause::class.simpleName)
             call.respond(
                 status = HttpStatusCode.BadGateway,
                 message =
@@ -79,7 +101,8 @@ fun Application.configureApi(
                     ),
             )
         }
-        exception<ExchangeExecutionException> { call, _ ->
+        exception<ExchangeExecutionException> { call, cause ->
+            logger.warn("exchange execution provider unavailable path={} error={}", call.request.path(), cause::class.simpleName)
             call.respond(
                 status = HttpStatusCode.BadGateway,
                 message =
@@ -94,9 +117,17 @@ fun Application.configureApi(
     routing {
         configureHealthRoutes()
         configureStatusRoutes(stateStore, paperTradingReportStore)
-        configureDashboardRoutes(stateStore, paperTradingReportStore, executionService, runtimeMode)
+        configureDashboardRoutes(stateStore, paperTradingReportStore, marketDataSyncService, executionService, runtimeMode)
         configureControlRoutes(controlService, onControlResult)
         configureMarketDataRoutes(marketDataSyncService)
+        configureOperationsSmokeRoutes(
+            controlService = controlService,
+            marketDataSyncService = marketDataSyncService,
+            executionService = executionService,
+            runtimeMode = runtimeMode,
+            onControlResult = onControlResult,
+            onSmokeAlert = onSmokeAlert,
+        )
         configureBacktestRoutes(backtestService)
         configureMeanReversionSweepRoutes(meanReversionSweepService)
         configureVolumeFlowBacktestRoutes(volumeFlowBacktestService)

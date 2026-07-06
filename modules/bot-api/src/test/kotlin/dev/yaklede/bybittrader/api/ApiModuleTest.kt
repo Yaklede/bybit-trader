@@ -41,6 +41,7 @@ import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.market.MarketTicker
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
@@ -172,6 +173,33 @@ class ApiModuleTest :
                     .first()
                     .single()
                     .symbol shouldBe Symbol("BTCUSDT")
+            }
+        }
+
+        "authorized market ticker request returns latest market snapshot" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .get("/market-data/ticker?symbol=BTCUSDT") {
+                            bearerAuth("test-control-credential")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"lastPrice":"61234.5""""
+                response.bodyAsText() shouldContain """"price24hPcnt":"0.0123""""
             }
         }
 
@@ -736,9 +764,180 @@ class ApiModuleTest :
                 val body = response.bodyAsText()
                 body shouldContain """"executionAvailable":true"""
                 body shouldContain """"mode":"RUNNING""""
+                body shouldContain """"market":{"symbol":"BTCUSDT","lastPrice":"61234.5""""
                 body shouldContain """"totalEquity":"1200.5""""
                 body shouldContain """"positions":[{"""
                 body shouldContain """"unrealizedPnl":"10""""
+            }
+        }
+
+        "operations smoke discord endpoint sends configured alert sink" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val sentMessages = mutableListOf<String>()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        onSmokeAlert = { message ->
+                            sentMessages += message
+                            dev.yaklede.bybittrader.api.operations.SmokeAlertDeliveryResponse(
+                                delivered = true,
+                                sinkName = "discord",
+                                failureReason = null,
+                            )
+                        },
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/ops/smoke/discord") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"message":"smoke"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"sinkName":"discord""""
+                sentMessages shouldBe listOf("smoke")
+            }
+        }
+
+        "operations smoke exchange read checks ticker balance and reconciliation" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = InMemoryPaperTradingStore(),
+                                strategy = NoTradeApiStrategy(),
+                                gateway = RecordingExecutionGateway(),
+                                config = ExchangeExecutionConfig(enabled = true),
+                            ),
+                        runtimeMode = "TESTNET",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/ops/smoke/exchange-read") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT","coin":"USDT"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                val body = response.bodyAsText()
+                body shouldContain """"status":"PASS""""
+                body shouldContain """"lastPrice":"61234.5""""
+                body shouldContain """"coinCount":1"""
+            }
+        }
+
+        "operations smoke control cycle pauses and resumes bot" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        runtimeMode = "TESTNET",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/ops/smoke/control-cycle") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"reason":"smoke"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"resumeMode":"RESUME_PENDING_CHECK""""
+                stateStore.current().mode shouldBe BotMode.RESUME_PENDING_CHECK
+            }
+        }
+
+        "operations smoke testnet market order requires acknowledgement and submits order" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val paperStore = InMemoryPaperTradingStore()
+                val gateway = RecordingExecutionGateway()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = paperStore,
+                                strategy = NoTradeApiStrategy(),
+                                gateway = gateway,
+                                config = ExchangeExecutionConfig(enabled = true),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                            ),
+                        runtimeMode = "TESTNET",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val rejected =
+                    client
+                        .post("/ops/smoke/testnet-market-order") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT","side":"BUY","quantity":"0.001","acknowledgement":"NO"}""")
+                        }
+                rejected.status shouldBe HttpStatusCode.BadRequest
+
+                val accepted =
+                    client
+                        .post("/ops/smoke/testnet-market-order") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """
+                                {
+                                  "symbol":"BTCUSDT",
+                                  "side":"BUY",
+                                  "quantity":"0.001",
+                                  "acknowledgement":"TESTNET_MARKET_ORDER"
+                                }
+                                """.trimIndent(),
+                            )
+                        }
+
+                accepted.status shouldBe HttpStatusCode.OK
+                accepted.bodyAsText() shouldContain """"status":"SUBMITTED""""
+                gateway.placedOrders.size shouldBe 1
+                paperStore.orders.single().clientOrderId shouldContain "smoke-BTCUSDT"
             }
         }
 
@@ -835,6 +1034,18 @@ private class StaticMarketDataFeed : MarketDataFeed {
                 close = BigDecimal("105"),
                 volume = BigDecimal("10.5"),
             ),
+        )
+
+    override suspend fun fetchTicker(symbol: Symbol): MarketTicker =
+        MarketTicker(
+            symbol = symbol,
+            lastPrice = BigDecimal("61234.5"),
+            markPrice = BigDecimal("61230.1"),
+            indexPrice = BigDecimal("61220.2"),
+            price24hPcnt = BigDecimal("0.0123"),
+            fundingRate = BigDecimal("0.0001"),
+            nextFundingTime = Instant.parse("2026-06-30T08:00:00Z"),
+            capturedAt = Instant.parse("2026-06-30T00:00:00Z"),
         )
 }
 
