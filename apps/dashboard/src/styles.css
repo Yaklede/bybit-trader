@@ -71,12 +71,14 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -177,6 +179,14 @@ a:focus-visible {
   white-space: nowrap;
 }
 
+.header-metric strong.positive {
+  color: var(--success);
+}
+
+.header-metric strong.negative {
+  color: var(--danger);
+}
+
 .header-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -267,7 +277,8 @@ a:focus-visible {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--border);
@@ -277,6 +288,10 @@ a:focus-visible {
   background: var(--surface-raised);
   font-size: 15px;
   font-weight: 700;
+}
+
+.field select {
+  appearance: none;
 }
 
 .button {
@@ -531,6 +546,99 @@ a:focus-visible {
 
 .button-stack .button {
   width: 100%;
+}
+
+.smoke-panel {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.smoke-heading h3,
+.smoke-heading p {
+  margin: 0;
+}
+
+.smoke-heading h3 {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.smoke-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.smoke-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.smoke-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.smoke-result {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--surface-raised);
+}
+
+.smoke-result > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.smoke-result strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.smoke-result span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.smoke-result pre {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 0;
+  padding: 10px;
+  color: var(--text);
+  background: var(--canvas);
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.smoke-result.success {
+  border-color: var(--success);
+  background: var(--success-bg);
+}
+
+.smoke-result.danger {
+  border-color: var(--danger);
+  background: var(--danger-bg);
 }
 
 .table-wrap {
@@ -810,7 +918,9 @@ tbody tr:last-child td {
   }
 
   .connection-state,
-  .account-metrics {
+  .account-metrics,
+  .smoke-controls,
+  .smoke-actions {
     grid-template-columns: 1fr;
   }
 

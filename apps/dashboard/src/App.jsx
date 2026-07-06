@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Send,
   Sun,
+  Zap,
 } from "lucide-react";
 import "./styles.css";
 
@@ -41,6 +42,9 @@ function App() {
   const [now, setNow] = useState(() => new Date());
   const [problemMessage, setProblemMessage] = useState("");
   const [notice, setNotice] = useState("");
+  const [smokeResult, setSmokeResult] = useState();
+  const [smokeQuantity, setSmokeQuantity] = useState("0.001");
+  const [smokeSide, setSmokeSide] = useState("BUY");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -74,10 +78,15 @@ function App() {
             ...(options.headers || {}),
           },
         });
+        const responseText = await response.text();
+        const responseBody = parseJsonBody(responseText);
         if (!response.ok) {
-          throw { message: "데이터를 불러오지 못했어요. 서버 상태를 확인하고 다시 시도해 주세요." };
+          throw {
+            message: `${resolveFailureMessage(responseBody)} 접근키와 API 주소를 확인한 뒤 다시 시도해 주세요.`,
+            responseBody,
+          };
         }
-        return response.json();
+        return responseBody || {};
       },
     }),
     [accessKey, apiBase],
@@ -114,7 +123,40 @@ function App() {
         await loadSummary();
         return result;
       } catch (nextProblem) {
-        setProblemMessage(nextProblem.message || "요청을 마치지 못했어요. 잠시 후 다시 시도해 주세요.");
+        setProblemMessage(nextProblem.message || "요청을 마치지 못했어요. 접근키, API 주소, 서버 상태를 확인한 뒤 다시 시도해 주세요.");
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client, loadSummary],
+  );
+
+  const runSmokeAction = useCallback(
+    async (label, path, body, options = {}) => {
+      if (options.confirmMessage && !window.confirm(options.confirmMessage)) {
+        return false;
+      }
+      setIsLoading(true);
+      setProblemMessage("");
+      setNotice("");
+      setSmokeResult({ label, status: "RUNNING" });
+      try {
+        const result = await client.request(path, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setSmokeResult({ label, status: "PASS", responseBody: result });
+        await loadSummary();
+        setNotice(`${label} 테스트가 완료됐어요.`);
+        return result;
+      } catch (nextProblem) {
+        setSmokeResult({
+          label,
+          status: "FAIL",
+          ...(nextProblem.responseBody ? { responseBody: nextProblem.responseBody } : {}),
+        });
+        setProblemMessage(nextProblem.message || `${label} 테스트를 마치지 못했어요.`);
         return false;
       } finally {
         setIsLoading(false);
@@ -124,6 +166,7 @@ function App() {
   );
 
   const account = summary.account;
+  const market = summary.market;
   const reconciliation = summary.reconciliation;
   const positions = reconciliation?.positions || [];
   const openOrders = reconciliation?.openOrders || [];
@@ -145,10 +188,10 @@ function App() {
         </div>
 
         <div className="market-strip" aria-label="시장 상태">
-          <HeaderMetric label="마켓" value={symbol} />
-          <HeaderMetric label="현재가" value="조회 전" />
-          <HeaderMetric label="24H 변화율" value="조회 전" />
-          <HeaderMetric label="펀딩 / 카운트다운" value="조회 전" />
+          <HeaderMetric label="마켓" value={market?.symbol || symbol} />
+          <HeaderMetric label="현재가" value={market ? `${formatMoney(market.lastPrice)} USDT` : "조회 전"} />
+          <HeaderMetric label="24H 변화율" value={formatRatioPercent(market?.price24hPcnt)} tone={numberTone(market?.price24hPcnt)} />
+          <HeaderMetric label="펀딩 / 예정 시각" value={formatFundingSummary(market)} />
           <HeaderMetric label="서버 시간" value={formatFullDateTime(now)} />
         </div>
 
@@ -289,6 +332,85 @@ function App() {
                   긴급 정지
                 </Button>
               </div>
+              <section className="smoke-panel" aria-label="실운영 전 기능 테스트">
+                <div className="smoke-heading">
+                  <h3>기능 테스트</h3>
+                  <p>테스트넷에서 알림, 조회, 제어, 주문 경로를 확인해요.</p>
+                </div>
+                <div className="smoke-controls">
+                  <Field label="주문 방향">
+                    <select aria-label="주문 방향" value={smokeSide} onChange={(event) => setSmokeSide(event.target.value)}>
+                      <option value="BUY">롱</option>
+                      <option value="SELL">숏</option>
+                    </select>
+                  </Field>
+                  <Field label="TESTNET 수량">
+                    <input
+                      aria-label="TESTNET 수량"
+                      value={smokeQuantity}
+                      inputMode="decimal"
+                      onChange={(event) => setSmokeQuantity(event.target.value)}
+                    />
+                  </Field>
+                </div>
+                <div className="button-stack smoke-actions">
+                  <Button
+                    icon={CheckCircle2}
+                    variant="secondary"
+                    onClick={() =>
+                      runSmokeAction("Discord 웹훅", "/ops/smoke/discord", {
+                        message: `Bybit Trader TESTNET smoke alert: ${symbol}`,
+                      })
+                    }
+                    disabled={isLoading}
+                  >
+                    Discord 전송
+                  </Button>
+                  <Button
+                    icon={RefreshCw}
+                    variant="secondary"
+                    onClick={() => runSmokeAction("거래소 조회", "/ops/smoke/exchange-read", { symbol, coin })}
+                    disabled={isLoading}
+                  >
+                    조회 테스트
+                  </Button>
+                  <Button
+                    icon={PauseCircle}
+                    variant="secondary"
+                    onClick={() =>
+                      runSmokeAction("정지 후 재가동", "/ops/smoke/control-cycle", {
+                        reason: "대시보드 TESTNET 기능 테스트",
+                      })
+                    }
+                    disabled={isLoading}
+                  >
+                    정지/재가동
+                  </Button>
+                  <Button
+                    icon={Zap}
+                    variant="secondary"
+                    onClick={() =>
+                      runSmokeAction(
+                        "TESTNET 시장가 주문",
+                        "/ops/smoke/testnet-market-order",
+                        {
+                          symbol,
+                          side: smokeSide,
+                          quantity: smokeQuantity,
+                          acknowledgement: "TESTNET_MARKET_ORDER",
+                        },
+                        {
+                          confirmMessage: "TESTNET 거래소에 실제 시장가 주문을 전송합니다. 계속할까요?",
+                        },
+                      )
+                    }
+                    disabled={isLoading || summary.runtimeMode !== "TESTNET"}
+                  >
+                    시장가 주문
+                  </Button>
+                </div>
+                <SmokeResult result={smokeResult} />
+              </section>
             </section>
           </aside>
 
@@ -393,11 +515,11 @@ function Field({ label, children }) {
   );
 }
 
-function HeaderMetric({ label, value }) {
+function HeaderMetric({ label, value, tone = "neutral" }) {
   return (
     <div className="header-metric">
       <span>{label}</span>
-      <strong>{value || "확인 필요"}</strong>
+      <strong className={tone}>{value || "확인 필요"}</strong>
     </div>
   );
 }
@@ -548,6 +670,26 @@ function SignalList({ signals, isLoading, dataState }) {
   );
 }
 
+function SmokeResult({ result }) {
+  if (!result) {
+    return (
+      <div className="smoke-result idle">
+        <strong>테스트 결과</strong>
+        <span>아직 실행한 기능 테스트가 없어요.</span>
+      </div>
+    );
+  }
+  return (
+    <div className={`smoke-result ${result.status === "PASS" ? "success" : result.status === "FAIL" ? "danger" : "idle"}`}>
+      <div>
+        <strong>{result.label}</strong>
+        <StatusBadge label={formatSmokeStatus(result.status)} tone={result.status === "PASS" ? "success" : result.status === "FAIL" ? "danger" : "neutral"} />
+      </div>
+      {result.responseBody ? <pre>{JSON.stringify(result.responseBody, jsonReplacer, 2)}</pre> : <span>서버 응답을 기다리고 있어요.</span>}
+    </div>
+  );
+}
+
 function StateRow({ label, value }) {
   return (
     <div>
@@ -573,6 +715,27 @@ function resolveInitialTheme() {
   return "light";
 }
 
+function parseJsonBody(responseText) {
+  if (!responseText) return {};
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return { message: responseText };
+  }
+}
+
+function resolveFailureMessage(responseBody) {
+  return (
+    responseBody?.message ||
+    responseBody?.detail ||
+    "요청을 마치지 못했어요. 서버 로그와 연결 상태를 확인한 뒤 다시 시도해 주세요."
+  );
+}
+
+function jsonReplacer(_key, value) {
+  return value;
+}
+
 function emptyTitle(state) {
   if (state === "error") return "연결값을 확인해 주세요";
   if (state === "idle") return "아직 조회하지 않았어요";
@@ -596,6 +759,22 @@ function formatMoney(value) {
   return new Intl.NumberFormat("ko-KR", {
     maximumFractionDigits: number >= 100 ? 2 : 6,
   }).format(number);
+}
+
+function formatRatioPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "조회 전";
+  return `${new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(number * 100)}%`;
+}
+
+function formatFundingSummary(market) {
+  if (!market) return "조회 전";
+  const fundingRate = formatRatioPercent(market.fundingRate);
+  const nextFunding = formatDateTime(market.nextFundingTime);
+  return `${fundingRate} / ${nextFunding}`;
 }
 
 function formatNumber(value) {
@@ -642,8 +821,16 @@ function formatBotMode(value) {
     PAUSE_NEW_ENTRIES: "신규 진입 중단",
     PAUSE_ALL: "전체 일시정지",
     EMERGENCY_STOP: "긴급 정지",
+    RESUME_PENDING_CHECK: "재가동 확인 중",
   };
   return map[value] || value || "확인 필요";
+}
+
+function formatSmokeStatus(value) {
+  if (value === "PASS") return "성공";
+  if (value === "FAIL") return "로그 확인 필요";
+  if (value === "RUNNING") return "진행 중";
+  return value || "확인 필요";
 }
 
 function formatOrderType(value) {
