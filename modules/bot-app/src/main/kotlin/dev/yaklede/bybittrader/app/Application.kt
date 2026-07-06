@@ -465,5 +465,5 @@ private fun BotMode.toKoreanLabel(): String =
         BotMode.PAUSE_NEW_ENTRIES -> "신규 진입 정지"
         BotMode.PAUSE_ALL -> "전체 정지"
         BotMode.EMERGENCY_STOP -> "긴급 정지"
-        BotMode.RESUME_PENDING_CHECK -> "재가동 확인 중"
+        BotMode.RESUME_PENDING_CHECK -> "운영 중"
     }

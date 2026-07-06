@@ -57,6 +57,28 @@ class SqlDelightLedgerTest :
                 .size shouldBe 1
         }
 
+        "stored resume pending state is normalized to running" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val database = createLedgerDatabase(driver)
+            database.ledgerQueries.insertBotState(
+                mode = BotMode.RESUME_PENDING_CHECK.name,
+                updated_at = "2026-06-29T00:00:00Z",
+                heartbeat_at = null,
+            )
+            val ledger =
+                SqlDelightLedger(
+                    database = database,
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:00:00Z"), ZoneOffset.UTC),
+                )
+
+            ledger.current().mode shouldBe BotMode.RUNNING
+            database.ledgerQueries
+                .selectBotState()
+                .executeAsOne()
+                .mode shouldBe BotMode.RUNNING.name
+        }
+
         "fresh database records alert delivery events" {
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             LedgerDatabase.Schema.create(driver)

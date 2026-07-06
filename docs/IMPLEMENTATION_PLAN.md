@@ -71,7 +71,8 @@ Deliverables:
 - `Candle`, `SignalIntent`, `SignalScore`, `RiskDecision`.
 - `PositionSnapshot`, `OrderIntent`, `FillEvent`.
 - `BotMode`: `RUNNING`, `PAUSE_NEW_ENTRIES`, `PAUSE_ALL`,
-  `EMERGENCY_STOP`, `RESUME_PENDING_CHECK`.
+  `EMERGENCY_STOP`. `RESUME_PENDING_CHECK` may exist only as a legacy persisted
+  value and is normalized to `RUNNING`.
 - Money and quantity value types with explicit rounding rules.
 
 Acceptance:
@@ -158,7 +159,8 @@ Acceptance:
 - `PAUSE_NEW_ENTRIES` blocks entries but keeps exits and reconciliation active.
 - `PAUSE_ALL` blocks strategy-created orders.
 - `EMERGENCY_STOP` cancels open orders and applies configured position policy.
-- Restart enters `RESUME_PENDING_CHECK` before returning to `RUNNING`.
+- Restart returns to `RUNNING`; legacy `RESUME_PENDING_CHECK` state is normalized
+  on read.
 
 ### `bot-api`
 

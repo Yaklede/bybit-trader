@@ -850,7 +850,7 @@ function buildSmokeSummary(responseBody) {
   if (!responseBody) return false;
   if (responseBody.pauseMode || responseBody.resumeMode) {
     const pauseConfirmed = responseBody.pauseMode === "PAUSE_ALL";
-    const resumeRequested = responseBody.resumeMode === "RUNNING" || responseBody.resumeMode === "RESUME_PENDING_CHECK";
+    const resumeRequested = responseBody.resumeMode === "RUNNING";
     return {
       title:
         pauseConfirmed && resumeRequested
@@ -1044,7 +1044,7 @@ function formatBotMode(value) {
     PAUSE_NEW_ENTRIES: "신규 진입 중단",
     PAUSE_ALL: "전체 일시정지",
     EMERGENCY_STOP: "긴급 정지",
-    RESUME_PENDING_CHECK: "재가동 확인 중",
+    RESUME_PENDING_CHECK: "가동 중",
   };
   return map[value] || value || "확인 필요";
 }

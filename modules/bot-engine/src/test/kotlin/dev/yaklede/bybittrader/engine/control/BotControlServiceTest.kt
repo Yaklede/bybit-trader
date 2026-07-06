@@ -29,7 +29,7 @@ class BotControlServiceTest :
             recorder.events.single().actor shouldBe "operator"
         }
 
-        "resume switches into pending reconciliation instead of running directly" {
+        "resume switches back to running" {
             val store = InMemoryStateStore(BotMode.PAUSE_ALL)
             val service =
                 BotControlService(
@@ -40,8 +40,8 @@ class BotControlServiceTest :
 
             val result = service.resume(actor = "operator", reason = null)
 
-            result.newMode shouldBe BotMode.RESUME_PENDING_CHECK
-            store.current().mode shouldBe BotMode.RESUME_PENDING_CHECK
+            result.newMode shouldBe BotMode.RUNNING
+            store.current().mode shouldBe BotMode.RUNNING
         }
     })
 

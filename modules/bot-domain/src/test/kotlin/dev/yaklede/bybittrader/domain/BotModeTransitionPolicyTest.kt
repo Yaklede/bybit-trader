@@ -16,9 +16,9 @@ class BotModeTransitionPolicyTest :
             policy.nextMode(BotMode.RUNNING, ControlAction.PAUSE_ALL) shouldBe BotMode.PAUSE_ALL
         }
 
-        "resume must pass through reconciliation before running" {
+        "resume returns to running state" {
             policy.nextMode(BotMode.PAUSE_ALL, ControlAction.RESUME) shouldBe
-                BotMode.RESUME_PENDING_CHECK
+                BotMode.RUNNING
         }
 
         "emergency stop dominates pause commands" {
