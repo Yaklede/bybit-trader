@@ -679,13 +679,38 @@ function SmokeResult({ result }) {
       </div>
     );
   }
+  const summary = buildSmokeSummary(result.responseBody);
   return (
     <div className={`smoke-result ${result.status === "PASS" ? "success" : result.status === "FAIL" ? "danger" : "idle"}`}>
       <div>
         <strong>{result.label}</strong>
         <StatusBadge label={formatSmokeStatus(result.status)} tone={result.status === "PASS" ? "success" : result.status === "FAIL" ? "danger" : "neutral"} />
       </div>
-      {result.responseBody ? <pre>{JSON.stringify(result.responseBody, jsonReplacer, 2)}</pre> : <span>서버 응답을 기다리고 있어요.</span>}
+      {summary ? <SmokeSummary summary={summary} /> : false}
+      {result.responseBody ? (
+        <details className="smoke-raw">
+          <summary>응답 원문 보기</summary>
+          <pre>{JSON.stringify(result.responseBody, jsonReplacer, 2)}</pre>
+        </details>
+      ) : (
+        <span>서버 응답을 기다리고 있어요.</span>
+      )}
+    </div>
+  );
+}
+
+function SmokeSummary({ summary }) {
+  return (
+    <div className="smoke-summary">
+      <strong>{summary.title}</strong>
+      <dl>
+        {summary.items.map((item) => (
+          <div key={item.label}>
+            <dt>{item.label}</dt>
+            <dd className={item.tone || "neutral"}>{item.value}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -734,6 +759,70 @@ function resolveFailureMessage(responseBody) {
 
 function jsonReplacer(_key, value) {
   return value;
+}
+
+function buildSmokeSummary(responseBody) {
+  if (!responseBody) return false;
+  if (responseBody.pauseMode || responseBody.resumeMode) {
+    const pauseConfirmed = responseBody.pauseMode === "PAUSE_ALL";
+    const resumeRequested = responseBody.resumeMode === "RUNNING" || responseBody.resumeMode === "RESUME_PENDING_CHECK";
+    return {
+      title:
+        pauseConfirmed && resumeRequested
+          ? "정지와 재가동 요청이 순서대로 처리됐어요."
+          : "상태 전환 결과를 확인해 주세요.",
+      items: [
+        {
+          label: "1단계 정지",
+          value: pauseConfirmed ? `확인됨 · ${formatBotMode(responseBody.pauseMode)}` : formatBotMode(responseBody.pauseMode),
+          tone: pauseConfirmed ? "positive" : "neutral",
+        },
+        {
+          label: "2단계 재가동",
+          value: resumeRequested ? `요청 완료 · ${formatBotMode(responseBody.resumeMode)}` : formatBotMode(responseBody.resumeMode),
+          tone: resumeRequested ? "positive" : "neutral",
+        },
+      ],
+    };
+  }
+  if (responseBody.delivery) {
+    return {
+      title: responseBody.delivery.sinkName === "discord" ? "Discord 전송 결과예요." : "알림 설정을 확인해 주세요.",
+      items: [
+        {
+          label: "전송 채널",
+          value: responseBody.delivery.sinkName === "discord" ? "Discord" : "알림 미설정",
+          tone: responseBody.delivery.sinkName === "discord" ? "positive" : "neutral",
+        },
+        {
+          label: "전송 결과",
+          value: responseBody.delivery.delivered ? "전송 완료" : "전송 실패 · Discord 설정 확인",
+          tone: responseBody.delivery.delivered ? "positive" : "negative",
+        },
+      ],
+    };
+  }
+  if (responseBody.lastPrice) {
+    return {
+      title: "거래소 조회가 완료됐어요.",
+      items: [
+        { label: "현재가", value: `${formatMoney(responseBody.lastPrice)} USDT`, tone: "positive" },
+        { label: "포지션", value: `${responseBody.positionCount || 0}건`, tone: "neutral" },
+        { label: "미체결 주문", value: `${responseBody.openOrderCount || 0}건`, tone: "neutral" },
+      ],
+    };
+  }
+  if (responseBody.order) {
+    return {
+      title: "TESTNET 시장가 주문 요청이 처리됐어요.",
+      items: [
+        { label: "방향", value: responseBody.order.side === "BUY" ? "롱" : "숏", tone: "neutral" },
+        { label: "수량", value: responseBody.order.quantity, tone: "neutral" },
+        { label: "상태", value: formatOrderStatus(responseBody.order.status), tone: "positive" },
+      ],
+    };
+  }
+  return false;
 }
 
 function emptyTitle(state) {

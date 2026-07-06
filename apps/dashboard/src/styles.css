@@ -611,6 +611,76 @@ a:focus-visible {
   line-height: 1.45;
 }
 
+.smoke-summary {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.smoke-summary > strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.smoke-summary dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.smoke-summary dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+  border-bottom: 1px solid var(--border);
+}
+
+.smoke-summary dl div:last-child {
+  border-bottom: 0;
+}
+
+.smoke-summary dt,
+.smoke-summary dd {
+  font-size: 13px;
+}
+
+.smoke-summary dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.smoke-summary dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 800;
+  text-align: right;
+}
+
+.smoke-summary dd.positive {
+  color: var(--success);
+}
+
+.smoke-summary dd.negative {
+  color: var(--danger);
+}
+
+.smoke-raw {
+  display: grid;
+  gap: 8px;
+}
+
+.smoke-raw summary {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .smoke-result pre {
   max-height: 180px;
   overflow: auto;
