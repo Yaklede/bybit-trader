@@ -57,6 +57,7 @@ jobs:
           BOT_SYMBOL: ${{ vars.BOT_SYMBOL || 'BTCUSDT' }}
           BOT_TIMEFRAMES: ${{ vars.BOT_TIMEFRAMES || 'M1,M5,M15' }}
           BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH: ${{ vars.BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH || '/opt/bybit-trader/config/volume-flow-composite-current.json' }}
+          BOT_STRATEGY_PROFILE_STATE_PATH: ${{ vars.BOT_STRATEGY_PROFILE_STATE_PATH || '/data/strategy-profile-current.txt' }}
           "BYBIT_API_KEY": ${{ secrets.BYBIT_API_KEY }}
           "BYBIT_API_SECRET": ${{ secrets.BYBIT_API_SECRET }}
           BYBIT_PRIVATE_BASE_URL: ${{ vars.BYBIT_PRIVATE_BASE_URL }}
@@ -104,6 +105,7 @@ jobs:
             "BOT_SYMBOL",
             "BOT_TIMEFRAMES",
             "BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH",
+            "BOT_STRATEGY_PROFILE_STATE_PATH",
             "BYBIT_API_KEY",
             "BYBIT_API_SECRET",
             "BYBIT_PRIVATE_BASE_URL",

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   RotateCcw,
   Send,
+  SlidersHorizontal,
   Sun,
   Zap,
 } from "lucide-react";
@@ -30,6 +31,12 @@ const EMPTY_SUMMARY = {
   recentTrades: [],
 };
 
+const EMPTY_STRATEGY_STATE = {
+  activeProfileId: "",
+  runtimeProfileId: "",
+  profiles: [],
+};
+
 function App() {
   const [apiBase, setApiBase] = useState(() => localStorage.getItem(STORAGE_KEYS.apiBase) || "/api");
   const [accessKey, setAccessKey] = useState(() => localStorage.getItem(STORAGE_KEYS.accessKey) || "");
@@ -37,6 +44,7 @@ function App() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [coin, setCoin] = useState("USDT");
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
+  const [strategyState, setStrategyState] = useState(EMPTY_STRATEGY_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -96,10 +104,12 @@ function App() {
     setIsLoading(true);
     setProblemMessage("");
     try {
-      const nextSummary = await client.request(
-        `/dashboard/summary?symbol=${encodeURIComponent(symbol)}&coin=${encodeURIComponent(coin)}&limit=20`,
-      );
+      const [nextSummary, nextStrategyState] = await Promise.all([
+        client.request(`/dashboard/summary?symbol=${encodeURIComponent(symbol)}&coin=${encodeURIComponent(coin)}&limit=20`),
+        client.request("/strategy/profiles"),
+      ]);
       setSummary(nextSummary);
+      setStrategyState(nextStrategyState);
       setHasLoaded(true);
       setNotice("대시보드를 새로고침했어요.");
     } catch (nextProblem) {
@@ -165,6 +175,29 @@ function App() {
     [client, loadSummary],
   );
 
+  const activateStrategyProfile = useCallback(
+    async (profile) => {
+      setIsLoading(true);
+      setProblemMessage("");
+      setNotice("");
+      try {
+        const result = await client.request("/strategy/profiles/active", {
+          method: "POST",
+          body: JSON.stringify({ profileId: profile.id }),
+        });
+        setStrategyState(result);
+        setNotice(`${profile.name} 프로필을 적용했어요.`);
+        return result;
+      } catch (nextProblem) {
+        setProblemMessage(nextProblem.message || "전략 프로필을 바꾸지 못했어요. 접근키와 서버 상태를 확인한 뒤 다시 시도해 주세요.");
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [client],
+  );
+
   const account = summary.account;
   const market = summary.market;
   const reconciliation = summary.reconciliation;
@@ -174,6 +207,10 @@ function App() {
   const signals = summary.recentSignals || [];
   const dataState = problemMessage ? "error" : hasLoaded ? "ready" : "idle";
   const manualExchangeEnabled = isManualRuntime(summary.runtimeMode) && summary.executionAvailable;
+  const activeProfile = strategyState.activeProfile;
+  const runtimeProfile = strategyState.runtimeProfile;
+  const strategyProfiles = strategyState.profiles || [];
+  const strategyEvaluationEnabled = activeProfile?.runtimeEligible !== false;
 
   const runManualMarketOrder = useCallback(
     () =>
@@ -344,6 +381,38 @@ function App() {
               >
                 봇 시작
               </Button>
+              <section className="strategy-switch" aria-label="전략 프로필">
+                <div className="strategy-switch-header">
+                  <div>
+                    <h3>전략 프로필</h3>
+                    <p>{activeProfile?.description || "전략 프로필을 불러오면 현재 적용값이 표시돼요."}</p>
+                  </div>
+                  <StatusBadge label={runtimeProfile?.name || "공격형"} tone="success" />
+                </div>
+                <dl className="state-list compact-list">
+                  <StateRow label="현재 선택" value={formatStrategyProfile(activeProfile)} />
+                  <StateRow label="운영 루프" value={formatStrategyProfile(runtimeProfile)} />
+                  <StateRow label="적용 범위" value={activeProfile?.kindLabel || "조회 전"} />
+                  <StateRow label="변경 시각" value={formatDateTime(strategyState.updatedAt)} />
+                </dl>
+                <div className="profile-options">
+                  {strategyProfiles.map((profile) => {
+                    const active = profile.id === strategyState.activeProfileId;
+                    return (
+                      <Button
+                        key={profile.id}
+                        icon={SlidersHorizontal}
+                        variant={active ? "primary" : "secondary"}
+                        onClick={() => activateStrategyProfile(profile)}
+                        disabled={isLoading || active}
+                      >
+                        {active ? `${profile.name} 적용 중` : `${profile.name} 적용`}
+                      </Button>
+                    );
+                  })}
+                </div>
+                {activeProfile?.riskNote ? <p className="strategy-note">{activeProfile.riskNote}</p> : false}
+              </section>
               <dl className="state-list">
                 <StateRow label="봇 상태" value={formatBotMode(summary.bot?.mode)} />
                 <StateRow label="실행 모드" value={formatRuntime(summary.runtimeMode)} />
@@ -376,7 +445,7 @@ function App() {
                       candleLimit: 18000,
                     });
                   }}
-                  disabled={isLoading}
+                  disabled={isLoading || !strategyEvaluationEnabled}
                 >
                   평가 후 주문
                 </Button>
@@ -1036,6 +1105,11 @@ function formatRuntime(value) {
   if (value === "TESTNET") return "테스트넷";
   if (value === "PAPER") return "모의 실행";
   return "확인 필요";
+}
+
+function formatStrategyProfile(profile) {
+  if (!profile) return "조회 전";
+  return `${profile.name} · ${profile.kindLabel}`;
 }
 
 function isManualRuntime(value) {

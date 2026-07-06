@@ -52,6 +52,8 @@ override:
 - `BOT_TIMEFRAMES`: default `M1,M5,M15`.
 - `BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH`: default
   `/opt/bybit-trader/config/volume-flow-composite-current.json`.
+- `BOT_STRATEGY_PROFILE_STATE_PATH`: default
+  `/data/strategy-profile-current.txt`.
 - `BYBIT_PRIVATE_BASE_URL`: defaults from `BOT_MODE`: `https://api.bybit.com`
   for `LIVE`, `https://api-testnet.bybit.com` for `TESTNET`.
 - `BYBIT_RECV_WINDOW_MILLIS`: default `5000`.

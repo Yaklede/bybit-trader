@@ -17,6 +17,8 @@ import dev.yaklede.bybittrader.api.operations.configureOperationsSmokeRoutes
 import dev.yaklede.bybittrader.api.paper.configurePaperTradingRoutes
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
+import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
+import dev.yaklede.bybittrader.api.strategy.configureStrategyProfileRoutes
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
@@ -62,6 +64,7 @@ fun Application.configureApi(
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
     executionService: ExchangeExecutionService? = null,
+    strategyProfileService: StrategyProfileService? = null,
     runtimeMode: String? = null,
     onControlResult: suspend (ControlResult) -> Unit = {},
     onSmokeAlert: (suspend (String) -> SmokeAlertDeliveryResponse)? = null,
@@ -128,6 +131,7 @@ fun Application.configureApi(
         configureDashboardRoutes(stateStore, paperTradingReportStore, marketDataSyncService, executionService, runtimeMode)
         configureControlRoutes(controlService, onControlResult)
         configureMarketDataRoutes(marketDataSyncService)
+        strategyProfileService?.let(::configureStrategyProfileRoutes)
         configureOperationsSmokeRoutes(
             controlService = controlService,
             marketDataSyncService = marketDataSyncService,

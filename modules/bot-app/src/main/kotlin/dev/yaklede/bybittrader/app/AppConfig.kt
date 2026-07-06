@@ -17,6 +17,7 @@ data class AppConfig(
     val executionLoop: ExecutionLoopSettings,
     val execution: ExecutionSettings,
     val volumeFlowComposite: VolumeFlowCompositeSettings,
+    val strategyProfiles: StrategyProfileSettings,
 ) {
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): AppConfig {
@@ -67,6 +68,7 @@ data class AppConfig(
                 executionLoop = executionLoop,
                 execution = execution,
                 volumeFlowComposite = VolumeFlowCompositeSettings.fromEnvironment(environment),
+                strategyProfiles = StrategyProfileSettings.fromEnvironment(environment),
             )
         }
     }
@@ -128,6 +130,21 @@ data class VolumeFlowCompositeSettings(
         fun fromEnvironment(environment: Map<String, String>): VolumeFlowCompositeSettings =
             VolumeFlowCompositeSettings(
                 currentConfigPath = environment["BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH"] ?: "config/volume-flow-composite-current.json",
+            )
+    }
+}
+
+data class StrategyProfileSettings(
+    val statePath: String,
+) {
+    init {
+        require(statePath.isNotBlank()) { "Strategy profile state path must not be blank." }
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): StrategyProfileSettings =
+            StrategyProfileSettings(
+                statePath = environment["BOT_STRATEGY_PROFILE_STATE_PATH"] ?: "data/strategy-profile-current.txt",
             )
     }
 }

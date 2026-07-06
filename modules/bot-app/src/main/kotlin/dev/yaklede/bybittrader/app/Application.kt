@@ -12,6 +12,7 @@ import dev.yaklede.bybittrader.alerts.TelegramAlertSink
 import dev.yaklede.bybittrader.api.backtest.FileVolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.api.operations.SmokeAlertDeliveryResponse
+import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.ControlAction
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
@@ -110,6 +111,10 @@ fun main() {
     val volumeFlowAggressiveBacktestService = VolumeFlowAggressiveBacktestService(candleStore = ledger)
     val volumeFlowCompositeBacktestService = VolumeFlowCompositeBacktestService(candleStore = ledger)
     val volumeFlowSweepService = VolumeFlowSweepService(candleStore = ledger)
+    val strategyProfileService =
+        StrategyProfileService(
+            statePath = Path.of(config.strategyProfiles.statePath),
+        )
     val paperTradingService =
         PaperTradingService(
             stateStore = ledger,
@@ -281,6 +286,7 @@ fun main() {
                 paperTradingService = paperTradingService,
                 paperTradingReportStore = ledger,
                 executionService = executionService,
+                strategyProfileService = strategyProfileService,
                 runtimeMode = config.runtimeMode.name,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
                 onSmokeAlert = { message -> alertingService.sendSmokeAlert(message) },

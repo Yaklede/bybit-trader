@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeBacktestRequest
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeLegRequest
+import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Price
@@ -66,6 +67,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.math.BigDecimal
+import java.nio.file.Files
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -140,6 +142,73 @@ class ApiModuleTest :
 
                 stateStore.current().mode shouldBe BotMode.PAUSE_ALL
                 controlResults.single().newMode shouldBe BotMode.PAUSE_ALL
+            }
+        }
+
+        "authorized strategy profile request returns aggressive default" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        strategyProfileService =
+                            StrategyProfileService(
+                                Files
+                                    .createTempDirectory("strategy-profile-test")
+                                    .resolve("active-profile.txt"),
+                            ),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .get("/strategy/profiles") {
+                            bearerAuth("test-control-credential")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"activeProfileId":"volume-flow-aggressive""""
+                response.bodyAsText() shouldContain """"name":"공격형""""
+            }
+        }
+
+        "authorized strategy profile switch persists selected backtest profile" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val statePath =
+                    Files
+                        .createTempDirectory("strategy-profile-switch-test")
+                        .resolve("active-profile.txt")
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        strategyProfileService = StrategyProfileService(statePath),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/strategy/profiles/active") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"profileId":"volume-flow-composite-current"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"activeProfileId":"volume-flow-composite-current""""
+                response.bodyAsText() shouldContain """"runtimeProfileId":"volume-flow-aggressive""""
             }
         }
 

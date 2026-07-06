@@ -28,6 +28,7 @@ class AppConfigTest :
             config.execution.enabled shouldBe false
             config.executionLoop.enabled shouldBe false
             config.volumeFlowComposite.currentConfigPath shouldBe "config/volume-flow-composite-current.json"
+            config.strategyProfiles.statePath shouldBe "data/strategy-profile-current.txt"
         }
 
         "testnet mode requires private exchange credentials" {
@@ -152,9 +153,11 @@ class AppConfigTest :
                 AppConfig.fromEnvironment(
                     mapOf(
                         "BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH" to "/tmp/current-volume-flow.json",
+                        "BOT_STRATEGY_PROFILE_STATE_PATH" to "/tmp/strategy-profile.txt",
                     ),
                 )
 
             config.volumeFlowComposite.currentConfigPath shouldBe "/tmp/current-volume-flow.json"
+            config.strategyProfiles.statePath shouldBe "/tmp/strategy-profile.txt"
         }
     })
