@@ -1,0 +1,18 @@
+---
+description: Creative Generation 품질 게이트
+globs:
+  - "**/*"
+alwaysApply: false
+---
+
+Use Creative Generation Ultrawork for prompt-first image, logo, favicon, video, audio, and asset-analysis work.
+
+Before handoff, create run-scoped docs under `.opendock/runs/creative-gen/<run-id>/` from `.opendock/templates/creative-gen/`, update the run `brief.md` and `manifest.md`, and run:
+
+```bash
+node .opendock/harness/opendock__creative-gen-ultrawork/check.mjs
+```
+
+Draft and review the final generation prompt before creating assets. 사용자가 vector/source artwork를 명시적으로 요청하지 않았다면 image-like asset을 SVG/HTML/CSS placeholder로 직접 그리지 않습니다.
+
+SVG/source vector output이 명시적으로 요청된 경우 `Mode: vector`를 사용하고 `assets/generated/vectors/` 아래에 저장합니다. Manifest에는 vector request, structure, accessibility, palette, safety note를 기록합니다. 단순 primitive placeholder와 구조 없는 shape-plaster SVG는 피합니다.
