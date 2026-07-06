@@ -102,13 +102,21 @@ fun Application.configureApi(
             )
         }
         exception<ExchangeExecutionException> { call, cause ->
-            logger.warn("exchange execution provider unavailable path={} error={}", call.request.path(), cause::class.simpleName)
+            logger.warn(
+                "exchange execution provider unavailable path={} error={} providerCode={} providerMessage={}",
+                call.request.path(),
+                cause::class.simpleName,
+                cause.providerCode,
+                cause.providerMessage?.sanitizeProviderMessage(),
+            )
             call.respond(
                 status = HttpStatusCode.BadGateway,
                 message =
                     ErrorResponse(
                         code = "EXCHANGE_EXECUTION_UNAVAILABLE",
-                        message = "Private exchange execution provider is unavailable.",
+                        message = cause.safeOperatorMessage(),
+                        providerCode = cause.providerCode,
+                        providerMessage = cause.providerMessage?.sanitizeProviderMessage(),
                     ),
             )
         }
@@ -145,4 +153,21 @@ fun Application.configureApi(
 data class ErrorResponse(
     val code: String,
     val message: String,
+    val providerCode: String? = null,
+    val providerMessage: String? = null,
 )
+
+private fun ExchangeExecutionException.safeOperatorMessage(): String {
+    val providerCode = providerCode
+    val providerMessage = providerMessage?.sanitizeProviderMessage()
+    return when {
+        providerCode != null && providerMessage != null ->
+            "Private exchange execution failed. Provider code: $providerCode. Provider message: $providerMessage."
+        providerCode != null -> "Private exchange execution failed. Provider code: $providerCode."
+        else -> "Private exchange execution provider is unavailable."
+    }
+}
+
+private fun String.sanitizeProviderMessage(): String =
+    take(240)
+        .replace(Regex("(?i)(api[-_ ]?key|secret|signature|token|credential)"), "[redacted]")

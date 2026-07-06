@@ -58,6 +58,7 @@ class BybitPrivateClient(
                     side = request.side.toBybitSide(),
                     orderType = request.orderType.toBybitOrderType(),
                     qty = request.quantity.toPlainString(),
+                    timeInForce = request.orderType.toBybitTimeInForce(),
                     orderLinkId = request.clientOrderId,
                     reduceOnly = request.reduceOnly,
                     takeProfit = request.takeProfit?.toPlainString(),
@@ -190,7 +191,7 @@ class BybitPrivateClient(
         } catch (cause: CancellationException) {
             throw cause
         } catch (cause: Throwable) {
-            throw ExchangeExecutionException("Bybit private request failed.", cause)
+            throw ExchangeExecutionException("Bybit private request failed.", cause = cause)
         }
     }
 
@@ -209,7 +210,7 @@ class BybitPrivateClient(
         } catch (cause: CancellationException) {
             throw cause
         } catch (cause: Throwable) {
-            throw ExchangeExecutionException("Bybit private request failed.", cause)
+            throw ExchangeExecutionException("Bybit private request failed.", cause = cause)
         }
     }
 }
@@ -266,7 +267,11 @@ private fun bybitQueryString(vararg params: Pair<String, String?>): String =
 
 private fun BybitOrderResponse.requireSuccess(action: String) {
     if (retCode != 0) {
-        throw ExchangeExecutionException("Bybit $action failed with code $retCode.")
+        throw ExchangeExecutionException(
+            message = "Bybit $action failed with code $retCode.",
+            providerCode = retCode.toString(),
+            providerMessage = retMsg.takeIf { it.isNotBlank() },
+        )
     }
 }
 
@@ -280,6 +285,12 @@ private fun OrderType.toBybitOrderType(): String =
     when (this) {
         OrderType.MARKET -> "Market"
         OrderType.LIMIT -> "Limit"
+    }
+
+private fun OrderType.toBybitTimeInForce(): String =
+    when (this) {
+        OrderType.MARKET -> "IOC"
+        OrderType.LIMIT -> "GTC"
     }
 
 private fun String?.toSide(): Side? =
@@ -401,6 +412,7 @@ private data class BybitPlaceOrderBody(
     val side: String,
     val orderType: String,
     val qty: String,
+    val timeInForce: String,
     val orderLinkId: String,
     val reduceOnly: Boolean,
     val takeProfit: String? = null,

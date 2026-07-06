@@ -36,10 +36,10 @@ class BybitPrivateClientTest :
                     request.headers["X-BAPI-API-KEY"] shouldBe "test-api-key"
                     request.headers["X-BAPI-TIMESTAMP"] shouldBe "1719705600000"
                     request.headers["X-BAPI-RECV-WINDOW"] shouldBe "5000"
-                    request.headers["X-BAPI-SIGN"] shouldBe "a702a2f87c82150b8c54125416014b1b77a2221b3b9b1cd8bf250cc8e803a2f1"
+                    request.headers["X-BAPI-SIGN"] shouldBe "9ec8bac2dfd05cf354a9cab25b25ff8939576f0b9e423047f49f3bfd7f1260f6"
                     request.bodyAsText() shouldBe
                         """
-                        {"category":"linear","symbol":"BTCUSDT","side":"Buy","orderType":"Market","qty":"0.123","orderLinkId":"bt-BTCUSDT-1719748800000-1-B","reduceOnly":false,"takeProfit":"72000","stopLoss":"68000","tpslMode":"Full","positionIdx":0}
+                        {"category":"linear","symbol":"BTCUSDT","side":"Buy","orderType":"Market","qty":"0.123","timeInForce":"IOC","orderLinkId":"bt-BTCUSDT-1719748800000-1-B","reduceOnly":false,"takeProfit":"72000","stopLoss":"68000","tpslMode":"Full","positionIdx":0}
                         """.trimIndent()
 
                     respond(
@@ -284,6 +284,8 @@ class BybitPrivateClientTest :
                     client.openOrders(Symbol("BTCUSDT"))
                 }
             error.message shouldContain "Bybit list open orders failed with code 10001"
+            error.providerCode shouldBe "10001"
+            error.providerMessage shouldBe "secret raw provider detail"
         }
     })
 

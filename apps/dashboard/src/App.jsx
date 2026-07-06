@@ -378,13 +378,25 @@ function App() {
                     icon={PauseCircle}
                     variant="secondary"
                     onClick={() =>
-                      runSmokeAction("정지 후 재가동", "/ops/smoke/control-cycle", {
-                        reason: "대시보드 TESTNET 기능 테스트",
+                      runSmokeAction("정지 테스트", "/ops/smoke/control-pause", {
+                        reason: "대시보드 TESTNET 정지 테스트",
                       })
                     }
                     disabled={isLoading}
                   >
-                    정지/재가동
+                    정지 테스트
+                  </Button>
+                  <Button
+                    icon={PlayCircle}
+                    variant="secondary"
+                    onClick={() =>
+                      runSmokeAction("재가동 테스트", "/ops/smoke/control-resume", {
+                        reason: "대시보드 TESTNET 재가동 테스트",
+                      })
+                    }
+                    disabled={isLoading}
+                  >
+                    재가동 테스트
                   </Button>
                   <Button
                     icon={Zap}
@@ -781,6 +793,34 @@ function buildSmokeSummary(responseBody) {
           label: "2단계 재가동",
           value: resumeRequested ? `요청 완료 · ${formatBotMode(responseBody.resumeMode)}` : formatBotMode(responseBody.resumeMode),
           tone: resumeRequested ? "positive" : "neutral",
+        },
+      ],
+    };
+  }
+  if (responseBody.action || responseBody.newMode) {
+    const isPause = responseBody.action === "PAUSE_ALL";
+    const isResume = responseBody.action === "RESUME";
+    return {
+      title: isPause ? "정지 요청이 처리됐어요." : isResume ? "재가동 요청이 처리됐어요." : "상태 변경 결과예요.",
+      items: [
+        { label: "이전 상태", value: formatBotMode(responseBody.previousMode), tone: "neutral" },
+        {
+          label: "현재 상태",
+          value: formatBotMode(responseBody.newMode),
+          tone: isPause || isResume ? "positive" : "neutral",
+        },
+      ],
+    };
+  }
+  if (responseBody.code) {
+    return {
+      title: "요청이 처리되지 않았어요.",
+      items: [
+        { label: "오류 코드", value: `${responseBody.providerCode || responseBody.code} · 서버 로그 확인`, tone: "negative" },
+        {
+          label: "확인 항목",
+          value: responseBody.providerMessage || responseBody.message || "서버 로그 확인",
+          tone: "negative",
         },
       ],
     };

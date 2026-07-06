@@ -125,6 +125,44 @@ fun Route.configureOperationsSmokeRoutes(
                 )
             }
 
+            post("/control-pause") {
+                val request = call.receive<SmokeControlRequest>().validated("TESTNET smoke pause.")
+                logger.warn("smoke control-pause requested")
+                val startedAt = System.nanoTime()
+                val result = controlService.pauseAll(actor = SMOKE_ACTOR, reason = request.reason)
+                notifyControlResult(result, onControlResult, logger)
+                val elapsed = elapsedMillis(startedAt)
+                logger.warn("smoke control-pause completed mode={}", result.newMode.name)
+                call.respond(
+                    SmokeControlActionResponse(
+                        step = SmokeStepResponse.passed("control-pause", elapsed),
+                        action = result.action.name,
+                        previousMode = result.previousMode.name,
+                        newMode = result.newMode.name,
+                        changedAt = result.changedAt.toString(),
+                    ),
+                )
+            }
+
+            post("/control-resume") {
+                val request = call.receive<SmokeControlRequest>().validated("TESTNET smoke resume.")
+                logger.warn("smoke control-resume requested")
+                val startedAt = System.nanoTime()
+                val result = controlService.resume(actor = SMOKE_ACTOR, reason = request.reason)
+                notifyControlResult(result, onControlResult, logger)
+                val elapsed = elapsedMillis(startedAt)
+                logger.warn("smoke control-resume completed mode={}", result.newMode.name)
+                call.respond(
+                    SmokeControlActionResponse(
+                        step = SmokeStepResponse.passed("control-resume", elapsed),
+                        action = result.action.name,
+                        previousMode = result.previousMode.name,
+                        newMode = result.newMode.name,
+                        changedAt = result.changedAt.toString(),
+                    ),
+                )
+            }
+
             post("/testnet-market-order") {
                 val request = call.receive<SmokeMarketOrderRequest>().validated(runtimeMode)
                 val service =
@@ -292,6 +330,25 @@ data class SmokeControlCycleResponse(
     val step: SmokeStepResponse,
     val pauseMode: String,
     val resumeMode: String,
+)
+
+@Serializable
+data class SmokeControlRequest(
+    val reason: String? = null,
+) {
+    fun validated(defaultReason: String): SmokeControlRequest {
+        require(reason == null || reason.length <= 240) { "Reason must be 240 characters or shorter." }
+        return copy(reason = reason?.trim()?.takeIf { it.isNotEmpty() } ?: defaultReason)
+    }
+}
+
+@Serializable
+data class SmokeControlActionResponse(
+    val step: SmokeStepResponse,
+    val action: String,
+    val previousMode: String,
+    val newMode: String,
+    val changedAt: String,
 )
 
 @Serializable

@@ -880,6 +880,46 @@ class ApiModuleTest :
             }
         }
 
+        "operations smoke control actions can be verified separately" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        runtimeMode = "TESTNET",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val pause =
+                    client
+                        .post("/ops/smoke/control-pause") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"reason":"pause smoke"}""")
+                        }
+                pause.status shouldBe HttpStatusCode.OK
+                pause.bodyAsText() shouldContain """"newMode":"PAUSE_ALL""""
+                stateStore.current().mode shouldBe BotMode.PAUSE_ALL
+
+                val resume =
+                    client
+                        .post("/ops/smoke/control-resume") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"reason":"resume smoke"}""")
+                        }
+                resume.status shouldBe HttpStatusCode.OK
+                resume.bodyAsText() shouldContain """"newMode":"RESUME_PENDING_CHECK""""
+                stateStore.current().mode shouldBe BotMode.RESUME_PENDING_CHECK
+            }
+        }
+
         "operations smoke testnet market order requires acknowledgement and submits order" {
             testApplication {
                 val stateStore = InMemoryStateStore()
@@ -974,7 +1014,10 @@ class ApiModuleTest :
                         }
 
                 response.status shouldBe HttpStatusCode.BadGateway
-                response.bodyAsText() shouldContain "EXCHANGE_EXECUTION_UNAVAILABLE"
+                val body = response.bodyAsText()
+                body shouldContain "EXCHANGE_EXECUTION_UNAVAILABLE"
+                body shouldContain """"providerCode":"10001""""
+                body shouldContain "[redacted] invalid"
             }
         }
     })
@@ -1197,19 +1240,24 @@ private class RecordingExecutionGateway(
 }
 
 private class FailingExecutionGateway : ExchangeExecutionGateway {
-    override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult =
-        throw ExchangeExecutionException("raw exchange detail")
+    override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult = throw providerFailure()
 
-    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
-        throw ExchangeExecutionException("raw exchange detail")
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult = throw providerFailure()
 
-    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = throw ExchangeExecutionException("raw exchange detail")
+    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = throw providerFailure()
 
-    override suspend fun positions(symbol: Symbol): List<ExchangePosition> = throw ExchangeExecutionException("raw exchange detail")
+    override suspend fun positions(symbol: Symbol): List<ExchangePosition> = throw providerFailure()
 
-    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = throw ExchangeExecutionException("raw exchange detail")
+    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = throw providerFailure()
 
-    override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = throw ExchangeExecutionException("raw exchange detail")
+    override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = throw providerFailure()
+
+    private fun providerFailure(): ExchangeExecutionException =
+        ExchangeExecutionException(
+            message = "raw exchange detail",
+            providerCode = "10001",
+            providerMessage = "api secret invalid",
+        )
 }
 
 private class NoTradeApiStrategy : TradingStrategy {

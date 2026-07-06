@@ -193,5 +193,7 @@ interface ExchangeExecutionGateway {
 
 class ExchangeExecutionException(
     message: String,
+    val providerCode: String? = null,
+    val providerMessage: String? = null,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
