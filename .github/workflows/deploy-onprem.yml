@@ -25,12 +25,83 @@ jobs:
 
       - name: Build runtime env file
         env:
-          BOT_RUNTIME_ENV: ${{ secrets.BOT_RUNTIME_ENV }}
+          BOT_MODE: ${{ vars.BOT_MODE || 'LIVE' }}
+          BOT_API_HOST: ${{ vars.BOT_API_HOST || '0.0.0.0' }}
+          BOT_API_PORT: ${{ vars.BOT_API_PORT || '8080' }}
+          "BOT_CONTROL_TOKEN": ${{ secrets.BOT_CONTROL_TOKEN }}
+          BOT_DATABASE_PATH: ${{ vars.BOT_DATABASE_PATH || '/data/bybit-trader.sqlite' }}
+          BOT_SYMBOL: ${{ vars.BOT_SYMBOL || 'BTCUSDT' }}
+          BOT_TIMEFRAMES: ${{ vars.BOT_TIMEFRAMES || 'M1,M5,M15' }}
+          BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH: ${{ vars.BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH || '/opt/bybit-trader/config/volume-flow-composite-current.json' }}
+          "BYBIT_API_KEY": ${{ secrets.BYBIT_API_KEY }}
+          "BYBIT_API_SECRET": ${{ secrets.BYBIT_API_SECRET }}
+          BYBIT_PRIVATE_BASE_URL: ${{ vars.BYBIT_PRIVATE_BASE_URL || 'https://api.bybit.com' }}
+          BYBIT_RECV_WINDOW_MILLIS: ${{ vars.BYBIT_RECV_WINDOW_MILLIS || '5000' }}
+          BYBIT_POSITION_IDX: ${{ vars.BYBIT_POSITION_IDX || '0' }}
+          BOT_PRIVATE_EXECUTION_ENABLED: ${{ vars.BOT_PRIVATE_EXECUTION_ENABLED || 'true' }}
+          BOT_EXECUTION_LOOP_ENABLED: ${{ vars.BOT_EXECUTION_LOOP_ENABLED || 'false' }}
+          BOT_EXECUTION_TIMEFRAME: ${{ vars.BOT_EXECUTION_TIMEFRAME || 'M5' }}
+          BOT_EXECUTION_CANDLE_LIMIT: ${{ vars.BOT_EXECUTION_CANDLE_LIMIT || '18000' }}
+          BOT_EXECUTION_SYNC_LIMIT: ${{ vars.BOT_EXECUTION_SYNC_LIMIT || '1000' }}
+          BOT_EXECUTION_INTERVAL_SECONDS: ${{ vars.BOT_EXECUTION_INTERVAL_SECONDS || '300' }}
+          BOT_EXECUTION_ACCOUNT_EQUITY: ${{ vars.BOT_EXECUTION_ACCOUNT_EQUITY || '1000000' }}
+          BOT_EXECUTION_RISK_FRACTION: ${{ vars.BOT_EXECUTION_RISK_FRACTION || '0.055' }}
+          BOT_EXECUTION_FEE_RATE: ${{ vars.BOT_EXECUTION_FEE_RATE || '0.0006' }}
+          BOT_EXECUTION_QTY_STEP: ${{ vars.BOT_EXECUTION_QTY_STEP || '0.001' }}
+          BOT_EXECUTION_MIN_QTY: ${{ vars.BOT_EXECUTION_MIN_QTY || '0.001' }}
+          BOT_EXECUTION_MAX_QTY: ${{ vars.BOT_EXECUTION_MAX_QTY }}
+          BOT_EXECUTION_MAX_NOTIONAL: ${{ vars.BOT_EXECUTION_MAX_NOTIONAL || '100000' }}
+          TELEGRAM_ALERTS_ENABLED: ${{ vars.TELEGRAM_ALERTS_ENABLED || 'false' }}
+          "TELEGRAM_BOT_TOKEN": ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
+          DISCORD_ALERTS_ENABLED: ${{ vars.DISCORD_ALERTS_ENABLED || 'false' }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          test -n "$BOT_RUNTIME_ENV"
           mkdir -p deploy-package/env
-          printf '%s\n' "$BOT_RUNTIME_ENV" > deploy-package/env/bybit-trader.env
-          chmod 600 deploy-package/env/bybit-trader.env
+          node <<'NODE'
+          const fs = require("node:fs");
+          const required = ["BOT_CONTROL_TOKEN", "BYBIT_API_KEY", "BYBIT_API_SECRET"];
+          const missing = required.filter((key) => !String(process.env[key] || "").trim());
+          if (missing.length > 0) {
+            console.error(`Missing required runtime environment values: ${missing.join(", ")}`);
+            process.exit(1);
+          }
+          const keys = [
+            "BOT_MODE",
+            "BOT_API_HOST",
+            "BOT_API_PORT",
+            "BOT_CONTROL_TOKEN",
+            "BOT_DATABASE_PATH",
+            "BOT_SYMBOL",
+            "BOT_TIMEFRAMES",
+            "BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH",
+            "BYBIT_API_KEY",
+            "BYBIT_API_SECRET",
+            "BYBIT_PRIVATE_BASE_URL",
+            "BYBIT_RECV_WINDOW_MILLIS",
+            "BYBIT_POSITION_IDX",
+            "BOT_PRIVATE_EXECUTION_ENABLED",
+            "BOT_EXECUTION_LOOP_ENABLED",
+            "BOT_EXECUTION_TIMEFRAME",
+            "BOT_EXECUTION_CANDLE_LIMIT",
+            "BOT_EXECUTION_SYNC_LIMIT",
+            "BOT_EXECUTION_INTERVAL_SECONDS",
+            "BOT_EXECUTION_ACCOUNT_EQUITY",
+            "BOT_EXECUTION_RISK_FRACTION",
+            "BOT_EXECUTION_FEE_RATE",
+            "BOT_EXECUTION_QTY_STEP",
+            "BOT_EXECUTION_MIN_QTY",
+            "BOT_EXECUTION_MAX_QTY",
+            "BOT_EXECUTION_MAX_NOTIONAL",
+            "TELEGRAM_ALERTS_ENABLED",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_CHAT_ID",
+            "DISCORD_ALERTS_ENABLED",
+            "DISCORD_WEBHOOK_URL",
+          ];
+          const lines = keys.map((key) => `${key}=${process.env[key] || ""}`);
+          fs.writeFileSync("deploy-package/env/bybit-trader.env", `${lines.join("\n")}\n`, { mode: 0o600 });
+          NODE
 
       - name: Connect to Twingate
         uses: twingate/github-action@v1

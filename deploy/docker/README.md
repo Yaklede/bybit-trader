@@ -25,9 +25,10 @@ cp config/volume-flow-composite-current.json /opt/bybit-trader/config/
 cp deploy/docker/env/bybit-trader.env.example /opt/bybit-trader/env/bybit-trader.env
 ```
 
-For GitHub Actions deployment, keep the real runtime env locally at
-the ignored root `.env`, sync it into the `BOT_RUNTIME_ENV` Environment secret,
-and let the workflow upload it to the host. Do not commit the real file.
+For GitHub Actions deployment, use `.env.example` as the local reference and
+configure matching values in the `onprem-live` GitHub Environment secrets and
+variables. The workflow generates the host runtime env file. Do not commit the
+real local `.env` file.
 
 ## Local Build And Run
 
@@ -56,8 +57,8 @@ package with `appleboy/scp-action@v1`, and restarts the container with
 
 Required GitHub Environment secrets are documented in
 `docs/backend/on-prem-github-actions-deploy.md`. Keep Bybit keys, alert tokens,
-and `BOT_CONTROL_TOKEN` only in the ignored local `.env` file and the
-GitHub Environment secret, not in the repository.
+and `BOT_CONTROL_TOKEN` only in the ignored local `.env` file or GitHub
+Environment secrets, not in the repository.
 
 ## Live Startup Sequence
 
