@@ -16,14 +16,36 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker images
+        shell: bash
         run: |
-          docker build --tag "bybit-trader:${GITHUB_SHA}" .
-          docker build --file apps/dashboard/Dockerfile --tag "bybit-trader-dashboard:${GITHUB_SHA}" apps/dashboard
+          set -eu
+          APP_VERSION="$(sed -nE 's/^[[:space:]]*version = "([^"]+)".*/\1/p' build.gradle.kts | head -n 1)"
+          if [ -z "${APP_VERSION}" ]; then
+            APP_VERSION="0.0.0"
+          fi
+          SAFE_VERSION="$(printf '%s' "${APP_VERSION}" | tr -c 'A-Za-z0-9._-' '-' | sed -E 's/^-+//; s/-+$//')"
+          SHORT_SHA="${GITHUB_SHA::12}"
+          IMAGE_TAG="${SAFE_VERSION}-${SHORT_SHA}"
+          BOT_IMAGE_TAR="bybit-trader-v${SAFE_VERSION}-${SHORT_SHA}.tar.gz"
+          DASHBOARD_IMAGE_TAR="bybit-trader-dashboard-v${SAFE_VERSION}-${SHORT_SHA}.tar.gz"
+
+          docker build --tag "bybit-trader:${IMAGE_TAG}" .
+          docker build --file apps/dashboard/Dockerfile --tag "bybit-trader-dashboard:${IMAGE_TAG}" apps/dashboard
           mkdir -p deploy-package/config deploy-package/images
-          docker save "bybit-trader:${GITHUB_SHA}" | gzip > "deploy-package/images/bybit-trader-${GITHUB_SHA}.tar.gz"
-          docker save "bybit-trader-dashboard:${GITHUB_SHA}" | gzip > "deploy-package/images/bybit-trader-dashboard-${GITHUB_SHA}.tar.gz"
+          docker save "bybit-trader:${IMAGE_TAG}" | gzip > "deploy-package/images/${BOT_IMAGE_TAR}"
+          docker save "bybit-trader-dashboard:${IMAGE_TAG}" | gzip > "deploy-package/images/${DASHBOARD_IMAGE_TAR}"
           cp compose.yaml deploy-package/compose.yaml
           cp config/volume-flow-composite-current.json deploy-package/config/volume-flow-composite-current.json
+          cat > deploy-package/release.env <<EOF
+          APP_VERSION=${SAFE_VERSION}
+          GIT_SHA=${GITHUB_SHA}
+          SHORT_SHA=${SHORT_SHA}
+          IMAGE_TAG=${IMAGE_TAG}
+          BOT_IMAGE=bybit-trader:${IMAGE_TAG}
+          DASHBOARD_IMAGE=bybit-trader-dashboard:${IMAGE_TAG}
+          BOT_IMAGE_TAR=${BOT_IMAGE_TAR}
+          DASHBOARD_IMAGE_TAR=${DASHBOARD_IMAGE_TAR}
+          EOF
 
       - name: Build runtime env file
         env:
@@ -159,11 +181,22 @@ jobs:
           script: |
             set -eu
             cd '${{ secrets.ONPREM_DEPLOY_DIR }}'
-            docker load -i 'images/bybit-trader-${{ github.sha }}.tar.gz'
-            docker load -i 'images/bybit-trader-dashboard-${{ github.sha }}.tar.gz'
+            . ./release.env
+            docker load -i "images/${BOT_IMAGE_TAR}"
+            docker load -i "images/${DASHBOARD_IMAGE_TAR}"
+            prune_image_archives() {
+              name_pattern="$1"
+              find images -maxdepth 1 -type f -name "${name_pattern}" -exec ls -1t {} + 2>/dev/null \
+                | tail -n +4 \
+                | while IFS= read -r archive; do
+                    rm -f "${archive}"
+                  done
+            }
+            prune_image_archives "bybit-trader-v*.tar.gz"
+            prune_image_archives "bybit-trader-dashboard-v*.tar.gz"
             printf '%s\n' \
-              'BOT_IMAGE=bybit-trader:${{ github.sha }}' \
-              'DASHBOARD_IMAGE=bybit-trader-dashboard:${{ github.sha }}' \
+              "BOT_IMAGE=${BOT_IMAGE}" \
+              "DASHBOARD_IMAGE=${DASHBOARD_IMAGE}" \
               'DASHBOARD_BIND_HOST=${{ secrets.ONPREM_DOCKER_BIND_HOST }}' \
               'DASHBOARD_PORT=${{ vars.DASHBOARD_PORT || '8080' }}' \
               'BOT_ENV_FILE=${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env' > .env
