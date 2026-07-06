@@ -3,6 +3,9 @@
 # Local secrets and runtime configuration
 .env
 .env.*
+!.env.example
+deploy/docker/env/*.env
+!deploy/docker/env/*.env.example
 *.local
 config/application.local.conf
 config/application.prod.conf

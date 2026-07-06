@@ -23,6 +23,15 @@ jobs:
           cp compose.yaml deploy-package/compose.yaml
           cp config/volume-flow-composite-current.json deploy-package/config/volume-flow-composite-current.json
 
+      - name: Build runtime env file
+        env:
+          BOT_RUNTIME_ENV: ${{ secrets.BOT_RUNTIME_ENV }}
+        run: |
+          test -n "$BOT_RUNTIME_ENV"
+          mkdir -p deploy-package/env
+          printf '%s\n' "$BOT_RUNTIME_ENV" > deploy-package/env/bybit-trader.env
+          chmod 600 deploy-package/env/bybit-trader.env
+
       - name: Connect to Twingate
         uses: twingate/github-action@v1
         with:

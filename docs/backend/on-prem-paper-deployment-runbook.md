@@ -34,7 +34,9 @@ BOT_ENV_FILE=/opt/bybit-trader/env/bybit-trader.env
 ```
 
 `/opt/bybit-trader/env/bybit-trader.env` contains application secrets and bot
-runtime settings. It must never be committed.
+runtime settings. For GitHub Actions deployment, this file is generated from
+the `BOT_RUNTIME_ENV` Environment secret, which should be synced from the
+ignored local root `.env` file before deployment. It must never be committed.
 
 ## Required Application Environment
 

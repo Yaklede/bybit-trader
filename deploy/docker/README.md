@@ -17,7 +17,7 @@ sudo mkdir -p /opt/bybit-trader/{config,env}
 sudo chown -R "$USER":"$USER" /opt/bybit-trader
 ```
 
-Copy these files to the host:
+For manual host setup, copy these files to the host:
 
 ```bash
 cp compose.yaml /opt/bybit-trader/compose.yaml
@@ -25,8 +25,9 @@ cp config/volume-flow-composite-current.json /opt/bybit-trader/config/
 cp deploy/docker/env/bybit-trader.env.example /opt/bybit-trader/env/bybit-trader.env
 ```
 
-Edit `/opt/bybit-trader/env/bybit-trader.env` on the host. Do not commit the
-real file.
+For GitHub Actions deployment, keep the real runtime env locally at
+the ignored root `.env`, sync it into the `BOT_RUNTIME_ENV` Environment secret,
+and let the workflow upload it to the host. Do not commit the real file.
 
 ## Local Build And Run
 
@@ -55,8 +56,8 @@ package with `appleboy/scp-action@v1`, and restarts the container with
 
 Required GitHub Environment secrets are documented in
 `docs/backend/on-prem-github-actions-deploy.md`. Keep Bybit keys, alert tokens,
-and `BOT_CONTROL_TOKEN` only in `/opt/bybit-trader/env/bybit-trader.env` on the
-host.
+and `BOT_CONTROL_TOKEN` only in the ignored local `.env` file and the
+GitHub Environment secret, not in the repository.
 
 ## Live Startup Sequence
 
