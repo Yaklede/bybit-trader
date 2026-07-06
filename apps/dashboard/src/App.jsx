@@ -359,7 +359,7 @@ function App() {
                     variant="secondary"
                     onClick={() =>
                       runSmokeAction("Discord 웹훅", "/ops/smoke/discord", {
-                        message: `Bybit Trader TESTNET smoke alert: ${symbol}`,
+                        message: `Bybit Trader 테스트넷 알림 테스트예요. 대상 심볼: ${symbol}`,
                       })
                     }
                     disabled={isLoading}

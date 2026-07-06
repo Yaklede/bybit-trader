@@ -19,7 +19,7 @@ class DiscordWebhookAlertSink(
                     contentType(ContentType.Application.Json)
                     setBody(
                         DiscordWebhookRequest(
-                            content = "[${message.severity}] ${message.title}\n${message.body}",
+                            content = "[${message.severity.toKoreanLabel()}] ${message.title}\n${message.body}",
                         ),
                     )
                 }
@@ -41,3 +41,10 @@ class DiscordWebhookAlertSink(
 private data class DiscordWebhookRequest(
     val content: String,
 )
+
+private fun AlertSeverity.toKoreanLabel(): String =
+    when (this) {
+        AlertSeverity.INFO -> "안내"
+        AlertSeverity.WARNING -> "주의"
+        AlertSeverity.CRITICAL -> "긴급"
+    }

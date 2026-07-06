@@ -126,7 +126,7 @@ fun Route.configureOperationsSmokeRoutes(
             }
 
             post("/control-pause") {
-                val request = call.receive<SmokeControlRequest>().validated("TESTNET smoke pause.")
+                val request = call.receive<SmokeControlRequest>().validated("테스트넷 정지 기능을 확인했어요.")
                 logger.warn("smoke control-pause requested")
                 val startedAt = System.nanoTime()
                 val result = controlService.pauseAll(actor = SMOKE_ACTOR, reason = request.reason)
@@ -145,7 +145,7 @@ fun Route.configureOperationsSmokeRoutes(
             }
 
             post("/control-resume") {
-                val request = call.receive<SmokeControlRequest>().validated("TESTNET smoke resume.")
+                val request = call.receive<SmokeControlRequest>().validated("테스트넷 재가동 기능을 확인했어요.")
                 logger.warn("smoke control-resume requested")
                 val startedAt = System.nanoTime()
                 val result = controlService.resume(actor = SMOKE_ACTOR, reason = request.reason)
@@ -321,7 +321,7 @@ data class SmokeControlCycleRequest(
 ) {
     fun validated(): SmokeControlCycleRequest {
         require(reason == null || reason.length <= 240) { "Reason must be 240 characters or shorter." }
-        return copy(reason = reason?.trim()?.takeIf { it.isNotEmpty() } ?: "TESTNET smoke control cycle.")
+        return copy(reason = reason?.trim()?.takeIf { it.isNotEmpty() } ?: "테스트넷 정지와 재가동 기능을 확인했어요.")
     }
 }
 
@@ -416,5 +416,5 @@ private fun normalizeCoin(coin: String): String {
 private val COIN_PATTERN = Regex("^[A-Z0-9]{2,20}$")
 private const val TESTNET_MODE = "TESTNET"
 private const val TESTNET_MARKET_ORDER_ACK = "TESTNET_MARKET_ORDER"
-private const val DEFAULT_SMOKE_ALERT_MESSAGE = "Bybit Trader TESTNET smoke alert."
+private const val DEFAULT_SMOKE_ALERT_MESSAGE = "Bybit Trader 테스트넷 알림 테스트예요."
 private const val SMOKE_ACTOR = "smoke-test"

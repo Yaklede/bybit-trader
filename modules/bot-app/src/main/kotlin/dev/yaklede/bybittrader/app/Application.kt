@@ -12,6 +12,8 @@ import dev.yaklede.bybittrader.alerts.TelegramAlertSink
 import dev.yaklede.bybittrader.api.backtest.FileVolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.api.operations.SmokeAlertDeliveryResponse
+import dev.yaklede.bybittrader.domain.BotMode
+import dev.yaklede.bybittrader.domain.ControlAction
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
@@ -212,8 +214,8 @@ fun main() {
         alertingService.send(
             AlertMessage(
                 severity = AlertSeverity.INFO,
-                title = "startup",
-                body = "Bybit Trader started in ${config.runtimeMode} mode.",
+                title = "봇 시작",
+                body = "Bybit Trader가 ${config.runtimeMode.toKoreanLabel()} 모드로 시작됐어요.",
             ),
         )
     }
@@ -224,8 +226,8 @@ fun main() {
                 alertingService.send(
                     AlertMessage(
                         severity = AlertSeverity.INFO,
-                        title = "shutdown",
-                        body = "Bybit Trader is shutting down.",
+                        title = "봇 종료",
+                        body = "Bybit Trader가 종료되고 있어요.",
                     ),
                 )
             }
@@ -336,10 +338,10 @@ private suspend fun AlertingService.sendControlResult(result: ControlResult) {
                     -> AlertSeverity.WARNING
                     else -> AlertSeverity.INFO
                 },
-            title = "control-${result.action.name.lowercase()}",
+            title = result.action.toKoreanTitle(),
             body =
-                "${result.action.name} changed bot mode " +
-                    "${result.previousMode.name} -> ${result.newMode.name} at ${result.changedAt}.",
+                "봇 상태가 ${result.previousMode.toKoreanLabel()}에서 ${result.newMode.toKoreanLabel()}로 바뀌었어요. " +
+                    "변경 시각: ${result.changedAt}",
         ),
     )
 }
@@ -349,7 +351,7 @@ private suspend fun AlertingService.sendSmokeAlert(message: String): SmokeAlertD
         send(
             AlertMessage(
                 severity = AlertSeverity.INFO,
-                title = "smoke-test",
+                title = "기능 테스트 알림",
                 body = message,
             ),
         )
@@ -366,10 +368,10 @@ private suspend fun AlertingService.sendPaperLoopResult(result: PaperEvaluationR
             send(
                 AlertMessage(
                     severity = AlertSeverity.INFO,
-                    title = "paper-fill",
+                    title = "모의 주문 기록",
                     body =
-                        "${result.symbol.value} ${result.timeframe.name} ${result.status.name} " +
-                            "signal=${result.signalId} order=${result.orderId} fee=${result.fee?.toPlainString()}",
+                        "${result.symbol.value} ${result.timeframe.name} 모의 주문을 체결로 기록했어요. " +
+                            "신호 ID: ${result.signalId}, 주문 ID: ${result.orderId}, 수수료: ${result.fee?.toPlainString()}",
                 ),
             )
 
@@ -377,9 +379,9 @@ private suspend fun AlertingService.sendPaperLoopResult(result: PaperEvaluationR
             send(
                 AlertMessage(
                     severity = AlertSeverity.WARNING,
-                    title = "paper-signal-rejected",
+                    title = "모의 주문 보류",
                     body =
-                        "${result.symbol.value} ${result.timeframe.name} rejected: " +
+                        "${result.symbol.value} ${result.timeframe.name} 신호가 주문 조건을 통과하지 못했어요. 사유 코드: " +
                             result.reasonCodes.joinToString(","),
                 ),
             )
@@ -394,8 +396,8 @@ private suspend fun AlertingService.sendPaperLoopFailure(error: Throwable) {
     send(
         AlertMessage(
             severity = AlertSeverity.WARNING,
-            title = "paper-loop-error",
-            body = "Paper loop failed with ${error::class.simpleName ?: "unknown error"}.",
+            title = "모의 거래 점검 필요",
+            body = "모의 거래 루프에서 오류가 발생했어요. 로그에서 ${error::class.simpleName ?: "알 수 없는 오류"} 내용을 확인해 주세요.",
         ),
     )
 }
@@ -406,11 +408,11 @@ private suspend fun AlertingService.sendExecutionLoopResult(result: ExchangeEval
             send(
                 AlertMessage(
                     severity = AlertSeverity.INFO,
-                    title = "execution-submitted",
+                    title = "실거래 주문 제출",
                     body =
-                        "${result.symbol.value} ${result.timeframe.name} ${result.status.name} " +
-                            "signal=${result.signalId} order=${result.orderId} exchangeOrder=${result.exchangeOrderId} " +
-                            "qty=${result.quantity?.toPlainString()}",
+                        "${result.symbol.value} ${result.timeframe.name} 실거래 주문을 제출했어요. " +
+                            "수량: ${result.quantity?.toPlainString()}, 거래소 주문 ID: ${result.exchangeOrderId}, " +
+                            "내부 주문 ID: ${result.orderId}",
                 ),
             )
 
@@ -418,9 +420,9 @@ private suspend fun AlertingService.sendExecutionLoopResult(result: ExchangeEval
             send(
                 AlertMessage(
                     severity = AlertSeverity.WARNING,
-                    title = "execution-signal-rejected",
+                    title = "실주문 보류",
                     body =
-                        "${result.symbol.value} ${result.timeframe.name} rejected: " +
+                        "${result.symbol.value} ${result.timeframe.name} 신호가 주문 조건을 통과하지 못했어요. 사유 코드: " +
                             result.reasonCodes.joinToString(","),
                 ),
             )
@@ -436,8 +438,32 @@ private suspend fun AlertingService.sendExecutionLoopFailure(error: Throwable) {
     send(
         AlertMessage(
             severity = AlertSeverity.WARNING,
-            title = "execution-loop-error",
-            body = "Execution loop failed with ${error::class.simpleName ?: "unknown error"}.",
+            title = "실거래 점검 필요",
+            body = "실거래 루프에서 오류가 발생했어요. 로그에서 ${error::class.simpleName ?: "알 수 없는 오류"} 내용을 확인해 주세요.",
         ),
     )
 }
+
+private fun RuntimeMode.toKoreanLabel(): String =
+    when (this) {
+        RuntimeMode.PAPER -> "모의거래"
+        RuntimeMode.TESTNET -> "테스트넷"
+        RuntimeMode.LIVE -> "실거래"
+    }
+
+private fun ControlAction.toKoreanTitle(): String =
+    when (this) {
+        ControlAction.PAUSE_NEW_ENTRIES -> "신규 진입 정지"
+        ControlAction.PAUSE_ALL -> "봇 정지"
+        ControlAction.RESUME -> "봇 재가동"
+        ControlAction.EMERGENCY_STOP -> "긴급 정지"
+    }
+
+private fun BotMode.toKoreanLabel(): String =
+    when (this) {
+        BotMode.RUNNING -> "운영 중"
+        BotMode.PAUSE_NEW_ENTRIES -> "신규 진입 정지"
+        BotMode.PAUSE_ALL -> "전체 정지"
+        BotMode.EMERGENCY_STOP -> "긴급 정지"
+        BotMode.RESUME_PENDING_CHECK -> "재가동 확인 중"
+    }
