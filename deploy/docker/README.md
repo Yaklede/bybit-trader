@@ -5,7 +5,9 @@ This is the preferred on-prem deployment path.
 ## Files
 
 - `Dockerfile`: multi-stage JVM image build.
-- `compose.yaml`: runtime service, SQLite volume, config mount, healthcheck.
+- `apps/dashboard/Dockerfile`: React dashboard build and Nginx runtime image.
+- `apps/dashboard/nginx.conf`: dashboard static serving and `/api` reverse proxy.
+- `compose.yaml`: backend service, dashboard service, SQLite volume, config mount, healthchecks.
 - `deploy/docker/env/bybit-trader.env.example`: host-side environment template.
 
 ## Host Setup
@@ -34,6 +36,7 @@ real local `.env` file.
 
 ```bash
 docker build -t bybit-trader:local .
+docker build -f apps/dashboard/Dockerfile -t bybit-trader-dashboard:local apps/dashboard
 docker compose --env-file /opt/bybit-trader/.env -f /opt/bybit-trader/compose.yaml up -d
 ```
 
@@ -41,19 +44,22 @@ The compose `.env` file is only for deployment variables:
 
 ```bash
 BOT_IMAGE=bybit-trader:local
-BOT_BIND_HOST=127.0.0.1
-BOT_API_PORT=8080
+DASHBOARD_IMAGE=bybit-trader-dashboard:local
+DASHBOARD_BIND_HOST=127.0.0.1
+DASHBOARD_PORT=8080
 BOT_ENV_FILE=/opt/bybit-trader/env/bybit-trader.env
 ```
 
-The application secrets stay in `BOT_ENV_FILE`.
+The backend API is not published directly by compose. The dashboard publishes
+`DASHBOARD_BIND_HOST:DASHBOARD_PORT` and proxies `/api/*` to the backend service
+inside the Docker network. The application secrets stay in `BOT_ENV_FILE`.
 
 ## GitHub Actions Deployment
 
-The on-prem GitHub Actions workflow builds the Docker image in CI, saves it as
-an image tarball, connects to the private host through Twingate, uploads the
-package with `appleboy/scp-action@v1`, and restarts the container with
-`appleboy/ssh-action@v1`.
+The on-prem GitHub Actions workflow builds the backend and dashboard Docker
+images in CI, saves both as image tarballs, connects to the private host through
+Twingate, uploads the package with `appleboy/scp-action@v1`, and restarts the
+containers with `appleboy/ssh-action@v1`.
 
 Required GitHub Environment secrets are documented in
 `docs/backend/on-prem-github-actions-deploy.md`. Keep Bybit keys, alert tokens,

@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - ${BOT_ENV_FILE:-./deploy/docker/env/bybit-trader.env}
-    ports:
-      - "${BOT_BIND_HOST:-127.0.0.1}:${BOT_API_PORT:-8080}:8080"
+    expose:
+      - "8080"
     volumes:
       - bybit_trader_data:/data
       - ./config:/opt/bybit-trader/config:ro
@@ -20,7 +20,30 @@ services:
       - no-new-privileges:true
     read_only: true
     tmpfs:
+      - /tmp:exec,mode=1777
+
+  bybit-trader-dashboard:
+    image: ${DASHBOARD_IMAGE:-bybit-trader-dashboard:local}
+    container_name: ${DASHBOARD_CONTAINER_NAME:-bybit-trader-dashboard}
+    restart: unless-stopped
+    depends_on:
+      bybit-trader:
+        condition: service_healthy
+    ports:
+      - "${DASHBOARD_BIND_HOST:-127.0.0.1}:${DASHBOARD_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
       - /tmp
+      - /var/cache/nginx
+      - /var/run
 
 volumes:
   bybit_trader_data:

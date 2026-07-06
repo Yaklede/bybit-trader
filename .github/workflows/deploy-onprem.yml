@@ -15,11 +15,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Docker image
+      - name: Build Docker images
         run: |
           docker build --tag "bybit-trader:${GITHUB_SHA}" .
+          docker build --file apps/dashboard/Dockerfile --tag "bybit-trader-dashboard:${GITHUB_SHA}" apps/dashboard
           mkdir -p deploy-package/config deploy-package/images
           docker save "bybit-trader:${GITHUB_SHA}" | gzip > "deploy-package/images/bybit-trader-${GITHUB_SHA}.tar.gz"
+          docker save "bybit-trader-dashboard:${GITHUB_SHA}" | gzip > "deploy-package/images/bybit-trader-dashboard-${GITHUB_SHA}.tar.gz"
           cp compose.yaml deploy-package/compose.yaml
           cp config/volume-flow-composite-current.json deploy-package/config/volume-flow-composite-current.json
 
@@ -144,7 +146,7 @@ jobs:
           target: ${{ secrets.ONPREM_DEPLOY_DIR }}
           strip_components: 1
 
-      - name: Load image and restart compose service
+      - name: Load images and restart compose services
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.ONPREM_SSH_HOST }}
@@ -158,20 +160,23 @@ jobs:
             set -eu
             cd '${{ secrets.ONPREM_DEPLOY_DIR }}'
             docker load -i 'images/bybit-trader-${{ github.sha }}.tar.gz'
+            docker load -i 'images/bybit-trader-dashboard-${{ github.sha }}.tar.gz'
             printf '%s\n' \
               'BOT_IMAGE=bybit-trader:${{ github.sha }}' \
-              'BOT_BIND_HOST=${{ secrets.ONPREM_DOCKER_BIND_HOST }}' \
-              'BOT_API_PORT=8080' \
+              'DASHBOARD_IMAGE=bybit-trader-dashboard:${{ github.sha }}' \
+              'DASHBOARD_BIND_HOST=${{ secrets.ONPREM_DOCKER_BIND_HOST }}' \
+              'DASHBOARD_PORT=${{ vars.DASHBOARD_PORT || '8080' }}' \
               'BOT_ENV_FILE=${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env' > .env
             test -f '${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env'
             docker compose --env-file .env -f compose.yaml up -d --remove-orphans
             docker compose --env-file .env -f compose.yaml ps
             . ./.env
             for i in $(seq 1 30); do
-              if curl -fsS "http://${BOT_BIND_HOST}:${BOT_API_PORT}/health"; then
+              if curl -fsS "http://${DASHBOARD_BIND_HOST}:${DASHBOARD_PORT}/" >/dev/null \
+                && curl -fsS "http://${DASHBOARD_BIND_HOST}:${DASHBOARD_PORT}/api/health" >/dev/null; then
                 exit 0
               fi
               sleep 2
             done
-            docker compose --env-file .env -f compose.yaml logs --tail=120 bybit-trader
+            docker compose --env-file .env -f compose.yaml logs --tail=120 bybit-trader bybit-trader-dashboard
             exit 1
