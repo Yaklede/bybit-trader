@@ -145,7 +145,7 @@ fun Application.configureApi(
         }
         volumeFlowSweepService?.let(::configureVolumeFlowSweepRoutes)
         paperTradingService?.let(::configurePaperTradingRoutes)
-        executionService?.let(::configureExecutionRoutes)
+        executionService?.let { service -> configureExecutionRoutes(service, runtimeMode) }
     }
 }
 

@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.api.execution
 
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
@@ -8,6 +9,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
+import dev.yaklede.bybittrader.engine.execution.ExchangeManualOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationReport
@@ -17,8 +19,12 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
+import java.math.BigDecimal
 
-fun Route.configureExecutionRoutes(executionService: ExchangeExecutionService) {
+fun Route.configureExecutionRoutes(
+    executionService: ExchangeExecutionService,
+    runtimeMode: String?,
+) {
     authenticate("control") {
         post("/execution/evaluate-and-submit") {
             val request = call.receive<ExecutionEvaluationRequest>().validated()
@@ -27,6 +33,28 @@ fun Route.configureExecutionRoutes(executionService: ExchangeExecutionService) {
                     symbol = Symbol(request.symbol),
                     timeframe = Timeframe.valueOf(request.timeframe),
                     candleLimit = request.candleLimit,
+                )
+            call.respond(result.toResponse())
+        }
+
+        post("/execution/manual/market-order") {
+            val request = call.receive<ExecutionManualMarketOrderRequest>().validated(runtimeMode)
+            val result =
+                executionService.submitManualMarketOrder(
+                    symbol = Symbol(request.symbol),
+                    side = Side.valueOf(request.side),
+                    quantity = request.quantity,
+                )
+            call.respond(result.toResponse())
+        }
+
+        post("/execution/manual/close-position") {
+            val request = call.receive<ExecutionManualClosePositionRequest>().validated(runtimeMode)
+            val result =
+                executionService.submitReduceOnlyCloseOrder(
+                    symbol = Symbol(request.symbol),
+                    positionSide = Side.valueOf(request.positionSide),
+                    quantity = request.quantity,
                 )
             call.respond(result.toResponse())
         }
@@ -68,6 +96,56 @@ data class ExecutionEvaluationRequest(
         return copy(symbol = normalizedSymbol, timeframe = normalizedTimeframe)
     }
 }
+
+@Serializable
+data class ExecutionManualMarketOrderRequest(
+    val symbol: String,
+    val side: String,
+    val quantity: String,
+    val acknowledgement: String,
+) {
+    fun validated(runtimeMode: String?): ExecutionManualMarketOrderRequestValues {
+        requireManualAcknowledgement(runtimeMode, acknowledgement, action = "MARKET_ORDER")
+        val normalizedSide = side.trim().uppercase()
+        Side.valueOf(normalizedSide)
+        return ExecutionManualMarketOrderRequestValues(
+            symbol = normalizeSymbol(symbol),
+            side = normalizedSide,
+            quantity = parsePositiveQuantity(quantity),
+        )
+    }
+}
+
+data class ExecutionManualMarketOrderRequestValues(
+    val symbol: String,
+    val side: String,
+    val quantity: BigDecimal,
+)
+
+@Serializable
+data class ExecutionManualClosePositionRequest(
+    val symbol: String,
+    val positionSide: String,
+    val quantity: String,
+    val acknowledgement: String,
+) {
+    fun validated(runtimeMode: String?): ExecutionManualClosePositionRequestValues {
+        requireManualAcknowledgement(runtimeMode, acknowledgement, action = "CLOSE_POSITION")
+        val normalizedPositionSide = positionSide.trim().uppercase()
+        Side.valueOf(normalizedPositionSide)
+        return ExecutionManualClosePositionRequestValues(
+            symbol = normalizeSymbol(symbol),
+            positionSide = normalizedPositionSide,
+            quantity = parsePositiveQuantity(quantity),
+        )
+    }
+}
+
+data class ExecutionManualClosePositionRequestValues(
+    val symbol: String,
+    val positionSide: String,
+    val quantity: BigDecimal,
+)
 
 @Serializable
 data class ExecutionReconcileRequest(
@@ -172,6 +250,24 @@ data class ExecutionCancelResponse(
     val clientOrderId: String?,
 )
 
+@Serializable
+data class ExecutionManualOrderResponse(
+    val order: ExecutionManualOrderDetailResponse,
+)
+
+@Serializable
+data class ExecutionManualOrderDetailResponse(
+    val symbol: String,
+    val side: String,
+    val quantity: String,
+    val reduceOnly: Boolean,
+    val exchangeOrderId: String?,
+    val clientOrderId: String,
+    val orderId: Long,
+    val status: String,
+    val submittedAt: String,
+)
+
 private fun ExchangeEvaluationResult.toResponse(): ExecutionEvaluationResponse =
     ExecutionEvaluationResponse(
         symbol = symbol.value,
@@ -241,3 +337,46 @@ private fun ExchangeCancelResult.toResponse(): ExecutionCancelResponse =
         exchangeOrderId = exchangeOrderId,
         clientOrderId = clientOrderId,
     )
+
+private fun ExchangeManualOrderResult.toResponse(): ExecutionManualOrderResponse =
+    ExecutionManualOrderResponse(
+        order =
+            ExecutionManualOrderDetailResponse(
+                symbol = symbol.value,
+                side = side.name,
+                quantity = quantity.toPlainString(),
+                reduceOnly = reduceOnly,
+                exchangeOrderId = exchangeOrderId,
+                clientOrderId = clientOrderId,
+                orderId = orderId,
+                status = status,
+                submittedAt = submittedAt.toString(),
+            ),
+    )
+
+private fun normalizeSymbol(symbol: String): String {
+    val normalizedSymbol = symbol.trim().uppercase()
+    Symbol(normalizedSymbol)
+    return normalizedSymbol
+}
+
+private fun parsePositiveQuantity(quantity: String): BigDecimal {
+    val parsedQuantity = quantity.toBigDecimalOrNull() ?: throw IllegalArgumentException("수량은 숫자로 입력해 주세요.")
+    require(parsedQuantity > BigDecimal.ZERO) { "수량은 0보다 커야 해요." }
+    return parsedQuantity.stripTrailingZeros()
+}
+
+private fun requireManualAcknowledgement(
+    runtimeMode: String?,
+    acknowledgement: String,
+    action: String,
+) {
+    val normalizedMode = runtimeMode?.trim()?.uppercase()
+    require(normalizedMode == "TESTNET" || normalizedMode == "LIVE") {
+        "수동 거래 테스트는 테스트넷 또는 실거래 모드에서만 사용할 수 있어요."
+    }
+    val expectedAcknowledgement = "${normalizedMode}_$action"
+    require(acknowledgement == expectedAcknowledgement) {
+        "확인 문구는 $expectedAcknowledgement 이어야 해요."
+    }
+}

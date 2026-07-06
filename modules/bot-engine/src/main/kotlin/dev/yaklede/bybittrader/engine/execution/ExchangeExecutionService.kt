@@ -390,6 +390,130 @@ class ExchangeExecutionService(
         )
     }
 
+    suspend fun submitManualMarketOrder(
+        symbol: Symbol,
+        side: Side,
+        quantity: BigDecimal,
+    ): ExchangeManualOrderResult =
+        submitManualOrder(
+            symbol = symbol,
+            side = side,
+            quantity = quantity,
+            reduceOnly = false,
+            strategyName = "manual-market-order",
+            reasonCode = "MANUAL_MARKET_ORDER",
+            clientOrderPrefix = "manual",
+        )
+
+    suspend fun submitReduceOnlyCloseOrder(
+        symbol: Symbol,
+        positionSide: Side,
+        quantity: BigDecimal,
+    ): ExchangeManualOrderResult =
+        submitManualOrder(
+            symbol = symbol,
+            side = positionSide.opposite(),
+            quantity = quantity,
+            reduceOnly = true,
+            strategyName = "manual-close-position",
+            reasonCode = "MANUAL_CLOSE_POSITION",
+            clientOrderPrefix = "close",
+        )
+
+    private suspend fun submitManualOrder(
+        symbol: Symbol,
+        side: Side,
+        quantity: BigDecimal,
+        reduceOnly: Boolean,
+        strategyName: String,
+        reasonCode: String,
+        clientOrderPrefix: String,
+    ): ExchangeManualOrderResult {
+        require(config.enabled) { "Private execution must be enabled for manual order." }
+        require(quantity >= config.minQuantity) {
+            "Manual order quantity must be greater than or equal to ${config.minQuantity.toPlainString()}."
+        }
+        config.maxQuantity?.let { maxQuantity ->
+            require(quantity <= maxQuantity) {
+                "Manual order quantity must be less than or equal to ${maxQuantity.toPlainString()}."
+            }
+        }
+        val normalizedQuantity = quantity.floorToStep(config.quantityStep)
+        require(normalizedQuantity == quantity.stripTrailingZeros()) {
+            "Manual order quantity must align with quantity step ${config.quantityStep.toPlainString()}."
+        }
+
+        val now = Instant.now(clock)
+        val clientOrderId = manualClientOrderId(prefix = clientOrderPrefix, symbol = symbol, side = side, now = now)
+        val signalId =
+            tradingStore.recordSignal(
+                PaperSignalRecord(
+                    strategy = strategyName,
+                    symbol = symbol,
+                    side = side,
+                    score = 0,
+                    grade = "MANUAL",
+                    reasonCodes = listOf(reasonCode),
+                    accepted = true,
+                    rejectionReason = null,
+                    createdAt = now,
+                ),
+            )
+        logger.warn(
+            "execution manual market order requested symbol={} side={} qty={} reduceOnly={}",
+            symbol.value,
+            side.name,
+            quantity.toPlainString(),
+            reduceOnly,
+        )
+        val orderResult =
+            gateway.placeOrder(
+                ExchangeOrderRequest(
+                    symbol = symbol,
+                    side = side,
+                    orderType = OrderType.MARKET,
+                    quantity = quantity,
+                    clientOrderId = clientOrderId,
+                    takeProfit = null,
+                    stopLoss = null,
+                    reduceOnly = reduceOnly,
+                ),
+            )
+        val orderId =
+            tradingStore.recordOrder(
+                PaperOrderRecord(
+                    exchangeOrderId = orderResult.exchangeOrderId,
+                    clientOrderId = clientOrderId,
+                    signalId = signalId,
+                    side = side,
+                    orderType = OrderType.MARKET,
+                    orderStatus = orderResult.status,
+                    intendedRisk = BigDecimal.ZERO,
+                    createdAt = now,
+                ),
+            )
+        logger.warn(
+            "execution manual market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={} reduceOnly={}",
+            symbol.value,
+            side.name,
+            signalId,
+            orderId,
+            orderResult.exchangeOrderId,
+            reduceOnly,
+        )
+        return ExchangeManualOrderResult(
+            symbol = symbol,
+            side = side,
+            quantity = quantity,
+            reduceOnly = reduceOnly,
+            exchangeOrderId = orderResult.exchangeOrderId,
+            clientOrderId = clientOrderId,
+            orderId = orderId,
+            status = orderResult.status.name,
+            submittedAt = now,
+        )
+    }
+
     private suspend fun SignalIntent.isDuplicate(): Boolean {
         val signalKey = score.reasonCodes.firstOrNull { it.startsWith(SIGNAL_KEY_PREFIX) } ?: return false
         return tradingStore
@@ -453,6 +577,12 @@ private data class Sizing(
 
 private fun BotMode.blocksNewEntries(): Boolean = this != BotMode.RUNNING
 
+private fun Side.opposite(): Side =
+    when (this) {
+        Side.BUY -> Side.SELL
+        Side.SELL -> Side.BUY
+    }
+
 private fun SignalIntent.toRecord(
     accepted: Boolean,
     rejectionReason: String?,
@@ -507,6 +637,20 @@ private fun smokeClientOrderId(
             Side.SELL -> "S"
         }
     return "smoke-${symbol.value}-${now.toEpochMilli()}-$sideCode".take(36)
+}
+
+private fun manualClientOrderId(
+    prefix: String,
+    symbol: Symbol,
+    side: Side,
+    now: Instant,
+): String {
+    val sideCode =
+        when (side) {
+            Side.BUY -> "B"
+            Side.SELL -> "S"
+        }
+    return "$prefix-${symbol.value}-${now.toEpochMilli()}-$sideCode".take(36)
 }
 
 private const val SIGNAL_KEY_PREFIX = "ENTRY_AT_"

@@ -173,6 +173,64 @@ function App() {
   const executions = reconciliation?.executions || [];
   const signals = summary.recentSignals || [];
   const dataState = problemMessage ? "error" : hasLoaded ? "ready" : "idle";
+  const manualExchangeEnabled = isManualRuntime(summary.runtimeMode) && summary.executionAvailable;
+
+  const runManualMarketOrder = useCallback(
+    () =>
+      runSmokeAction(
+        "수동 시장가 주문",
+        "/execution/manual/market-order",
+        {
+          symbol,
+          side: smokeSide,
+          quantity: smokeQuantity,
+          acknowledgement: manualAcknowledgement(summary.runtimeMode, "MARKET_ORDER"),
+        },
+        {
+          confirmMessage:
+            `${formatRuntime(summary.runtimeMode)} 계정에 ${symbol} ${formatSide(smokeSide)} ` +
+            `${smokeQuantity} 시장가 주문을 전송합니다. 계속할까요?`,
+        },
+      ),
+    [runSmokeAction, smokeQuantity, smokeSide, summary.runtimeMode, symbol],
+  );
+
+  const runCancelOrder = useCallback(
+    (order) =>
+      runSmokeAction(
+        "주문 취소",
+        "/execution/orders/cancel",
+        {
+          symbol: order.symbol,
+          exchangeOrderId: order.exchangeOrderId,
+          clientOrderId: order.clientOrderId,
+        },
+        {
+          confirmMessage: `${order.symbol} 미체결 주문 ${shortId(order.exchangeOrderId || order.clientOrderId)} 취소 요청을 보낼까요?`,
+        },
+      ),
+    [runSmokeAction],
+  );
+
+  const runClosePosition = useCallback(
+    (position) =>
+      runSmokeAction(
+        "포지션 청산",
+        "/execution/manual/close-position",
+        {
+          symbol: position.symbol,
+          positionSide: position.side,
+          quantity: position.size,
+          acknowledgement: manualAcknowledgement(summary.runtimeMode, "CLOSE_POSITION"),
+        },
+        {
+          confirmMessage:
+            `${formatRuntime(summary.runtimeMode)} 계정에서 ${position.symbol} ${formatSide(position.side)} 포지션 ` +
+            `${position.size}을 포지션 감소 전용 시장가로 청산합니다. 계속할까요?`,
+        },
+      ),
+    [runSmokeAction, summary.runtimeMode],
+  );
 
   return (
     <div className="app-shell" data-focus-visible="css">
@@ -304,13 +362,20 @@ function App() {
                 <Button
                   icon={Send}
                   variant="secondary"
-                  onClick={() =>
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        "전략을 평가한 뒤 조건이 맞으면 실제 주문이 제출될 수 있어요. 수동 연결 테스트가 아니라 전략 주문입니다. 계속할까요?",
+                      )
+                    ) {
+                      return;
+                    }
                     runAction("평가 후 주문", "/execution/evaluate-and-submit", {
                       symbol,
                       timeframe: "M5",
                       candleLimit: 18000,
-                    })
-                  }
+                    });
+                  }}
                   disabled={isLoading}
                 >
                   평가 후 주문
@@ -335,7 +400,7 @@ function App() {
               <section className="smoke-panel" aria-label="실운영 전 기능 테스트">
                 <div className="smoke-heading">
                   <h3>기능 테스트</h3>
-                  <p>테스트넷에서 알림, 조회, 제어, 주문 경로를 확인해요.</p>
+                  <p>현재 실행 모드에서 알림, 조회, 제어, 수동 주문 경로를 확인해요.</p>
                 </div>
                 <div className="smoke-controls">
                   <Field label="주문 방향">
@@ -344,9 +409,9 @@ function App() {
                       <option value="SELL">숏</option>
                     </select>
                   </Field>
-                  <Field label="TESTNET 수량">
+                  <Field label="수동 주문 수량">
                     <input
-                      aria-label="TESTNET 수량"
+                      aria-label="수동 주문 수량"
                       value={smokeQuantity}
                       inputMode="decimal"
                       onChange={(event) => setSmokeQuantity(event.target.value)}
@@ -401,24 +466,10 @@ function App() {
                   <Button
                     icon={Zap}
                     variant="secondary"
-                    onClick={() =>
-                      runSmokeAction(
-                        "TESTNET 시장가 주문",
-                        "/ops/smoke/testnet-market-order",
-                        {
-                          symbol,
-                          side: smokeSide,
-                          quantity: smokeQuantity,
-                          acknowledgement: "TESTNET_MARKET_ORDER",
-                        },
-                        {
-                          confirmMessage: "TESTNET 거래소에 실제 시장가 주문을 전송합니다. 계속할까요?",
-                        },
-                      )
-                    }
-                    disabled={isLoading || summary.runtimeMode !== "TESTNET"}
+                    onClick={runManualMarketOrder}
+                    disabled={isLoading || !manualExchangeEnabled}
                   >
-                    시장가 주문
+                    수동 시장가 주문
                   </Button>
                 </div>
                 <SmokeResult result={smokeResult} />
@@ -429,7 +480,7 @@ function App() {
           <section className="panel positions-board">
             <PanelHeader title="포지션" description="현재 열린 포지션과 미실현 손익이에요." />
             <DataTable
-              columns={["심볼", "방향", "수량", "진입가", "현재가", "미실현 손익"]}
+              columns={["심볼", "방향", "수량", "진입가", "현재가", "미실현 손익", "작업"]}
               isLoading={isLoading}
               emptyTitle={emptyTitle(dataState)}
               emptyMessage={emptyMessage(dataState, "열린 포지션이 없어요.", "새로고침하면 열린 포지션이 여기에 표시돼요.")}
@@ -444,6 +495,17 @@ function App() {
                   <td>{formatMoney(position.entryPrice)}</td>
                   <td>{formatMoney(position.markPrice)}</td>
                   <td className={numberClass(position.unrealizedPnl)}>{formatMoney(position.unrealizedPnl)}</td>
+                  <td className="table-action-cell">
+                    <Button
+                      icon={CircleStop}
+                      variant="secondary"
+                      className="table-action danger-action"
+                      onClick={() => runClosePosition(position)}
+                      disabled={isLoading || !manualExchangeEnabled || !isPositiveNumber(position.size)}
+                    >
+                      청산
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </DataTable>
@@ -452,7 +514,7 @@ function App() {
           <section className="panel orders-board">
             <PanelHeader title="미체결 주문" description="거래소에 남아 있는 주문이에요." />
             <DataTable
-              columns={["주문 ID", "방향", "유형", "상태", "수량", "생성 시각"]}
+              columns={["주문 ID", "방향", "유형", "상태", "수량", "생성 시각", "작업"]}
               isLoading={isLoading}
               emptyTitle={emptyTitle(dataState)}
               emptyMessage={emptyMessage(dataState, "미체결 주문이 없어요.", "새로고침하면 미체결 주문이 여기에 표시돼요.")}
@@ -467,6 +529,17 @@ function App() {
                   <td>{formatOrderStatus(order.status)}</td>
                   <td>{formatNumber(order.quantity)}</td>
                   <td>{formatDateTime(order.createdAt)}</td>
+                  <td className="table-action-cell">
+                    <Button
+                      icon={CircleStop}
+                      variant="secondary"
+                      className="table-action danger-action"
+                      onClick={() => runCancelOrder(order)}
+                      disabled={isLoading || !summary.executionAvailable}
+                    >
+                      취소
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </DataTable>
@@ -509,9 +582,9 @@ function App() {
   );
 }
 
-function Button({ children, icon: Icon, variant = "primary", ...props }) {
+function Button({ children, icon: Icon, variant = "primary", className = "", ...props }) {
   return (
-    <button className={`button ${variant}`} type="button" {...props}>
+    <button className={`button ${variant} ${className}`.trim()} type="button" {...props}>
       {Icon ? <Icon size={17} aria-hidden="true" /> : false}
       <span>{children}</span>
     </button>
@@ -854,11 +927,20 @@ function buildSmokeSummary(responseBody) {
   }
   if (responseBody.order) {
     return {
-      title: "TESTNET 시장가 주문 요청이 처리됐어요.",
+      title: responseBody.order.reduceOnly ? "포지션 청산 주문 요청이 처리됐어요." : "시장가 주문 요청이 처리됐어요.",
       items: [
-        { label: "방향", value: responseBody.order.side === "BUY" ? "롱" : "숏", tone: "neutral" },
+        { label: "방향", value: formatSide(responseBody.order.side), tone: "neutral" },
         { label: "수량", value: responseBody.order.quantity, tone: "neutral" },
         { label: "상태", value: formatOrderStatus(responseBody.order.status), tone: "positive" },
+      ],
+    };
+  }
+  if (responseBody.exchangeOrderId || responseBody.clientOrderId) {
+    return {
+      title: "주문 취소 요청이 처리됐어요.",
+      items: [
+        { label: "거래소 주문 ID", value: shortId(responseBody.exchangeOrderId), tone: "neutral" },
+        { label: "클라이언트 주문 ID", value: shortId(responseBody.clientOrderId), tone: "neutral" },
       ],
     };
   }
@@ -944,6 +1026,18 @@ function formatRuntime(value) {
   return "확인 필요";
 }
 
+function isManualRuntime(value) {
+  return value === "TESTNET" || value === "LIVE";
+}
+
+function manualAcknowledgement(runtimeMode, action) {
+  return isManualRuntime(runtimeMode) ? `${runtimeMode}_${action}` : "";
+}
+
+function formatSide(side) {
+  return side === "BUY" ? "롱" : side === "SELL" ? "숏" : side || "확인 필요";
+}
+
 function formatBotMode(value) {
   const map = {
     RUNNING: "가동 중",
@@ -985,6 +1079,11 @@ function shortId(value) {
   if (!value) return "-";
   if (value.length <= 14) return value;
   return `${value.slice(0, 6)}...${value.slice(-5)}`;
+}
+
+function isPositiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0;
 }
 
 function numberTone(value) {

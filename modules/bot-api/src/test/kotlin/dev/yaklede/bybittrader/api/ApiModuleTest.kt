@@ -715,6 +715,147 @@ class ApiModuleTest :
             }
         }
 
+        "manual market order requires runtime acknowledgement and submits order" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val paperStore = InMemoryPaperTradingStore()
+                val gateway = RecordingExecutionGateway()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = paperStore,
+                                strategy = NoTradeApiStrategy(),
+                                gateway = gateway,
+                                config = ExchangeExecutionConfig(enabled = true),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                            ),
+                        runtimeMode = "LIVE",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val rejected =
+                    client
+                        .post("/execution/manual/market-order") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT","side":"SELL","quantity":"0.001","acknowledgement":"TESTNET_MARKET_ORDER"}""")
+                        }
+                rejected.status shouldBe HttpStatusCode.BadRequest
+
+                val accepted =
+                    client
+                        .post("/execution/manual/market-order") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT","side":"SELL","quantity":"0.001","acknowledgement":"LIVE_MARKET_ORDER"}""")
+                        }
+
+                accepted.status shouldBe HttpStatusCode.OK
+                accepted.bodyAsText() shouldContain """"reduceOnly":false"""
+                gateway.placedOrders.size shouldBe 1
+                gateway.placedOrders.single().side shouldBe Side.SELL
+                gateway.placedOrders.single().reduceOnly shouldBe false
+                paperStore.orders.single().clientOrderId shouldContain "manual-BTCUSDT"
+            }
+        }
+
+        "manual close position sends reduce only opposite side order" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val paperStore = InMemoryPaperTradingStore()
+                val gateway = RecordingExecutionGateway()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = paperStore,
+                                strategy = NoTradeApiStrategy(),
+                                gateway = gateway,
+                                config = ExchangeExecutionConfig(enabled = true),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                            ),
+                        runtimeMode = "TESTNET",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/execution/manual/close-position") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody(
+                                """{"symbol":"BTCUSDT","positionSide":"BUY","quantity":"0.002","acknowledgement":"TESTNET_CLOSE_POSITION"}""",
+                            )
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"reduceOnly":true"""
+                gateway.placedOrders.size shouldBe 1
+                gateway.placedOrders.single().side shouldBe Side.SELL
+                gateway.placedOrders.single().reduceOnly shouldBe true
+                paperStore.orders.single().clientOrderId shouldContain "close-BTCUSDT"
+            }
+        }
+
+        "execution cancel endpoint cancels an open order by id" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val gateway = RecordingExecutionGateway()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = InMemoryPaperTradingStore(),
+                                strategy = NoTradeApiStrategy(),
+                                gateway = gateway,
+                                config = ExchangeExecutionConfig(enabled = true),
+                            ),
+                        runtimeMode = "LIVE",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/execution/orders/cancel") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"symbol":"BTCUSDT","exchangeOrderId":"exchange-7"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"exchangeOrderId":"exchange-7""""
+                gateway.cancelledOrders.single().exchangeOrderId shouldBe "exchange-7"
+            }
+        }
+
         "authorized dashboard summary returns bot state account and reconciliation snapshot" {
             testApplication {
                 val stateStore = InMemoryStateStore()
@@ -1214,6 +1355,7 @@ private class RecordingExecutionGateway(
         ),
 ) : ExchangeExecutionGateway {
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
+    val cancelledOrders = mutableListOf<ExchangeCancelRequest>()
 
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
         placedOrders += request
@@ -1224,11 +1366,13 @@ private class RecordingExecutionGateway(
         )
     }
 
-    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
-        ExchangeCancelResult(
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult {
+        cancelledOrders += request
+        return ExchangeCancelResult(
             exchangeOrderId = request.exchangeOrderId,
             clientOrderId = request.clientOrderId,
         )
+    }
 
     override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = openOrders
 

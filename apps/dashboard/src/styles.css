@@ -329,6 +329,16 @@ a:focus-visible {
   background: var(--surface-muted);
 }
 
+.button.danger-action {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--surface-raised);
+}
+
+.button.danger-action:hover {
+  background: var(--danger-bg);
+}
+
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.56;
@@ -738,6 +748,17 @@ th {
 
 td {
   color: var(--text);
+}
+
+.table-action-cell {
+  width: 1%;
+  text-align: right;
+}
+
+.button.table-action {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
 }
 
 tbody tr:last-child td {
