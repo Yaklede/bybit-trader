@@ -46,6 +46,18 @@ BOT_ENV_FILE=/opt/bybit-trader/env/bybit-trader.env
 
 The application secrets stay in `BOT_ENV_FILE`.
 
+## GitHub Actions Deployment
+
+The on-prem GitHub Actions workflow builds the Docker image in CI, saves it as
+an image tarball, connects to the private host through Twingate, uploads the
+package with `appleboy/scp-action@v1`, and restarts the container with
+`appleboy/ssh-action@v1`.
+
+Required GitHub Environment secrets are documented in
+`docs/backend/on-prem-github-actions-deploy.md`. Keep Bybit keys, alert tokens,
+and `BOT_CONTROL_TOKEN` only in `/opt/bybit-trader/env/bybit-trader.env` on the
+host.
+
 ## Live Startup Sequence
 
 1. Start with `BOT_EXECUTION_LOOP_ENABLED=false`.
