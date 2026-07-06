@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.engine.control
 
+import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.BotModeTransitionPolicy
 import dev.yaklede.bybittrader.domain.ControlAction
 import java.time.Clock
@@ -25,6 +26,36 @@ class BotControlService(
         actor: String,
         reason: String?,
     ): ControlResult = handle(ControlAction.RESUME, actor, reason)
+
+    suspend fun completeResumeCheck(
+        actor: String,
+        reason: String?,
+    ): ControlResult? {
+        require(actor.isNotBlank()) { "Actor must not be blank." }
+        val current = stateStore.current()
+        if (current.mode != BotMode.RESUME_PENDING_CHECK) {
+            return null
+        }
+        val now = Instant.now(clock)
+        val nextStatus = current.copy(mode = BotMode.RUNNING, updatedAt = now)
+        stateStore.update(nextStatus)
+        eventRecorder.record(
+            ControlEvent(
+                action = ControlAction.RESUME,
+                actor = actor,
+                previousMode = current.mode,
+                newMode = nextStatus.mode,
+                reason = reason?.takeIf { it.isNotBlank() },
+                createdAt = now,
+            ),
+        )
+        return ControlResult(
+            action = ControlAction.RESUME,
+            previousMode = current.mode,
+            newMode = nextStatus.mode,
+            changedAt = now,
+        )
+    }
 
     suspend fun emergencyStop(
         actor: String,

@@ -16,9 +16,9 @@ class BotModeTransitionPolicyTest :
             policy.nextMode(BotMode.RUNNING, ControlAction.PAUSE_ALL) shouldBe BotMode.PAUSE_ALL
         }
 
-        "resume returns to running state" {
+        "resume waits for readiness check" {
             policy.nextMode(BotMode.PAUSE_ALL, ControlAction.RESUME) shouldBe
-                BotMode.RUNNING
+                BotMode.RESUME_PENDING_CHECK
         }
 
         "emergency stop dominates pause commands" {

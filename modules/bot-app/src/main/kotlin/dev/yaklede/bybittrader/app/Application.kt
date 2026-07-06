@@ -22,6 +22,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
 import dev.yaklede.bybittrader.engine.control.BotControlService
+import dev.yaklede.bybittrader.engine.control.BotResumeReadinessService
 import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationStatus
@@ -209,6 +210,26 @@ fun main() {
             logger.info("execution loop disabled")
             null
         }
+    val resumeReadinessScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val resumeReadinessJob =
+        BotResumeReadinessService(
+            stateStore = ledger,
+            controlService = controlService,
+            readinessProbe = {
+                require(config.runtimeMode != RuntimeMode.PAPER || !config.paperLoop.enabled || paperLoopJob?.isActive == true) {
+                    "Paper trading loop is not active."
+                }
+                require(!config.executionLoop.enabled || executionLoopJob?.isActive == true) {
+                    "Execution trading loop is not active."
+                }
+                marketDataSyncService.ticker(config.marketData.symbol)
+                executionService?.accountBalance(DEFAULT_ACCOUNT_COIN)
+                executionService?.reconcile(config.marketData.symbol)
+            },
+        ).start(
+            scope = resumeReadinessScope,
+            onConfirmed = { result -> alertingService.sendControlResult(result) },
+        )
 
     runBlocking {
         alertingService.send(
@@ -233,8 +254,10 @@ fun main() {
             }
             paperLoopJob?.cancel()
             executionLoopJob?.cancel()
+            resumeReadinessJob.cancel()
             paperLoopScope.cancel()
             executionLoopScope.cancel()
+            resumeReadinessScope.cancel()
             httpClient.close()
         },
     )
@@ -465,5 +488,7 @@ private fun BotMode.toKoreanLabel(): String =
         BotMode.PAUSE_NEW_ENTRIES -> "신규 진입 정지"
         BotMode.PAUSE_ALL -> "전체 정지"
         BotMode.EMERGENCY_STOP -> "긴급 정지"
-        BotMode.RESUME_PENDING_CHECK -> "운영 중"
+        BotMode.RESUME_PENDING_CHECK -> "재가동 확인 중"
     }
+
+private const val DEFAULT_ACCOUNT_COIN = "USDT"

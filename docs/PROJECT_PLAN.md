@@ -60,8 +60,8 @@ maintenance simple enough for one operator to run.
   flow, and 15m context filters. Runner logic is handled as position
   management, not as the default entry mode.
 - Risk: daily, weekly, monthly, and consecutive-loss limits.
-- Control: `RUNNING`, `PAUSE_NEW_ENTRIES`, `PAUSE_ALL`, and `EMERGENCY_STOP`
-  states. Legacy `RESUME_PENDING_CHECK` values are normalized to `RUNNING`.
+- Control: `RUNNING`, `PAUSE_NEW_ENTRIES`, `PAUSE_ALL`,
+  `RESUME_PENDING_CHECK`, and `EMERGENCY_STOP` states.
 - Monitoring: Telegram bot messages first, optional Discord webhook mirror for
   passive logs.
 - Control API: Ktor endpoints for status, pause, resume, emergency stop, and
@@ -133,8 +133,8 @@ Acceptance criteria:
 - `PAUSE_NEW_ENTRIES` blocks only new entries and keeps exits active.
 - `PAUSE_ALL` blocks new order creation except explicitly allowed protective
   actions.
-- `RESUME` returns to `RUNNING`; exchange state can be reconciled separately
-  through the reconciliation endpoint.
+- `RESUME` enters `RESUME_PENDING_CHECK`; server readiness checks promote it to
+  `RUNNING` only after market data and exchange reads succeed.
 - Every control action is logged with timestamp, actor, previous state, and new
   state.
 
@@ -393,10 +393,10 @@ Rules:
   management, and reconciliation continue.
 - `PAUSE_ALL`: strategy decisions are blocked; reconciliation and explicitly
   approved protective actions continue.
+- `RESUME_PENDING_CHECK`: new entries stay blocked while the server verifies
+  market data and exchange read access.
 - `EMERGENCY_STOP`: open orders are cancelled and emergency position policy is
   applied.
-- Legacy `RESUME_PENDING_CHECK`: normalized to `RUNNING` when read from stored
-  bot state.
 
 ## Profitability Validation
 

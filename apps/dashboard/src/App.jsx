@@ -850,11 +850,12 @@ function buildSmokeSummary(responseBody) {
   if (!responseBody) return false;
   if (responseBody.pauseMode || responseBody.resumeMode) {
     const pauseConfirmed = responseBody.pauseMode === "PAUSE_ALL";
-    const resumeRequested = responseBody.resumeMode === "RUNNING";
+    const resumeConfirmed = responseBody.resumeMode === "RUNNING";
+    const resumeRequested = resumeConfirmed || responseBody.resumeMode === "RESUME_PENDING_CHECK";
     return {
       title:
         pauseConfirmed && resumeRequested
-          ? "정지와 재가동 요청이 순서대로 처리됐어요."
+          ? "정지 후 재가동 확인 요청이 접수됐어요."
           : "상태 전환 결과를 확인해 주세요.",
       items: [
         {
@@ -864,7 +865,11 @@ function buildSmokeSummary(responseBody) {
         },
         {
           label: "2단계 재가동",
-          value: resumeRequested ? `요청 완료 · ${formatBotMode(responseBody.resumeMode)}` : formatBotMode(responseBody.resumeMode),
+          value: resumeConfirmed
+            ? `확인 완료 · ${formatBotMode(responseBody.resumeMode)}`
+            : resumeRequested
+              ? `확인 중 · ${formatBotMode(responseBody.resumeMode)}`
+              : formatBotMode(responseBody.resumeMode),
           tone: resumeRequested ? "positive" : "neutral",
         },
       ],
@@ -873,13 +878,20 @@ function buildSmokeSummary(responseBody) {
   if (responseBody.action || responseBody.newMode) {
     const isPause = responseBody.action === "PAUSE_ALL";
     const isResume = responseBody.action === "RESUME";
+    const isResumePending = isResume && responseBody.newMode === "RESUME_PENDING_CHECK";
     return {
-      title: isPause ? "정지 요청이 처리됐어요." : isResume ? "재가동 요청이 처리됐어요." : "상태 변경 결과예요.",
+      title: isPause
+        ? "정지 요청이 처리됐어요."
+        : isResumePending
+          ? "재가동 확인 요청이 접수됐어요."
+          : isResume
+            ? "재가동이 확인됐어요."
+            : "상태 변경 결과예요.",
       items: [
         { label: "이전 상태", value: formatBotMode(responseBody.previousMode), tone: "neutral" },
         {
           label: "현재 상태",
-          value: formatBotMode(responseBody.newMode),
+          value: isResumePending ? `확인 중 · ${formatBotMode(responseBody.newMode)}` : formatBotMode(responseBody.newMode),
           tone: isPause || isResume ? "positive" : "neutral",
         },
       ],
@@ -1044,7 +1056,7 @@ function formatBotMode(value) {
     PAUSE_NEW_ENTRIES: "신규 진입 중단",
     PAUSE_ALL: "전체 일시정지",
     EMERGENCY_STOP: "긴급 정지",
-    RESUME_PENDING_CHECK: "가동 중",
+    RESUME_PENDING_CHECK: "재가동 확인 중",
   };
   return map[value] || value || "확인 필요";
 }

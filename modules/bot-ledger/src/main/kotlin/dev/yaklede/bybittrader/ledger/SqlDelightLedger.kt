@@ -45,22 +45,11 @@ class SqlDelightLedger(
     override suspend fun current(): BotRuntimeStatus {
         val row = database.ledgerQueries.selectBotState().executeAsOneOrNull()
         if (row != null) {
-            val storedMode = BotMode.valueOf(row.mode)
-            val status =
-                BotRuntimeStatus(
-                    mode = if (storedMode == BotMode.RESUME_PENDING_CHECK) BotMode.RUNNING else storedMode,
-                    updatedAt =
-                        if (storedMode == BotMode.RESUME_PENDING_CHECK) {
-                            Instant.now(clock)
-                        } else {
-                            Instant.parse(row.updated_at)
-                        },
-                    heartbeatAt = row.heartbeat_at?.let(Instant::parse),
-                )
-            if (storedMode == BotMode.RESUME_PENDING_CHECK) {
-                update(status)
-            }
-            return status
+            return BotRuntimeStatus(
+                mode = BotMode.valueOf(row.mode),
+                updatedAt = Instant.parse(row.updated_at),
+                heartbeatAt = row.heartbeat_at?.let(Instant::parse),
+            )
         }
 
         val now = Instant.now(clock)

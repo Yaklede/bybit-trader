@@ -20,7 +20,7 @@ class BotModeTransitionPolicy {
                     BotMode.PAUSE_ALL
                 }
             }
-            ControlAction.RESUME -> BotMode.RUNNING
+            ControlAction.RESUME -> BotMode.RESUME_PENDING_CHECK
             ControlAction.EMERGENCY_STOP -> BotMode.EMERGENCY_STOP
         }
 }

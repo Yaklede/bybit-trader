@@ -1016,8 +1016,8 @@ class ApiModuleTest :
                         }
 
                 response.status shouldBe HttpStatusCode.OK
-                response.bodyAsText() shouldContain """"resumeMode":"RUNNING""""
-                stateStore.current().mode shouldBe BotMode.RUNNING
+                response.bodyAsText() shouldContain """"resumeMode":"RESUME_PENDING_CHECK""""
+                stateStore.current().mode shouldBe BotMode.RESUME_PENDING_CHECK
             }
         }
 
@@ -1056,8 +1056,8 @@ class ApiModuleTest :
                             setBody("""{"reason":"resume smoke"}""")
                         }
                 resume.status shouldBe HttpStatusCode.OK
-                resume.bodyAsText() shouldContain """"newMode":"RUNNING""""
-                stateStore.current().mode shouldBe BotMode.RUNNING
+                resume.bodyAsText() shouldContain """"newMode":"RESUME_PENDING_CHECK""""
+                stateStore.current().mode shouldBe BotMode.RESUME_PENDING_CHECK
             }
         }
 
