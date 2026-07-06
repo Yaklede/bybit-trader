@@ -36,3 +36,5 @@ data/
 .agents/state/
 .agents/backup/
 .migration-backup/
+.playwright-mcp/
+.serena/memories/
