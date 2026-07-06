@@ -124,6 +124,7 @@ fun main() {
                                 recvWindowMillis = config.bybitPrivate.recvWindowMillis,
                                 category = BybitTradingCategory.valueOf(config.bybitPrivate.category.uppercase()),
                                 positionIdx = config.bybitPrivate.positionIdx,
+                                accountType = config.bybitPrivate.accountType,
                             ),
                     ),
                 config =
@@ -230,6 +231,7 @@ fun main() {
                 paperTradingService = paperTradingService,
                 paperTradingReportStore = ledger,
                 executionService = executionService,
+                runtimeMode = config.runtimeMode.name,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
                 controlCredential = config.api.controlCredential,
             )

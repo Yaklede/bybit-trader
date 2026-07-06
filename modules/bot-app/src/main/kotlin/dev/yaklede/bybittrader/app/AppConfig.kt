@@ -79,12 +79,16 @@ data class BybitPrivateSettings(
     val recvWindowMillis: Long,
     val category: String,
     val positionIdx: Int,
+    val accountType: String,
 ) {
     init {
         require(baseUrl.isNotBlank()) { "Bybit private base URL must not be blank." }
         require(recvWindowMillis in 1_000..60_000) { "Bybit recv window must be between 1000 and 60000 ms." }
         require(category == "linear") { "Only Bybit linear category is supported for execution." }
         require(positionIdx in 0..2) { "Bybit position index must be 0, 1, or 2." }
+        require(accountType in setOf("UNIFIED", "CONTRACT", "SPOT")) {
+            "Bybit account type must be UNIFIED, CONTRACT, or SPOT."
+        }
     }
 
     val credentialsAvailable: Boolean
@@ -108,6 +112,7 @@ data class BybitPrivateSettings(
                 recvWindowMillis = environment["BYBIT_RECV_WINDOW_MILLIS"]?.toLongOrNull() ?: 5_000,
                 category = environment["BYBIT_PRIVATE_CATEGORY"]?.trim()?.lowercase() ?: "linear",
                 positionIdx = environment["BYBIT_POSITION_IDX"]?.toIntOrNull() ?: 0,
+                accountType = environment["BYBIT_ACCOUNT_TYPE"]?.trim()?.uppercase() ?: "UNIFIED",
             )
     }
 }

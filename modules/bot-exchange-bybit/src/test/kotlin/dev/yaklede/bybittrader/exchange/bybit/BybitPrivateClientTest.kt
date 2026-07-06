@@ -214,6 +214,60 @@ class BybitPrivateClientTest :
             executions.single().fee shouldBe BigDecimal("8.4")
         }
 
+        "accountBalance maps Bybit unified wallet balance" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/account/wallet-balance"
+                    request.url.parameters["accountType"] shouldBe "UNIFIED"
+                    request.url.parameters["coin"] shouldBe "USDT"
+
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "list": [
+                                  {
+                                    "accountType": "UNIFIED",
+                                    "totalEquity": "1200.5",
+                                    "totalWalletBalance": "1000",
+                                    "totalMarginBalance": "1100",
+                                    "totalAvailableBalance": "900",
+                                    "totalPerpUPL": "100.5",
+                                    "totalInitialMargin": "50",
+                                    "totalMaintenanceMargin": "20",
+                                    "coin": [
+                                      {
+                                        "coin": "USDT",
+                                        "equity": "1200.5",
+                                        "usdValue": "1200.5",
+                                        "walletBalance": "1000",
+                                        "locked": "0",
+                                        "unrealisedPnl": "100.5"
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val balance = client.accountBalance("USDT")
+
+            balance.accountType shouldBe "UNIFIED"
+            balance.totalEquity shouldBe BigDecimal("1200.5")
+            balance.totalPerpUnrealizedPnl shouldBe BigDecimal("100.5")
+            balance.coins.single().walletBalance shouldBe BigDecimal("1000")
+            balance.capturedAt shouldBe Instant.parse("2024-06-30T00:00:00Z")
+        }
+
         "bybit error responses throw sanitized execution exception" {
             val engine =
                 MockEngine {

@@ -4,8 +4,10 @@ import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
@@ -21,6 +23,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -32,7 +35,7 @@ import java.time.Instant
 class BybitPrivateClient(
     private val httpClient: HttpClient,
     private val config: BybitPrivateClientConfig,
-    clock: Clock = Clock.systemUTC(),
+    private val clock: Clock = Clock.systemUTC(),
 ) : ExchangeExecutionGateway {
     private val signer =
         BybitRequestSigner(
@@ -154,15 +157,41 @@ class BybitPrivateClient(
             .mapNotNull { item -> item.toExchangeExecution(symbol) }
     }
 
+    override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {
+        val query =
+            bybitQueryString(
+                "accountType" to config.accountType,
+                "coin" to coin?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
+            )
+        val response =
+            signedGet<BybitWalletBalanceResponse>(
+                path = "/v5/account/wallet-balance",
+                queryString = query,
+            )
+        response.requireSuccess("get wallet balance")
+        val account =
+            response.result
+                ?.list
+                ?.firstOrNull()
+                ?: throw ExchangeExecutionException("Bybit wallet balance response had no account.")
+        return account.toExchangeAccountBalance(clock.instant())
+    }
+
     private suspend inline fun <reified T> signedGet(
         path: String,
         queryString: String,
     ): T {
         val headers = signer.signGet(queryString)
-        return httpClient
-            .get("${config.baseUrl.trimEnd('/')}$path?$queryString") {
-                apply(headers)
-            }.body()
+        return try {
+            httpClient
+                .get("${config.baseUrl.trimEnd('/')}$path?$queryString") {
+                    apply(headers)
+                }.body()
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            throw ExchangeExecutionException("Bybit private request failed.", cause)
+        }
     }
 
     private suspend inline fun <reified T> signedPost(
@@ -170,12 +199,18 @@ class BybitPrivateClient(
         body: String,
     ): T {
         val headers = signer.signPost(body)
-        return httpClient
-            .post("${config.baseUrl.trimEnd('/')}$path") {
-                contentType(ContentType.Application.Json)
-                apply(headers)
-                setBody(body)
-            }.body()
+        return try {
+            httpClient
+                .post("${config.baseUrl.trimEnd('/')}$path") {
+                    contentType(ContentType.Application.Json)
+                    apply(headers)
+                    setBody(body)
+                }.body()
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            throw ExchangeExecutionException("Bybit private request failed.", cause)
+        }
     }
 }
 
@@ -186,6 +221,7 @@ data class BybitPrivateClientConfig(
     val recvWindowMillis: Long = 5_000,
     val category: BybitTradingCategory = BybitTradingCategory.LINEAR,
     val positionIdx: Int = 0,
+    val accountType: String = "UNIFIED",
 ) {
     init {
         require(keyId.isNotBlank()) { "Bybit API key must not be blank." }
@@ -193,6 +229,9 @@ data class BybitPrivateClientConfig(
         require(baseUrl.isNotBlank()) { "Bybit private base URL must not be blank." }
         require(recvWindowMillis in 1_000..60_000) { "Bybit recv window must be between 1000 and 60000 ms." }
         require(positionIdx in 0..2) { "Bybit position index must be 0, 1, or 2." }
+        require(accountType in setOf("UNIFIED", "CONTRACT", "SPOT")) {
+            "Bybit account type must be UNIFIED, CONTRACT, or SPOT."
+        }
     }
 }
 
@@ -326,6 +365,30 @@ private fun BybitExecutionItem.toExchangeExecution(fallbackSymbol: Symbol): Exch
     )
 }
 
+private fun BybitWalletBalanceAccount.toExchangeAccountBalance(capturedAt: Instant): ExchangeAccountBalance =
+    ExchangeAccountBalance(
+        accountType = accountType,
+        totalEquity = totalEquity.toBigDecimalOrNull(),
+        totalWalletBalance = totalWalletBalance.toBigDecimalOrNull(),
+        totalMarginBalance = totalMarginBalance.toBigDecimalOrNull(),
+        totalAvailableBalance = totalAvailableBalance.toBigDecimalOrNull(),
+        totalPerpUnrealizedPnl = totalPerpUPL.toBigDecimalOrNull(),
+        totalInitialMargin = totalInitialMargin.toBigDecimalOrNull(),
+        totalMaintenanceMargin = totalMaintenanceMargin.toBigDecimalOrNull(),
+        coins = coin.map(BybitWalletBalanceCoin::toExchangeCoinBalance),
+        capturedAt = capturedAt,
+    )
+
+private fun BybitWalletBalanceCoin.toExchangeCoinBalance(): ExchangeCoinBalance =
+    ExchangeCoinBalance(
+        coin = coin,
+        equity = equity.toBigDecimalOrNull(),
+        usdValue = usdValue.toBigDecimalOrNull(),
+        walletBalance = walletBalance.toBigDecimalOrNull(),
+        locked = locked.toBigDecimalOrNull(),
+        unrealizedPnl = unrealisedPnl.toBigDecimalOrNull(),
+    )
+
 private interface BybitOrderResponse {
     val retCode: Int
     val retMsg: String
@@ -444,4 +507,40 @@ private data class BybitExecutionItem(
     val execQty: String? = null,
     val execFee: String? = null,
     val execTime: String? = null,
+)
+
+@Serializable
+private data class BybitWalletBalanceResponse(
+    override val retCode: Int,
+    override val retMsg: String,
+    val result: BybitWalletBalanceResult? = null,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitWalletBalanceResult(
+    val list: List<BybitWalletBalanceAccount> = emptyList(),
+)
+
+@Serializable
+private data class BybitWalletBalanceAccount(
+    val accountType: String,
+    val totalEquity: String? = null,
+    val totalWalletBalance: String? = null,
+    val totalMarginBalance: String? = null,
+    val totalAvailableBalance: String? = null,
+    val totalPerpUPL: String? = null,
+    val totalInitialMargin: String? = null,
+    val totalMaintenanceMargin: String? = null,
+    val coin: List<BybitWalletBalanceCoin> = emptyList(),
+)
+
+@Serializable
+private data class BybitWalletBalanceCoin(
+    val coin: String,
+    val equity: String? = null,
+    val usdValue: String? = null,
+    val walletBalance: String? = null,
+    val locked: String? = null,
+    @SerialName("unrealisedPnl")
+    val unrealisedPnl: String? = null,
 )

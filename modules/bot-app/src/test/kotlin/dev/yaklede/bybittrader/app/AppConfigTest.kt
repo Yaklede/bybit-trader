@@ -14,6 +14,7 @@ class AppConfigTest :
             config.marketData.timeframes.map { it.name } shouldBe listOf("M1", "M5", "M15")
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
+            config.bybitPrivate.accountType shouldBe "UNIFIED"
             config.api.host shouldBe "127.0.0.1"
             config.api.port shouldBe 8080
             config.paperLoop.enabled shouldBe false
@@ -59,6 +60,7 @@ class AppConfigTest :
                         "BYBIT_PRIVATE_BASE_URL" to "https://api-testnet.bybit.com",
                         "BYBIT_RECV_WINDOW_MILLIS" to "7000",
                         "BYBIT_POSITION_IDX" to "0",
+                        "BYBIT_ACCOUNT_TYPE" to "UNIFIED",
                         "BOT_EXECUTION_ACCOUNT_EQUITY" to "2000000",
                         "BOT_EXECUTION_RISK_FRACTION" to "0.03",
                         "BOT_EXECUTION_QTY_STEP" to "0.01",
@@ -71,6 +73,7 @@ class AppConfigTest :
             config.runtimeMode shouldBe RuntimeMode.TESTNET
             config.bybitPrivate.credentialsAvailable shouldBe true
             config.bybitPrivate.recvWindowMillis shouldBe 7000
+            config.bybitPrivate.accountType shouldBe "UNIFIED"
             config.execution.enabled shouldBe true
             config.executionLoop.enabled shouldBe true
             config.execution.accountEquity.toPlainString() shouldBe "2000000"

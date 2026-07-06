@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowCompositeBacktestRoutes
 import dev.yaklede.bybittrader.api.backtest.configureVolumeFlowSweepRoutes
 import dev.yaklede.bybittrader.api.control.configureControlRoutes
+import dev.yaklede.bybittrader.api.dashboard.configureDashboardRoutes
 import dev.yaklede.bybittrader.api.execution.configureExecutionRoutes
 import dev.yaklede.bybittrader.api.health.configureHealthRoutes
 import dev.yaklede.bybittrader.api.market.configureMarketDataRoutes
@@ -54,6 +55,7 @@ fun Application.configureApi(
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
     executionService: ExchangeExecutionService? = null,
+    runtimeMode: String? = null,
     onControlResult: suspend (ControlResult) -> Unit = {},
     controlCredential: String?,
 ) {
@@ -92,6 +94,7 @@ fun Application.configureApi(
     routing {
         configureHealthRoutes()
         configureStatusRoutes(stateStore, paperTradingReportStore)
+        configureDashboardRoutes(stateStore, paperTradingReportStore, executionService, runtimeMode)
         configureControlRoutes(controlService, onControlResult)
         configureMarketDataRoutes(marketDataSyncService)
         configureBacktestRoutes(backtestService)

@@ -109,6 +109,28 @@ data class ExchangeExecutionFill(
     val executedAt: Instant,
 )
 
+data class ExchangeAccountBalance(
+    val accountType: String,
+    val totalEquity: BigDecimal?,
+    val totalWalletBalance: BigDecimal?,
+    val totalMarginBalance: BigDecimal?,
+    val totalAvailableBalance: BigDecimal?,
+    val totalPerpUnrealizedPnl: BigDecimal?,
+    val totalInitialMargin: BigDecimal?,
+    val totalMaintenanceMargin: BigDecimal?,
+    val coins: List<ExchangeCoinBalance>,
+    val capturedAt: Instant,
+)
+
+data class ExchangeCoinBalance(
+    val coin: String,
+    val equity: BigDecimal?,
+    val usdValue: BigDecimal?,
+    val walletBalance: BigDecimal?,
+    val locked: BigDecimal?,
+    val unrealizedPnl: BigDecimal?,
+)
+
 data class ExchangeReconciliationReport(
     val symbol: Symbol,
     val reconciledAt: Instant,
@@ -154,6 +176,8 @@ interface ExchangeExecutionGateway {
     suspend fun positions(symbol: Symbol): List<ExchangePosition>
 
     suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill>
+
+    suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance
 }
 
 class ExchangeExecutionException(

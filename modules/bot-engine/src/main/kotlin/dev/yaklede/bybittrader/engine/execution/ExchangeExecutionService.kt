@@ -227,6 +227,8 @@ class ExchangeExecutionService(
             executions = gateway.executions(symbol),
         )
 
+    suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance = gateway.accountBalance(coin)
+
     suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult = gateway.cancelOrder(request)
 
     private suspend fun SignalIntent.isDuplicate(): Boolean {
