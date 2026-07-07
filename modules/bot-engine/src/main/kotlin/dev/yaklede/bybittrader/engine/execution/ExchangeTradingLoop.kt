@@ -19,6 +19,11 @@ class ExchangeTradingLoop(
     private val logger = LoggerFactory.getLogger(ExchangeTradingLoop::class.java)
 
     suspend fun runOnce(): ExchangeEvaluationResult {
+        marketDataSyncService.ensureRecentHistory(
+            symbol = config.symbol,
+            timeframe = config.timeframe,
+            requiredCandles = config.candleLimit,
+        )
         marketDataSyncService.sync(
             symbol = config.symbol,
             timeframes = listOf(config.timeframe),

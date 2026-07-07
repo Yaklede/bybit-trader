@@ -56,6 +56,82 @@ class MarketDataSyncService(
         return result
     }
 
+    suspend fun ensureRecentHistory(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        requiredCandles: Int,
+        pageLimit: Int = 1000,
+        maxRequestsPerTimeframe: Int = ResearchCandleLimits.MAX_HISTORY_REQUESTS_PER_TIMEFRAME,
+    ): MarketDataWarmupResult {
+        require(requiredCandles in 1..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
+            "Required candles must be between 1 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
+        }
+        require(pageLimit in 1..1000) { "Page limit must be between 1 and 1000." }
+        require(maxRequestsPerTimeframe in 1..ResearchCandleLimits.MAX_HISTORY_REQUESTS_PER_TIMEFRAME) {
+            "Max requests per timeframe must be between 1 and ${ResearchCandleLimits.MAX_HISTORY_REQUESTS_PER_TIMEFRAME}."
+        }
+
+        val existingCandles = candleStore.recentCandles(symbol, timeframe, requiredCandles).size
+        if (existingCandles >= requiredCandles) {
+            logger.info(
+                "market-data warmup skipped symbol={} timeframe={} existingCandles={} requiredCandles={}",
+                symbol.value,
+                timeframe.name,
+                existingCandles,
+                requiredCandles,
+            )
+            return MarketDataWarmupResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                requiredCandles = requiredCandles,
+                existingCandles = existingCandles,
+                fetchedCandles = 0,
+                finalCandles = existingCandles,
+                historySynced = false,
+                syncedAt = Instant.now(clock),
+            )
+        }
+
+        val daysBack = warmupDaysBack(requiredCandles, timeframe)
+        logger.info(
+            "market-data warmup requested symbol={} timeframe={} existingCandles={} requiredCandles={} daysBack={}",
+            symbol.value,
+            timeframe.name,
+            existingCandles,
+            requiredCandles,
+            daysBack,
+        )
+        val syncResult =
+            syncHistory(
+                symbol = symbol,
+                timeframes = listOf(timeframe),
+                startAt = null,
+                endAt = null,
+                daysBack = daysBack,
+                pageLimit = pageLimit,
+                maxRequestsPerTimeframe = maxRequestsPerTimeframe,
+            )
+        val finalCandles = candleStore.recentCandles(symbol, timeframe, requiredCandles).size
+        logger.info(
+            "market-data warmup completed symbol={} timeframe={} fetchedCandles={} finalCandles={} requiredCandles={}",
+            symbol.value,
+            timeframe.name,
+            syncResult.totalFetchedCandles,
+            finalCandles,
+            requiredCandles,
+        )
+        return MarketDataWarmupResult(
+            symbol = symbol,
+            timeframe = timeframe,
+            requiredCandles = requiredCandles,
+            existingCandles = existingCandles,
+            fetchedCandles = syncResult.totalFetchedCandles,
+            finalCandles = finalCandles,
+            historySynced = true,
+            syncedAt = syncResult.syncedAt,
+        )
+    }
+
     suspend fun syncHistory(
         symbol: Symbol,
         timeframes: List<Timeframe>,
@@ -183,6 +259,17 @@ data class MarketDataSyncResult(
     val syncedAt: Instant,
 )
 
+data class MarketDataWarmupResult(
+    val symbol: Symbol,
+    val timeframe: Timeframe,
+    val requiredCandles: Int,
+    val existingCandles: Int,
+    val fetchedCandles: Int,
+    val finalCandles: Int,
+    val historySynced: Boolean,
+    val syncedAt: Instant,
+)
+
 data class TimeframeSyncResult(
     val timeframe: Timeframe,
     val fetchedCandles: Int,
@@ -207,6 +294,20 @@ private fun requiredRequests(
     val durationMillis = Duration.between(startAt, endAt).toMillis()
     val candleCount = ((durationMillis - 1) / timeframe.durationMillis()) + 1
     return (((candleCount - 1) / pageLimit) + 1).toInt()
+}
+
+private fun warmupDaysBack(
+    requiredCandles: Int,
+    timeframe: Timeframe,
+): Int {
+    val requiredMillis = requiredCandles.toLong() * timeframe.durationMillis()
+    val dayMillis = Duration.ofDays(1).toMillis()
+    val baseDays = ((requiredMillis - 1) / dayMillis) + 1
+    val bufferedDays = ((baseDays * 110) + 99) / 100
+    return bufferedDays
+        .coerceAtLeast(1)
+        .coerceAtMost(ResearchCandleLimits.MAX_HISTORY_DAYS_BACK.toLong())
+        .toInt()
 }
 
 private fun minInstant(

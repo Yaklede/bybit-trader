@@ -86,6 +86,76 @@ class MarketDataSyncServiceTest :
             result.timeframeResults.single().earliestOpenedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
             result.timeframeResults.single().latestOpenedAt shouldBe Instant.parse("2026-06-30T00:04:00Z")
         }
+
+        "ensureRecentHistory backfills when stored candles are below the required count" {
+            val symbol = Symbol("BTCUSDT")
+            val feed =
+                RecordingMarketDataFeed(
+                    historyCandles =
+                        (0 until 5).map { index ->
+                            sampleCandle(
+                                symbol = symbol,
+                                timeframe = Timeframe.M5,
+                                openedAt = Instant.parse("2026-06-30T00:00:00Z").plusSeconds(index * 300L),
+                            )
+                        },
+                )
+            val store = RecordingMarketCandleStore()
+            val service =
+                MarketDataSyncService(
+                    marketDataFeed = feed,
+                    candleStore = store,
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:25:00Z"), ZoneOffset.UTC),
+                )
+
+            val result =
+                service.ensureRecentHistory(
+                    symbol = symbol,
+                    timeframe = Timeframe.M5,
+                    requiredCandles = 5,
+                    pageLimit = 1000,
+                    maxRequestsPerTimeframe = 10,
+                )
+
+            result.historySynced shouldBe true
+            result.existingCandles shouldBe 0
+            result.finalCandles shouldBe 5
+            feed.historyRequests.size shouldBe 1
+        }
+
+        "ensureRecentHistory skips backfill when enough candles are already stored" {
+            val symbol = Symbol("BTCUSDT")
+            val feed = RecordingMarketDataFeed()
+            val store =
+                RecordingMarketCandleStore(
+                    initialCandles =
+                        (0 until 5).map { index ->
+                            sampleCandle(
+                                symbol = symbol,
+                                timeframe = Timeframe.M5,
+                                openedAt = Instant.parse("2026-06-30T00:00:00Z").plusSeconds(index * 300L),
+                            )
+                        },
+                )
+            val service =
+                MarketDataSyncService(
+                    marketDataFeed = feed,
+                    candleStore = store,
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:25:00Z"), ZoneOffset.UTC),
+                )
+
+            val result =
+                service.ensureRecentHistory(
+                    symbol = symbol,
+                    timeframe = Timeframe.M5,
+                    requiredCandles = 5,
+                )
+
+            result.historySynced shouldBe false
+            result.existingCandles shouldBe 5
+            result.finalCandles shouldBe 5
+            feed.historyRequests shouldBe emptyList()
+        }
     })
 
 private class RecordingMarketDataFeed(
@@ -121,18 +191,26 @@ private class RecordingMarketDataFeed(
     }
 }
 
-private class RecordingMarketCandleStore : MarketCandleStore {
+private class RecordingMarketCandleStore(
+    initialCandles: List<Candle> = emptyList(),
+) : MarketCandleStore {
     val saved = mutableListOf<List<Candle>>()
+    private val storedCandles = initialCandles.toMutableList()
 
     override suspend fun upsert(candles: List<Candle>) {
         saved += candles
+        storedCandles += candles
     }
 
     override suspend fun recentCandles(
         symbol: Symbol,
         timeframe: Timeframe,
         limit: Int,
-    ): List<Candle> = emptyList()
+    ): List<Candle> =
+        storedCandles
+            .filter { candle -> candle.symbol == symbol && candle.timeframe == timeframe }
+            .sortedByDescending(Candle::openedAt)
+            .take(limit)
 }
 
 private data class MarketDataRequest(
