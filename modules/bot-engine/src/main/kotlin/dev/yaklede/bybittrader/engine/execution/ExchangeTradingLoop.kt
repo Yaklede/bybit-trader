@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.slf4j.LoggerFactory
 import kotlin.coroutines.cancellation.CancellationException
 
 class ExchangeTradingLoop(
@@ -15,6 +16,8 @@ class ExchangeTradingLoop(
     private val onResult: suspend (ExchangeEvaluationResult) -> Unit = {},
     private val onFailure: suspend (Throwable) -> Unit = {},
 ) {
+    private val logger = LoggerFactory.getLogger(ExchangeTradingLoop::class.java)
+
     suspend fun runOnce(): ExchangeEvaluationResult {
         marketDataSyncService.sync(
             symbol = config.symbol,
@@ -39,6 +42,7 @@ class ExchangeTradingLoop(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
+                    logger.warn("execution trading loop failed", error)
                     onFailure(error)
                 }
                 delay(config.intervalSeconds * 1000)

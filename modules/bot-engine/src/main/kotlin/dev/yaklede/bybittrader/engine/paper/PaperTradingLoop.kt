@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.slf4j.LoggerFactory
 import java.time.Duration
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -19,6 +20,8 @@ class PaperTradingLoop(
     private val onResult: suspend (PaperEvaluationResult) -> Unit = {},
     private val onFailure: suspend (Throwable) -> Unit = {},
 ) {
+    private val logger = LoggerFactory.getLogger(PaperTradingLoop::class.java)
+
     suspend fun runOnce(): PaperEvaluationResult {
         marketDataSyncService.sync(
             symbol = config.symbol,
@@ -43,6 +46,7 @@ class PaperTradingLoop(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
+                    logger.warn("paper trading loop failed", error)
                     onFailure(error)
                 }
                 delay(config.interval.toMillis())

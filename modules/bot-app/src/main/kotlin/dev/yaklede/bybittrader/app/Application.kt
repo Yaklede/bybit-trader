@@ -28,6 +28,7 @@ import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationStatus
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionConfig
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoop
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoopConfig
@@ -426,7 +427,7 @@ private suspend fun AlertingService.sendPaperLoopFailure(error: Throwable) {
         AlertMessage(
             severity = AlertSeverity.WARNING,
             title = "모의 거래 점검 필요",
-            body = "모의 거래 루프에서 오류가 발생했어요. 로그에서 ${error::class.simpleName ?: "알 수 없는 오류"} 내용을 확인해 주세요.",
+            body = loopFailureAlertBody(loopName = "모의 거래", error = error),
         ),
     )
 }
@@ -468,10 +469,40 @@ private suspend fun AlertingService.sendExecutionLoopFailure(error: Throwable) {
         AlertMessage(
             severity = AlertSeverity.WARNING,
             title = "실거래 점검 필요",
-            body = "실거래 루프에서 오류가 발생했어요. 로그에서 ${error::class.simpleName ?: "알 수 없는 오류"} 내용을 확인해 주세요.",
+            body = loopFailureAlertBody(loopName = "실거래", error = error),
         ),
     )
 }
+
+internal fun loopFailureAlertBody(
+    loopName: String,
+    error: Throwable,
+): String {
+    val errorType = error::class.simpleName ?: "알 수 없는 오류"
+    val reason = error.message?.sanitizeAlertDetail()?.takeIf { it.isNotBlank() } ?: "오류 메시지가 비어 있어요."
+    return "$loopName 루프에서 오류가 발생했어요.\n" +
+        "오류: $errorType\n" +
+        "원인: $reason\n" +
+        "확인할 일: ${error.recoveryAction()}"
+}
+
+private fun Throwable.recoveryAction(): String =
+    when {
+        message.orEmpty().contains("candles are required", ignoreCase = true) ->
+            "히스토리 캔들 동기화가 충분한지 확인해 주세요. 공격형 M5 전략은 약 60일 이상 캔들이 필요해요."
+        message.orEmpty().contains("Candle limit", ignoreCase = true) ->
+            "BOT_EXECUTION_CANDLE_LIMIT와 BOT_EXECUTION_SYNC_LIMIT 설정을 확인해 주세요."
+        this is ExchangeExecutionException ->
+            "Bybit API 권한, 계정 모드, 주문 가능 지역, 포지션 모드를 확인해 주세요."
+        else ->
+            "서버 로그에서 같은 시각의 stack trace와 최근 배포 설정을 확인해 주세요."
+    }
+
+private fun String.sanitizeAlertDetail(): String =
+    take(600)
+        .replace(Regex("(?i)(api[-_ ]?key|secret|signature|token|credential)"), "[redacted]")
+        .replace(Regex("(?i)(bearer\\s+)[A-Za-z0-9._~+/-]+=*"), "$1[redacted]")
+        .replace(Regex("(?i)(x-bapi-[a-z-]+\\s*[:=]\\s*)[^\\s,;]+"), "$1[redacted]")
 
 private fun RuntimeMode.toKoreanLabel(): String =
     when (this) {
