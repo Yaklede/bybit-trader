@@ -160,12 +160,14 @@ fun main() {
                     ExchangeExecutionConfig(
                         enabled = config.execution.enabled,
                         accountEquity = config.execution.accountEquity,
+                        useLiveAccountEquity = config.execution.useLiveAccountEquity,
                         riskFraction = config.execution.riskFraction,
                         feeRate = config.execution.feeRate,
                         quantityStep = config.execution.quantityStep,
                         minQuantity = config.execution.minQuantity,
                         maxQuantity = config.execution.maxQuantity,
                         maxNotional = config.execution.maxNotional,
+                        leverage = config.execution.leverage,
                     ),
             )
         } else {

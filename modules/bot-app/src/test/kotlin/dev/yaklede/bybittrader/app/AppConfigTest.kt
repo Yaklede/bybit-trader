@@ -26,6 +26,8 @@ class AppConfigTest :
             config.paperTrading.initialEquity.toPlainString() shouldBe "1000000"
             config.paperTrading.riskFraction.toPlainString() shouldBe "0.055"
             config.execution.enabled shouldBe false
+            config.execution.useLiveAccountEquity shouldBe false
+            config.execution.leverage shouldBe null
             config.executionLoop.enabled shouldBe false
             config.volumeFlowComposite.currentConfigPath shouldBe "config/volume-flow-composite-current.json"
             config.strategyProfiles.statePath shouldBe "data/strategy-profile-current.txt"
@@ -63,11 +65,13 @@ class AppConfigTest :
                         "BYBIT_POSITION_IDX" to "0",
                         "BYBIT_ACCOUNT_TYPE" to "UNIFIED",
                         "BOT_EXECUTION_ACCOUNT_EQUITY" to "2000000",
+                        "BOT_EXECUTION_USE_LIVE_EQUITY" to "true",
                         "BOT_EXECUTION_RISK_FRACTION" to "0.03",
                         "BOT_EXECUTION_QTY_STEP" to "0.01",
                         "BOT_EXECUTION_MIN_QTY" to "0.01",
                         "BOT_EXECUTION_MAX_QTY" to "5",
                         "BOT_EXECUTION_MAX_NOTIONAL" to "100000",
+                        "BOT_EXECUTION_LEVERAGE" to "15",
                     ),
                 )
 
@@ -78,10 +82,12 @@ class AppConfigTest :
             config.execution.enabled shouldBe true
             config.executionLoop.enabled shouldBe true
             config.execution.accountEquity.toPlainString() shouldBe "2000000"
+            config.execution.useLiveAccountEquity shouldBe true
             config.execution.riskFraction.toPlainString() shouldBe "0.03"
             config.execution.quantityStep.toPlainString() shouldBe "0.01"
             config.execution.maxQuantity?.toPlainString() shouldBe "5"
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
+            config.execution.leverage?.toPlainString() shouldBe "15"
         }
 
         "enabled telegram alerts require telegram environment values" {

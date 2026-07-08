@@ -19,10 +19,12 @@ const executionTimeframe = (env.BOT_EXECUTION_TIMEFRAME || "M5").toUpperCase();
 const executionCandleLimit = Number(env.BOT_EXECUTION_CANDLE_LIMIT || "18000");
 const executionSyncLimit = Number(env.BOT_EXECUTION_SYNC_LIMIT || "1000");
 const executionRiskFraction = Number(env.BOT_EXECUTION_RISK_FRACTION || "0.055");
+const executionUseLiveEquity = parseBool(env.BOT_EXECUTION_USE_LIVE_EQUITY);
 const executionQtyStep = Number(env.BOT_EXECUTION_QTY_STEP || "0.001");
 const executionMinQty = Number(env.BOT_EXECUTION_MIN_QTY || "0.001");
 const executionMaxQty = env.BOT_EXECUTION_MAX_QTY ? Number(env.BOT_EXECUTION_MAX_QTY) : null;
 const executionMaxNotional = env.BOT_EXECUTION_MAX_NOTIONAL ? Number(env.BOT_EXECUTION_MAX_NOTIONAL) : null;
+const executionLeverage = env.BOT_EXECUTION_LEVERAGE ? Number(env.BOT_EXECUTION_LEVERAGE) : null;
 const bybitPrivateBaseUrl =
   env.BYBIT_PRIVATE_BASE_URL || (mode === "LIVE" ? "https://api.bybit.com" : "https://api-testnet.bybit.com");
 const symbol = env.BOT_SYMBOL || "BTCUSDT";
@@ -59,6 +61,7 @@ if (mode !== "PAPER") {
   check("execution sync limit respects Bybit page limit", Number.isInteger(executionSyncLimit) && executionSyncLimit >= 1 && executionSyncLimit <= 1000, `executionSyncLimit=${executionSyncLimit}`);
   check("execution candle limit covers 60d regime rules", Number.isInteger(executionCandleLimit) && executionCandleLimit >= 17281, `candleLimit=${executionCandleLimit}`);
   check("execution risk fraction is within configured risk band", executionRiskFraction > 0 && executionRiskFraction <= 0.2, `riskFraction=${executionRiskFraction}`);
+  check("live account equity is enabled for compounding", executionUseLiveEquity, "set BOT_EXECUTION_USE_LIVE_EQUITY=true");
   check("execution quantity step is positive", executionQtyStep > 0, `qtyStep=${executionQtyStep}`);
   check("execution min quantity is positive", executionMinQty > 0, `minQty=${executionMinQty}`);
   check(
@@ -70,6 +73,16 @@ if (mode !== "PAPER") {
     "execution max notional is empty or positive",
     executionMaxNotional === null || executionMaxNotional > 0,
     `maxNotional=${executionMaxNotional ?? ""}`,
+  );
+  check(
+    "execution leverage is empty or above 1",
+    executionLeverage === null || executionLeverage > 1,
+    `leverage=${executionLeverage ?? ""}`,
+  );
+  check(
+    "execution has a compounding notional limiter",
+    executionLeverage !== null || executionMaxNotional !== null,
+    "set BOT_EXECUTION_LEVERAGE for equity-based compounding or BOT_EXECUTION_MAX_NOTIONAL for a fixed cap",
   );
   if (mode === "TESTNET") {
     check("TESTNET uses Bybit testnet private base URL", bybitPrivateBaseUrl.includes("api-testnet.bybit.com"), bybitPrivateBaseUrl);

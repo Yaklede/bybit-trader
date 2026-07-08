@@ -11,6 +11,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -64,6 +65,7 @@ class VolumeFlowAggressiveBacktestService(
         var losses = 0
         var grossProfit = 0.0
         var grossLoss = 0.0
+        var skippedSignalCount = 0
         val activeDays = linkedSetOf<String>()
         val tradesByDay = mutableMapOf<String, Int>()
         val trades = mutableListOf<VolumeFlowAggressiveBacktestTrade>()
@@ -81,9 +83,14 @@ class VolumeFlowAggressiveBacktestService(
                 index += 1
                 continue
             }
-            val exit = simulateExit(enriched, setup, replayEndIndex, config)
             val riskAmount = equity * config.riskFraction
-            val quantity = riskAmount / setup.riskPerUnit
+            val quantity = calculateQuantity(equity, setup, config)
+            if (quantity == null) {
+                skippedSignalCount += 1
+                index += 1
+                continue
+            }
+            val exit = simulateExit(enriched, setup, replayEndIndex, config)
             val grossPnl =
                 when (setup.side) {
                     Side.BUY -> (exit.exitPrice - setup.entryPrice) * quantity
@@ -117,6 +124,8 @@ class VolumeFlowAggressiveBacktestService(
                     exitPrice = exit.exitPrice,
                     riskPerUnit = setup.riskPerUnit,
                     riskFraction = config.riskFraction,
+                    quantity = quantity,
+                    notional = setup.entryPrice * quantity,
                     stopAtr = setup.stopAtr,
                     targetR = setup.targetR,
                     rMultipleGross = grossPnl / riskAmount,
@@ -159,6 +168,7 @@ class VolumeFlowAggressiveBacktestService(
             activeDays = activeDays.size,
             observedDays = observedDays,
             activeDayCoveragePct = if (observedDays == 0) 0.0 else (activeDays.size.toDouble() / observedDays) * 100.0,
+            skippedSignalCount = skippedSignalCount,
             wins = wins,
             losses = losses,
             winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0,
@@ -170,6 +180,30 @@ class VolumeFlowAggressiveBacktestService(
                 },
             trades = trades,
         )
+    }
+
+    private fun calculateQuantity(
+        equity: Double,
+        setup: AggressiveSetup,
+        config: VolumeFlowAggressiveBacktestConfig,
+    ): Double? {
+        if (setup.riskPerUnit <= 0.0) return null
+        var quantity = (equity * config.riskFraction) / setup.riskPerUnit
+        config.maxQuantity?.let { maxQuantity ->
+            quantity = minOf(quantity, maxQuantity)
+        }
+        val leverageMaxNotional = config.leverage?.let { equity * it }
+        val effectiveMaxNotional =
+            listOfNotNull(config.maxNotional, leverageMaxNotional)
+                .minOrNull()
+        effectiveMaxNotional?.let { maxNotional ->
+            quantity = minOf(quantity, maxNotional / setup.entryPrice)
+        }
+        config.quantityStep?.let { quantityStep ->
+            quantity = quantity.floorToStep(quantityStep)
+        }
+        val minQuantity = config.minQuantity
+        return if (minQuantity == null || quantity >= minQuantity) quantity else null
     }
 
     private fun findSetup(
@@ -318,9 +352,13 @@ class VolumeFlowAggressiveBacktestService(
         config: VolumeFlowAggressiveBacktestConfig,
     ): AggressiveExit {
         val end = minOf(setup.entryIndex + config.maxHoldCandles, replayEndIndex - 1)
+        val liquidationPrice = approximateLiquidationPrice(setup, config)
         for (index in setup.entryIndex..end) {
             val candle = candles[index].candle
             if (setup.side == Side.BUY) {
+                if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
+                    return AggressiveExit(index, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                }
                 if (candle.low.toDouble() <= setup.stopPrice) {
                     return AggressiveExit(index, setup.stopPrice, VolumeFlowExitReason.STOP)
                 }
@@ -328,6 +366,9 @@ class VolumeFlowAggressiveBacktestService(
                     return AggressiveExit(index, setup.targetPrice, VolumeFlowExitReason.TARGET)
                 }
             } else {
+                if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
+                    return AggressiveExit(index, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                }
                 if (candle.high.toDouble() >= setup.stopPrice) {
                     return AggressiveExit(index, setup.stopPrice, VolumeFlowExitReason.STOP)
                 }
@@ -337,6 +378,20 @@ class VolumeFlowAggressiveBacktestService(
             }
         }
         return AggressiveExit(end, candles[end].candle.close.toDouble(), VolumeFlowExitReason.TIME)
+    }
+
+    private fun approximateLiquidationPrice(
+        setup: AggressiveSetup,
+        config: VolumeFlowAggressiveBacktestConfig,
+    ): Double? {
+        val leverage = config.leverage ?: return null
+        val liquidationDistancePct = (100.0 / leverage) - config.liquidationBufferPct
+        if (liquidationDistancePct <= 0.0) return setup.entryPrice
+        val liquidationDistance = liquidationDistancePct / 100.0
+        return when (setup.side) {
+            Side.BUY -> setup.entryPrice * (1.0 - liquidationDistance)
+            Side.SELL -> setup.entryPrice * (1.0 + liquidationDistance)
+        }
     }
 }
 
@@ -484,6 +539,11 @@ private data class AggressiveExit(
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
 )
+
+private fun Double.floorToStep(step: Double): Double {
+    if (step <= 0.0) return this
+    return floor((this / step) + 1e-12) * step
+}
 
 private data class AggressivePriorStats(
     val returnPct: Double,

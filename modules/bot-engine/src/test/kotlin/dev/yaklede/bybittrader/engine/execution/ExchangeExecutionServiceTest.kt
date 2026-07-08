@@ -88,6 +88,52 @@ class ExchangeExecutionServiceTest :
             )
         }
 
+        "live account equity and leverage cap execution quantity" {
+            val gateway =
+                RecordingExecutionGateway(
+                    accountBalance =
+                        ExchangeAccountBalance(
+                            accountType = "UNIFIED",
+                            totalEquity = BigDecimal("200"),
+                            totalWalletBalance = BigDecimal("200"),
+                            totalMarginBalance = BigDecimal("200"),
+                            totalAvailableBalance = BigDecimal("200"),
+                            totalPerpUnrealizedPnl = BigDecimal.ZERO,
+                            totalInitialMargin = BigDecimal.ZERO,
+                            totalMaintenanceMargin = BigDecimal.ZERO,
+                            coins = emptyList(),
+                            capturedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                        ),
+                )
+            val service =
+                testService(
+                    gateway = gateway,
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            accountEquity = BigDecimal("1000000"),
+                            useLiveAccountEquity = true,
+                            leverage = BigDecimal("1.1"),
+                            riskFraction = BigDecimal("0.055"),
+                            quantityStep = BigDecimal("0.001"),
+                            minQuantity = BigDecimal("0.001"),
+                        ),
+                )
+
+            val result =
+                service.evaluateAndSubmit(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M5,
+                    candleLimit = 30,
+                )
+
+            result.status shouldBe ExchangeEvaluationStatus.SUBMITTED
+            result.intendedRisk shouldBe BigDecimal("11.000")
+            result.quantity shouldBe BigDecimal("2.095")
+            gateway.leverageRequests.shouldContainExactly(listOf(Symbol("BTCUSDT") to BigDecimal("1.1")))
+            gateway.placedOrders.single().quantity shouldBe BigDecimal("2.095")
+        }
+
         "paused mode skips new entries before submitting" {
             val gateway = RecordingExecutionGateway()
             val service =
@@ -273,7 +319,15 @@ private class RecordingExecutionGateway(
             capturedAt = Instant.parse("2024-06-30T00:00:00Z"),
         ),
 ) : ExchangeExecutionGateway {
+    val leverageRequests = mutableListOf<Pair<Symbol, BigDecimal>>()
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
+
+    override suspend fun setLeverage(
+        symbol: Symbol,
+        leverage: BigDecimal,
+    ) {
+        leverageRequests += symbol to leverage
+    }
 
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
         placedOrders += request

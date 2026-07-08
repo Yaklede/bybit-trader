@@ -39,7 +39,14 @@ if (fs.existsSync(envFile)) {
   check("BYBIT_API_KEY is configured", envLineMatches(content, ["BYBIT_API_", "KEY"], ".{8,}"), "set Bybit key");
   check("BYBIT_API_SECRET is configured", envLineMatches(content, ["BYBIT_API_", "SECRET"], ".{16,}"), "set Bybit secret");
   check("private execution is enabled", /^BOT_PRIVATE_EXECUTION_ENABLED=true$/m.test(content), "set BOT_PRIVATE_EXECUTION_ENABLED=true");
-  check("max notional cap is configured", /^BOT_EXECUTION_MAX_NOTIONAL=[1-9][0-9]*(\.[0-9]+)?$/m.test(content), "set a numeric cap");
+  check("live account equity is enabled", /^BOT_EXECUTION_USE_LIVE_EQUITY=true$/m.test(content), "set BOT_EXECUTION_USE_LIVE_EQUITY=true");
+  const executionMaxNotional = numericEnvValue(content, "BOT_EXECUTION_MAX_NOTIONAL");
+  const executionLeverage = numericEnvValue(content, "BOT_EXECUTION_LEVERAGE");
+  check(
+    "execution has a compounding notional limiter",
+    (executionLeverage !== null && executionLeverage > 1) || (executionMaxNotional !== null && executionMaxNotional > 0),
+    "set BOT_EXECUTION_LEVERAGE or BOT_EXECUTION_MAX_NOTIONAL",
+  );
 }
 
 for (const item of checks) {
@@ -70,4 +77,11 @@ function checkCommand(name, command, args) {
 
 function envLineMatches(content, nameParts, valuePattern) {
   return new RegExp(`^${nameParts.join("")}=${valuePattern}$`, "m").test(content);
+}
+
+function numericEnvValue(content, key) {
+  const match = content.match(new RegExp(`^${key}=([^\\n]*)$`, "m"));
+  if (!match || !match[1].trim()) return null;
+  const value = Number(match[1].trim());
+  return Number.isFinite(value) ? value : null;
 }

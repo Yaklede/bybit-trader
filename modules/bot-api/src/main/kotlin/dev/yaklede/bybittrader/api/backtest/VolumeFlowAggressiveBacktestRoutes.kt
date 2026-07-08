@@ -42,6 +42,13 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     val riskFraction: Double? = null,
     val feeRate: Double? = null,
     val slippageRate: Double? = null,
+    val quantityStep: Double? = null,
+    val minQuantity: Double? = null,
+    val maxQuantity: Double? = null,
+    val maxNotional: Double? = null,
+    val leverage: Double? = null,
+    val liquidationBufferPct: Double? = null,
+    val sessionHoursUtc: Set<Int>? = null,
     val tradeLimit: Int = 50,
 ) {
     fun validated(): VolumeFlowAggressiveCurrentBacktestRequest {
@@ -58,6 +65,10 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             "Replay end timestamp must be after replay start timestamp."
         }
         require(tradeLimit in 0..10_000) { "Trade limit must be between 0 and 10000." }
+        require(sessionHoursUtc == null || sessionHoursUtc.isNotEmpty()) { "Session hours must not be empty." }
+        require(sessionHoursUtc == null || sessionHoursUtc.all { it in 0..23 }) {
+            "Session hours must be between 0 and 23."
+        }
         toConfig()
         return this
     }
@@ -73,6 +84,13 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             riskFraction = riskFraction ?: base.riskFraction,
             feeRate = feeRate ?: base.feeRate,
             slippageRate = slippageRate ?: base.slippageRate,
+            quantityStep = quantityStep ?: base.quantityStep,
+            minQuantity = minQuantity ?: base.minQuantity,
+            maxQuantity = maxQuantity ?: base.maxQuantity,
+            maxNotional = maxNotional ?: base.maxNotional,
+            leverage = leverage ?: base.leverage,
+            liquidationBufferPct = liquidationBufferPct ?: base.liquidationBufferPct,
+            sessionHoursUtc = sessionHoursUtc ?: base.sessionHoursUtc,
         )
     }
 }
@@ -98,6 +116,7 @@ data class VolumeFlowAggressiveBacktestResponse(
     val activeDays: Int,
     val observedDays: Int,
     val activeDayCoveragePct: Double,
+    val skippedSignalCount: Int,
     val wins: Int,
     val losses: Int,
     val winRatePct: Double,
@@ -117,6 +136,8 @@ data class VolumeFlowAggressiveTradeResponse(
     val exitPrice: Double,
     val riskPerUnit: Double,
     val riskFraction: Double,
+    val quantity: Double,
+    val notional: Double,
     val stopAtr: Double,
     val targetR: Double,
     val rMultipleGross: Double,
@@ -148,6 +169,7 @@ private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): Volu
         activeDays = activeDays,
         observedDays = observedDays,
         activeDayCoveragePct = activeDayCoveragePct,
+        skippedSignalCount = skippedSignalCount,
         wins = wins,
         losses = losses,
         winRatePct = winRatePct,
@@ -167,6 +189,8 @@ private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressive
         exitPrice = exitPrice,
         riskPerUnit = riskPerUnit,
         riskFraction = riskFraction,
+        quantity = quantity,
+        notional = notional,
         stopAtr = stopAtr,
         targetR = targetR,
         rMultipleGross = rMultipleGross,

@@ -165,8 +165,9 @@ class ExchangeExecutionService(
 
         val entryPrice = candles.last().close
         val riskPerUnit = entryPrice.subtract(signal.invalidationPrice.value).abs()
-        val intendedRisk = config.accountEquity.multiply(config.riskFraction, MathContext.DECIMAL64)
-        val sizing = calculateSizing(entryPrice, riskPerUnit, intendedRisk)
+        val accountEquity = executionAccountEquity()
+        val intendedRisk = accountEquity.multiply(config.riskFraction, MathContext.DECIMAL64)
+        val sizing = calculateSizing(entryPrice, riskPerUnit, intendedRisk, accountEquity)
         if (sizing == null) {
             val rejectedSignalId =
                 tradingStore.recordSignal(
@@ -209,6 +210,7 @@ class ExchangeExecutionService(
                 ),
             )
         val clientOrderId = clientOrderId(symbol = symbol, side = signal.side, now = now, signalId = signalId)
+        syncLeverage(symbol)
         val orderResult =
             gateway.placeOrder(
                 ExchangeOrderRequest(
@@ -345,6 +347,7 @@ class ExchangeExecutionService(
             side.name,
             quantity.toPlainString(),
         )
+        syncLeverage(symbol)
         val orderResult =
             gateway.placeOrder(
                 ExchangeOrderRequest(
@@ -466,6 +469,9 @@ class ExchangeExecutionService(
             quantity.toPlainString(),
             reduceOnly,
         )
+        if (!reduceOnly) {
+            syncLeverage(symbol)
+        }
         val orderResult =
             gateway.placeOrder(
                 ExchangeOrderRequest(
@@ -514,6 +520,21 @@ class ExchangeExecutionService(
         )
     }
 
+    private suspend fun syncLeverage(symbol: Symbol) {
+        val leverage = config.leverage ?: return
+        logger.info(
+            "execution leverage sync requested symbol={} leverage={}",
+            symbol.value,
+            leverage.toPlainString(),
+        )
+        gateway.setLeverage(symbol, leverage)
+        logger.info(
+            "execution leverage sync completed symbol={} leverage={}",
+            symbol.value,
+            leverage.toPlainString(),
+        )
+    }
+
     private suspend fun SignalIntent.isDuplicate(): Boolean {
         val signalKey = score.reasonCodes.firstOrNull { it.startsWith(SIGNAL_KEY_PREFIX) } ?: return false
         return tradingStore
@@ -531,17 +552,39 @@ class ExchangeExecutionService(
         entryPrice: BigDecimal,
         riskPerUnit: BigDecimal,
         intendedRisk: BigDecimal,
+        accountEquity: BigDecimal,
     ): Sizing? {
         if (riskPerUnit <= BigDecimal.ZERO) return null
         var quantity = intendedRisk.divide(riskPerUnit, MathContext.DECIMAL64).floorToStep(config.quantityStep)
         config.maxQuantity?.let { maxQuantity ->
             if (quantity > maxQuantity) quantity = maxQuantity.floorToStep(config.quantityStep)
         }
+        config.leverage?.let { leverage ->
+            val maxNotionalByLeverage = accountEquity.multiply(leverage, MathContext.DECIMAL64)
+            val maxQuantityByLeverage = maxNotionalByLeverage.divide(entryPrice, MathContext.DECIMAL64).floorToStep(config.quantityStep)
+            if (quantity > maxQuantityByLeverage) quantity = maxQuantityByLeverage
+        }
         config.maxNotional?.let { maxNotional ->
             val maxQuantityByNotional = maxNotional.divide(entryPrice, MathContext.DECIMAL64).floorToStep(config.quantityStep)
             if (quantity > maxQuantityByNotional) quantity = maxQuantityByNotional
         }
         return if (quantity >= config.minQuantity) Sizing(quantity = quantity) else null
+    }
+
+    private suspend fun executionAccountEquity(): BigDecimal {
+        if (!config.useLiveAccountEquity) return config.accountEquity
+        val balance = gateway.accountBalance("USDT")
+        val liveEquity =
+            balance.totalEquity
+                ?: balance.totalWalletBalance
+                ?: balance.coins.firstOrNull { it.coin.equals("USDT", ignoreCase = true) }?.equity
+        if (liveEquity != null && liveEquity > BigDecimal.ZERO) return liveEquity
+        logger.warn(
+            "execution live account equity unavailable accountType={} fallbackEquity={}",
+            balance.accountType,
+            config.accountEquity.toPlainString(),
+        )
+        return config.accountEquity
     }
 
     private fun calculateTakeProfit(

@@ -36,6 +36,72 @@ class VolumeFlowAggressiveBacktestServiceTest :
             (result.compoundDailyReturnPct > 0.0) shouldBe true
         }
 
+        "applies execution notional and quantity limits to aggressive trades" {
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config =
+                        VolumeFlowAggressiveProfiles
+                            .finalUsV1()
+                            .copy(
+                                initialEquity = 660.0,
+                                quantityStep = 0.001,
+                                minQuantity = 0.001,
+                                maxNotional = 100.0,
+                            ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.skippedSignalCount shouldBe 0
+            (result.trades.single().notional <= 100.0) shouldBe true
+            (result.trades.single().quantity >= 0.001) shouldBe true
+        }
+
+        "skips aggressive trades below the minimum execution quantity" {
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config =
+                        VolumeFlowAggressiveProfiles
+                            .finalUsV1()
+                            .copy(
+                                initialEquity = 100.0,
+                                quantityStep = 0.001,
+                                minQuantity = 0.001,
+                                maxNotional = 0.01,
+                            ),
+                )
+
+            result.tradeCount shouldBe 0
+            (result.skippedSignalCount > 0) shouldBe true
+        }
+
+        "marks aggressive exits as liquidation when leverage leaves less room than the stop" {
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config =
+                        VolumeFlowAggressiveProfiles
+                            .finalUsV1()
+                            .copy(
+                                leverage = 100.0,
+                                liquidationBufferPct = 2.0,
+                            ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.LIQUIDATION
+        }
+
         "can block aggressive entries by side regime rules" {
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
             val blockedConfig =

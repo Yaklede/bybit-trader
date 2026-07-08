@@ -49,6 +49,28 @@ class BybitPrivateClient(
         require(config.baseUrl.isNotBlank()) { "Bybit private base URL must not be blank." }
     }
 
+    override suspend fun setLeverage(
+        symbol: Symbol,
+        leverage: BigDecimal,
+    ) {
+        val leverageValue = leverage.stripTrailingZeros().toPlainString()
+        val body =
+            privateJson.encodeToString(
+                BybitSetLeverageBody(
+                    category = config.category.apiValue,
+                    symbol = symbol.value,
+                    buyLeverage = leverageValue,
+                    sellLeverage = leverageValue,
+                ),
+            )
+        val response =
+            signedPost<BybitSetLeverageResponse>(
+                path = "/v5/position/set-leverage",
+                body = body,
+            )
+        response.requireSuccess("set leverage", toleratedCodes = setOf(110043))
+    }
+
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
         val body =
             privateJson.encodeToString(
@@ -265,8 +287,11 @@ private fun bybitQueryString(vararg params: Pair<String, String?>): String =
         .filter { (_, value) -> !value.isNullOrBlank() }
         .joinToString("&") { (key, value) -> "$key=$value" }
 
-private fun BybitOrderResponse.requireSuccess(action: String) {
-    if (retCode != 0) {
+private fun BybitOrderResponse.requireSuccess(
+    action: String,
+    toleratedCodes: Set<Int> = emptySet(),
+) {
+    if (retCode != 0 && retCode !in toleratedCodes) {
         throw ExchangeExecutionException(
             message = "Bybit $action failed with code $retCode.",
             providerCode = retCode.toString(),
@@ -406,6 +431,14 @@ private interface BybitOrderResponse {
 }
 
 @Serializable
+private data class BybitSetLeverageBody(
+    val category: String,
+    val symbol: String,
+    val buyLeverage: String,
+    val sellLeverage: String,
+)
+
+@Serializable
 private data class BybitPlaceOrderBody(
     val category: String,
     val symbol: String,
@@ -441,6 +474,12 @@ private data class BybitCancelOrderResponse(
     override val retCode: Int,
     override val retMsg: String,
     val result: BybitOrderIdResult? = null,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitSetLeverageResponse(
+    override val retCode: Int,
+    override val retMsg: String,
 ) : BybitOrderResponse
 
 @Serializable

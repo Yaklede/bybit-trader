@@ -10,6 +10,12 @@ data class VolumeFlowAggressiveBacktestConfig(
     val riskFraction: Double = 0.055,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val quantityStep: Double? = null,
+    val minQuantity: Double? = null,
+    val maxQuantity: Double? = null,
+    val maxNotional: Double? = null,
+    val leverage: Double? = null,
+    val liquidationBufferPct: Double = 0.6,
     val sessionHoursUtc: Set<Int> = setOf(13, 14, 15, 16, 17, 18, 19, 20, 21),
     val volumeLookback: Int = 20,
     val atrLookback: Int = 20,
@@ -34,6 +40,15 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(riskFraction > 0.0 && riskFraction <= 0.20) { "Risk fraction must be between 0 and 0.20." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
+        require(quantityStep == null || quantityStep > 0.0) { "Quantity step must be positive." }
+        require(minQuantity == null || minQuantity > 0.0) { "Minimum quantity must be positive." }
+        require(maxQuantity == null || maxQuantity > 0.0) { "Maximum quantity must be positive." }
+        require(maxQuantity == null || minQuantity == null || maxQuantity >= minQuantity) {
+            "Maximum quantity must be greater than or equal to minimum quantity."
+        }
+        require(maxNotional == null || maxNotional > 0.0) { "Maximum notional must be positive." }
+        require(leverage == null || leverage > 1.0) { "Leverage must be greater than 1." }
+        require(liquidationBufferPct in 0.0..10.0) { "Liquidation buffer must be between 0 and 10 percent." }
         require(sessionHoursUtc.isNotEmpty()) { "Session hours must not be empty." }
         require(sessionHoursUtc.all { it in 0..23 }) { "Session hours must be between 0 and 23." }
         require(volumeLookback > 1) { "Volume lookback must be greater than 1." }
@@ -119,6 +134,7 @@ data class VolumeFlowAggressiveSideRegimeBlock(
 object VolumeFlowAggressiveProfiles {
     fun finalUsV1(): VolumeFlowAggressiveBacktestConfig =
         VolumeFlowAggressiveBacktestConfig(
+            sessionHoursUtc = setOf(13, 14, 15, 16, 17, 18, 19, 21),
             adaptiveStop =
                 VolumeFlowAggressiveAdaptiveStop(
                     stopAtr = 1.2,
@@ -205,6 +221,7 @@ data class VolumeFlowAggressiveBacktestReport(
     val activeDays: Int,
     val observedDays: Int,
     val activeDayCoveragePct: Double,
+    val skippedSignalCount: Int,
     val wins: Int,
     val losses: Int,
     val winRatePct: Double,
@@ -223,6 +240,8 @@ data class VolumeFlowAggressiveBacktestTrade(
     val exitPrice: Double,
     val riskPerUnit: Double,
     val riskFraction: Double,
+    val quantity: Double,
+    val notional: Double,
     val stopAtr: Double,
     val targetR: Double,
     val rMultipleGross: Double,

@@ -336,12 +336,14 @@ data class ExecutionLoopSettings(
 data class ExecutionSettings(
     val enabled: Boolean,
     val accountEquity: BigDecimal,
+    val useLiveAccountEquity: Boolean,
     val riskFraction: BigDecimal,
     val feeRate: BigDecimal,
     val quantityStep: BigDecimal,
     val minQuantity: BigDecimal,
     val maxQuantity: BigDecimal?,
     val maxNotional: BigDecimal?,
+    val leverage: BigDecimal?,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -357,6 +359,7 @@ data class ExecutionSettings(
             "Execution max quantity must be greater than or equal to min quantity."
         }
         require(maxNotional == null || maxNotional > BigDecimal.ZERO) { "Execution max notional must be positive." }
+        require(leverage == null || leverage > BigDecimal.ONE) { "Execution leverage must be greater than 1." }
     }
 
     companion object {
@@ -364,12 +367,14 @@ data class ExecutionSettings(
             ExecutionSettings(
                 enabled = environment["BOT_PRIVATE_EXECUTION_ENABLED"].toBooleanStrictOrFalse(),
                 accountEquity = environment["BOT_EXECUTION_ACCOUNT_EQUITY"]?.let(::BigDecimal) ?: BigDecimal("1000000"),
+                useLiveAccountEquity = environment["BOT_EXECUTION_USE_LIVE_EQUITY"].toBooleanStrictOrFalse(),
                 riskFraction = environment["BOT_EXECUTION_RISK_FRACTION"]?.let(::BigDecimal) ?: BigDecimal("0.055"),
                 feeRate = environment["BOT_EXECUTION_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0006"),
                 quantityStep = environment["BOT_EXECUTION_QTY_STEP"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
                 minQuantity = environment["BOT_EXECUTION_MIN_QTY"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
                 maxQuantity = environment["BOT_EXECUTION_MAX_QTY"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
                 maxNotional = environment["BOT_EXECUTION_MAX_NOTIONAL"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
+                leverage = environment["BOT_EXECUTION_LEVERAGE"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
             )
     }
 }

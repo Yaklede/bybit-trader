@@ -116,6 +116,38 @@ class BybitPrivateClientTest :
             result.clientOrderId shouldBe "client-1"
         }
 
+        "setLeverage submits the same buy and sell leverage" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/position/set-leverage"
+                    request.bodyAsText() shouldBe
+                        """{"category":"linear","symbol":"BTCUSDT","buyLeverage":"15","sellLeverage":"15"}"""
+
+                    respond(
+                        content = """{"retCode":0,"retMsg":"OK"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            client.setLeverage(Symbol("BTCUSDT"), BigDecimal("15.0"))
+        }
+
+        "setLeverage treats unchanged leverage as successful" {
+            val engine =
+                MockEngine {
+                    respond(
+                        content = """{"retCode":110043,"retMsg":"leverage not modified"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            client.setLeverage(Symbol("BTCUSDT"), BigDecimal("15"))
+        }
+
         "reconcile methods map Bybit open orders positions and executions" {
             val requestedPaths = mutableListOf<String>()
             val engine =

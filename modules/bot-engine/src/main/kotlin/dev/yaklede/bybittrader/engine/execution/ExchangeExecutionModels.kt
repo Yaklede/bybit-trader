@@ -11,12 +11,14 @@ import java.time.Instant
 data class ExchangeExecutionConfig(
     val enabled: Boolean = false,
     val accountEquity: BigDecimal = BigDecimal("1000000"),
+    val useLiveAccountEquity: Boolean = false,
     val riskFraction: BigDecimal = BigDecimal("0.055"),
     val feeRate: BigDecimal = BigDecimal("0.0006"),
     val quantityStep: BigDecimal = BigDecimal("0.001"),
     val minQuantity: BigDecimal = BigDecimal("0.001"),
     val maxQuantity: BigDecimal? = null,
     val maxNotional: BigDecimal? = null,
+    val leverage: BigDecimal? = null,
     val duplicateSignalLookback: Int = 50,
 ) {
     init {
@@ -33,6 +35,7 @@ data class ExchangeExecutionConfig(
             "Execution max quantity must be greater than or equal to min quantity."
         }
         require(maxNotional == null || maxNotional > BigDecimal.ZERO) { "Execution max notional must be positive." }
+        require(leverage == null || leverage > BigDecimal.ONE) { "Execution leverage must be greater than 1." }
         require(duplicateSignalLookback in 1..100) { "Duplicate signal lookback must be between 1 and 100." }
     }
 }
@@ -190,6 +193,11 @@ enum class ExchangeEvaluationStatus {
 }
 
 interface ExchangeExecutionGateway {
+    suspend fun setLeverage(
+        symbol: Symbol,
+        leverage: BigDecimal,
+    )
+
     suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult
 
     suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult

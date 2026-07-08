@@ -1423,8 +1423,16 @@ private class RecordingExecutionGateway(
             capturedAt = Instant.parse("2026-06-30T00:00:00Z"),
         ),
 ) : ExchangeExecutionGateway {
+    val leverageRequests = mutableListOf<Pair<Symbol, BigDecimal>>()
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
     val cancelledOrders = mutableListOf<ExchangeCancelRequest>()
+
+    override suspend fun setLeverage(
+        symbol: Symbol,
+        leverage: BigDecimal,
+    ) {
+        leverageRequests += symbol to leverage
+    }
 
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
         placedOrders += request
@@ -1453,6 +1461,11 @@ private class RecordingExecutionGateway(
 }
 
 private class FailingExecutionGateway : ExchangeExecutionGateway {
+    override suspend fun setLeverage(
+        symbol: Symbol,
+        leverage: BigDecimal,
+    ): Unit = throw providerFailure()
+
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult = throw providerFailure()
 
     override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult = throw providerFailure()
