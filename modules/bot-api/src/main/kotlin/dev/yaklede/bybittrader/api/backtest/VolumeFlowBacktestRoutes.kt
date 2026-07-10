@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api.backtest
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.OrderBookImbalanceDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.TakerFlowDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestReport
@@ -128,6 +129,9 @@ data class VolumeFlowBacktestRequest(
     val flowLookbackM1Candles: Int = 5,
     val takerFlowDirectionMode: String = "ALIGN_WITH_SIDE",
     val minDirectionalTakerImbalance: Double? = null,
+    val orderBookImbalanceDirectionMode: String = "ALIGN_WITH_SIDE",
+    val minDirectionalOrderBookImbalance: Double? = null,
+    val maxMeanOrderBookSpreadBps: Double? = null,
     val minOpenInterestChangePct: Double? = null,
     val openInterestLookbackSnapshots: Int = 3,
     val maxAbsPremiumIndex: Double? = null,
@@ -142,6 +146,7 @@ data class VolumeFlowBacktestRequest(
         VolumeFlowExitMode.valueOf(exitMode)
         VolumeFlowSideMode.valueOf(sideMode)
         TakerFlowDirectionMode.valueOf(takerFlowDirectionMode)
+        OrderBookImbalanceDirectionMode.valueOf(orderBookImbalanceDirectionMode)
         allowedMarketRegimes?.forEach(VolumeFlowMarketRegime::valueOf)
         val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
         require(parsedSetupTimeframe == Timeframe.M1 || parsedSetupTimeframe == Timeframe.M5) {
@@ -245,6 +250,9 @@ data class VolumeFlowBacktestRequest(
             flowLookbackM1Candles = flowLookbackM1Candles,
             takerFlowDirectionMode = TakerFlowDirectionMode.valueOf(takerFlowDirectionMode),
             minDirectionalTakerImbalance = minDirectionalTakerImbalance,
+            orderBookImbalanceDirectionMode = OrderBookImbalanceDirectionMode.valueOf(orderBookImbalanceDirectionMode),
+            minDirectionalOrderBookImbalance = minDirectionalOrderBookImbalance,
+            maxMeanOrderBookSpreadBps = maxMeanOrderBookSpreadBps,
             minOpenInterestChangePct = minOpenInterestChangePct,
             openInterestLookbackSnapshots = openInterestLookbackSnapshots,
             maxAbsPremiumIndex = maxAbsPremiumIndex,
@@ -375,6 +383,8 @@ data class VolumeFlowTradeResponse(
     val setupBodyRatio: Double,
     val setupCloseLocation: Double,
     val directionalTakerImbalance: Double?,
+    val directionalOrderBookImbalance: Double?,
+    val meanOrderBookSpreadBps: Double?,
     val openInterestChangePct: Double?,
     val premiumIndex: Double?,
     val fundingRate: Double?,
@@ -501,6 +511,8 @@ private fun VolumeFlowBacktestTrade.toResponse(): VolumeFlowTradeResponse =
         setupBodyRatio = setupBodyRatio.roundForApi(),
         setupCloseLocation = setupCloseLocation.roundForApi(),
         directionalTakerImbalance = flowMetrics?.directionalTakerImbalance?.roundForApi(),
+        directionalOrderBookImbalance = flowMetrics?.directionalOrderBookImbalance?.roundForApi(),
+        meanOrderBookSpreadBps = flowMetrics?.meanOrderBookSpreadBps?.roundForApi(),
         openInterestChangePct = flowMetrics?.openInterestChangePct?.roundForApi(),
         premiumIndex = flowMetrics?.premiumIndex?.roundForApi(),
         fundingRate = flowMetrics?.fundingRate?.roundForApi(),

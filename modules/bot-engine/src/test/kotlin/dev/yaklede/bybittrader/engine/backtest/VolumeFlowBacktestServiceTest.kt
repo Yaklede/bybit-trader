@@ -5,6 +5,9 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStore
+import dev.yaklede.bybittrader.engine.market.capture.LiquidationFlowBar
+import dev.yaklede.bybittrader.engine.market.capture.OrderBookImbalanceBar
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
@@ -147,6 +150,18 @@ class VolumeFlowBacktestServiceTest :
                 )
             }.message shouldBe
                 "Flow lookback M1 candles must be a multiple of 5 when taker flow filtering is enabled."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(
+                    flowLookbackM1Candles = 6,
+                    minDirectionalOrderBookImbalance = 0.5,
+                )
+            }.message shouldBe
+                "Flow lookback M1 candles must be a multiple of 5 when order book flow filtering is enabled."
+
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(maxMeanOrderBookSpreadBps = -0.1)
+            }.message shouldBe "Maximum mean order book spread must be null or non-negative."
 
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowCompositeBacktestConfig(
@@ -454,6 +469,108 @@ class VolumeFlowBacktestServiceTest :
             duplicateMinuteResult.noTradeReasonCounts["MISSING_TAKER_FLOW"] shouldBe 1
         }
 
+        "requires complete, directional, and tight-spread order book flow" {
+            val passingStore = InMemoryForwardMarketCaptureStore(orderBookBars = alignedOrderBookBars())
+            val passingResult =
+                VolumeFlowBacktestService(
+                    candleStore = InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    forwardMarketCaptureStore = passingStore,
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            minDirectionalOrderBookImbalance = 0.5,
+                            maxMeanOrderBookSpreadBps = 4.0,
+                        ),
+                )
+            val oppositeResult =
+                VolumeFlowBacktestService(
+                    candleStore = InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    forwardMarketCaptureStore =
+                        InMemoryForwardMarketCaptureStore(
+                            orderBookBars = oppositeOrderBookBars(),
+                        ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalOrderBookImbalance = 0.5),
+                )
+            val wideSpreadResult =
+                VolumeFlowBacktestService(
+                    candleStore = InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    forwardMarketCaptureStore =
+                        InMemoryForwardMarketCaptureStore(
+                            orderBookBars = alignedOrderBookBars(meanSpreadBps = "6"),
+                        ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxMeanOrderBookSpreadBps = 4.0),
+                )
+
+            passingResult.tradeCount shouldBe 1
+            passingResult
+                .trades
+                .single()
+                .flowMetrics
+                ?.directionalOrderBookImbalance shouldBe 0.6
+            passingResult
+                .trades
+                .single()
+                .flowMetrics
+                ?.meanOrderBookSpreadBps shouldBe 3.0
+            passingStore.orderBookBetweenCalls shouldBe 1
+            oppositeResult.noTradeReasonCounts["DIRECTIONAL_ORDER_BOOK_IMBALANCE_LOW"] shouldBe 1
+            wideSpreadResult.noTradeReasonCounts["ORDER_BOOK_SPREAD_TOO_WIDE"] shouldBe 1
+        }
+
+        "rejects incomplete or duplicate M1 order book flow" {
+            val bucketOpenedAt = Instant.parse("2026-06-30T01:00:00Z")
+            val missingMinuteResult =
+                VolumeFlowBacktestService(
+                    candleStore = InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    forwardMarketCaptureStore =
+                        InMemoryForwardMarketCaptureStore(
+                            orderBookBars =
+                                (0 until 4).map { index ->
+                                    orderBookBar(bucketOpenedAt.plusSeconds(index * 60L))
+                                },
+                        ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalOrderBookImbalance = 0.5),
+                )
+            val duplicateMinuteResult =
+                VolumeFlowBacktestService(
+                    candleStore = InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    forwardMarketCaptureStore =
+                        InMemoryForwardMarketCaptureStore(
+                            orderBookBars =
+                                alignedOrderBookBars() +
+                                    orderBookBar(bucketOpenedAt.plusSeconds(180L)),
+                        ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalOrderBookImbalance = 0.5),
+                )
+
+            missingMinuteResult.noTradeReasonCounts["MISSING_ORDER_BOOK_FLOW"] shouldBe 1
+            duplicateMinuteResult.noTradeReasonCounts["MISSING_ORDER_BOOK_FLOW"] shouldBe 1
+        }
+
         "pages flow context beyond the store page limit" {
             val startAt = Instant.parse("2026-06-22T00:00:00Z")
             val setupCandles =
@@ -533,6 +650,44 @@ class VolumeFlowBacktestServiceTest :
 
             decision.reason shouldBe null
             decision.metrics?.directionalTakerImbalance shouldBe 0.6
+            bucketLookup.getCalls shouldBe 2
+        }
+
+        "uses bounded completed M5 order book lookups without future flow" {
+            val bucketOpenedAt = Instant.parse("2026-06-30T01:00:00Z")
+            val previousBucketOpenedAt = bucketOpenedAt.minusSeconds(300L)
+            val futureBucketOpenedAt = bucketOpenedAt.plusSeconds(300L)
+            val bucketLookup =
+                ExactLookupOnlyMap(
+                    mapOf(
+                        previousBucketOpenedAt to completeOrderBookBucket(previousBucketOpenedAt),
+                        bucketOpenedAt to completeOrderBookBucket(bucketOpenedAt),
+                        futureBucketOpenedAt to completeOrderBookBucket(futureBucketOpenedAt, meanImbalance = -0.9),
+                    ),
+                )
+            val context =
+                VolumeFlowBacktestFlowContext(
+                    takerFlowBuckets = emptyMap(),
+                    openInterestSnapshots = emptyList(),
+                    premiumIndexBars = emptyList(),
+                    fundingRateSnapshots = emptyList(),
+                    orderBookBuckets = bucketLookup,
+                )
+
+            val decision =
+                context.evaluate(
+                    setupCandle = volumeFlowM5Candles().first { it.openedAt == bucketOpenedAt },
+                    setupClosedAt = Instant.parse("2026-06-30T01:05:00Z"),
+                    side = Side.BUY,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            flowLookbackM1Candles = 10,
+                            minDirectionalOrderBookImbalance = 0.5,
+                        ),
+                )
+
+            decision.reason shouldBe null
+            decision.metrics?.directionalOrderBookImbalance shouldBe 0.6
             bucketLookup.getCalls shouldBe 2
         }
 
@@ -2017,6 +2172,46 @@ private class InMemoryVolumeFlowDataStore(
             .take(limit)
 }
 
+private class InMemoryForwardMarketCaptureStore(
+    private val orderBookBars: List<OrderBookImbalanceBar> = emptyList(),
+) : ForwardMarketCaptureStore {
+    var orderBookBetweenCalls: Int = 0
+        private set
+
+    override suspend fun upsertOrderBookImbalanceBars(bars: List<OrderBookImbalanceBar>) = Unit
+
+    override suspend fun orderBookImbalanceBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<OrderBookImbalanceBar> {
+        orderBookBetweenCalls += 1
+        return orderBookBars
+            .filter { it.symbol == symbol && !it.openedAt.isBefore(startAt) && !it.openedAt.isAfter(endAt) }
+            .sortedBy { it.openedAt }
+            .take(limit)
+    }
+
+    override suspend fun upsertLiquidationFlowBars(bars: List<LiquidationFlowBar>) = Unit
+
+    override suspend fun liquidationFlowBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<LiquidationFlowBar> = emptyList()
+
+    override suspend fun upsertTakerFlowBars(bars: List<TakerFlowBar>) = Unit
+
+    override suspend fun takerFlowBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<TakerFlowBar> = emptyList()
+}
+
 private class ExactLookupOnlyMap<K, V>(
     private val delegate: Map<K, V>,
 ) : Map<K, V> {
@@ -2062,6 +2257,21 @@ private fun completeTakerFlowBucket(
         minuteRecordCount = 5,
     )
 
+private fun completeOrderBookBucket(
+    openedAt: Instant,
+    meanImbalance: Double = 0.6,
+    meanSpreadBps: Double = 3.0,
+): OrderBookM5Bucket =
+    OrderBookM5Bucket(
+        openedAt = openedAt,
+        sampleCount = 50L,
+        meanImbalance = meanImbalance,
+        meanSpreadBps = meanSpreadBps,
+        maxSpreadBps = meanSpreadBps + 1.0,
+        minuteCoverageMask = FULL_TAKER_FLOW_M5_MINUTE_COVERAGE_MASK,
+        minuteRecordCount = 5,
+    )
+
 private fun alignedTakerFlowBars(): List<TakerFlowBar> =
     (0 until 5).map { index ->
         takerFlowBar(Instant.parse("2026-06-30T01:00:00Z").plusSeconds(index * 60L), "80", "20")
@@ -2071,6 +2281,40 @@ private fun oppositeTakerFlowBars(): List<TakerFlowBar> =
     (0 until 5).map { index ->
         takerFlowBar(Instant.parse("2026-06-30T01:00:00Z").plusSeconds(index * 60L), "20", "80")
     }
+
+private fun alignedOrderBookBars(meanSpreadBps: String = "3"): List<OrderBookImbalanceBar> =
+    (0 until 5).map { index ->
+        orderBookBar(
+            openedAt = Instant.parse("2026-06-30T01:00:00Z").plusSeconds(index * 60L),
+            meanImbalance = "0.6",
+            meanSpreadBps = meanSpreadBps,
+        )
+    }
+
+private fun oppositeOrderBookBars(): List<OrderBookImbalanceBar> =
+    (0 until 5).map { index ->
+        orderBookBar(
+            openedAt = Instant.parse("2026-06-30T01:00:00Z").plusSeconds(index * 60L),
+            meanImbalance = "-0.6",
+            meanSpreadBps = "3",
+        )
+    }
+
+private fun orderBookBar(
+    openedAt: Instant,
+    meanImbalance: String = "0.6",
+    meanSpreadBps: String = "3",
+): OrderBookImbalanceBar =
+    OrderBookImbalanceBar(
+        symbol = Symbol("BTCUSDT"),
+        openedAt = openedAt,
+        sampleCount = 10,
+        meanBidNotional = BigDecimal("800"),
+        meanAskNotional = BigDecimal("200"),
+        meanImbalance = BigDecimal(meanImbalance),
+        meanSpreadBps = BigDecimal(meanSpreadBps),
+        maxSpreadBps = BigDecimal(meanSpreadBps).plus(BigDecimal.ONE),
+    )
 
 private fun takerFlowBar(
     openedAt: Instant,

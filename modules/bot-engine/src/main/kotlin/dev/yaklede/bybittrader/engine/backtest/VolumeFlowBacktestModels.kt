@@ -92,6 +92,9 @@ data class VolumeFlowBacktestConfig(
     val flowLookbackM1Candles: Int = 5,
     val takerFlowDirectionMode: TakerFlowDirectionMode = TakerFlowDirectionMode.ALIGN_WITH_SIDE,
     val minDirectionalTakerImbalance: Double? = null,
+    val orderBookImbalanceDirectionMode: OrderBookImbalanceDirectionMode = OrderBookImbalanceDirectionMode.ALIGN_WITH_SIDE,
+    val minDirectionalOrderBookImbalance: Double? = null,
+    val maxMeanOrderBookSpreadBps: Double? = null,
     val minOpenInterestChangePct: Double? = null,
     val openInterestLookbackSnapshots: Int = 3,
     val maxAbsPremiumIndex: Double? = null,
@@ -335,6 +338,18 @@ data class VolumeFlowBacktestConfig(
         require(minDirectionalTakerImbalance == null || minDirectionalTakerImbalance in 0.0..1.0) {
             "Minimum directional taker imbalance must be null or between 0 and 1."
         }
+        require(
+            !orderBookFlowFiltersEnabled() ||
+                flowLookbackM1Candles % 5 == 0,
+        ) {
+            "Flow lookback M1 candles must be a multiple of 5 when order book flow filtering is enabled."
+        }
+        require(minDirectionalOrderBookImbalance == null || minDirectionalOrderBookImbalance in 0.0..1.0) {
+            "Minimum directional order book imbalance must be null or between 0 and 1."
+        }
+        require(maxMeanOrderBookSpreadBps == null || maxMeanOrderBookSpreadBps >= 0.0) {
+            "Maximum mean order book spread must be null or non-negative."
+        }
         require(minOpenInterestChangePct == null || minOpenInterestChangePct > 0.0) {
             "Minimum open interest change percent must be null or positive."
         }
@@ -359,11 +374,16 @@ data class VolumeFlowBacktestConfig(
     }
 }
 
-fun VolumeFlowBacktestConfig.flowFiltersEnabled(): Boolean =
+fun VolumeFlowBacktestConfig.flowFiltersEnabled(): Boolean = historicalFlowFiltersEnabled() || orderBookFlowFiltersEnabled()
+
+fun VolumeFlowBacktestConfig.historicalFlowFiltersEnabled(): Boolean =
     minDirectionalTakerImbalance != null ||
         minOpenInterestChangePct != null ||
         maxAbsPremiumIndex != null ||
         maxAbsFundingRate != null
+
+fun VolumeFlowBacktestConfig.orderBookFlowFiltersEnabled(): Boolean =
+    minDirectionalOrderBookImbalance != null || maxMeanOrderBookSpreadBps != null
 
 val defaultVolumeFlowMarketRegimes: Set<VolumeFlowMarketRegime> =
     setOf(
@@ -400,6 +420,11 @@ enum class VolumeFlowExitMode {
 }
 
 enum class TakerFlowDirectionMode {
+    ALIGN_WITH_SIDE,
+    OPPOSE_SIDE,
+}
+
+enum class OrderBookImbalanceDirectionMode {
     ALIGN_WITH_SIDE,
     OPPOSE_SIDE,
 }
@@ -547,6 +572,8 @@ data class VolumeFlowBacktestTrade(
 
 data class VolumeFlowFilterMetrics(
     val directionalTakerImbalance: Double?,
+    val directionalOrderBookImbalance: Double?,
+    val meanOrderBookSpreadBps: Double?,
     val openInterestChangePct: Double?,
     val premiumIndex: Double?,
     val fundingRate: Double?,

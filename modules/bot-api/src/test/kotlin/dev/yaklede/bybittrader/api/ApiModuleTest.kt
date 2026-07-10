@@ -16,6 +16,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
+import dev.yaklede.bybittrader.engine.backtest.OrderBookImbalanceDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.TakerFlowDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
@@ -89,6 +90,9 @@ class ApiModuleTest :
                     symbol = "BTCUSDT",
                     minDirectionalTakerImbalance = 0.55,
                     takerFlowDirectionMode = "OPPOSE_SIDE",
+                    minDirectionalOrderBookImbalance = 0.45,
+                    orderBookImbalanceDirectionMode = "OPPOSE_SIDE",
+                    maxMeanOrderBookSpreadBps = 4.5,
                     minOpenInterestChangePct = 2.5,
                     openInterestLookbackSnapshots = 4,
                     maxAbsPremiumIndex = 0.01,
@@ -113,6 +117,9 @@ class ApiModuleTest :
 
             singleConfig.takerFlowDirectionMode shouldBe TakerFlowDirectionMode.OPPOSE_SIDE
             singleConfig.minDirectionalTakerImbalance shouldBe 0.55
+            singleConfig.orderBookImbalanceDirectionMode shouldBe OrderBookImbalanceDirectionMode.OPPOSE_SIDE
+            singleConfig.minDirectionalOrderBookImbalance shouldBe 0.45
+            singleConfig.maxMeanOrderBookSpreadBps shouldBe 4.5
             singleConfig.minOpenInterestChangePct shouldBe 2.5
             singleConfig.openInterestLookbackSnapshots shouldBe 4
             singleConfig.maxAbsPremiumIndex shouldBe 0.01
@@ -124,6 +131,8 @@ class ApiModuleTest :
             legConfig.minOpenInterestChangePct shouldBe 2.5
             legConfig.maxFundingDataStalenessMinutes shouldBe 720
             defaultSingleConfig.maxFundingDataStalenessMinutes shouldBe 480
+            defaultSingleConfig.minDirectionalOrderBookImbalance shouldBe null
+            defaultSingleConfig.maxMeanOrderBookSpreadBps shouldBe null
             defaultLegConfig.maxFundingDataStalenessMinutes shouldBe 480
         }
 

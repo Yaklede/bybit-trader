@@ -8,6 +8,8 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStore
+import dev.yaklede.bybittrader.engine.market.capture.OrderBookImbalanceBar
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
@@ -26,6 +28,7 @@ import kotlin.math.sqrt
 class VolumeFlowBacktestService(
     private val candleStore: MarketCandleStore,
     private val flowMarketDataStore: FlowMarketDataStore? = candleStore as? FlowMarketDataStore,
+    private val forwardMarketCaptureStore: ForwardMarketCaptureStore? = candleStore as? ForwardMarketCaptureStore,
 ) {
     suspend fun run(
         symbol: Symbol,
@@ -376,9 +379,21 @@ class VolumeFlowBacktestService(
         replayEndAt: Instant? = null,
     ): VolumeFlowBacktestFlowContext? {
         if (!config.flowFiltersEnabled()) return null
-        val store =
-            requireNotNull(flowMarketDataStore) {
-                "Flow filters require a FlowMarketDataStore."
+        val historicalFlowStore =
+            if (config.historicalFlowFiltersEnabled()) {
+                requireNotNull(flowMarketDataStore) {
+                    "Historical flow filters require a FlowMarketDataStore."
+                }
+            } else {
+                null
+            }
+        val orderBookStore =
+            if (config.orderBookFlowFiltersEnabled()) {
+                requireNotNull(forwardMarketCaptureStore) {
+                    "Order book flow filters require a ForwardMarketCaptureStore."
+                }
+            } else {
+                null
             }
         require(config.setupTimeframe == Timeframe.M5) {
             "Flow filters currently require M5 setup timeframe."
@@ -389,6 +404,7 @@ class VolumeFlowBacktestService(
         val warmupMinutes =
             maxOf(
                 if (config.minDirectionalTakerImbalance != null) config.flowLookbackM1Candles.toLong() else 0L,
+                if (config.orderBookFlowFiltersEnabled()) config.flowLookbackM1Candles.toLong() else 0L,
                 if (config.minOpenInterestChangePct != null) {
                     maxOf(
                         config.openInterestLookbackSnapshots.toLong() * 5L,
@@ -407,33 +423,50 @@ class VolumeFlowBacktestService(
         val endAt = lastSetupClosedAt
         return VolumeFlowBacktestFlowContext(
             takerFlowBuckets =
-                loadTakerFlowBuckets(
-                    store = store,
-                    symbol = symbol,
-                    startAt = startAt,
-                    endAt = endAt,
-                ),
+                historicalFlowStore?.let { store ->
+                    loadTakerFlowBuckets(
+                        store = store,
+                        symbol = symbol,
+                        startAt = startAt,
+                        endAt = endAt,
+                    )
+                } ?: emptyMap(),
+            orderBookBuckets =
+                orderBookStore?.let { store ->
+                    loadOrderBookBuckets(
+                        store = store,
+                        symbol = symbol,
+                        startAt = startAt,
+                        endAt = endAt,
+                    )
+                } ?: emptyMap(),
             openInterestSnapshots =
-                loadOpenInterestSnapshots(
-                    store = store,
-                    symbol = symbol,
-                    startAt = startAt,
-                    endAt = endAt,
-                ),
+                historicalFlowStore?.let { store ->
+                    loadOpenInterestSnapshots(
+                        store = store,
+                        symbol = symbol,
+                        startAt = startAt,
+                        endAt = endAt,
+                    )
+                } ?: emptyList(),
             premiumIndexBars =
-                loadPremiumIndexBars(
-                    store = store,
-                    symbol = symbol,
-                    startAt = startAt,
-                    endAt = endAt,
-                ),
+                historicalFlowStore?.let { store ->
+                    loadPremiumIndexBars(
+                        store = store,
+                        symbol = symbol,
+                        startAt = startAt,
+                        endAt = endAt,
+                    )
+                } ?: emptyList(),
             fundingRateSnapshots =
-                loadFundingRateSnapshots(
-                    store = store,
-                    symbol = symbol,
-                    startAt = startAt,
-                    endAt = endAt,
-                ),
+                historicalFlowStore?.let { store ->
+                    loadFundingRateSnapshots(
+                        store = store,
+                        symbol = symbol,
+                        startAt = startAt,
+                        endAt = endAt,
+                    )
+                } ?: emptyList(),
         )
     }
 
@@ -1642,6 +1675,7 @@ internal class VolumeFlowBacktestFlowContext(
     openInterestSnapshots: List<OpenInterestSnapshot>,
     premiumIndexBars: List<PremiumIndexBar>,
     fundingRateSnapshots: List<FundingRateSnapshot>,
+    val orderBookBuckets: Map<Instant, OrderBookM5Bucket> = emptyMap(),
 ) {
     private val openInterestIndex = FlowAvailabilityIndex(openInterestSnapshots) { it.availableAt }
     private val premiumIndexBarIndex = FlowAvailabilityIndex(premiumIndexBars) { it.availableAt }
@@ -1654,6 +1688,8 @@ internal class VolumeFlowBacktestFlowContext(
         config: VolumeFlowBacktestConfig,
     ): FlowFilterDecision {
         var directionalImbalance: Double? = null
+        var directionalOrderBookImbalance: Double? = null
+        var meanOrderBookSpreadBps: Double? = null
         var openInterestChangePct: Double? = null
         var premiumIndex: Double? = null
         var fundingRate: Double? = null
@@ -1692,6 +1728,52 @@ internal class VolumeFlowBacktestFlowContext(
                 }
             if (directionalImbalance < minImbalance) {
                 return FlowFilterDecision("DIRECTIONAL_TAKER_IMBALANCE_LOW", null)
+            }
+        }
+
+        if (config.orderBookFlowFiltersEnabled()) {
+            var weightedImbalance = 0.0
+            var weightedSpreadBps = 0.0
+            var totalSampleCount = 0L
+            val requiredBucketCount = config.flowLookbackM1Candles / 5
+            for (bucketsBeforeDecision in 1..requiredBucketCount) {
+                val expectedOpenedAt = setupClosedAt.minus(Duration.ofMinutes(bucketsBeforeDecision * 5L))
+                val bucket =
+                    orderBookBuckets[expectedOpenedAt]
+                        ?: return FlowFilterDecision("MISSING_ORDER_BOOK_FLOW", null)
+                if (!bucket.hasCompleteMinuteCoverage || bucket.availableAt > setupClosedAt) {
+                    return FlowFilterDecision("MISSING_ORDER_BOOK_FLOW", null)
+                }
+                weightedImbalance += bucket.meanImbalance * bucket.sampleCount
+                weightedSpreadBps += bucket.meanSpreadBps * bucket.sampleCount
+                totalSampleCount += bucket.sampleCount
+            }
+            if (totalSampleCount <= 0L) {
+                return FlowFilterDecision("MISSING_ORDER_BOOK_FLOW", null)
+            }
+            val signedImbalance = weightedImbalance / totalSampleCount
+            directionalOrderBookImbalance =
+                when (side) {
+                    Side.BUY -> signedImbalance
+                    Side.SELL -> -signedImbalance
+                }
+            directionalOrderBookImbalance =
+                when (config.orderBookImbalanceDirectionMode) {
+                    OrderBookImbalanceDirectionMode.ALIGN_WITH_SIDE -> directionalOrderBookImbalance
+                    OrderBookImbalanceDirectionMode.OPPOSE_SIDE -> -directionalOrderBookImbalance
+                }
+            meanOrderBookSpreadBps = weightedSpreadBps / totalSampleCount
+            if (
+                config.minDirectionalOrderBookImbalance != null &&
+                directionalOrderBookImbalance < config.minDirectionalOrderBookImbalance
+            ) {
+                return FlowFilterDecision("DIRECTIONAL_ORDER_BOOK_IMBALANCE_LOW", null)
+            }
+            if (
+                config.maxMeanOrderBookSpreadBps != null &&
+                meanOrderBookSpreadBps > config.maxMeanOrderBookSpreadBps
+            ) {
+                return FlowFilterDecision("ORDER_BOOK_SPREAD_TOO_WIDE", null)
             }
         }
 
@@ -1750,6 +1832,8 @@ internal class VolumeFlowBacktestFlowContext(
             metrics =
                 VolumeFlowFilterMetrics(
                     directionalTakerImbalance = directionalImbalance,
+                    directionalOrderBookImbalance = directionalOrderBookImbalance,
+                    meanOrderBookSpreadBps = meanOrderBookSpreadBps,
                     openInterestChangePct = openInterestChangePct,
                     premiumIndex = premiumIndex,
                     fundingRate = fundingRate,
@@ -1803,6 +1887,57 @@ private data class MutableTakerFlowM5Bucket(
             takerSellNotional = takerSellNotional,
             buyTradeCount = buyTradeCount,
             sellTradeCount = sellTradeCount,
+            minuteCoverageMask = minuteCoverageMask,
+            minuteRecordCount = minuteRecordCount,
+        )
+}
+
+internal data class OrderBookM5Bucket(
+    val openedAt: Instant,
+    val sampleCount: Long,
+    val meanImbalance: Double,
+    val meanSpreadBps: Double,
+    val maxSpreadBps: Double,
+    val minuteCoverageMask: Int,
+    val minuteRecordCount: Int,
+) {
+    val availableAt: Instant
+        get() = openedAt.plus(Duration.ofMinutes(5))
+
+    val hasCompleteMinuteCoverage: Boolean
+        get() =
+            minuteCoverageMask == FULL_TAKER_FLOW_M5_MINUTE_COVERAGE_MASK &&
+                minuteRecordCount == TAKER_FLOW_MINUTES_PER_M5_BUCKET
+}
+
+private data class MutableOrderBookM5Bucket(
+    val openedAt: Instant,
+    var sampleCount: Long = 0L,
+    var weightedImbalance: Double = 0.0,
+    var weightedSpreadBps: Double = 0.0,
+    var maxSpreadBps: Double = 0.0,
+    var minuteCoverageMask: Int = 0,
+    var minuteRecordCount: Int = 0,
+) {
+    fun add(bar: OrderBookImbalanceBar) {
+        val barSampleCount = bar.sampleCount.toLong()
+        sampleCount += barSampleCount
+        weightedImbalance += bar.meanImbalance.toDouble() * barSampleCount
+        weightedSpreadBps += bar.meanSpreadBps.toDouble() * barSampleCount
+        maxSpreadBps = maxOf(maxSpreadBps, bar.maxSpreadBps.toDouble())
+        minuteRecordCount += 1
+        bar.openedAt.minuteCoverageBitWithin(openedAt)?.let { minuteBit ->
+            minuteCoverageMask = minuteCoverageMask or minuteBit
+        }
+    }
+
+    fun immutable(): OrderBookM5Bucket =
+        OrderBookM5Bucket(
+            openedAt = openedAt,
+            sampleCount = sampleCount,
+            meanImbalance = if (sampleCount == 0L) 0.0 else weightedImbalance / sampleCount,
+            meanSpreadBps = if (sampleCount == 0L) 0.0 else weightedSpreadBps / sampleCount,
+            maxSpreadBps = maxSpreadBps,
             minuteCoverageMask = minuteCoverageMask,
             minuteRecordCount = minuteRecordCount,
         )
@@ -1863,6 +1998,35 @@ private suspend fun loadTakerFlowBuckets(
         page.forEach { bar ->
             val bucketOpenedAt = bar.openedAt.toM5BucketOpenedAt()
             val bucket = buckets.getOrPut(bucketOpenedAt) { MutableTakerFlowM5Bucket(bucketOpenedAt) }
+            bucket.add(bar)
+        }
+        val lastOpenedAt = page.last().openedAt
+        pageStartAt = lastOpenedAt.plusNanos(1)
+        if (page.size < FLOW_STORE_PAGE_LIMIT) break
+    }
+    return buckets
+        .values
+        .sortedBy { it.openedAt }
+        .associate { it.openedAt to it.immutable() }
+}
+
+private suspend fun loadOrderBookBuckets(
+    store: ForwardMarketCaptureStore,
+    symbol: Symbol,
+    startAt: Instant,
+    endAt: Instant,
+): Map<Instant, OrderBookM5Bucket> {
+    val buckets = mutableMapOf<Instant, MutableOrderBookM5Bucket>()
+    var pageStartAt = startAt
+    while (!pageStartAt.isAfter(endAt)) {
+        val page =
+            store
+                .orderBookImbalanceBarsBetween(symbol, pageStartAt, endAt, FLOW_STORE_PAGE_LIMIT)
+                .sortedBy { it.openedAt }
+        if (page.isEmpty()) break
+        page.forEach { bar ->
+            val bucketOpenedAt = bar.openedAt.toM5BucketOpenedAt()
+            val bucket = buckets.getOrPut(bucketOpenedAt) { MutableOrderBookM5Bucket(bucketOpenedAt) }
             bucket.add(bar)
         }
         val lastOpenedAt = page.last().openedAt

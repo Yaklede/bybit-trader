@@ -17,6 +17,7 @@
 | ADR | [adr/README.md](adr/README.md) | 장기 보존할 백엔드 아키텍처 의사결정 |
 | Volume-flow aggressive risks | [volume-flow-aggressive-risk-register.md](volume-flow-aggressive-risk-register.md) | 공격형 전략 운영 전 후속 관리할 리스크 목록 |
 | Volume-flow production readiness | [volume-flow-production-readiness-plan.md](volume-flow-production-readiness-plan.md) | 공격형 전략을 온프레미스 운영 봇으로 전환하기 위한 마일스톤 |
+| Forward-flow backtest design | [forward-flow-backtest-design-2026-07-11.md](forward-flow-backtest-design-2026-07-11.md) | 순방향 호가 흐름만으로 수행하는 인과 백테스트의 범위와 승격 게이트 |
 | On-prem paper deployment | [on-prem-paper-deployment-runbook.md](on-prem-paper-deployment-runbook.md) | Twingate 뒤에서 aggressive paper loop를 운영하기 위한 배포 직전 절차 |
 
 ## 규칙
