@@ -13,6 +13,12 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
+import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
+import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
@@ -198,7 +204,236 @@ class SqlDelightLedgerTest :
             ledger.recentTrades(10).single().orderId shouldBe orderId
             ledger.latestPerformanceSummary()?.netPnl shouldBe BigDecimal("-0.03")
         }
+
+        "records market checkpoints closed trades and live performance projections idempotently" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val database = createLedgerDatabase(driver)
+            val ledger = SqlDelightLedger(database = database)
+            val symbol = Symbol("BTCUSDT")
+
+            ledger.upsertCheckpoint(
+                MarketSyncCheckpoint(
+                    symbol = symbol,
+                    timeframe = Timeframe.M5,
+                    latestClosedOpenedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    lastSyncAt = Instant.parse("2026-06-30T00:05:01Z"),
+                    lastSyncStatus = MarketSyncStatus.SUCCESS,
+                    consecutiveRateLimitCount = 0,
+                ),
+            )
+            ledger.checkpoints(symbol).single().latestClosedOpenedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
+
+            val closure =
+                ExecutionTradeClosure(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    symbol = symbol,
+                    side = Side.BUY,
+                    openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    closedAt = Instant.parse("2026-06-30T00:10:00Z"),
+                    entryPrice = BigDecimal("100"),
+                    exitPrice = BigDecimal("105"),
+                    quantity = BigDecimal("1"),
+                    grossPnl = BigDecimal("5.12"),
+                    fees = BigDecimal("0.12"),
+                    netPnl = BigDecimal("5"),
+                    exitReason = "TAKE_PROFIT",
+                    exchangeOrderId = "ex-1",
+                    clientOrderId = "client-1",
+                )
+            ledger.recordTradeClosure(closure) shouldBe 1L
+            ledger.recordTradeClosure(closure) shouldBe null
+            ledger.closedTrades(symbol, ExecutionRuntimeMode.LIVE, 10, null).single().netPnl shouldBe BigDecimal("5")
+
+            ledger.recordLivePerformanceSnapshot(
+                LivePerformanceSnapshot(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    window = LivePerformanceWindow.ALL,
+                    tradeCount = 1,
+                    winRatePct = BigDecimal("100"),
+                    grossProfit = BigDecimal("5"),
+                    grossLoss = BigDecimal.ZERO,
+                    fees = BigDecimal("0.12"),
+                    netPnl = BigDecimal("5"),
+                    profitFactor = null,
+                    expectancy = BigDecimal("5"),
+                    maxClosedTradeDrawdownPct = BigDecimal.ZERO,
+                    lastClosedAt = closure.closedAt,
+                    capturedAt = Instant.parse("2026-06-30T00:11:00Z"),
+                ),
+            )
+            ledger.latestLivePerformanceSummary(ExecutionRuntimeMode.LIVE, LivePerformanceWindow.ALL)?.tradeCount shouldBe 1
+        }
+
+        "deduplicates nullable closure ids at the database identity key" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val closure = nullableIdClosure()
+
+            ledger.recordTradeClosure(closure) shouldBe 1L
+            ledger.recordTradeClosure(closure) shouldBe null
+
+            ledger.closedTrades(closure.symbol, closure.mode, 10, null).size shouldBe 1
+            val pending = ledger.pendingClosureAlerts(closure.mode, closure.symbol, 10).single()
+            pending.attemptCount shouldBe 0
+            pending.lastAttemptAt shouldBe null
+            ledger.recordClosureAlertAttempt(
+                closureId = pending.closure.id,
+                attemptedAt = Instant.parse("2026-06-30T00:11:00Z"),
+                delivered = false,
+            )
+            ledger.pendingClosureAlerts(closure.mode, closure.symbol, 10).single().attemptCount shouldBe 1
+            ledger.recordClosureAlertAttempt(
+                closureId = pending.closure.id,
+                attemptedAt = Instant.parse("2026-06-30T00:16:00Z"),
+                delivered = true,
+            )
+            ledger.pendingClosureAlerts(closure.mode, closure.symbol, 10) shouldBe emptyList()
+
+            val freshColumns = executionClosureColumnDefaults(driver)
+            freshColumns.keys.containsAll(setOf("delivered_at", "suppressed_at", "attempt_count", "last_attempt_at")) shouldBe true
+            freshColumns["attempt_count"] shouldBe "0"
+        }
+
+        "performance closure query is not capped by API page size" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val base = nullableIdClosure()
+            repeat(120) { index ->
+                ledger.recordTradeClosure(
+                    base.copy(
+                        closedAt = base.closedAt.plusSeconds(index.toLong()),
+                        exchangeOrderId = "performance-$index",
+                    ),
+                )
+            }
+
+            ledger.performanceClosures(ExecutionRuntimeMode.LIVE, null).size shouldBe 120
+        }
+
+        "additive migration backfills identity and removes nullable id duplicates" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            driver.execute(
+                null,
+                """
+                CREATE TABLE executionTradeClosures (
+                  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                  mode TEXT NOT NULL,
+                  symbol TEXT NOT NULL,
+                  side TEXT NOT NULL,
+                  opened_at TEXT NOT NULL,
+                  closed_at TEXT NOT NULL,
+                  entry_price TEXT NOT NULL,
+                  exit_price TEXT NOT NULL,
+                  quantity TEXT NOT NULL,
+                  gross_pnl TEXT NOT NULL,
+                  fees TEXT NOT NULL,
+                  net_pnl TEXT NOT NULL,
+                  exit_reason TEXT NOT NULL,
+                  exchange_order_id TEXT,
+                  client_order_id TEXT
+                )
+                """.trimIndent(),
+                0,
+            )
+            repeat(2) {
+                driver.execute(
+                    null,
+                    """
+                    INSERT INTO executionTradeClosures(
+                      mode, symbol, side, opened_at, closed_at, entry_price, exit_price, quantity,
+                      gross_pnl, fees, net_pnl, exit_reason, exchange_order_id, client_order_id
+                    ) VALUES (
+                      'LIVE', 'BTCUSDT', 'BUY', '2026-06-30T00:00:00Z', '2026-06-30T00:10:00Z',
+                      '100', '105', '1', '5.12', '0.12', '5', 'TAKE_PROFIT', NULL, NULL
+                    )
+                    """.trimIndent(),
+                    0,
+                )
+            }
+
+            ensureAdditiveLedgerSchema(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+
+            ledger.closedTrades(Symbol("BTCUSDT"), ExecutionRuntimeMode.LIVE, 10, null).size shouldBe 1
+            ledger.recordTradeClosure(nullableIdClosure()) shouldBe null
+            ledger.pendingClosureAlerts(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), 10) shouldBe emptyList()
+            val migratedColumns = executionClosureColumnDefaults(driver)
+            migratedColumns.keys.containsAll(setOf("delivered_at", "suppressed_at", "attempt_count", "last_attempt_at")) shouldBe true
+            migratedColumns["attempt_count"] shouldBe "0"
+            val migratedState = executionClosureAlertState(driver)
+            migratedState.deliveredAt shouldBe null
+            (migratedState.suppressedAt != null) shouldBe true
+            migratedState.attemptCount shouldBe 0L
+            migratedState.lastAttemptAt shouldBe null
+        }
     })
+
+private data class StoredClosureAlertState(
+    val deliveredAt: String?,
+    val suppressedAt: String?,
+    val attemptCount: Long,
+    val lastAttemptAt: String?,
+)
+
+private fun executionClosureColumnDefaults(driver: JdbcSqliteDriver): Map<String, String?> {
+    val connection = driver.getConnection()
+    try {
+        return connection.createStatement().use { statement ->
+            statement.executeQuery("PRAGMA table_info(executionTradeClosures)").use { rows ->
+                buildMap {
+                    while (rows.next()) {
+                        put(rows.getString("name"), rows.getString("dflt_value"))
+                    }
+                }
+            }
+        }
+    } finally {
+        driver.closeConnection(connection)
+    }
+}
+
+private fun executionClosureAlertState(driver: JdbcSqliteDriver): StoredClosureAlertState {
+    val connection = driver.getConnection()
+    try {
+        return connection.createStatement().use { statement ->
+            statement
+                .executeQuery(
+                    "SELECT delivered_at, suppressed_at, attempt_count, last_attempt_at FROM executionTradeClosures LIMIT 1",
+                ).use { rows ->
+                    check(rows.next()) { "Expected migrated execution closure row." }
+                    StoredClosureAlertState(
+                        deliveredAt = rows.getString("delivered_at"),
+                        suppressedAt = rows.getString("suppressed_at"),
+                        attemptCount = rows.getLong("attempt_count"),
+                        lastAttemptAt = rows.getString("last_attempt_at"),
+                    )
+                }
+        }
+    } finally {
+        driver.closeConnection(connection)
+    }
+}
+
+private fun nullableIdClosure(): ExecutionTradeClosure =
+    ExecutionTradeClosure(
+        mode = ExecutionRuntimeMode.LIVE,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+        closedAt = Instant.parse("2026-06-30T00:10:00Z"),
+        entryPrice = BigDecimal("100"),
+        exitPrice = BigDecimal("105"),
+        quantity = BigDecimal("1"),
+        grossPnl = BigDecimal("5.12"),
+        fees = BigDecimal("0.12"),
+        netPnl = BigDecimal("5"),
+        exitReason = "TAKE_PROFIT",
+        exchangeOrderId = null,
+        clientOrderId = null,
+    )
 
 private fun sampleCandle(
     symbol: Symbol,

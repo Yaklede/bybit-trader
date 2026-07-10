@@ -156,10 +156,57 @@ class MarketDataSyncServiceTest :
             result.finalCandles shouldBe 5
             feed.historyRequests shouldBe emptyList()
         }
+
+        "closed candle sync drops the still-open candle and records checkpoint" {
+            val symbol = Symbol("BTCUSDT")
+            val store = RecordingMarketCandleStore()
+            val feed =
+                RecordingMarketDataFeed(
+                    recentCandles =
+                        listOf(
+                            sampleCandle(symbol, Timeframe.M5, Instant.parse("2026-06-30T00:00:00Z")),
+                            sampleCandle(symbol, Timeframe.M5, Instant.parse("2026-06-30T00:05:00Z")),
+                        ),
+                )
+            val service =
+                MarketDataSyncService(
+                    marketDataFeed = feed,
+                    candleStore = store,
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:06:00Z"), ZoneOffset.UTC),
+                    retryDelay = {},
+                )
+
+            val result = service.syncClosedCandles(symbol, listOf(Timeframe.M5), limit = 2, maxRetries = 0)
+
+            result.timeframes.single().storedCandles shouldBe 1
+            result.timeframes.single().droppedOpenCandles shouldBe 1
+            val savedCandle = store.saved.single().single()
+            savedCandle.openedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
+            store.checkpoints(symbol).single().latestClosedOpenedAt shouldBe Instant.parse("2026-06-30T00:00:00Z")
+        }
+
+        "closed candle sync retries rate-limit failures with a bounded retry count" {
+            val feed = RateLimitThenSuccessFeed(failuresBeforeSuccess = 2)
+            val store = RecordingMarketCandleStore()
+            val service =
+                MarketDataSyncService(
+                    marketDataFeed = feed,
+                    candleStore = store,
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:06:00Z"), ZoneOffset.UTC),
+                    retryDelay = {},
+                )
+
+            val result = service.syncClosedCandles(Symbol("BTCUSDT"), listOf(Timeframe.M5), limit = 1, maxRetries = 2)
+
+            result.timeframes.single().retriesUsed shouldBe 2
+            result.rateLimitTriggered shouldBe true
+            feed.attempts shouldBe 3
+        }
     })
 
 private class RecordingMarketDataFeed(
     private val historyCandles: List<Candle> = emptyList(),
+    private val recentCandles: List<Candle>? = null,
 ) : MarketDataFeed {
     val requests = mutableListOf<MarketDataRequest>()
     val historyRequests = mutableListOf<HistoryMarketDataRequest>()
@@ -170,7 +217,7 @@ private class RecordingMarketDataFeed(
         limit: Int,
     ): List<Candle> {
         requests += MarketDataRequest(symbol, timeframe, limit)
-        return listOf(sampleCandle(symbol, timeframe))
+        return recentCandles ?: listOf(sampleCandle(symbol, timeframe))
     }
 
     override suspend fun fetchCandles(
@@ -193,9 +240,11 @@ private class RecordingMarketDataFeed(
 
 private class RecordingMarketCandleStore(
     initialCandles: List<Candle> = emptyList(),
-) : MarketCandleStore {
+) : MarketCandleStore,
+    MarketSyncCheckpointStore {
     val saved = mutableListOf<List<Candle>>()
     private val storedCandles = initialCandles.toMutableList()
+    private val checkpoints = mutableMapOf<Pair<Symbol, Timeframe>, MarketSyncCheckpoint>()
 
     override suspend fun upsert(candles: List<Candle>) {
         saved += candles
@@ -211,6 +260,29 @@ private class RecordingMarketCandleStore(
             .filter { candle -> candle.symbol == symbol && candle.timeframe == timeframe }
             .sortedByDescending(Candle::openedAt)
             .take(limit)
+
+    override suspend fun upsertCheckpoint(checkpoint: MarketSyncCheckpoint) {
+        checkpoints[checkpoint.symbol to checkpoint.timeframe] = checkpoint
+    }
+
+    override suspend fun checkpoints(symbol: Symbol): List<MarketSyncCheckpoint> =
+        checkpoints.values.filter { it.symbol == symbol }.sortedBy { it.timeframe.name }
+}
+
+private class RateLimitThenSuccessFeed(
+    private val failuresBeforeSuccess: Int,
+) : MarketDataFeed {
+    var attempts = 0
+
+    override suspend fun fetchRecentCandles(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        limit: Int,
+    ): List<Candle> {
+        attempts += 1
+        if (attempts <= failuresBeforeSuccess) throw MarketDataException("Bybit kline request failed with code 10006 rate limit")
+        return listOf(sampleCandle(symbol, timeframe, Instant.parse("2026-06-30T00:00:00Z")))
+    }
 }
 
 private data class MarketDataRequest(

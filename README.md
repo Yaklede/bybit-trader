@@ -45,6 +45,18 @@ For live tuning, start with `BOT_EXECUTION_LOOP_ENABLED=false` and a small
 `BOT_EXECUTION_MAX_NOTIONAL`, submit one manual order, reconcile it, then enable
 the loop.
 
+`POST /execution/reconcile` is an exchange read only. The enabled runtime loop
+is the sole closed-trade writer: it persists and alerts new closed PnL before
+closed-candle sync and entry evaluation. Automatic entries are rejected while
+Bybit reports an active order or positive position size.
+
+Close alerts use a SQLite-backed at-least-once queue. Failed Discord deliveries
+remain pending and retry on the next M5 cycle; successful delivery is
+acknowledged in the closure row. A crash between Discord acceptance and the DB
+acknowledgment can produce a duplicate. On an empty first bootstrap, historical
+Bybit closed-PnL rows before process start are stored as a suppressed baseline,
+while later restarts alert newly discovered downtime closures.
+
 ## Local Run
 
 ```bash
@@ -92,6 +104,13 @@ curl -X POST \
   -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT","timeframes":["M1","M5","M15"],"limit":200}' \
   http://127.0.0.1:8080/market-data/sync
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"symbol":"BTCUSDT","timeframes":["M5"],"limit":300,"closedOnly":true,"maxRetries":5}' \
+  http://127.0.0.1:8080/market-data/closed-candle/sync
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/market-data/closed-candle/status?symbol=BTCUSDT"
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
@@ -151,6 +170,12 @@ curl -X POST \
   -H "Content-Type: application/json" \
   --data '{"symbol":"BTCUSDT"}' \
   http://127.0.0.1:8080/execution/reconcile
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/execution/closed-trades?symbol=BTCUSDT&limit=20"
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/performance/live/summary?window=all"
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/dashboard/mobile-summary?symbol=BTCUSDT&tradeLimit=10&signalLimit=10"
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   "http://127.0.0.1:8080/signals/recent?limit=10"
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \

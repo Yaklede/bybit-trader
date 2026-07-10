@@ -97,6 +97,68 @@ CREATE TABLE performanceSnapshots (
   captured_at TEXT NOT NULL
 );
 
+CREATE TABLE marketSyncCheckpoints (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  latest_closed_opened_at TEXT NOT NULL,
+  last_sync_at TEXT NOT NULL,
+  last_sync_status TEXT NOT NULL,
+  consecutive_rate_limit_count INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX marketSyncCheckpoints_symbol_timeframe_idx
+ON marketSyncCheckpoints(symbol, timeframe);
+
+CREATE TABLE executionTradeClosures (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  closed_at TEXT NOT NULL,
+  entry_price TEXT NOT NULL,
+  exit_price TEXT NOT NULL,
+  quantity TEXT NOT NULL,
+  gross_pnl TEXT NOT NULL,
+  fees TEXT NOT NULL,
+  net_pnl TEXT NOT NULL,
+  exit_reason TEXT NOT NULL,
+  exchange_order_id TEXT,
+  client_order_id TEXT,
+  identity_key TEXT NOT NULL,
+  delivered_at TEXT,
+  suppressed_at TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TEXT
+);
+
+CREATE UNIQUE INDEX executionTradeClosures_identity_idx
+ON executionTradeClosures(identity_key);
+
+CREATE INDEX executionTradeClosures_symbol_mode_id_idx
+ON executionTradeClosures(symbol, mode, id DESC);
+
+CREATE TABLE livePerformanceSnapshots (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL,
+  window TEXT NOT NULL,
+  trade_count INTEGER NOT NULL,
+  win_rate_pct TEXT NOT NULL,
+  gross_profit TEXT NOT NULL,
+  gross_loss TEXT NOT NULL,
+  fees TEXT NOT NULL,
+  net_pnl TEXT NOT NULL,
+  profit_factor TEXT,
+  expectancy TEXT,
+  max_closed_trade_drawdown_pct TEXT NOT NULL,
+  last_closed_at TEXT,
+  captured_at TEXT NOT NULL
+);
+
+CREATE INDEX livePerformanceSnapshots_mode_window_id_idx
+ON livePerformanceSnapshots(mode, window, id DESC);
+
 selectBotState:
 SELECT mode, updated_at, heartbeat_at
 FROM botState
@@ -210,6 +272,9 @@ VALUES (?, ?, ?, ?, ?, ?);
 lastInsertRowId:
 SELECT last_insert_rowid();
 
+selectChanges:
+SELECT changes();
+
 selectLatestPerformanceSnapshot:
 SELECT id, period, net_pnl, profit_factor, expectancy, max_drawdown, captured_at
 FROM performanceSnapshots
@@ -272,3 +337,129 @@ WHERE symbol = :symbol
   AND opened_at <= :endAt
 ORDER BY opened_at DESC
 LIMIT :limit;
+
+upsertMarketSyncCheckpoint:
+INSERT OR REPLACE INTO marketSyncCheckpoints(
+  id,
+  symbol,
+  timeframe,
+  latest_closed_opened_at,
+  last_sync_at,
+  last_sync_status,
+  consecutive_rate_limit_count
+)
+VALUES (
+  (SELECT id FROM marketSyncCheckpoints WHERE symbol = ? AND timeframe = ?),
+  ?, ?, ?, ?, ?, ?
+);
+
+selectMarketSyncCheckpoints:
+SELECT symbol, timeframe, latest_closed_opened_at, last_sync_at, last_sync_status, consecutive_rate_limit_count
+FROM marketSyncCheckpoints
+WHERE symbol = ?
+ORDER BY timeframe ASC;
+
+insertExecutionTradeClosure:
+INSERT OR IGNORE INTO executionTradeClosures(
+  mode,
+  symbol,
+  side,
+  opened_at,
+  closed_at,
+  entry_price,
+  exit_price,
+  quantity,
+  gross_pnl,
+  fees,
+  net_pnl,
+  exit_reason,
+  exchange_order_id,
+  client_order_id,
+  identity_key,
+  suppressed_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectClosedTrades:
+SELECT id, mode, symbol, side, opened_at, closed_at, entry_price, exit_price, quantity, gross_pnl, fees, net_pnl,
+  exit_reason, exchange_order_id, client_order_id, identity_key, delivered_at, suppressed_at, attempt_count, last_attempt_at
+FROM executionTradeClosures
+WHERE (:symbol IS NULL OR symbol = :symbol)
+  AND (:mode IS NULL OR mode = :mode)
+  AND (:cursor IS NULL OR id < :cursor)
+ORDER BY id DESC
+LIMIT :limit;
+
+selectLatestClosedTradeBySymbol:
+SELECT id, mode, symbol, side, opened_at, closed_at, entry_price, exit_price, quantity, gross_pnl, fees, net_pnl,
+  exit_reason, exchange_order_id, client_order_id, identity_key, delivered_at, suppressed_at, attempt_count, last_attempt_at
+FROM executionTradeClosures
+WHERE symbol = ?
+ORDER BY id DESC
+LIMIT 1;
+
+selectPerformanceClosures:
+SELECT id, mode, symbol, side, opened_at, closed_at, entry_price, exit_price, quantity, gross_pnl, fees, net_pnl,
+  exit_reason, exchange_order_id, client_order_id, identity_key, delivered_at, suppressed_at, attempt_count, last_attempt_at
+FROM executionTradeClosures
+WHERE mode = :mode
+  AND (:closedAtOrAfter IS NULL OR closed_at >= :closedAtOrAfter)
+ORDER BY closed_at ASC, id ASC;
+
+selectClosureHistoryId:
+SELECT id
+FROM executionTradeClosures
+WHERE mode = :mode
+  AND symbol = :symbol
+LIMIT 1;
+
+selectPendingClosureAlerts:
+SELECT id, mode, symbol, side, opened_at, closed_at, entry_price, exit_price, quantity, gross_pnl, fees, net_pnl,
+  exit_reason, exchange_order_id, client_order_id, identity_key, delivered_at, suppressed_at, attempt_count, last_attempt_at
+FROM executionTradeClosures
+WHERE mode = :mode
+  AND symbol = :symbol
+  AND delivered_at IS NULL
+  AND suppressed_at IS NULL
+ORDER BY closed_at ASC, id ASC
+LIMIT :limit;
+
+recordFailedClosureAlertAttempt:
+UPDATE executionTradeClosures
+SET attempt_count = attempt_count + 1,
+  last_attempt_at = :attemptedAt
+WHERE id = :closureId;
+
+recordDeliveredClosureAlertAttempt:
+UPDATE executionTradeClosures
+SET delivered_at = :attemptedAt,
+  attempt_count = attempt_count + 1,
+  last_attempt_at = :attemptedAt
+WHERE id = :closureId;
+
+insertLivePerformanceSnapshot:
+INSERT INTO livePerformanceSnapshots(
+  mode,
+  window,
+  trade_count,
+  win_rate_pct,
+  gross_profit,
+  gross_loss,
+  fees,
+  net_pnl,
+  profit_factor,
+  expectancy,
+  max_closed_trade_drawdown_pct,
+  last_closed_at,
+  captured_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectLatestLivePerformanceSnapshot:
+SELECT id, mode, window, trade_count, win_rate_pct, gross_profit, gross_loss, fees, net_pnl, profit_factor, expectancy,
+  max_closed_trade_drawdown_pct, last_closed_at, captured_at
+FROM livePerformanceSnapshots
+WHERE (:mode IS NULL OR mode = :mode)
+  AND window = :window
+ORDER BY id DESC
+LIMIT 1;

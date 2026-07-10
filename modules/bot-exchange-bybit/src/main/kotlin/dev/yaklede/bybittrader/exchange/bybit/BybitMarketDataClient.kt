@@ -50,7 +50,7 @@ class BybitMarketDataClient(
 
         if (response.retCode != 0) {
             throw BybitMarketDataException(
-                "Bybit ticker request failed with code ${response.retCode}: ${response.retMsg}",
+                response.failureMessage("ticker"),
             )
         }
 
@@ -84,7 +84,7 @@ class BybitMarketDataClient(
 
         if (response.retCode != 0) {
             throw BybitMarketDataException(
-                "Bybit kline request failed with code ${response.retCode}: ${response.retMsg}",
+                response.failureMessage("kline"),
             )
         }
 
@@ -148,6 +148,21 @@ private data class BybitKlineResponse(
     val retMsg: String,
     val result: BybitKlineResult? = null,
 )
+
+private fun BybitKlineResponse.failureMessage(action: String): String =
+    bybitFailureMessage(action = action, retCode = retCode, retMsg = retMsg)
+
+private fun BybitTickerResponse.failureMessage(action: String): String =
+    bybitFailureMessage(action = action, retCode = retCode, retMsg = retMsg)
+
+private fun bybitFailureMessage(
+    action: String,
+    retCode: Int,
+    retMsg: String,
+): String {
+    val rateLimitSuffix = if (retCode == 10006 || retMsg.contains("rate", ignoreCase = true)) " rate limit" else ""
+    return "Bybit $action request failed with code $retCode$rateLimitSuffix: $retMsg"
+}
 
 @Serializable
 private data class BybitKlineResult(

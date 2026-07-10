@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeClosedPnl
 import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
@@ -178,6 +179,25 @@ class BybitPrivateClient(
             ?.list
             .orEmpty()
             .mapNotNull { item -> item.toExchangeExecution(symbol) }
+    }
+
+    override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> {
+        val query =
+            bybitQueryString(
+                "category" to config.category.apiValue,
+                "symbol" to symbol.value,
+                "limit" to "50",
+            )
+        val response =
+            signedGet<BybitClosedPnlResponse>(
+                path = "/v5/position/closed-pnl",
+                queryString = query,
+            )
+        response.requireSuccess("list closed pnl")
+        return response.result
+            ?.list
+            .orEmpty()
+            .mapNotNull { item -> item.toExchangeClosedPnl(symbol) }
     }
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {
@@ -401,6 +421,33 @@ private fun BybitExecutionItem.toExchangeExecution(fallbackSymbol: Symbol): Exch
     )
 }
 
+private fun BybitClosedPnlItem.toExchangeClosedPnl(fallbackSymbol: Symbol): ExchangeClosedPnl? {
+    val side = side.toSide() ?: return null
+    val createdAt = createdTime.toInstantFromMillisOrNull() ?: updatedTime.toInstantFromMillisOrNull() ?: return null
+    val entryPrice = avgEntryPrice.toBigDecimalOrNull() ?: return null
+    val exitPrice = avgExitPrice.toBigDecimalOrNull() ?: return null
+    val quantity = qty.toBigDecimalOrNull() ?: return null
+    val netPnl = closedPnl.toBigDecimalOrNull() ?: return null
+    val openFee = openFee.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val closeFee = closeFee.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val fees = openFee + closeFee
+    return ExchangeClosedPnl(
+        exchangeOrderId = orderId,
+        clientOrderId = orderLinkId,
+        symbol = symbol?.let(::Symbol) ?: fallbackSymbol,
+        side = side,
+        openedAt = createdAt,
+        closedAt = updatedTime.toInstantFromMillisOrNull() ?: createdAt,
+        entryPrice = entryPrice,
+        exitPrice = exitPrice,
+        quantity = quantity,
+        grossPnl = netPnl + fees,
+        fees = fees,
+        netPnl = netPnl,
+        exitReason = "CLOSED_PNL",
+    )
+}
+
 private fun BybitWalletBalanceAccount.toExchangeAccountBalance(capturedAt: Instant): ExchangeAccountBalance =
     ExchangeAccountBalance(
         accountType = accountType,
@@ -558,6 +605,34 @@ private data class BybitExecutionItem(
     val execQty: String? = null,
     val execFee: String? = null,
     val execTime: String? = null,
+)
+
+@Serializable
+private data class BybitClosedPnlResponse(
+    override val retCode: Int,
+    override val retMsg: String,
+    val result: BybitClosedPnlResult? = null,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitClosedPnlResult(
+    val list: List<BybitClosedPnlItem> = emptyList(),
+)
+
+@Serializable
+private data class BybitClosedPnlItem(
+    val orderId: String? = null,
+    val orderLinkId: String? = null,
+    val symbol: String? = null,
+    val side: String? = null,
+    val qty: String? = null,
+    val avgEntryPrice: String? = null,
+    val avgExitPrice: String? = null,
+    val closedPnl: String? = null,
+    val openFee: String? = null,
+    val closeFee: String? = null,
+    val createdTime: String? = null,
+    val updatedTime: String? = null,
 )
 
 @Serializable

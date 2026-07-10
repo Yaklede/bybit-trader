@@ -32,6 +32,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoop
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoopConfig
+import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationStatus
@@ -47,6 +49,7 @@ import dev.yaklede.bybittrader.exchange.bybit.BybitTradingCategory
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
+import dev.yaklede.bybittrader.ledger.ensureAdditiveLedgerSchema
 import dev.yaklede.bybittrader.strategy.MeanReversionStrategy
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.ktor.client.HttpClient
@@ -60,6 +63,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -163,12 +167,14 @@ fun main() {
                         useLiveAccountEquity = config.execution.useLiveAccountEquity,
                         riskFraction = config.execution.riskFraction,
                         feeRate = config.execution.feeRate,
+                        slippageBufferRate = config.execution.slippageBufferRate,
                         quantityStep = config.execution.quantityStep,
                         minQuantity = config.execution.minQuantity,
                         maxQuantity = config.execution.maxQuantity,
                         maxNotional = config.execution.maxNotional,
                         leverage = config.execution.leverage,
                     ),
+                runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
             )
         } else {
             logger.info("private exchange client not configured")
@@ -209,9 +215,11 @@ fun main() {
                         timeframe = config.executionLoop.timeframe,
                         candleLimit = config.executionLoop.candleLimit,
                         syncLimit = config.executionLoop.syncLimit,
+                        alertBatchLimit = config.executionLoop.alertBatchLimit,
                         intervalSeconds = config.executionLoop.intervalSeconds,
                     ),
                 onResult = { result -> alertingService.sendExecutionLoopResult(result) },
+                onClosure = { closure -> alertingService.sendExecutionClosure(closure) },
                 onFailure = { error -> alertingService.sendExecutionLoopFailure(error) },
             ).start(executionLoopScope)
         } else {
@@ -307,6 +315,8 @@ private fun openLedgerDatabase(path: Path): LedgerDatabase {
     val driver = JdbcSqliteDriver("jdbc:sqlite:${path.toAbsolutePath()}")
     if (shouldCreateSchema) {
         LedgerDatabase.Schema.create(driver)
+    } else {
+        ensureAdditiveLedgerSchema(driver)
     }
     return createLedgerDatabase(driver)
 }
@@ -476,6 +486,22 @@ private suspend fun AlertingService.sendExecutionLoopFailure(error: Throwable) {
     )
 }
 
+private suspend fun AlertingService.sendExecutionClosure(closure: ExecutionTradeClosure): Boolean {
+    val duration = Duration.between(closure.openedAt, closure.closedAt)
+    return send(
+        AlertMessage(
+            severity = if (closure.netPnl >= BigDecimal.ZERO) AlertSeverity.INFO else AlertSeverity.WARNING,
+            title = "실거래 포지션 종료",
+            body =
+                "${closure.symbol.value} ${closure.side.name} 포지션이 종료됐어요.\n" +
+                    "진입가: ${closure.entryPrice.toPlainString()}, 종료가: ${closure.exitPrice.toPlainString()}, " +
+                    "수량: ${closure.quantity.toPlainString()}\n" +
+                    "수수료: ${closure.fees.toPlainString()}, 순손익: ${closure.netPnl.toPlainString()}\n" +
+                    "보유 시간: ${duration.toMinutes()}분, 종료 사유: ${closure.exitReason}",
+        ),
+    ).delivered
+}
+
 internal fun loopFailureAlertBody(
     loopName: String,
     error: Throwable,
@@ -511,6 +537,14 @@ private fun RuntimeMode.toKoreanLabel(): String =
         RuntimeMode.PAPER -> "모의거래"
         RuntimeMode.TESTNET -> "테스트넷"
         RuntimeMode.LIVE -> "실거래"
+    }
+
+private fun RuntimeMode.toExecutionRuntimeMode(): ExecutionRuntimeMode =
+    when (this) {
+        RuntimeMode.PAPER,
+        RuntimeMode.TESTNET,
+        -> ExecutionRuntimeMode.TESTNET
+        RuntimeMode.LIVE -> ExecutionRuntimeMode.LIVE
     }
 
 private fun ControlAction.toKoreanTitle(): String =

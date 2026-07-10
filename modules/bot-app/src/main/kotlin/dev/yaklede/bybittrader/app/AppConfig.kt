@@ -303,6 +303,7 @@ data class ExecutionLoopSettings(
     val timeframe: Timeframe,
     val candleLimit: Int,
     val syncLimit: Int,
+    val alertBatchLimit: Int,
     val intervalSeconds: Long,
 ) {
     init {
@@ -310,6 +311,7 @@ data class ExecutionLoopSettings(
             "Execution loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
         require(syncLimit in 1..1000) { "Execution loop sync limit must be between 1 and 1000." }
+        require(alertBatchLimit in 1..1000) { "Execution alert batch limit must be between 1 and 1000." }
         require(intervalSeconds in 10..86_400) { "Execution loop interval seconds must be between 10 and 86400." }
     }
 
@@ -328,6 +330,7 @@ data class ExecutionLoopSettings(
                         ?: defaultTimeframe,
                 candleLimit = environment["BOT_EXECUTION_CANDLE_LIMIT"]?.toIntOrNull() ?: 18_000,
                 syncLimit = environment["BOT_EXECUTION_SYNC_LIMIT"]?.toIntOrNull() ?: 1000,
+                alertBatchLimit = environment["BOT_EXECUTION_ALERT_BATCH_LIMIT"]?.toIntOrNull() ?: 100,
                 intervalSeconds = environment["BOT_EXECUTION_INTERVAL_SECONDS"]?.toLongOrNull() ?: 300,
             )
     }
@@ -339,6 +342,7 @@ data class ExecutionSettings(
     val useLiveAccountEquity: Boolean,
     val riskFraction: BigDecimal,
     val feeRate: BigDecimal,
+    val slippageBufferRate: BigDecimal,
     val quantityStep: BigDecimal,
     val minQuantity: BigDecimal,
     val maxQuantity: BigDecimal?,
@@ -352,6 +356,9 @@ data class ExecutionSettings(
         }
         require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
             "Execution fee rate must be between 0 and 0.01."
+        }
+        require(slippageBufferRate >= BigDecimal.ZERO && slippageBufferRate <= BigDecimal("0.01")) {
+            "Execution slippage buffer rate must be between 0 and 0.01."
         }
         require(quantityStep > BigDecimal.ZERO) { "Execution quantity step must be positive." }
         require(minQuantity > BigDecimal.ZERO) { "Execution min quantity must be positive." }
@@ -370,6 +377,8 @@ data class ExecutionSettings(
                 useLiveAccountEquity = environment["BOT_EXECUTION_USE_LIVE_EQUITY"].toBooleanStrictOrFalse(),
                 riskFraction = environment["BOT_EXECUTION_RISK_FRACTION"]?.let(::BigDecimal) ?: BigDecimal("0.055"),
                 feeRate = environment["BOT_EXECUTION_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0006"),
+                slippageBufferRate =
+                    environment["BOT_EXECUTION_SLIPPAGE_BUFFER_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0002"),
                 quantityStep = environment["BOT_EXECUTION_QTY_STEP"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
                 minQuantity = environment["BOT_EXECUTION_MIN_QTY"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
                 maxQuantity = environment["BOT_EXECUTION_MAX_QTY"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),

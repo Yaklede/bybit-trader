@@ -26,8 +26,12 @@ class VolumeFlowAggressiveStrategyTest :
             decision.intent?.side shouldBe Side.BUY
             decision.intent?.strategy shouldBe "volume-flow-aggressive-absa_final_us_v1"
             reasonCodes shouldContain "AGGRESSIVE_ABSORPTION_BREAKOUT"
-            reasonCodes shouldContain "ENTRY_AT_2026-06-01T14:00:00Z"
+            reasonCodes shouldContain "SIGNAL_AT_2026-06-01T14:00:00Z"
             decision.intent?.expectedR?.toPlainString() shouldBe "2.2"
+            decision.intent
+                ?.invalidationPrice
+                ?.value
+                ?.let { it < BigDecimal("102") } shouldBe true
         }
 
         "does not trade without enough M5 history for the regime rules" {

@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.api.dashboard
 
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
@@ -10,6 +11,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationReport
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.market.MarketTicker
@@ -72,6 +75,56 @@ fun Route.configureDashboardRoutes(
                 )
             call.respond(response)
         }
+
+        get("/dashboard/mobile-summary") {
+            val request =
+                DashboardMobileSummaryQuery(
+                    symbol = call.request.queryParameters["symbol"] ?: "BTCUSDT",
+                    coin = call.request.queryParameters["coin"],
+                    tradeLimit = call.request.queryParameters["tradeLimit"],
+                    signalLimit = call.request.queryParameters["signalLimit"],
+                ).validated()
+            val status = stateStore.current()
+            val checkpoints = marketDataSyncService.closedCandleStatus(request.symbol).checkpoints
+            val marketSync = checkpoints.firstOrNull { it.timeframe == Timeframe.M5 } ?: checkpoints.firstOrNull()
+            val livePerformance = executionService?.livePerformanceSummary(null, LivePerformanceWindow.ALL)
+            val recentClosedTrades =
+                executionService
+                    ?.closedTrades(symbol = request.symbol, mode = null, limit = request.tradeLimit, cursor = null)
+                    .orEmpty()
+            val recentSignals =
+                paperTradingReportStore
+                    .recentSignals(request.signalLimit)
+                    .map(PaperSignalRecord::toResponse)
+            call.respond(
+                DashboardMobileSummaryResponse(
+                    capturedAt = Instant.now().toString(),
+                    runtimeMode = runtimeMode,
+                    bot = status.toResponse(),
+                    marketSync =
+                        marketSync?.let {
+                            DashboardMobileMarketSyncResponse(
+                                timeframe = it.timeframe.name,
+                                latestClosedOpenedAt = it.latestClosedOpenedAt.toString(),
+                                lastSyncStatus = it.lastSyncStatus.name,
+                            )
+                        },
+                    livePerformance =
+                        DashboardMobileLivePerformanceResponse(
+                            tradeCount = livePerformance?.tradeCount ?: 0,
+                            netPnl = livePerformance?.netPnl?.toPlainString() ?: "0",
+                            winRatePct = livePerformance?.winRatePct?.toPlainString() ?: "0",
+                            maxClosedTradeDrawdownPct = livePerformance?.maxClosedTradeDrawdownPct?.toPlainString() ?: "0",
+                        ),
+                    recentClosedTrades = recentClosedTrades.map(ExecutionTradeClosure::toMobileResponse),
+                    recentSignals = recentSignals,
+                    alerts =
+                        DashboardMobileAlertsResponse(
+                            latestExitAlertAt = recentClosedTrades.firstOrNull()?.closedAt?.toString(),
+                        ),
+                ),
+            )
+        }
     }
 }
 
@@ -106,6 +159,33 @@ private data class DashboardSummaryQueryValues(
     val symbol: Symbol,
     val coin: String?,
     val limit: Int,
+)
+
+private data class DashboardMobileSummaryQuery(
+    val symbol: String,
+    val coin: String?,
+    val tradeLimit: String?,
+    val signalLimit: String?,
+) {
+    fun validated(): DashboardMobileSummaryQueryValues {
+        val normalizedSymbol = symbol.trim().uppercase()
+        Symbol(normalizedSymbol)
+        val normalizedTradeLimit = tradeLimit?.toIntOrNull() ?: 10
+        val normalizedSignalLimit = signalLimit?.toIntOrNull() ?: 10
+        require(normalizedTradeLimit in 1..100) { "Trade limit must be between 1 and 100." }
+        require(normalizedSignalLimit in 1..100) { "Signal limit must be between 1 and 100." }
+        return DashboardMobileSummaryQueryValues(
+            symbol = Symbol(normalizedSymbol),
+            tradeLimit = normalizedTradeLimit,
+            signalLimit = normalizedSignalLimit,
+        )
+    }
+}
+
+private data class DashboardMobileSummaryQueryValues(
+    val symbol: Symbol,
+    val tradeLimit: Int,
+    val signalLimit: Int,
 )
 
 @Serializable
@@ -250,6 +330,52 @@ data class DashboardTradeResponse(
     val filledAt: String?,
 )
 
+@Serializable
+data class DashboardMobileSummaryResponse(
+    val capturedAt: String,
+    val runtimeMode: String?,
+    val bot: DashboardBotStatusResponse,
+    val marketSync: DashboardMobileMarketSyncResponse?,
+    val livePerformance: DashboardMobileLivePerformanceResponse,
+    val recentClosedTrades: List<DashboardMobileClosedTradeResponse>,
+    val recentSignals: List<DashboardSignalResponse>,
+    val alerts: DashboardMobileAlertsResponse,
+)
+
+@Serializable
+data class DashboardMobileMarketSyncResponse(
+    val timeframe: String,
+    val latestClosedOpenedAt: String,
+    val lastSyncStatus: String,
+)
+
+@Serializable
+data class DashboardMobileLivePerformanceResponse(
+    val tradeCount: Int,
+    val netPnl: String,
+    val winRatePct: String,
+    val maxClosedTradeDrawdownPct: String,
+)
+
+@Serializable
+data class DashboardMobileClosedTradeResponse(
+    val tradeId: Long,
+    val mode: String,
+    val symbol: String,
+    val side: String,
+    val closedAt: String,
+    val entryPrice: String,
+    val exitPrice: String,
+    val fees: String,
+    val netPnl: String,
+    val exitReason: String,
+)
+
+@Serializable
+data class DashboardMobileAlertsResponse(
+    val latestExitAlertAt: String?,
+)
+
 private fun BotRuntimeStatus.toResponse(): DashboardBotStatusResponse =
     DashboardBotStatusResponse(
         mode = mode.name,
@@ -387,6 +513,20 @@ private fun PaperTradeRecord.toResponse(): DashboardTradeResponse =
         quantity = quantity?.toPlainString(),
         fee = fee?.toPlainString(),
         filledAt = filledAt?.toString(),
+    )
+
+private fun ExecutionTradeClosure.toMobileResponse(): DashboardMobileClosedTradeResponse =
+    DashboardMobileClosedTradeResponse(
+        tradeId = id,
+        mode = mode.name,
+        symbol = symbol.value,
+        side = side.name,
+        closedAt = closedAt.toString(),
+        entryPrice = entryPrice.toPlainString(),
+        exitPrice = exitPrice.toPlainString(),
+        fees = fees.toPlainString(),
+        netPnl = netPnl.toPlainString(),
+        exitReason = exitReason,
     )
 
 private val COIN_PATTERN = Regex("[A-Z0-9]{2,20}")

@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.execution
 
 import dev.yaklede.bybittrader.domain.BotMode
+import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
@@ -18,6 +19,7 @@ import java.math.BigDecimal
 import java.math.MathContext
 import java.math.RoundingMode
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 
 class ExchangeExecutionService(
@@ -27,9 +29,12 @@ class ExchangeExecutionService(
     private val strategy: TradingStrategy,
     private val gateway: ExchangeExecutionGateway,
     private val config: ExchangeExecutionConfig = ExchangeExecutionConfig(),
+    private val projectionStore: ExecutionProjectionStore? = tradingStore as? ExecutionProjectionStore,
+    private val runtimeMode: ExecutionRuntimeMode = ExecutionRuntimeMode.TESTNET,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeExecutionService::class.java)
+    private val sessionStartedAt = Instant.now(clock)
 
     suspend fun evaluateAndSubmit(
         symbol: Symbol,
@@ -102,9 +107,31 @@ class ExchangeExecutionService(
             return result
         }
 
-        val candles = candleStore.recentCandles(symbol, timeframe, candleLimit).sortedBy { it.openedAt }
-        require(candles.size >= strategy.warmupCandles) {
-            "At least ${strategy.warmupCandles} candles are required for ${strategy.name}."
+        val closedBefore = closedCandleBoundary(now, timeframe)
+        val candles =
+            candleStore
+                .recentCandles(symbol, timeframe, candleLimit)
+                .filter { candle -> candle.openedAt.isBefore(closedBefore) }
+                .sortedBy { it.openedAt }
+        if (candles.size < strategy.warmupCandles) {
+            return ExchangeEvaluationResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                mode = mode.name,
+                status = ExchangeEvaluationStatus.NO_TRADE,
+                evaluatedAt = now,
+                candleCount = candles.size,
+                reasonCodes = listOf("INSUFFICIENT_CLOSED_CANDLE_HISTORY"),
+                signalId = null,
+                orderId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+                entryPrice = null,
+                takeProfit = null,
+                stopLoss = null,
+                quantity = null,
+                intendedRisk = null,
+            )
         }
 
         val decision = strategy.evaluate(candles)
@@ -201,6 +228,69 @@ class ExchangeExecutionService(
         }
 
         val takeProfit = calculateTakeProfit(signal, entryPrice, riskPerUnit)
+        val targetStopRejection = targetStopRejection(signal.side, entryPrice, takeProfit, signal.invalidationPrice.value)
+        if (targetStopRejection != null) {
+            val rejectedSignalId =
+                tradingStore.recordSignal(
+                    signal.toRecord(
+                        accepted = false,
+                        rejectionReason = targetStopRejection,
+                        createdAt = now,
+                    ),
+                )
+            return ExchangeEvaluationResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                mode = mode.name,
+                status = ExchangeEvaluationStatus.REJECTED,
+                evaluatedAt = now,
+                candleCount = candles.size,
+                reasonCodes = listOf(targetStopRejection),
+                signalId = rejectedSignalId,
+                orderId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+                entryPrice = entryPrice,
+                takeProfit = takeProfit,
+                stopLoss = signal.invalidationPrice.value,
+                quantity = sizing.quantity,
+                intendedRisk = intendedRisk,
+            )
+        }
+        val hasActiveOpenOrder =
+            gateway.openOrders(symbol).any { order ->
+                order.status == OrderStatus.SUBMITTED || order.status == OrderStatus.PARTIALLY_FILLED
+            }
+        val hasOpenPosition = gateway.positions(symbol).any { position -> position.size > BigDecimal.ZERO }
+        if (hasActiveOpenOrder || hasOpenPosition) {
+            val rejectionReason = "EXISTING_EXCHANGE_EXPOSURE"
+            val rejectedSignalId =
+                tradingStore.recordSignal(
+                    signal.toRecord(
+                        accepted = false,
+                        rejectionReason = rejectionReason,
+                        createdAt = now,
+                    ),
+                )
+            return ExchangeEvaluationResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                mode = mode.name,
+                status = ExchangeEvaluationStatus.REJECTED,
+                evaluatedAt = now,
+                candleCount = candles.size,
+                reasonCodes = listOf(rejectionReason),
+                signalId = rejectedSignalId,
+                orderId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+                entryPrice = entryPrice,
+                takeProfit = takeProfit,
+                stopLoss = signal.invalidationPrice.value,
+                quantity = sizing.quantity,
+                intendedRisk = intendedRisk,
+            )
+        }
         val signalId =
             tradingStore.recordSignal(
                 signal.toRecord(
@@ -268,8 +358,49 @@ class ExchangeExecutionService(
         return result
     }
 
-    suspend fun reconcile(symbol: Symbol): ExchangeReconciliationReport {
-        logger.info("execution reconcile requested symbol={}", symbol.value)
+    suspend fun reconcile(symbol: Symbol): ExchangeReconciliationReport = fetchReconciliation(symbol)
+
+    suspend fun persistDiscoveredClosures(symbol: Symbol): List<ExecutionTradeClosure> {
+        logger.info("execution closure discovery requested symbol={}", symbol.value)
+        val store = projectionStore ?: return emptyList()
+        val firstBootstrap = !store.hasClosureHistory(runtimeMode, symbol)
+        val persistedClosures =
+            gateway.closedPnls(symbol).mapNotNull { closedPnl ->
+                val closure = closedPnl.toTradeClosure(runtimeMode)
+                val suppressedAt = sessionStartedAt.takeIf { firstBootstrap && closure.closedAt.isBefore(it) }
+                store
+                    .recordTradeClosure(closure, suppressedAt = suppressedAt)
+                    ?.let { id -> closure.copy(id = id) }
+            }
+        if (persistedClosures.isNotEmpty()) {
+            refreshPerformanceSnapshots()
+        }
+        logger.info(
+            "execution closure discovery completed symbol={} newClosures={}",
+            symbol.value,
+            persistedClosures.size,
+        )
+        return persistedClosures
+    }
+
+    suspend fun pendingClosureAlerts(
+        symbol: Symbol,
+        limit: Int,
+    ): List<PendingExecutionClosureAlert> =
+        (projectionStore ?: EmptyExecutionProjectionStore)
+            .pendingClosureAlerts(runtimeMode, symbol, limit)
+
+    suspend fun recordClosureAlertAttempt(
+        closureId: Long,
+        attemptedAt: Instant,
+        delivered: Boolean,
+    ) {
+        (projectionStore ?: EmptyExecutionProjectionStore)
+            .recordClosureAlertAttempt(closureId, attemptedAt, delivered)
+    }
+
+    private suspend fun fetchReconciliation(symbol: Symbol): ExchangeReconciliationReport {
+        logger.info("execution reconcile read requested symbol={}", symbol.value)
         val report =
             ExchangeReconciliationReport(
                 symbol = symbol,
@@ -277,15 +408,31 @@ class ExchangeExecutionService(
                 openOrders = gateway.openOrders(symbol),
                 positions = gateway.positions(symbol),
                 executions = gateway.executions(symbol),
+                closedPnls = gateway.closedPnls(symbol),
             )
         logger.info(
-            "execution reconcile completed symbol={} openOrders={} positions={} executions={}",
+            "execution reconcile read completed symbol={} openOrders={} positions={} executions={}",
             symbol.value,
             report.openOrders.size,
             report.positions.size,
             report.executions.size,
         )
         return report
+    }
+
+    private suspend fun refreshPerformanceSnapshots() {
+        val store = projectionStore ?: return
+        val capturedAt = Instant.now(clock)
+        LivePerformanceWindow.values().forEach { window ->
+            val closures = store.performanceClosures(runtimeMode, window.startAt(capturedAt, sessionStartedAt))
+            store.recordLivePerformanceSnapshot(
+                closures.toPerformanceSnapshot(
+                    mode = runtimeMode,
+                    window = window,
+                    capturedAt = capturedAt,
+                ),
+            )
+        }
     }
 
     suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance {
@@ -596,6 +743,53 @@ class ExchangeExecutionService(
             Side.BUY -> entryPrice.add(riskPerUnit.multiply(signal.expectedR, MathContext.DECIMAL64))
             Side.SELL -> entryPrice.subtract(riskPerUnit.multiply(signal.expectedR, MathContext.DECIMAL64))
         }
+
+    private fun targetStopRejection(
+        side: Side,
+        entryPrice: BigDecimal,
+        takeProfit: BigDecimal,
+        stopLoss: BigDecimal,
+    ): String? {
+        val grossTargetMove =
+            when (side) {
+                Side.BUY -> takeProfit.subtract(entryPrice)
+                Side.SELL -> entryPrice.subtract(takeProfit)
+            }
+        val stopMove =
+            when (side) {
+                Side.BUY -> entryPrice.subtract(stopLoss)
+                Side.SELL -> stopLoss.subtract(entryPrice)
+            }
+        if (grossTargetMove <= BigDecimal.ZERO || stopMove <= BigDecimal.ZERO) return "INVALID_TARGET_STOP_GEOMETRY"
+        val roundTripCostRate = config.feeRate.multiply(BigDecimal("2")).add(config.slippageBufferRate)
+        val roundTripCostMove = entryPrice.multiply(roundTripCostRate, MathContext.DECIMAL64)
+        return if (grossTargetMove <= roundTripCostMove) "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES" else null
+    }
+
+    suspend fun closedTrades(
+        symbol: Symbol?,
+        mode: ExecutionRuntimeMode?,
+        limit: Int,
+        cursor: Long?,
+    ): List<ExecutionTradeClosure> =
+        (projectionStore ?: EmptyExecutionProjectionStore)
+            .closedTrades(symbol = symbol, mode = mode, limit = limit, cursor = cursor)
+
+    suspend fun livePerformanceSummary(
+        mode: ExecutionRuntimeMode?,
+        window: LivePerformanceWindow,
+    ): LivePerformanceSnapshot? {
+        val store = projectionStore ?: return null
+        val capturedAt = Instant.now(clock)
+        val effectiveMode = mode ?: runtimeMode
+        return store
+            .performanceClosures(effectiveMode, window.startAt(capturedAt, sessionStartedAt))
+            .toPerformanceSnapshot(
+                mode = effectiveMode,
+                window = window,
+                capturedAt = capturedAt,
+            )
+    }
 }
 
 data class ExchangeTradingLoopConfig(
@@ -603,6 +797,7 @@ data class ExchangeTradingLoopConfig(
     val timeframe: Timeframe,
     val candleLimit: Int = 18_000,
     val syncLimit: Int = 1000,
+    val alertBatchLimit: Int = 100,
     val intervalSeconds: Long = 300,
 ) {
     init {
@@ -610,6 +805,7 @@ data class ExchangeTradingLoopConfig(
             "Execution loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
         require(syncLimit in 1..1000) { "Execution loop sync limit must be between 1 and 1000." }
+        require(alertBatchLimit in 1..1000) { "Execution alert batch limit must be between 1 and 1000." }
         require(intervalSeconds in 10..86_400) { "Execution loop interval seconds must be between 10 and 86400." }
     }
 }
@@ -619,6 +815,31 @@ private data class Sizing(
 )
 
 private fun BotMode.blocksNewEntries(): Boolean = this != BotMode.RUNNING
+
+private fun closedCandleBoundary(
+    instant: Instant,
+    timeframe: Timeframe,
+): Instant {
+    val timeframeMillis =
+        when (timeframe) {
+            Timeframe.M1 -> 60_000L
+            Timeframe.M5 -> 300_000L
+            Timeframe.M15 -> 900_000L
+            Timeframe.H1 -> 3_600_000L
+        }
+    return Instant.ofEpochMilli((instant.toEpochMilli() / timeframeMillis) * timeframeMillis)
+}
+
+private fun LivePerformanceWindow.startAt(
+    capturedAt: Instant,
+    sessionStartedAt: Instant,
+): Instant? =
+    when (this) {
+        LivePerformanceWindow.SESSION -> sessionStartedAt
+        LivePerformanceWindow.SEVEN_DAYS -> capturedAt.minus(Duration.ofDays(7))
+        LivePerformanceWindow.THIRTY_DAYS -> capturedAt.minus(Duration.ofDays(30))
+        LivePerformanceWindow.ALL -> null
+    }
 
 private fun Side.opposite(): Side =
     when (this) {
@@ -696,4 +917,117 @@ private fun manualClientOrderId(
     return "$prefix-${symbol.value}-${now.toEpochMilli()}-$sideCode".take(36)
 }
 
-private const val SIGNAL_KEY_PREFIX = "ENTRY_AT_"
+private fun ExchangeClosedPnl.toTradeClosure(mode: ExecutionRuntimeMode): ExecutionTradeClosure =
+    ExecutionTradeClosure(
+        mode = mode,
+        symbol = symbol,
+        side = side,
+        openedAt = openedAt ?: closedAt,
+        closedAt = closedAt,
+        entryPrice = entryPrice,
+        exitPrice = exitPrice,
+        quantity = quantity,
+        grossPnl = grossPnl,
+        fees = fees,
+        netPnl = netPnl,
+        exitReason = exitReason ?: "CLOSED_PNL",
+        exchangeOrderId = exchangeOrderId,
+        clientOrderId = clientOrderId,
+    )
+
+private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
+    mode: ExecutionRuntimeMode,
+    window: LivePerformanceWindow,
+    capturedAt: Instant,
+): LivePerformanceSnapshot {
+    val sorted = sortedBy { it.closedAt }
+    val grossProfit = sorted.filter { it.netPnl > BigDecimal.ZERO }.fold(BigDecimal.ZERO) { acc, trade -> acc + trade.netPnl }
+    val grossLoss = sorted.filter { it.netPnl < BigDecimal.ZERO }.fold(BigDecimal.ZERO) { acc, trade -> acc + trade.netPnl.abs() }
+    val fees = sorted.fold(BigDecimal.ZERO) { acc, trade -> acc + trade.fees }
+    val netPnl = sorted.fold(BigDecimal.ZERO) { acc, trade -> acc + trade.netPnl }
+    val tradeCount = sorted.size
+    val wins = sorted.count { it.netPnl > BigDecimal.ZERO }
+    val winRate =
+        if (tradeCount == 0) {
+            BigDecimal.ZERO
+        } else {
+            BigDecimal(wins)
+                .multiply(BigDecimal("100"))
+                .divide(BigDecimal(tradeCount), 8, RoundingMode.HALF_UP)
+        }
+    val profitFactor = if (grossLoss > BigDecimal.ZERO) grossProfit.divide(grossLoss, 8, RoundingMode.HALF_UP) else null
+    val expectancy = if (tradeCount == 0) null else netPnl.divide(BigDecimal(tradeCount), 8, RoundingMode.HALF_UP)
+    var equity = BigDecimal.ZERO
+    var peak = BigDecimal.ZERO
+    var maxDrawdownPct = BigDecimal.ZERO
+    sorted.forEach { trade ->
+        equity += trade.netPnl
+        if (equity > peak) peak = equity
+        if (peak > BigDecimal.ZERO) {
+            val drawdown = peak.subtract(equity).divide(peak, 8, RoundingMode.HALF_UP).multiply(BigDecimal("100"))
+            if (drawdown > maxDrawdownPct) maxDrawdownPct = drawdown
+        }
+    }
+    return LivePerformanceSnapshot(
+        mode = mode,
+        window = window,
+        tradeCount = tradeCount,
+        winRatePct = winRate,
+        grossProfit = grossProfit,
+        grossLoss = grossLoss,
+        fees = fees,
+        netPnl = netPnl,
+        profitFactor = profitFactor,
+        expectancy = expectancy,
+        maxClosedTradeDrawdownPct = maxDrawdownPct,
+        lastClosedAt = sorted.lastOrNull()?.closedAt,
+        capturedAt = capturedAt,
+    )
+}
+
+private object EmptyExecutionProjectionStore : ExecutionProjectionStore {
+    override suspend fun recordTradeClosure(
+        closure: ExecutionTradeClosure,
+        suppressedAt: Instant?,
+    ): Long? = null
+
+    override suspend fun closedTrades(
+        symbol: Symbol?,
+        mode: ExecutionRuntimeMode?,
+        limit: Int,
+        cursor: Long?,
+    ): List<ExecutionTradeClosure> = emptyList()
+
+    override suspend fun latestClosedTrade(symbol: Symbol): ExecutionTradeClosure? = null
+
+    override suspend fun performanceClosures(
+        mode: ExecutionRuntimeMode,
+        closedAtOrAfter: Instant?,
+    ): List<ExecutionTradeClosure> = emptyList()
+
+    override suspend fun hasClosureHistory(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): Boolean = false
+
+    override suspend fun pendingClosureAlerts(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+        limit: Int,
+    ): List<PendingExecutionClosureAlert> = emptyList()
+
+    override suspend fun recordClosureAlertAttempt(
+        closureId: Long,
+        attemptedAt: Instant,
+        delivered: Boolean,
+    ) = Unit
+
+    override suspend fun recordLivePerformanceSnapshot(snapshot: LivePerformanceSnapshot): Long = 0
+
+    override suspend fun latestLivePerformanceSummary(
+        mode: ExecutionRuntimeMode?,
+        window: LivePerformanceWindow,
+    ): LivePerformanceSnapshot? = null
+}
+
+private const val SIGNAL_KEY_PREFIX = "SIGNAL_AT_"

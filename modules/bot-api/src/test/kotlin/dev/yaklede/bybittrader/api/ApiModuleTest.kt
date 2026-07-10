@@ -27,6 +27,7 @@ import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeClosedPnl
 import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationStatus
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionConfig
@@ -38,6 +39,12 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
+import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
+import dev.yaklede.bybittrader.engine.execution.PendingExecutionClosureAlert
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
@@ -763,7 +770,7 @@ class ApiModuleTest :
                                 strategy = AlwaysBuyApiStrategy(),
                                 gateway = gateway,
                                 config = ExchangeExecutionConfig(enabled = true),
-                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T10:15:00Z"), ZoneOffset.UTC),
                             ),
                         controlCredential = "test-control-credential",
                     )
@@ -922,6 +929,91 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 response.bodyAsText() shouldContain """"exchangeOrderId":"exchange-7""""
                 gateway.cancelledOrders.single().exchangeOrderId shouldBe "exchange-7"
+            }
+        }
+
+        "closed trade performance and mobile summary endpoints return persisted projections" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val tradingStore = InMemoryPaperTradingStore()
+                tradingStore.recordTradeClosure(sampleClosure())
+                tradingStore.recordLivePerformanceSnapshot(samplePerformance())
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = tradingStore,
+                                strategy = NoTradeApiStrategy(),
+                                gateway = RecordingExecutionGateway(),
+                                config = ExchangeExecutionConfig(enabled = true),
+                                runtimeMode = ExecutionRuntimeMode.LIVE,
+                            ),
+                        runtimeMode = "LIVE",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .get("/execution/closed-trades?symbol=BTCUSDT&limit=5") { bearerAuth("test-control-credential") }
+                    .bodyAsText() shouldContain """"netPnl":"5""""
+                client
+                    .get("/performance/live/summary?window=all") { bearerAuth("test-control-credential") }
+                    .bodyAsText() shouldContain """"tradeCount":1"""
+                client
+                    .get("/dashboard/mobile-summary?symbol=BTCUSDT&tradeLimit=5&signalLimit=5") {
+                        bearerAuth("test-control-credential")
+                    }.bodyAsText() shouldContain """"recentClosedTrades":[{"""
+            }
+        }
+
+        "reconcile and dashboard reads do not pre-persist exchange closures" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                val tradingStore = InMemoryPaperTradingStore()
+                val gateway = RecordingExecutionGateway(closedPnls = listOf(sampleClosedPnl()))
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = tradingStore,
+                                strategy = NoTradeApiStrategy(),
+                                gateway = gateway,
+                                config = ExchangeExecutionConfig(enabled = true),
+                                runtimeMode = ExecutionRuntimeMode.LIVE,
+                            ),
+                        runtimeMode = "LIVE",
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                client
+                    .post("/execution/reconcile") {
+                        bearerAuth("test-control-credential")
+                        header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                        setBody("""{"symbol":"BTCUSDT"}""")
+                    }.status shouldBe HttpStatusCode.OK
+                client
+                    .get("/dashboard/summary?symbol=BTCUSDT&coin=USDT&limit=5") {
+                        bearerAuth("test-control-credential")
+                    }.status shouldBe HttpStatusCode.OK
+
+                tradingStore.closures shouldBe emptyList()
             }
         }
 
@@ -1330,12 +1422,19 @@ private class FailingMarketDataFeed : MarketDataFeed {
     ): List<Candle> = throw MarketDataException("provider failed with raw details")
 }
 
-private class InMemoryPaperTradingStore : PaperTradingStore {
+private class InMemoryPaperTradingStore :
+    PaperTradingStore,
+    ExecutionProjectionStore {
     val signals = mutableListOf<PaperSignalRecord>()
     val orders = mutableListOf<PaperOrderRecord>()
     val fills = mutableListOf<PaperFillRecord>()
     val positions = mutableListOf<PaperPositionRecord>()
     val performanceSnapshots = mutableListOf<PaperPerformanceSnapshot>()
+    val closures = mutableListOf<ExecutionTradeClosure>()
+    val livePerformanceSnapshots = mutableListOf<LivePerformanceSnapshot>()
+    val suppressedClosureAlerts = mutableSetOf<Long>()
+    val deliveredClosureAlerts = mutableSetOf<Long>()
+    val closureAlertAttempts = mutableMapOf<Long, Int>()
 
     override suspend fun recordSignal(signal: PaperSignalRecord): Long {
         val id = signals.size + 1L
@@ -1393,12 +1492,141 @@ private class InMemoryPaperTradingStore : PaperTradingStore {
                     filledAt = fill?.filledAt,
                 )
             }
+
+    override suspend fun recordTradeClosure(
+        closure: ExecutionTradeClosure,
+        suppressedAt: Instant?,
+    ): Long? {
+        if (
+            closures.any {
+                it.exchangeOrderId == closure.exchangeOrderId &&
+                    it.clientOrderId == closure.clientOrderId &&
+                    it.closedAt == closure.closedAt
+            }
+        ) {
+            return null
+        }
+        val id = closures.size + 1L
+        closures += closure.copy(id = id)
+        if (suppressedAt != null) suppressedClosureAlerts += id
+        closureAlertAttempts[id] = 0
+        return id
+    }
+
+    override suspend fun closedTrades(
+        symbol: Symbol?,
+        mode: ExecutionRuntimeMode?,
+        limit: Int,
+        cursor: Long?,
+    ): List<ExecutionTradeClosure> {
+        val filtered =
+            closures.filter {
+                (symbol == null || it.symbol == symbol) &&
+                    (mode == null || it.mode == mode) &&
+                    (cursor == null || it.id < cursor)
+            }
+        return filtered.sortedByDescending { it.id }.take(limit)
+    }
+
+    override suspend fun latestClosedTrade(symbol: Symbol): ExecutionTradeClosure? =
+        closures.filter { it.symbol == symbol }.maxByOrNull { it.id }
+
+    override suspend fun performanceClosures(
+        mode: ExecutionRuntimeMode,
+        closedAtOrAfter: Instant?,
+    ): List<ExecutionTradeClosure> =
+        closures
+            .filter { closure ->
+                closure.mode == mode && (closedAtOrAfter == null || !closure.closedAt.isBefore(closedAtOrAfter))
+            }.sortedWith(compareBy(ExecutionTradeClosure::closedAt, ExecutionTradeClosure::id))
+
+    override suspend fun hasClosureHistory(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): Boolean = closures.any { closure -> closure.mode == mode && closure.symbol == symbol }
+
+    override suspend fun pendingClosureAlerts(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+        limit: Int,
+    ): List<PendingExecutionClosureAlert> =
+        closures
+            .filter { closure ->
+                closure.mode == mode &&
+                    closure.symbol == symbol &&
+                    closure.id !in suppressedClosureAlerts &&
+                    closure.id !in deliveredClosureAlerts
+            }.sortedWith(compareBy(ExecutionTradeClosure::closedAt, ExecutionTradeClosure::id))
+            .take(limit)
+            .map { closure ->
+                PendingExecutionClosureAlert(
+                    closure = closure,
+                    attemptCount = closureAlertAttempts[closure.id] ?: 0,
+                    lastAttemptAt = null,
+                )
+            }
+
+    override suspend fun recordClosureAlertAttempt(
+        closureId: Long,
+        attemptedAt: Instant,
+        delivered: Boolean,
+    ) {
+        closureAlertAttempts[closureId] = (closureAlertAttempts[closureId] ?: 0) + 1
+        if (delivered) deliveredClosureAlerts += closureId
+    }
+
+    override suspend fun recordLivePerformanceSnapshot(snapshot: LivePerformanceSnapshot): Long {
+        val id = livePerformanceSnapshots.size + 1L
+        livePerformanceSnapshots += snapshot.copy(id = id)
+        return id
+    }
+
+    override suspend fun latestLivePerformanceSummary(
+        mode: ExecutionRuntimeMode?,
+        window: LivePerformanceWindow,
+    ): LivePerformanceSnapshot? = livePerformanceSnapshots.lastOrNull { (mode == null || it.mode == mode) && it.window == window }
 }
+
+private fun sampleClosure(): ExecutionTradeClosure =
+    ExecutionTradeClosure(
+        mode = ExecutionRuntimeMode.LIVE,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+        closedAt = Instant.parse("2026-06-30T00:10:00Z"),
+        entryPrice = BigDecimal("100"),
+        exitPrice = BigDecimal("105"),
+        quantity = BigDecimal("1"),
+        grossPnl = BigDecimal("5.12"),
+        fees = BigDecimal("0.12"),
+        netPnl = BigDecimal("5"),
+        exitReason = "TAKE_PROFIT",
+        exchangeOrderId = "exit-1",
+        clientOrderId = "client-1",
+    )
+
+private fun samplePerformance(): LivePerformanceSnapshot =
+    LivePerformanceSnapshot(
+        mode = ExecutionRuntimeMode.LIVE,
+        window = LivePerformanceWindow.ALL,
+        tradeCount = 1,
+        winRatePct = BigDecimal("100"),
+        grossProfit = BigDecimal("5"),
+        grossLoss = BigDecimal.ZERO,
+        fees = BigDecimal("0.12"),
+        netPnl = BigDecimal("5"),
+        profitFactor = null,
+        expectancy = BigDecimal("5"),
+        maxClosedTradeDrawdownPct = BigDecimal.ZERO,
+        lastClosedAt = Instant.parse("2026-06-30T00:10:00Z"),
+        capturedAt = Instant.parse("2026-06-30T00:11:00Z"),
+    )
 
 private class RecordingExecutionGateway(
     private val openOrders: List<ExchangeOpenOrder> = emptyList(),
     private val positions: List<ExchangePosition> = emptyList(),
     private val executions: List<ExchangeExecutionFill> = emptyList(),
+    private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
     private val accountBalance: ExchangeAccountBalance =
         ExchangeAccountBalance(
             accountType = "UNIFIED",
@@ -1457,8 +1685,27 @@ private class RecordingExecutionGateway(
 
     override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = executions
 
+    override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> = closedPnls
+
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = accountBalance
 }
+
+private fun sampleClosedPnl(): ExchangeClosedPnl =
+    ExchangeClosedPnl(
+        exchangeOrderId = "exit-read-only",
+        clientOrderId = null,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+        closedAt = Instant.parse("2026-06-30T00:10:00Z"),
+        entryPrice = BigDecimal("100"),
+        exitPrice = BigDecimal("105"),
+        quantity = BigDecimal("1"),
+        grossPnl = BigDecimal("5.12"),
+        fees = BigDecimal("0.12"),
+        netPnl = BigDecimal("5"),
+        exitReason = "TAKE_PROFIT",
+    )
 
 private class FailingExecutionGateway : ExchangeExecutionGateway {
     override suspend fun setLeverage(

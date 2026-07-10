@@ -228,15 +228,15 @@ class VolumeFlowAggressiveBacktestService(
         val rangeAtr = (cluster.high - cluster.low) / atr
         if (displacementAtr > config.maxDisplacementAtr || rangeAtr > config.maxRangeAtr) return null
 
-        val latestEntry = minOf(index + config.entryLookaheadCandles, replayEndIndex - 1)
-        for (entryIndex in index + 1..latestEntry) {
-            val entry = candles[entryIndex]
-            if (!config.sessionHoursUtc.contains(entry.hourUtc)) continue
-            if (config.sideMode != VolumeFlowSideMode.SHORT_ONLY && entry.candle.close.toDouble() > cluster.high) {
-                return buildSetup(candles, Side.BUY, entryIndex, cluster, config)
+        val latestSignal = minOf(index + config.entryLookaheadCandles, replayEndIndex - 2)
+        for (signalIndex in index + 1..latestSignal) {
+            val signal = candles[signalIndex]
+            if (!config.sessionHoursUtc.contains(signal.hourUtc)) continue
+            if (config.sideMode != VolumeFlowSideMode.SHORT_ONLY && signal.candle.close.toDouble() > cluster.high) {
+                return buildSetup(candles, Side.BUY, signalIndex, cluster, config)
             }
-            if (config.sideMode != VolumeFlowSideMode.LONG_ONLY && entry.candle.close.toDouble() < cluster.low) {
-                return buildSetup(candles, Side.SELL, entryIndex, cluster, config)
+            if (config.sideMode != VolumeFlowSideMode.LONG_ONLY && signal.candle.close.toDouble() < cluster.low) {
+                return buildSetup(candles, Side.SELL, signalIndex, cluster, config)
             }
         }
         return null
@@ -245,11 +245,13 @@ class VolumeFlowAggressiveBacktestService(
     private fun buildSetup(
         candles: List<AggressiveCandle>,
         side: Side,
-        entryIndex: Int,
+        signalIndex: Int,
         cluster: AggressiveCluster,
         config: VolumeFlowAggressiveBacktestConfig,
     ): AggressiveSetup? {
-        if (!sideAllowedForRegime(candles, side, entryIndex, config)) return null
+        if (!sideAllowedForRegime(candles, side, signalIndex, config)) return null
+        val signal = candles[signalIndex]
+        val entryIndex = signalIndex + 1
         val entry = candles[entryIndex]
         val entryOpen = entry.candle.open.toDouble()
         val entryPrice =
@@ -257,8 +259,9 @@ class VolumeFlowAggressiveBacktestService(
                 Side.BUY -> entryOpen * (1.0 + config.slippageRate)
                 Side.SELL -> entryOpen * (1.0 - config.slippageRate)
             }
-        val stopAtr = stopAtrFor(candles, entryIndex, config)
-        val atr = entry.atr ?: return null
+        val signalReference = signal.candle.close.toDouble()
+        val stopAtr = stopAtrFor(candles, signalIndex, config)
+        val atr = signal.atr ?: return null
         val atrStop = atr * stopAtr
         val structuralStop =
             when (side) {
@@ -267,18 +270,27 @@ class VolumeFlowAggressiveBacktestService(
             }
         val stopPrice =
             when (side) {
-                Side.BUY -> minOf(structuralStop, entryPrice - atrStop)
-                Side.SELL -> maxOf(structuralStop, entryPrice + atrStop)
+                Side.BUY -> minOf(structuralStop, signalReference - atrStop)
+                Side.SELL -> maxOf(structuralStop, signalReference + atrStop)
             }
-        val riskPerUnit = abs(entryPrice - stopPrice)
-        val entryRiskPct = riskPerUnit / entryPrice
+        val riskPerUnit = abs(signalReference - stopPrice)
+        val entryRiskPct = riskPerUnit / signalReference
         if (riskPerUnit <= 0.0 || entryRiskPct < MIN_ENTRY_RISK_PCT || entryRiskPct > MAX_ENTRY_RISK_PCT) return null
-        val targetR = targetRFor(candles, entryIndex, config)
+        val targetR = targetRFor(candles, signalIndex, config)
         val targetPrice =
             when (side) {
-                Side.BUY -> entryPrice + (riskPerUnit * targetR)
-                Side.SELL -> entryPrice - (riskPerUnit * targetR)
+                Side.BUY -> signalReference + (riskPerUnit * targetR)
+                Side.SELL -> signalReference - (riskPerUnit * targetR)
             }
+        val validFillGeometry =
+            when (side) {
+                Side.BUY -> stopPrice < entryPrice && entryPrice < targetPrice
+                Side.SELL -> targetPrice < entryPrice && entryPrice < stopPrice
+            }
+        if (!validFillGeometry) return null
+        val grossTargetMove = abs(targetPrice - entryPrice)
+        val roundTripFeeAndSlip = entryPrice * ((config.feeRate * 2.0) + config.slippageRate)
+        if (grossTargetMove <= roundTripFeeAndSlip) return null
         return AggressiveSetup(
             side = side,
             entryIndex = entryIndex,
@@ -351,7 +363,7 @@ class VolumeFlowAggressiveBacktestService(
         replayEndIndex: Int,
         config: VolumeFlowAggressiveBacktestConfig,
     ): AggressiveExit {
-        val end = minOf(setup.entryIndex + config.maxHoldCandles, replayEndIndex - 1)
+        val end = minOf(setup.entryIndex + config.maxHoldCandles - 1, replayEndIndex - 1)
         val liquidationPrice = approximateLiquidationPrice(setup, config)
         for (index in setup.entryIndex..end) {
             val candle = candles[index].candle

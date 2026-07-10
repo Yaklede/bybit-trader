@@ -8,6 +8,22 @@ Evaluates the runtime aggressive M5 strategy and submits a private Bybit market
 order only when `BOT_PRIVATE_EXECUTION_ENABLED=true` and the bot state is
 `RUNNING`.
 
+Only candles whose open time is before the current timeframe boundary are
+evaluated. After filtering, insufficient warmup returns `NO_TRADE` with
+`INSUFFICIENT_CLOSED_CANDLE_HISTORY`. Immediately before automatic submission,
+active exchange orders or a positive position size reject the signal with
+`EXISTING_EXCHANGE_EXPOSURE`. Manual reduce-only close orders are unaffected.
+The gross target move must exceed configured round-trip fees plus
+`BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`; otherwise the signal is rejected before
+any private order call.
+
+Entry-anchor caveat: the aggressive backtest confirms the breakout at candle
+close and models the fill at the next candle open plus slippage. Live execution
+must submit before its market fill is known, so sizing and TP/SL use the closed
+breakout candle close plus the configured slippage safety buffer as an estimate.
+This is an explicit approximation. The runtime does not perform a risky
+post-fill TP/SL cancel-and-replace in this phase.
+
 Request:
 
 ```json
@@ -32,7 +48,9 @@ open orders, positions, and executions.
 
 ## POST /execution/reconcile
 
-Queries Bybit open orders, position list, and recent executions for a symbol.
+Queries Bybit open orders, position list, recent executions, and closed-PnL
+records for a symbol without writing projections. This keeps operator and
+dashboard reads from consuming a new closure before the runtime alert path.
 
 Request:
 
@@ -41,6 +59,61 @@ Request:
   "symbol": "BTCUSDT"
 }
 ```
+
+## GET /execution/closed-trades
+
+Lists persisted TESTNET/LIVE closed trades. Query params: `symbol`, `mode`,
+`limit` (1-100), and keyset `cursor`.
+
+## GET /performance/live/summary
+
+Returns cumulative live/testnet performance calculated from all persisted
+closures in the requested window; it is not limited by closed-trade API page
+size. `session` starts when the execution service starts, while `7d` and `30d`
+use rolling UTC durations from response capture time.
+Query params: `mode=TESTNET|LIVE` and `window=session|7d|30d|all`.
+
+## Runtime loop order
+
+Each fully closed M5 cycle first discovers and persists new Bybit closed-PnL
+rows, then drains durable pending Korean close alerts before market sync and
+entry evaluation. `executionTradeClosures` stores `delivered_at`,
+`suppressed_at`, `attempt_count`, and `last_attempt_at`. A false delivery result
+or callback exception increments the attempt metadata and remains pending for
+the next five-minute cycle. Each pending row is handled independently, so one
+Discord failure does not prevent later pending alerts or market evaluation.
+
+Delivery semantics are at-least-once. A successful Discord request is marked
+delivered only after the callback returns success. If the process exits after
+Discord accepts the request but before the SQLite acknowledgment commits, that
+closure can be sent again after restart.
+
+On the first bootstrap for a mode and symbol with no stored closure history,
+provider rows closed before the process `sessionStartedAt` are stored as a
+suppressed baseline. This prevents the first Bybit page, currently at most 50
+rows, from flooding Discord. Closures after process start remain pending. Once
+history exists, a later restart treats previously unseen downtime closures as
+pending even when they closed before the new process start. API and dashboard
+reconciliation remain read-only; the runtime loop is the only closure writer.
+
+## Migration note
+
+The runtime creates missing projection tables when opening an existing SQLite
+ledger. For ledgers created by the previous release, it additively adds the
+NOT NULL `executionTradeClosures.identity_key`, backfills deterministic
+identities, removes pre-existing duplicate identities while keeping the oldest
+row, and recreates the unique index. The statements remain compatible with the
+SQLDelight `sqlite_3_18` dialect.
+
+The alert-state migration additively creates nullable `delivered_at`, nullable
+`suppressed_at`, `attempt_count INTEGER NOT NULL DEFAULT 0`, and nullable
+`last_attempt_at`. Existing closure rows are marked suppressed during this
+one-time upgrade so deployment cannot replay historical alerts. New rows use
+pending defaults unless bootstrap suppression applies.
+
+Migration caveat: SQLite 3.18 cannot drop this column directly. Rollback after
+the identity migration requires restoring a pre-migration backup or rebuilding
+`executionTradeClosures`; dropping only the index is not a complete rollback.
 
 ## POST /execution/orders/cancel
 

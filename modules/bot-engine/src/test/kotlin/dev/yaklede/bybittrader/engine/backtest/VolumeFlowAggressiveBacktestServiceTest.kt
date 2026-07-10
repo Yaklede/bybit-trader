@@ -29,8 +29,9 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.activeDays shouldBe 1
             result.trades.single().side shouldBe Side.BUY
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
-            result.trades.single().openedAt shouldBe Instant.parse("2026-06-30T13:10:00Z")
+            result.trades.single().openedAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
             result.trades.single().closedAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
+            result.trades.single().entryPrice shouldBe 102.0204
             result.trades.single().targetR shouldBe 2.2
             (result.finalEquity > result.initialEquity) shouldBe true
             (result.compoundDailyReturnPct > 0.0) shouldBe true
@@ -82,7 +83,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
             (result.skippedSignalCount > 0) shouldBe true
         }
 
-        "marks aggressive exits as liquidation when leverage leaves less room than the stop" {
+        "uses conservative same entry candle liquidation ordering" {
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
 
             val result =
@@ -181,9 +182,9 @@ private fun aggressiveAbsorptionCandles(): List<Candle> =
                 aggressiveCandle(
                     index = index,
                     open = "102",
-                    high = "105",
+                    high = "110",
                     low = "101",
-                    close = "104",
+                    close = "109",
                     volume = "10",
                 )
             else ->

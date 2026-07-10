@@ -14,6 +14,7 @@ data class ExchangeExecutionConfig(
     val useLiveAccountEquity: Boolean = false,
     val riskFraction: BigDecimal = BigDecimal("0.055"),
     val feeRate: BigDecimal = BigDecimal("0.0006"),
+    val slippageBufferRate: BigDecimal = BigDecimal("0.0002"),
     val quantityStep: BigDecimal = BigDecimal("0.001"),
     val minQuantity: BigDecimal = BigDecimal("0.001"),
     val maxQuantity: BigDecimal? = null,
@@ -28,6 +29,9 @@ data class ExchangeExecutionConfig(
         }
         require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
             "Execution fee rate must be between 0 and 0.01."
+        }
+        require(slippageBufferRate >= BigDecimal.ZERO && slippageBufferRate <= BigDecimal("0.01")) {
+            "Execution slippage buffer rate must be between 0 and 0.01."
         }
         require(quantityStep > BigDecimal.ZERO) { "Execution quantity step must be positive." }
         require(minQuantity > BigDecimal.ZERO) { "Execution minimum quantity must be positive." }
@@ -112,6 +116,22 @@ data class ExchangeExecutionFill(
     val executedAt: Instant,
 )
 
+data class ExchangeClosedPnl(
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+    val symbol: Symbol,
+    val side: Side,
+    val openedAt: Instant?,
+    val closedAt: Instant,
+    val entryPrice: BigDecimal,
+    val exitPrice: BigDecimal,
+    val quantity: BigDecimal,
+    val grossPnl: BigDecimal,
+    val fees: BigDecimal,
+    val netPnl: BigDecimal,
+    val exitReason: String?,
+)
+
 data class ExchangeAccountBalance(
     val accountType: String,
     val totalEquity: BigDecimal?,
@@ -140,6 +160,8 @@ data class ExchangeReconciliationReport(
     val openOrders: List<ExchangeOpenOrder>,
     val positions: List<ExchangePosition>,
     val executions: List<ExchangeExecutionFill>,
+    val closedPnls: List<ExchangeClosedPnl> = emptyList(),
+    val persistedClosures: List<ExecutionTradeClosure> = emptyList(),
 )
 
 data class ExchangeEvaluationResult(
@@ -207,6 +229,8 @@ interface ExchangeExecutionGateway {
     suspend fun positions(symbol: Symbol): List<ExchangePosition>
 
     suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill>
+
+    suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> = emptyList()
 
     suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance
 }

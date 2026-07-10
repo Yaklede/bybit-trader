@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.market
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
@@ -11,7 +12,9 @@ import java.time.Instant
 class MarketDataSyncService(
     private val marketDataFeed: MarketDataFeed,
     private val candleStore: MarketCandleStore,
+    private val checkpointStore: MarketSyncCheckpointStore? = candleStore as? MarketSyncCheckpointStore,
     private val clock: Clock = Clock.systemUTC(),
+    private val retryDelay: suspend (Long) -> Unit = { millis -> delay(millis) },
 ) {
     private val logger = LoggerFactory.getLogger(MarketDataSyncService::class.java)
 
@@ -55,6 +58,41 @@ class MarketDataSyncService(
         )
         return result
     }
+
+    suspend fun syncClosedCandles(
+        symbol: Symbol,
+        timeframes: List<Timeframe>,
+        limit: Int,
+        maxRetries: Int,
+    ): ClosedCandleSyncResult {
+        require(timeframes.isNotEmpty()) { "At least one timeframe is required." }
+        require(limit in 1..1000) { "Limit must be between 1 and 1000." }
+        require(maxRetries in 0..5) { "Max retries must be between 0 and 5." }
+
+        val syncedAt = Instant.now(clock)
+        val results =
+            timeframes.distinct().map { timeframe ->
+                syncClosedTimeframe(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    limit = limit,
+                    maxRetries = maxRetries,
+                    syncedAt = syncedAt,
+                )
+            }
+        return ClosedCandleSyncResult(
+            symbol = symbol,
+            syncedAt = syncedAt,
+            rateLimitTriggered = results.any { it.retriesUsed > 0 || it.lastSyncStatus == MarketSyncStatus.RATE_LIMITED },
+            timeframes = results,
+        )
+    }
+
+    suspend fun closedCandleStatus(symbol: Symbol): ClosedCandleStatusResult =
+        ClosedCandleStatusResult(
+            symbol = symbol,
+            checkpoints = checkpointStore?.checkpoints(symbol).orEmpty(),
+        )
 
     suspend fun ensureRecentHistory(
         symbol: Symbol,
@@ -250,6 +288,79 @@ class MarketDataSyncService(
             latestOpenedAt = latestOpenedAt,
         )
     }
+
+    private suspend fun syncClosedTimeframe(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        limit: Int,
+        maxRetries: Int,
+        syncedAt: Instant,
+    ): ClosedTimeframeSyncResult {
+        var attempt = 0
+        while (true) {
+            try {
+                val fetched = marketDataFeed.fetchRecentCandles(symbol, timeframe, limit)
+                val closedBefore = floorToTimeframe(syncedAt, timeframe)
+                val closed = fetched.filter { candle -> candle.openedAt.isBefore(closedBefore) }.sortedBy { it.openedAt }
+                val dropped = fetched.size - closed.size
+                if (closed.isNotEmpty()) {
+                    candleStore.upsert(closed)
+                    checkpointStore?.upsertCheckpoint(
+                        MarketSyncCheckpoint(
+                            symbol = symbol,
+                            timeframe = timeframe,
+                            latestClosedOpenedAt = closed.last().openedAt,
+                            lastSyncAt = syncedAt,
+                            lastSyncStatus = MarketSyncStatus.SUCCESS,
+                            consecutiveRateLimitCount = 0,
+                        ),
+                    )
+                }
+                return ClosedTimeframeSyncResult(
+                    timeframe = timeframe,
+                    requestedLimit = limit,
+                    storedCandles = closed.size,
+                    droppedOpenCandles = dropped,
+                    retriesUsed = attempt,
+                    latestClosedOpenedAt = closed.lastOrNull()?.openedAt,
+                    lastSyncStatus = MarketSyncStatus.SUCCESS,
+                )
+            } catch (error: MarketDataException) {
+                if (!error.isRateLimitLike() || attempt >= maxRetries) {
+                    val previousCheckpoint =
+                        checkpointStore
+                            ?.checkpoints(symbol)
+                            ?.firstOrNull { it.timeframe == timeframe }
+                    previousCheckpoint?.let { previous ->
+                        val rateLimited = error.isRateLimitLike()
+                        val status = if (rateLimited) MarketSyncStatus.RATE_LIMITED else MarketSyncStatus.FAILED
+                        val nextRateLimitCount = previous.consecutiveRateLimitCount + if (rateLimited) 1 else 0
+                        checkpointStore.upsertCheckpoint(
+                            previous.copy(
+                                lastSyncAt = syncedAt,
+                                lastSyncStatus = status,
+                                consecutiveRateLimitCount = nextRateLimitCount,
+                            ),
+                        )
+                    }
+                    if (error.isRateLimitLike()) {
+                        return ClosedTimeframeSyncResult(
+                            timeframe = timeframe,
+                            requestedLimit = limit,
+                            storedCandles = 0,
+                            droppedOpenCandles = 0,
+                            retriesUsed = attempt,
+                            latestClosedOpenedAt = null,
+                            lastSyncStatus = MarketSyncStatus.RATE_LIMITED,
+                        )
+                    }
+                    throw error
+                }
+                attempt += 1
+                retryDelay(backoffMillis(attempt))
+            }
+        }
+    }
 }
 
 data class MarketDataSyncResult(
@@ -277,6 +388,28 @@ data class TimeframeSyncResult(
     val latestOpenedAt: Instant?,
 )
 
+data class ClosedCandleSyncResult(
+    val symbol: Symbol,
+    val syncedAt: Instant,
+    val rateLimitTriggered: Boolean,
+    val timeframes: List<ClosedTimeframeSyncResult>,
+)
+
+data class ClosedTimeframeSyncResult(
+    val timeframe: Timeframe,
+    val requestedLimit: Int,
+    val storedCandles: Int,
+    val droppedOpenCandles: Int,
+    val retriesUsed: Int,
+    val latestClosedOpenedAt: Instant?,
+    val lastSyncStatus: MarketSyncStatus,
+)
+
+data class ClosedCandleStatusResult(
+    val symbol: Symbol,
+    val checkpoints: List<MarketSyncCheckpoint>,
+)
+
 private fun Timeframe.durationMillis(): Long =
     when (this) {
         Timeframe.M1 -> 60_000L
@@ -284,6 +417,22 @@ private fun Timeframe.durationMillis(): Long =
         Timeframe.M15 -> 900_000L
         Timeframe.H1 -> 3_600_000L
     }
+
+private fun floorToTimeframe(
+    instant: Instant,
+    timeframe: Timeframe,
+): Instant {
+    val millis = timeframe.durationMillis()
+    val floored = (instant.toEpochMilli() / millis) * millis
+    return Instant.ofEpochMilli(floored)
+}
+
+private fun backoffMillis(attempt: Int): Long = (250L shl (attempt - 1)).coerceAtMost(4_000L)
+
+private fun MarketDataException.isRateLimitLike(): Boolean =
+    message.orEmpty().contains("10006") ||
+        message.orEmpty().contains("429", ignoreCase = true) ||
+        message.orEmpty().contains("rate limit", ignoreCase = true)
 
 private fun requiredRequests(
     startAt: Instant,

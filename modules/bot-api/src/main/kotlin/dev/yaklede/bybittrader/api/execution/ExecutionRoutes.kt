@@ -13,13 +13,19 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeManualOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationReport
+import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 import java.math.BigDecimal
+import java.time.Instant
 
 fun Route.configureExecutionRoutes(
     executionService: ExchangeExecutionService,
@@ -62,6 +68,43 @@ fun Route.configureExecutionRoutes(
         post("/execution/reconcile") {
             val request = call.receive<ExecutionReconcileRequest>().validated()
             call.respond(executionService.reconcile(Symbol(request.symbol)).toResponse())
+        }
+
+        get("/execution/closed-trades") {
+            val request =
+                ClosedTradesQuery(
+                    symbol = call.request.queryParameters["symbol"],
+                    limit = call.request.queryParameters["limit"],
+                    cursor = call.request.queryParameters["cursor"],
+                    mode = call.request.queryParameters["mode"],
+                ).validated()
+            val items =
+                executionService.closedTrades(
+                    symbol = request.symbol?.let(::Symbol),
+                    mode = request.mode?.let(ExecutionRuntimeMode::valueOf),
+                    limit = request.limit,
+                    cursor = request.cursor,
+                )
+            call.respond(
+                ClosedTradesResponse(
+                    items = items.map(ExecutionTradeClosure::toResponse),
+                    nextCursor = items.lastOrNull()?.id?.toString(),
+                ),
+            )
+        }
+
+        get("/performance/live/summary") {
+            val request =
+                LivePerformanceQuery(
+                    mode = call.request.queryParameters["mode"],
+                    window = call.request.queryParameters["window"],
+                ).validated()
+            val summary =
+                executionService.livePerformanceSummary(
+                    mode = request.mode?.let(ExecutionRuntimeMode::valueOf),
+                    window = request.window,
+                )
+            call.respond(summary.toResponse(request))
         }
 
         post("/execution/orders/cancel") {
@@ -180,6 +223,69 @@ data class ExecutionCancelRequest(
     }
 }
 
+private data class ClosedTradesQuery(
+    val symbol: String?,
+    val limit: String?,
+    val cursor: String?,
+    val mode: String?,
+) {
+    fun validated(): ClosedTradesQueryValues {
+        val normalizedSymbol =
+            symbol
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { it.isNotBlank() }
+                ?.also { Symbol(it) }
+        val normalizedLimit = limit?.toIntOrNull() ?: 20
+        require(normalizedLimit in 1..100) { "Limit must be between 1 and 100." }
+        val normalizedCursor = cursor?.toLongOrNull()
+        require(cursor == null || normalizedCursor != null) { "Cursor must be a positive number." }
+        require(normalizedCursor == null || normalizedCursor > 0) { "Cursor must be a positive number." }
+        val normalizedMode =
+            mode
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { it.isNotBlank() }
+                ?.also { ExecutionRuntimeMode.valueOf(it) }
+        return ClosedTradesQueryValues(normalizedSymbol, normalizedLimit, normalizedCursor, normalizedMode)
+    }
+}
+
+private data class ClosedTradesQueryValues(
+    val symbol: String?,
+    val limit: Int,
+    val cursor: Long?,
+    val mode: String?,
+)
+
+private data class LivePerformanceQuery(
+    val mode: String?,
+    val window: String?,
+) {
+    fun validated(): LivePerformanceQueryValues {
+        val normalizedMode =
+            mode
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { it.isNotBlank() }
+                ?.also { ExecutionRuntimeMode.valueOf(it) }
+        val normalizedWindow =
+            when (window?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "all") {
+                "session" -> LivePerformanceWindow.SESSION
+                "7d" -> LivePerformanceWindow.SEVEN_DAYS
+                "30d" -> LivePerformanceWindow.THIRTY_DAYS
+                "all" -> LivePerformanceWindow.ALL
+                else -> throw IllegalArgumentException("Window must be session, 7d, 30d, or all.")
+            }
+        return LivePerformanceQueryValues(normalizedMode, normalizedWindow)
+    }
+}
+
+private data class LivePerformanceQueryValues(
+    val mode: String?,
+    val window: LivePerformanceWindow,
+)
+
 @Serializable
 data class ExecutionEvaluationResponse(
     val symbol: String,
@@ -253,6 +359,48 @@ data class ExecutionCancelResponse(
 @Serializable
 data class ExecutionManualOrderResponse(
     val order: ExecutionManualOrderDetailResponse,
+)
+
+@Serializable
+data class ClosedTradesResponse(
+    val items: List<ClosedTradeResponse>,
+    val nextCursor: String?,
+)
+
+@Serializable
+data class ClosedTradeResponse(
+    val tradeId: Long,
+    val mode: String,
+    val symbol: String,
+    val side: String,
+    val openedAt: String,
+    val closedAt: String,
+    val entryPrice: String,
+    val exitPrice: String,
+    val quantity: String,
+    val grossPnl: String,
+    val fees: String,
+    val netPnl: String,
+    val exitReason: String,
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+)
+
+@Serializable
+data class LivePerformanceSummaryResponse(
+    val mode: String,
+    val window: String,
+    val tradeCount: Int,
+    val winRatePct: String,
+    val grossProfit: String,
+    val grossLoss: String,
+    val fees: String,
+    val netPnl: String,
+    val profitFactor: String?,
+    val expectancy: String?,
+    val maxClosedTradeDrawdownPct: String,
+    val lastClosedAt: String?,
+    val capturedAt: String,
 )
 
 @Serializable
@@ -353,6 +501,68 @@ private fun ExchangeManualOrderResult.toResponse(): ExecutionManualOrderResponse
                 submittedAt = submittedAt.toString(),
             ),
     )
+
+private fun ExecutionTradeClosure.toResponse(): ClosedTradeResponse =
+    ClosedTradeResponse(
+        tradeId = id,
+        mode = mode.name,
+        symbol = symbol.value,
+        side = side.name,
+        openedAt = openedAt.toString(),
+        closedAt = closedAt.toString(),
+        entryPrice = entryPrice.toPlainString(),
+        exitPrice = exitPrice.toPlainString(),
+        quantity = quantity.toPlainString(),
+        grossPnl = grossPnl.toPlainString(),
+        fees = fees.toPlainString(),
+        netPnl = netPnl.toPlainString(),
+        exitReason = exitReason,
+        exchangeOrderId = exchangeOrderId,
+        clientOrderId = clientOrderId,
+    )
+
+private fun LivePerformanceSnapshot?.toResponse(request: LivePerformanceQueryValues): LivePerformanceSummaryResponse =
+    if (this == null) {
+        LivePerformanceSummaryResponse(
+            mode = request.mode ?: "LIVE",
+            window = request.window.toContractValue(),
+            tradeCount = 0,
+            winRatePct = "0",
+            grossProfit = "0",
+            grossLoss = "0",
+            fees = "0",
+            netPnl = "0",
+            profitFactor = null,
+            expectancy = null,
+            maxClosedTradeDrawdownPct = "0",
+            lastClosedAt = null,
+            capturedAt = Instant.EPOCH.toString(),
+        )
+    } else {
+        LivePerformanceSummaryResponse(
+            mode = mode.name,
+            window = window.toContractValue(),
+            tradeCount = tradeCount,
+            winRatePct = winRatePct.toPlainString(),
+            grossProfit = grossProfit.toPlainString(),
+            grossLoss = grossLoss.toPlainString(),
+            fees = fees.toPlainString(),
+            netPnl = netPnl.toPlainString(),
+            profitFactor = profitFactor?.toPlainString(),
+            expectancy = expectancy?.toPlainString(),
+            maxClosedTradeDrawdownPct = maxClosedTradeDrawdownPct.toPlainString(),
+            lastClosedAt = lastClosedAt?.toString(),
+            capturedAt = capturedAt.toString(),
+        )
+    }
+
+private fun LivePerformanceWindow.toContractValue(): String =
+    when (this) {
+        LivePerformanceWindow.SESSION -> "session"
+        LivePerformanceWindow.SEVEN_DAYS -> "7d"
+        LivePerformanceWindow.THIRTY_DAYS -> "30d"
+        LivePerformanceWindow.ALL -> "all"
+    }
 
 private fun normalizeSymbol(symbol: String): String {
     val normalizedSymbol = symbol.trim().uppercase()
