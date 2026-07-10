@@ -5,7 +5,7 @@ Initial public repository placeholder for a Bybit trading automation project.
 ## Status
 
 > **Profitability validation reset (2026-07-10):** historical aggressive-profile
-> reports generated before fill model `causal-next-open-v1` used a breakout
+> reports generated before fill model `causal-m1-path-v2` used a breakout
 > candle close to select a trade while filling at that same candle's open.
 > Those reports are invalid for live-readiness decisions. The aggressive profile
 > is `UNVERIFIED`; keep `BOT_EXECUTION_MAX_NOTIONAL` set and do not expand live

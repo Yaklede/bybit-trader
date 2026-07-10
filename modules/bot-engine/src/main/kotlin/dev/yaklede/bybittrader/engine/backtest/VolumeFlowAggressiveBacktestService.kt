@@ -107,6 +107,11 @@ class VolumeFlowAggressiveBacktestService(
         var losses = 0
         var grossProfit = 0.0
         var grossLoss = 0.0
+        var totalGrossPnl = 0.0
+        var totalFees = 0.0
+        var totalFundingPnl = 0.0
+        var totalSlippageCost = 0.0
+        var liquidationCount = 0
         var skippedSignalCount = 0
         var skippedDataGapCount = 0
         val activeDays = linkedSetOf<String>()
@@ -148,13 +153,22 @@ class VolumeFlowAggressiveBacktestService(
                 index += 1
                 continue
             }
+            val effectiveExitPrice = exit.exitPrice.withExitSlippage(setup.side, config.exitSlippageRate)
             val grossPnl =
                 when (setup.side) {
-                    Side.BUY -> (exit.exitPrice - setup.entryPrice) * quantity
-                    Side.SELL -> (setup.entryPrice - exit.exitPrice) * quantity
+                    Side.BUY -> (effectiveExitPrice - setup.entryPrice) * quantity
+                    Side.SELL -> (setup.entryPrice - effectiveExitPrice) * quantity
                 }
-            val fees = ((setup.entryPrice + exit.exitPrice) * quantity) * config.feeRate
-            val pnl = grossPnl - fees
+            val fees = ((setup.entryPrice + effectiveExitPrice) * quantity) * config.feeRate
+            val fundingPnl = fundingPnl(setup, exit, quantity, config.fundingRatePer8h)
+            val slippageCost =
+                (abs(setup.entryPrice - setup.rawEntryPrice) + abs(effectiveExitPrice - exit.exitPrice)) * quantity
+            val pnl = grossPnl - fees + fundingPnl
+            totalGrossPnl += grossPnl
+            totalFees += fees
+            totalFundingPnl += fundingPnl
+            totalSlippageCost += slippageCost
+            if (exit.reason == VolumeFlowExitReason.LIQUIDATION) liquidationCount += 1
             val equityBefore = equity
             equity += pnl
             peakEquity = maxOf(peakEquity, equity)
@@ -179,7 +193,8 @@ class VolumeFlowAggressiveBacktestService(
                     entryPrice = setup.entryPrice,
                     stopPrice = setup.stopPrice,
                     targetPrice = setup.targetPrice,
-                    exitPrice = exit.exitPrice,
+                    exitPrice = effectiveExitPrice,
+                    triggerExitPrice = exit.exitPrice,
                     riskPerUnit = setup.riskPerUnit,
                     riskFraction = config.riskFraction,
                     quantity = quantity,
@@ -189,6 +204,9 @@ class VolumeFlowAggressiveBacktestService(
                     rMultipleGross = grossPnl / riskAmount,
                     rMultipleNet = pnl / riskAmount,
                     pnl = pnl,
+                    fees = fees,
+                    fundingPnl = fundingPnl,
+                    slippageCost = slippageCost,
                     returnPct = (pnl / equityBefore) * 100.0,
                     equityAfter = equity,
                     drawdownPct = drawdownPct,
@@ -222,6 +240,10 @@ class VolumeFlowAggressiveBacktestService(
             initialEquity = config.initialEquity,
             finalEquity = equity,
             netPnl = netPnl,
+            grossPnl = totalGrossPnl,
+            totalFees = totalFees,
+            totalFundingPnl = totalFundingPnl,
+            totalSlippageCost = totalSlippageCost,
             netReturnPct = (netPnl / config.initialEquity) * 100.0,
             compoundDailyReturnPct = compoundDailyReturnPct,
             maxDrawdownPct = maxDrawdownPct,
@@ -231,6 +253,7 @@ class VolumeFlowAggressiveBacktestService(
             activeDayCoveragePct = if (observedDays == 0) 0.0 else (activeDays.size.toDouble() / observedDays) * 100.0,
             skippedSignalCount = skippedSignalCount,
             skippedDataGapCount = skippedDataGapCount,
+            liquidationCount = liquidationCount,
             wins = wins,
             losses = losses,
             winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0,
@@ -360,7 +383,7 @@ class VolumeFlowAggressiveBacktestService(
                 takeProfit = BigDecimal.valueOf(targetPrice),
                 stopLoss = BigDecimal.valueOf(stopPrice),
                 feeRate = BigDecimal.valueOf(config.feeRate),
-                slippageBufferRate = BigDecimal.valueOf(config.slippageRate),
+                slippageBufferRate = BigDecimal.valueOf(config.slippageRate + config.exitSlippageRate),
             )
         if (targetStopRejection != null) return null
         return AggressiveSetup(
@@ -369,6 +392,7 @@ class VolumeFlowAggressiveBacktestService(
             entryIndex = entryIndex,
             entry = entry,
             plannedEntryPrice = signalReference,
+            rawEntryPrice = entryOpen,
             entryPrice = entryPrice,
             stopPrice = stopPrice,
             targetPrice = targetPrice,
@@ -668,6 +692,7 @@ private data class AggressiveSetup(
     val entryIndex: Int,
     val entry: AggressiveCandle,
     val plannedEntryPrice: Double,
+    val rawEntryPrice: Double,
     val entryPrice: Double,
     val stopPrice: Double,
     val targetPrice: Double,
@@ -688,3 +713,28 @@ private data class AggressivePriorStats(
     val avgVolume: Double,
     val avgRangePct: Double,
 )
+
+private fun Double.withExitSlippage(
+    side: Side,
+    rate: Double,
+): Double =
+    when (side) {
+        Side.BUY -> this * (1.0 - rate)
+        Side.SELL -> this * (1.0 + rate)
+    }
+
+private fun fundingPnl(
+    setup: AggressiveSetup,
+    exit: AggressiveExit,
+    quantity: Double,
+    fundingRatePer8h: Double,
+): Double {
+    if (fundingRatePer8h == 0.0) return 0.0
+    val heldSeconds = Duration.between(setup.entry.candle.openedAt, exit.closedAt).seconds.coerceAtLeast(0L)
+    val periods = heldSeconds.toDouble() / Duration.ofHours(8).seconds
+    val fundingMagnitude = setup.entryPrice * quantity * fundingRatePer8h * periods
+    return when (setup.side) {
+        Side.BUY -> -fundingMagnitude
+        Side.SELL -> fundingMagnitude
+    }
+}

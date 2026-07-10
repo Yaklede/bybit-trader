@@ -23,6 +23,8 @@ data class VolumeFlowAggressiveBacktestConfig(
     val riskFraction: Double = 0.055,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val exitSlippageRate: Double = 0.0002,
+    val fundingRatePer8h: Double = 0.0,
     val quantityStep: Double? = null,
     val minQuantity: Double? = null,
     val maxQuantity: Double? = null,
@@ -54,6 +56,10 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(riskFraction > 0.0 && riskFraction <= 0.20) { "Risk fraction must be between 0 and 0.20." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
+        require(exitSlippageRate >= 0.0 && exitSlippageRate <= 0.01) {
+            "Exit slippage rate must be between 0 and 0.01."
+        }
+        require(fundingRatePer8h in -0.01..0.01) { "Funding rate per 8h must be between -0.01 and 0.01." }
         require(quantityStep == null || quantityStep > 0.0) { "Quantity step must be positive." }
         require(minQuantity == null || minQuantity > 0.0) { "Minimum quantity must be positive." }
         require(maxQuantity == null || maxQuantity > 0.0) { "Maximum quantity must be positive." }
@@ -251,6 +257,10 @@ data class VolumeFlowAggressiveBacktestReport(
     val initialEquity: Double,
     val finalEquity: Double,
     val netPnl: Double,
+    val grossPnl: Double,
+    val totalFees: Double,
+    val totalFundingPnl: Double,
+    val totalSlippageCost: Double,
     val netReturnPct: Double,
     val compoundDailyReturnPct: Double,
     val maxDrawdownPct: Double,
@@ -260,6 +270,7 @@ data class VolumeFlowAggressiveBacktestReport(
     val activeDayCoveragePct: Double,
     val skippedSignalCount: Int,
     val skippedDataGapCount: Int,
+    val liquidationCount: Int,
     val wins: Int,
     val losses: Int,
     val winRatePct: Double,
@@ -277,6 +288,7 @@ data class VolumeFlowAggressiveBacktestTrade(
     val stopPrice: Double,
     val targetPrice: Double,
     val exitPrice: Double,
+    val triggerExitPrice: Double,
     val riskPerUnit: Double,
     val riskFraction: Double,
     val quantity: Double,
@@ -286,6 +298,9 @@ data class VolumeFlowAggressiveBacktestTrade(
     val rMultipleGross: Double,
     val rMultipleNet: Double,
     val pnl: Double,
+    val fees: Double,
+    val fundingPnl: Double,
+    val slippageCost: Double,
     val returnPct: Double,
     val equityAfter: Double,
     val drawdownPct: Double,

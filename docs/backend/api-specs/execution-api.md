@@ -24,6 +24,15 @@ breakout candle close plus the configured slippage safety buffer as an estimate.
 This is an explicit approximation. The runtime does not perform a risky
 post-fill TP/SL cancel-and-replace in this phase.
 
+Aggressive backtest responses identify fill model `causal-m1-path-v2`. The
+model loads pre-window M5 warmup separately, confirms on a closed M5 candle,
+enters no earlier than the next contiguous M5 open, and resolves post-entry
+stop/target order with contiguous M1 candles. Requests accept separate
+`slippageRate`, `exitSlippageRate`, and estimated `fundingRatePer8h` values.
+Responses expose gross PnL, fees, funding PnL, slippage cost, data-gap skips,
+and liquidation count; use these fields for cost stress checks instead of
+comparing net return alone.
+
 Request:
 
 ```json

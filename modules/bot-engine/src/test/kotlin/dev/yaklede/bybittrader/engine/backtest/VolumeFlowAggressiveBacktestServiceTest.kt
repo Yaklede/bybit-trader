@@ -9,6 +9,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.math.BigDecimal
 import java.time.Instant
+import kotlin.math.abs
 
 class VolumeFlowAggressiveBacktestServiceTest :
     StringSpec({
@@ -34,6 +35,9 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.trades.single().closedAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
             result.trades.single().entryPrice shouldBe 102.0204
             result.trades.single().targetR shouldBe 2.2
+            (result.trades.single().exitPrice < result.trades.single().triggerExitPrice) shouldBe true
+            (abs(result.netPnl - (result.grossPnl - result.totalFees + result.totalFundingPnl)) < 1e-8) shouldBe true
+            result.liquidationCount shouldBe 0
             (result.finalEquity > result.initialEquity) shouldBe true
             (result.compoundDailyReturnPct > 0.0) shouldBe true
         }
@@ -125,6 +129,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
 
             result.tradeCount shouldBe 1
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.LIQUIDATION
+            result.liquidationCount shouldBe 1
         }
 
         "can block aggressive entries by side regime rules" {

@@ -15,7 +15,7 @@ feature-discovery profile `absorption-adaptive-regime-final`
 ## Current Decision
 
 - Validation status: `UNVERIFIED`.
-- Profitability reports produced before `causal-next-open-v1` are invalid for
+- Profitability reports produced before `causal-m1-path-v2` are invalid for
   live-readiness decisions because they selected a breakout from a candle close
   and filled the trade at the same candle open.
 - Keep `BOT_EXECUTION_MAX_NOTIONAL` configured for every live automatic loop.
