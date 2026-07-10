@@ -1317,14 +1317,17 @@ function absorptionBreakoutSetup(candidate, index, endIndex) {
   const rangeAtr = (cluster.high - cluster.low) / candle.atr20;
   if (displacementAtr > candidate.maxDisplacementAtr || rangeAtr > candidate.maxRangeAtr) return null;
 
-  const latestEntry = Math.min(index + candidate.entryLookaheadCandles, endIndex - 1);
-  for (let entryIndex = index + 1; entryIndex <= latestEntry; entryIndex += 1) {
+  const latestConfirmation = Math.min(index + candidate.entryLookaheadCandles, endIndex - 2);
+  for (let confirmationIndex = index + 1; confirmationIndex <= latestConfirmation; confirmationIndex += 1) {
+    const confirmation = candles[confirmationIndex];
+    if (!sessionAllows(candidate.session, confirmation.hour)) continue;
+    const entryIndex = causalFillIndex(confirmationIndex, endIndex);
+    if (entryIndex == null) continue;
     const entry = candles[entryIndex];
-    if (!sessionAllows(candidate.session, entry.hour)) continue;
-    if (candidate.sideMode !== "SHORT_ONLY" && entry.close > cluster.high) {
+    if (candidate.sideMode !== "SHORT_ONLY" && confirmation.close > cluster.high) {
       return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference: cluster });
     }
-    if (candidate.sideMode !== "LONG_ONLY" && entry.close < cluster.low) {
+    if (candidate.sideMode !== "LONG_ONLY" && confirmation.close < cluster.low) {
       return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference: cluster });
     }
   }
@@ -1336,14 +1339,17 @@ function exhaustionReversalSetup(candidate, index, endIndex) {
   if ((candle.high - candle.low) / candle.atr20 < candidate.minRangeAtr) return null;
   if (candle.bodyRatio < candidate.minBodyRatio || candle.side == null) return null;
 
-  const latestEntry = Math.min(index + candidate.entryLookaheadCandles, endIndex - 1);
-  for (let entryIndex = index + 1; entryIndex <= latestEntry; entryIndex += 1) {
+  const latestConfirmation = Math.min(index + candidate.entryLookaheadCandles, endIndex - 2);
+  for (let confirmationIndex = index + 1; confirmationIndex <= latestConfirmation; confirmationIndex += 1) {
+    const confirmation = candles[confirmationIndex];
+    if (!sessionAllows(candidate.session, confirmation.hour)) continue;
+    const entryIndex = causalFillIndex(confirmationIndex, endIndex);
+    if (entryIndex == null) continue;
     const entry = candles[entryIndex];
-    if (!sessionAllows(candidate.session, entry.hour)) continue;
     if (
       candle.side === "BUY" &&
       candle.closeLocation >= candidate.closeLocationExtreme &&
-      entry.close < (candle.high + candle.low) / 2.0 &&
+      confirmation.close < (candle.high + candle.low) / 2.0 &&
       candidate.sideMode !== "LONG_ONLY"
     ) {
       return buildSetup(candidate, {
@@ -1356,7 +1362,7 @@ function exhaustionReversalSetup(candidate, index, endIndex) {
     if (
       candle.side === "SELL" &&
       candle.closeLocation <= 1.0 - candidate.closeLocationExtreme &&
-      entry.close > (candle.high + candle.low) / 2.0 &&
+      confirmation.close > (candle.high + candle.low) / 2.0 &&
       candidate.sideMode !== "SHORT_ONLY"
     ) {
       return buildSetup(candidate, {
@@ -1368,6 +1374,11 @@ function exhaustionReversalSetup(candidate, index, endIndex) {
     }
   }
   return null;
+}
+
+function causalFillIndex(confirmationIndex, endIndex) {
+  const fillIndex = confirmationIndex + 1;
+  return fillIndex < endIndex ? fillIndex : null;
 }
 
 function buildSetup(candidate, { side, entryIndex, entry, stopReference }) {
