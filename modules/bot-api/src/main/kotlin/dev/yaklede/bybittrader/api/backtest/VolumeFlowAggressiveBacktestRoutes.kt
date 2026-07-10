@@ -22,6 +22,7 @@ fun Route.configureVolumeFlowAggressiveBacktestRoutes(aggressiveBacktestService:
             val report =
                 aggressiveBacktestService.run(
                     symbol = Symbol(request.symbol),
+                    m1Limit = request.m1Limit,
                     m5Limit = request.m5Limit,
                     config = request.toConfig(),
                     replayStartAt = request.replayStartInstant(),
@@ -35,6 +36,7 @@ fun Route.configureVolumeFlowAggressiveBacktestRoutes(aggressiveBacktestService:
 @Serializable
 data class VolumeFlowAggressiveCurrentBacktestRequest(
     val symbol: String = "BTCUSDT",
+    val m1Limit: Int = ResearchCandleLimits.MAX_M1_REPLAY_CANDLES,
     val m5Limit: Int = 315_648,
     val replayStartAt: String? = null,
     val replayEndAt: String? = null,
@@ -53,6 +55,9 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
 ) {
     fun validated(): VolumeFlowAggressiveCurrentBacktestRequest {
         Symbol(symbol)
+        require(m1Limit in 1..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "M1 limit must be between 1 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
         require(m5Limit in 30..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
             "M5 limit must be between 30 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
@@ -108,7 +113,9 @@ data class VolumeFlowAggressiveBacktestResponse(
     val symbol: String,
     val profileId: String,
     val m5CandleCount: Int,
+    val m1CandleCount: Int,
     val warmupCandleCount: Int,
+    val executionPathMode: String,
     val startAt: String?,
     val endAt: String?,
     val initialEquity: Double,
@@ -122,6 +129,7 @@ data class VolumeFlowAggressiveBacktestResponse(
     val observedDays: Int,
     val activeDayCoveragePct: Double,
     val skippedSignalCount: Int,
+    val skippedDataGapCount: Int,
     val wins: Int,
     val losses: Int,
     val winRatePct: Double,
@@ -167,7 +175,9 @@ private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): Volu
         symbol = symbol.value,
         profileId = profileId,
         m5CandleCount = m5CandleCount,
+        m1CandleCount = m1CandleCount,
         warmupCandleCount = warmupCandleCount,
+        executionPathMode = executionPathMode.name,
         startAt = startAt?.toString(),
         endAt = endAt?.toString(),
         initialEquity = initialEquity,
@@ -181,6 +191,7 @@ private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): Volu
         observedDays = observedDays,
         activeDayCoveragePct = activeDayCoveragePct,
         skippedSignalCount = skippedSignalCount,
+        skippedDataGapCount = skippedDataGapCount,
         wins = wins,
         losses = losses,
         winRatePct = winRatePct,

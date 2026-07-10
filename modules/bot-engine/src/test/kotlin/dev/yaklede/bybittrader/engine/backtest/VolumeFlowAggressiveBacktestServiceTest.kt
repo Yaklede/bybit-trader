@@ -179,6 +179,61 @@ class VolumeFlowAggressiveBacktestServiceTest :
                 .openedAt
                 .isBefore(replayStartAt) shouldBe false
         }
+
+        "uses M1 candles to resolve the execution path after entry" {
+            val entryAt = Instant.parse("2026-06-30T13:15:00Z")
+            val m5Candles =
+                aggressiveAbsorptionCandles().map { candle ->
+                    if (candle.openedAt == entryAt) candle.copy(low = BigDecimal("98")) else candle
+                }
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(m5Candles))
+            val m1EntryCandle =
+                Candle(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M1,
+                    openedAt = entryAt,
+                    open = BigDecimal("102"),
+                    high = BigDecimal("110"),
+                    low = BigDecimal("101"),
+                    close = BigDecimal("109"),
+                    volume = BigDecimal("10"),
+                )
+
+            val m1Result =
+                service.runLoadedCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    candles = m5Candles,
+                    m1Candles = listOf(m1EntryCandle),
+                    config = aggressiveTestConfig().copy(executionPathMode = AggressiveExecutionPathMode.M1_REQUIRED),
+                )
+            val m5Result =
+                service.runLoadedCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    candles = m5Candles,
+                    config = aggressiveTestConfig(),
+                )
+
+            m1Result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+            m1Result.trades.single().closedAt shouldBe entryAt
+            m1Result.executionPathMode shouldBe AggressiveExecutionPathMode.M1_REQUIRED
+            m5Result.trades.single().exitReason shouldBe VolumeFlowExitReason.STOP
+        }
+
+        "skips an M1 execution when the path starts with a data gap" {
+            val candles = aggressiveAbsorptionCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+
+            val result =
+                service.runLoadedCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    candles = candles,
+                    m1Candles = emptyList(),
+                    config = aggressiveTestConfig().copy(executionPathMode = AggressiveExecutionPathMode.M1_REQUIRED),
+                )
+
+            result.tradeCount shouldBe 0
+            (result.skippedDataGapCount > 0) shouldBe true
+        }
     })
 
 private fun aggressiveTestConfig(): VolumeFlowAggressiveBacktestConfig =
@@ -188,6 +243,7 @@ private fun aggressiveTestConfig(): VolumeFlowAggressiveBacktestConfig =
             adaptiveStop = null,
             adaptiveTarget = null,
             sideRegimeBlocks = emptyList(),
+            executionPathMode = AggressiveExecutionPathMode.M5_CONSERVATIVE,
         )
 
 private class InMemoryAggressiveCandleStore(

@@ -5,11 +5,16 @@ import dev.yaklede.bybittrader.domain.Symbol
 import java.time.Instant
 
 const val AGGRESSIVE_BACKTEST_ENGINE_VERSION = "2.0.0"
-const val AGGRESSIVE_FILL_MODEL_VERSION = "causal-next-open-v1"
+const val AGGRESSIVE_FILL_MODEL_VERSION = "causal-m1-path-v2"
 
 enum class StrategyValidationStatus {
     UNVERIFIED,
     VERIFIED,
+}
+
+enum class AggressiveExecutionPathMode {
+    M1_REQUIRED,
+    M5_CONSERVATIVE,
 }
 
 data class VolumeFlowAggressiveBacktestConfig(
@@ -41,6 +46,7 @@ data class VolumeFlowAggressiveBacktestConfig(
     val maxHoldCandles: Int = 36,
     val maxTradesPerDay: Int = 5,
     val sideMode: VolumeFlowSideMode = VolumeFlowSideMode.BOTH,
+    val executionPathMode: AggressiveExecutionPathMode = AggressiveExecutionPathMode.M1_REQUIRED,
 ) {
     init {
         require(profileId.isNotBlank()) { "Aggressive profile id must not be blank." }
@@ -237,7 +243,9 @@ data class VolumeFlowAggressiveBacktestReport(
     val symbol: Symbol,
     val profileId: String,
     val m5CandleCount: Int,
+    val m1CandleCount: Int,
     val warmupCandleCount: Int,
+    val executionPathMode: AggressiveExecutionPathMode,
     val startAt: Instant?,
     val endAt: Instant?,
     val initialEquity: Double,
@@ -251,6 +259,7 @@ data class VolumeFlowAggressiveBacktestReport(
     val observedDays: Int,
     val activeDayCoveragePct: Double,
     val skippedSignalCount: Int,
+    val skippedDataGapCount: Int,
     val wins: Int,
     val losses: Int,
     val winRatePct: Double,

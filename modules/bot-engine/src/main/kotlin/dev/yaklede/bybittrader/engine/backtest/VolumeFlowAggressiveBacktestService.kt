@@ -27,9 +27,13 @@ class VolumeFlowAggressiveBacktestService(
         symbol: Symbol,
         m5Limit: Int,
         config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
+        m1Limit: Int = ResearchCandleLimits.MAX_M1_REPLAY_CANDLES,
         replayStartAt: Instant? = null,
         replayEndAt: Instant? = null,
     ): VolumeFlowAggressiveBacktestReport {
+        require(m1Limit in 1..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "M1 limit must be between 1 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
         require(m5Limit in 30..ResearchCandleLimits.MAX_M5_REPLAY_CANDLES) {
             "M5 limit must be between 30 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
@@ -55,9 +59,26 @@ class VolumeFlowAggressiveBacktestService(
         require(loaded.candles.size >= config.requiredWarmupCandles() + config.maxHoldCandles + 2) {
             "Not enough M5 candles for aggressive absorption replay."
         }
+        val m1Candles =
+            if (config.executionPathMode == AggressiveExecutionPathMode.M1_REQUIRED) {
+                val pathStartAt = replayStartAt ?: loaded.candles[config.requiredWarmupCandles()].openedAt
+                val pathEndAt =
+                    replayEndAt
+                        ?: loaded.candles
+                            .last()
+                            .openedAt
+                            .plusSeconds(M5_CANDLE_SECONDS - 60L)
+                candleStore
+                    .candlesBetween(symbol, Timeframe.M1, pathStartAt, pathEndAt, m1Limit)
+                    .sortedBy { it.openedAt }
+                    .also { require(it.isNotEmpty()) { "M1 execution candles are required for the aggressive replay." } }
+            } else {
+                emptyList()
+            }
         return runLoadedCandles(
             symbol = symbol,
             candles = loaded.candles,
+            m1Candles = m1Candles,
             config = config,
             replayStartAt = replayStartAt,
             replayEndAt = replayEndAt,
@@ -69,6 +90,7 @@ class VolumeFlowAggressiveBacktestService(
     internal fun runLoadedCandles(
         symbol: Symbol,
         candles: List<Candle>,
+        m1Candles: List<Candle> = emptyList(),
         config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
         replayStartAt: Instant? = null,
         replayEndAt: Instant? = null,
@@ -84,6 +106,7 @@ class VolumeFlowAggressiveBacktestService(
         var grossProfit = 0.0
         var grossLoss = 0.0
         var skippedSignalCount = 0
+        var skippedDataGapCount = 0
         val activeDays = linkedSetOf<String>()
         val tradesByDay = mutableMapOf<String, Int>()
         val trades = mutableListOf<VolumeFlowAggressiveBacktestTrade>()
@@ -113,7 +136,16 @@ class VolumeFlowAggressiveBacktestService(
                 index += 1
                 continue
             }
-            val exit = simulateExit(enriched, setup, replayEndIndex, config)
+            val exit =
+                when (config.executionPathMode) {
+                    AggressiveExecutionPathMode.M1_REQUIRED -> simulateM1Exit(m1Candles, setup, config)
+                    AggressiveExecutionPathMode.M5_CONSERVATIVE -> simulateM5Exit(enriched, setup, replayEndIndex, config)
+                }
+            if (exit == null) {
+                skippedDataGapCount += 1
+                index += 1
+                continue
+            }
             val grossPnl =
                 when (setup.side) {
                     Side.BUY -> (exit.exitPrice - setup.entryPrice) * quantity
@@ -139,7 +171,7 @@ class VolumeFlowAggressiveBacktestService(
                 VolumeFlowAggressiveBacktestTrade(
                     signalAt = setup.signal.candle.openedAt,
                     openedAt = setup.entry.candle.openedAt,
-                    closedAt = enriched[exit.exitIndex].candle.openedAt,
+                    closedAt = exit.closedAt,
                     side = setup.side,
                     exitReason = exit.reason,
                     entryPrice = setup.entryPrice,
@@ -163,7 +195,7 @@ class VolumeFlowAggressiveBacktestService(
                     entryBodyRatio = setup.entry.bodyRatio,
                     entryCloseLocation = setup.entry.closeLocation,
                 )
-            index = exit.exitIndex + 1
+            index = exit.exitM5Index + 1
         }
 
         val startAt = replayStartAt ?: candles.firstOrNull()?.openedAt
@@ -180,7 +212,9 @@ class VolumeFlowAggressiveBacktestService(
             symbol = symbol,
             profileId = config.profileId,
             m5CandleCount = replayCandleCount,
+            m1CandleCount = m1Candles.size,
             warmupCandleCount = warmupCandleCount,
+            executionPathMode = config.executionPathMode,
             startAt = startAt,
             endAt = endAt,
             initialEquity = config.initialEquity,
@@ -194,6 +228,7 @@ class VolumeFlowAggressiveBacktestService(
             observedDays = observedDays,
             activeDayCoveragePct = if (observedDays == 0) 0.0 else (activeDays.size.toDouble() / observedDays) * 100.0,
             skippedSignalCount = skippedSignalCount,
+            skippedDataGapCount = skippedDataGapCount,
             wins = wins,
             losses = losses,
             winRatePct = if (trades.isEmpty()) 0.0 else (wins.toDouble() / trades.size) * 100.0,
@@ -384,7 +419,7 @@ class VolumeFlowAggressiveBacktestService(
         return adaptive.stopAtr
     }
 
-    private fun simulateExit(
+    private fun simulateM5Exit(
         candles: List<AggressiveCandle>,
         setup: AggressiveSetup,
         replayEndIndex: Int,
@@ -396,27 +431,75 @@ class VolumeFlowAggressiveBacktestService(
             val candle = candles[index].candle
             if (setup.side == Side.BUY) {
                 if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
-                    return AggressiveExit(index, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
                 }
                 if (candle.low.toDouble() <= setup.stopPrice) {
-                    return AggressiveExit(index, setup.stopPrice, VolumeFlowExitReason.STOP)
+                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
                 }
                 if (candle.high.toDouble() >= setup.targetPrice) {
-                    return AggressiveExit(index, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
                 }
             } else {
                 if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
-                    return AggressiveExit(index, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
                 }
                 if (candle.high.toDouble() >= setup.stopPrice) {
-                    return AggressiveExit(index, setup.stopPrice, VolumeFlowExitReason.STOP)
+                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
                 }
                 if (candle.low.toDouble() <= setup.targetPrice) {
-                    return AggressiveExit(index, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
                 }
             }
         }
-        return AggressiveExit(end, candles[end].candle.close.toDouble(), VolumeFlowExitReason.TIME)
+        return AggressiveExit(end, candles[end].candle.openedAt, candles[end].candle.close.toDouble(), VolumeFlowExitReason.TIME)
+    }
+
+    private fun simulateM1Exit(
+        candles: List<Candle>,
+        setup: AggressiveSetup,
+        config: VolumeFlowAggressiveBacktestConfig,
+    ): AggressiveExit? {
+        val entryAt = setup.entry.candle.openedAt
+        val startIndex = candles.binarySearchBy(entryAt) { it.openedAt }
+        if (startIndex < 0) return null
+        val liquidationPrice = approximateLiquidationPrice(setup, config)
+        val pathMinutes = config.maxHoldCandles * 5
+        var lastCandle: Candle? = null
+        repeat(pathMinutes) { minuteOffset ->
+            val candle = candles.getOrNull(startIndex + minuteOffset) ?: return null
+            val expectedAt = entryAt.plusSeconds(minuteOffset * 60L)
+            if (candle.timeframe != Timeframe.M1 || candle.openedAt != expectedAt) return null
+            lastCandle = candle
+            val exitM5Index = setup.entryIndex + (minuteOffset / 5)
+            if (setup.side == Side.BUY) {
+                if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
+                    return AggressiveExit(exitM5Index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                }
+                if (candle.low.toDouble() <= setup.stopPrice) {
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
+                }
+                if (candle.high.toDouble() >= setup.targetPrice) {
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                }
+            } else {
+                if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
+                    return AggressiveExit(exitM5Index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                }
+                if (candle.high.toDouble() >= setup.stopPrice) {
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
+                }
+                if (candle.low.toDouble() <= setup.targetPrice) {
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                }
+            }
+        }
+        val timeExit = lastCandle ?: return null
+        return AggressiveExit(
+            exitM5Index = setup.entryIndex + config.maxHoldCandles - 1,
+            closedAt = timeExit.openedAt,
+            exitPrice = timeExit.close.toDouble(),
+            reason = VolumeFlowExitReason.TIME,
+        )
     }
 
     private fun approximateLiquidationPrice(
@@ -581,7 +664,8 @@ private data class AggressiveSetup(
 )
 
 private data class AggressiveExit(
-    val exitIndex: Int,
+    val exitM5Index: Int,
+    val closedAt: Instant,
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
 )
