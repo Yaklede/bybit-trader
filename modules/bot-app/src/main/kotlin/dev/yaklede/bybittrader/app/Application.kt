@@ -173,6 +173,7 @@ fun main() {
                         maxQuantity = config.execution.maxQuantity,
                         maxNotional = config.execution.maxNotional,
                         leverage = config.execution.leverage,
+                        liquidationBufferPct = config.execution.liquidationBufferPct,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
             )

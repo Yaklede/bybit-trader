@@ -128,7 +128,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
             (result.skippedSignalCount > 0) shouldBe true
         }
 
-        "uses conservative same entry candle liquidation ordering" {
+        "rejects an entry whose stop is beyond the estimated liquidation boundary" {
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
 
             val result =
@@ -143,9 +143,8 @@ class VolumeFlowAggressiveBacktestServiceTest :
                             ),
                 )
 
-            result.tradeCount shouldBe 1
-            result.trades.single().exitReason shouldBe VolumeFlowExitReason.LIQUIDATION
-            result.liquidationCount shouldBe 1
+            result.tradeCount shouldBe 0
+            result.liquidationCount shouldBe 0
         }
 
         "can block aggressive entries by side regime rules" {
@@ -238,6 +237,39 @@ class VolumeFlowAggressiveBacktestServiceTest :
             m1Result.trades.single().closedAt shouldBe entryAt
             m1Result.executionPathMode shouldBe AggressiveExecutionPathMode.M1_REQUIRED
             m5Result.trades.single().exitReason shouldBe VolumeFlowExitReason.STOP
+        }
+
+        "executes a reachable stop before a farther liquidation price within an M1 candle" {
+            val entryAt = Instant.parse("2026-06-30T13:15:00Z")
+            val m5Candles = aggressiveAbsorptionCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(m5Candles))
+            val m1EntryCandle =
+                Candle(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M1,
+                    openedAt = entryAt,
+                    open = BigDecimal("102"),
+                    high = BigDecimal("103"),
+                    low = BigDecimal("90"),
+                    close = BigDecimal("91"),
+                    volume = BigDecimal("10"),
+                )
+
+            val result =
+                service.runLoadedCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    candles = m5Candles,
+                    m1Candles = listOf(m1EntryCandle),
+                    config =
+                        aggressiveTestConfig()
+                            .copy(
+                                executionPathMode = AggressiveExecutionPathMode.M1_REQUIRED,
+                                leverage = 15.0,
+                            ),
+                )
+
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.STOP
+            result.liquidationCount shouldBe 0
         }
 
         "skips an M1 execution when the path starts with a data gap" {

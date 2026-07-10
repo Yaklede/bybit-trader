@@ -249,6 +249,12 @@ class ExchangeExecutionService(
                 stopLoss = signal.invalidationPrice.value,
                 feeRate = config.feeRate,
                 slippageBufferRate = config.slippageBufferRate,
+            ) ?: ExecutionTradePlanCalculator.leverageStopRejection(
+                side = signal.side,
+                entryPrice = entryPrice,
+                stopLoss = signal.invalidationPrice.value,
+                leverage = config.leverage,
+                liquidationBufferPct = config.liquidationBufferPct,
             )
         if (targetStopRejection != null) {
             val rejectedSignalId =

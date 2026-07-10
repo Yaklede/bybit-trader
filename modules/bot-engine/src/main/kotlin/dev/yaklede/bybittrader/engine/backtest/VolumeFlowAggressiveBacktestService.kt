@@ -444,6 +444,15 @@ class VolumeFlowAggressiveBacktestService(
                 slippageBufferRate = BigDecimal.valueOf(config.slippageRate + config.exitSlippageRate),
             )
         if (targetStopRejection != null) return null
+        val leverageStopRejection =
+            ExecutionTradePlanCalculator.leverageStopRejection(
+                side = side,
+                entryPrice = BigDecimal.valueOf(entryPrice),
+                stopLoss = BigDecimal.valueOf(stopPrice),
+                leverage = config.leverage?.let(BigDecimal::valueOf),
+                liquidationBufferPct = BigDecimal.valueOf(config.liquidationBufferPct),
+            )
+        if (leverageStopRejection != null) return null
         return AggressiveSetup(
             side = side,
             absorption = absorption,
@@ -532,23 +541,15 @@ class VolumeFlowAggressiveBacktestService(
             val excursion = candle.excursionR(setup)
             mfeR = maxOf(mfeR, excursion.first)
             maeR = maxOf(maeR, excursion.second)
+            val protectiveExit = candle.protectiveExit(setup, liquidationPrice)
+            if (protectiveExit != null) {
+                return AggressiveExit(index, candle.openedAt, protectiveExit.price, protectiveExit.reason, mfeR, maeR)
+            }
             if (setup.side == Side.BUY) {
-                if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
-                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION, mfeR, maeR)
-                }
-                if (candle.low.toDouble() <= setup.stopPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
-                }
                 if (candle.high.toDouble() >= setup.targetPrice) {
                     return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             } else {
-                if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
-                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION, mfeR, maeR)
-                }
-                if (candle.high.toDouble() >= setup.stopPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
-                }
                 if (candle.low.toDouble() <= setup.targetPrice) {
                     return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
@@ -586,37 +587,22 @@ class VolumeFlowAggressiveBacktestService(
             mfeR = maxOf(mfeR, excursion.first)
             maeR = maxOf(maeR, excursion.second)
             val exitM5Index = setup.entryIndex + (minuteOffset / 5)
+            val protectiveExit = candle.protectiveExit(setup, liquidationPrice)
+            if (protectiveExit != null) {
+                return AggressiveExit(
+                    exitM5Index,
+                    candle.openedAt,
+                    protectiveExit.price,
+                    protectiveExit.reason,
+                    mfeR,
+                    maeR,
+                )
+            }
             if (setup.side == Side.BUY) {
-                if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
-                    return AggressiveExit(
-                        exitM5Index,
-                        candle.openedAt,
-                        liquidationPrice,
-                        VolumeFlowExitReason.LIQUIDATION,
-                        mfeR,
-                        maeR,
-                    )
-                }
-                if (candle.low.toDouble() <= setup.stopPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
-                }
                 if (candle.high.toDouble() >= setup.targetPrice) {
                     return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             } else {
-                if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
-                    return AggressiveExit(
-                        exitM5Index,
-                        candle.openedAt,
-                        liquidationPrice,
-                        VolumeFlowExitReason.LIQUIDATION,
-                        mfeR,
-                        maeR,
-                    )
-                }
-                if (candle.high.toDouble() >= setup.stopPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
-                }
                 if (candle.low.toDouble() <= setup.targetPrice) {
                     return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
@@ -809,6 +795,11 @@ private data class AggressiveExit(
     val maeR: Double = 0.0,
 )
 
+private data class AggressiveProtectiveExit(
+    val price: Double,
+    val reason: VolumeFlowExitReason,
+)
+
 private data class AggressivePriorStats(
     val returnPct: Double,
     val avgVolume: Double,
@@ -851,6 +842,37 @@ private fun Candle.excursionR(setup: AggressiveSetup): Pair<Double, Double> {
         Side.SELL ->
             maxOf(0.0, (setup.entryPrice - candleLow) / setup.riskPerUnit) to
                 maxOf(0.0, (candleHigh - setup.entryPrice) / setup.riskPerUnit)
+    }
+}
+
+private fun Candle.protectiveExit(
+    setup: AggressiveSetup,
+    liquidationPrice: Double?,
+): AggressiveProtectiveExit? {
+    val candleOpen = open.toDouble()
+    return when (setup.side) {
+        Side.BUY -> {
+            when {
+                liquidationPrice != null && candleOpen <= liquidationPrice ->
+                    AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.LIQUIDATION)
+                candleOpen <= setup.stopPrice -> AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.STOP)
+                liquidationPrice != null && liquidationPrice >= setup.stopPrice && low.toDouble() <= liquidationPrice ->
+                    AggressiveProtectiveExit(liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                low.toDouble() <= setup.stopPrice -> AggressiveProtectiveExit(setup.stopPrice, VolumeFlowExitReason.STOP)
+                else -> null
+            }
+        }
+        Side.SELL -> {
+            when {
+                liquidationPrice != null && candleOpen >= liquidationPrice ->
+                    AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.LIQUIDATION)
+                candleOpen >= setup.stopPrice -> AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.STOP)
+                liquidationPrice != null && liquidationPrice <= setup.stopPrice && high.toDouble() >= liquidationPrice ->
+                    AggressiveProtectiveExit(liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                high.toDouble() >= setup.stopPrice -> AggressiveProtectiveExit(setup.stopPrice, VolumeFlowExitReason.STOP)
+                else -> null
+            }
+        }
     }
 }
 

@@ -351,6 +351,7 @@ data class ExecutionSettings(
     val maxQuantity: BigDecimal?,
     val maxNotional: BigDecimal?,
     val leverage: BigDecimal?,
+    val liquidationBufferPct: BigDecimal,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -370,6 +371,9 @@ data class ExecutionSettings(
         }
         require(maxNotional == null || maxNotional > BigDecimal.ZERO) { "Execution max notional must be positive." }
         require(leverage == null || leverage > BigDecimal.ONE) { "Execution leverage must be greater than 1." }
+        require(liquidationBufferPct >= BigDecimal.ZERO && liquidationBufferPct <= BigDecimal("10")) {
+            "Execution liquidation buffer must be between 0 and 10 percent."
+        }
     }
 
     companion object {
@@ -387,6 +391,8 @@ data class ExecutionSettings(
                 maxQuantity = environment["BOT_EXECUTION_MAX_QTY"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
                 maxNotional = environment["BOT_EXECUTION_MAX_NOTIONAL"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
                 leverage = environment["BOT_EXECUTION_LEVERAGE"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
+                liquidationBufferPct =
+                    environment["BOT_EXECUTION_LIQUIDATION_BUFFER_PCT"]?.let(::BigDecimal) ?: BigDecimal("0.6"),
             )
     }
 }

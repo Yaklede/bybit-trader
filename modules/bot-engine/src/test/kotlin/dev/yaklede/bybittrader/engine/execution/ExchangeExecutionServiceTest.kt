@@ -92,6 +92,35 @@ class ExchangeExecutionServiceTest :
             )
         }
 
+        "rejects a live order whose stop reaches the estimated liquidation boundary" {
+            val gateway = RecordingExecutionGateway()
+            val store = InMemoryTradingStore()
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            accountEquity = BigDecimal("1000000"),
+                            riskFraction = BigDecimal("0.01"),
+                            leverage = BigDecimal("25"),
+                        ),
+                )
+
+            val result =
+                service.evaluateAndSubmit(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M5,
+                    candleLimit = 30,
+                )
+
+            result.status shouldBe ExchangeEvaluationStatus.REJECTED
+            result.reasonCodes shouldBe listOf("STOP_REACHES_ESTIMATED_LIQUIDATION")
+            gateway.placedOrders shouldBe emptyList()
+            store.signals.single().rejectionReason shouldBe "STOP_REACHES_ESTIMATED_LIQUIDATION"
+        }
+
         "live account equity and leverage cap execution quantity" {
             val gateway =
                 RecordingExecutionGateway(

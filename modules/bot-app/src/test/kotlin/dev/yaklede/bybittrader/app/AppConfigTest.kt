@@ -72,6 +72,7 @@ class AppConfigTest :
                         "BOT_EXECUTION_MAX_QTY" to "5",
                         "BOT_EXECUTION_MAX_NOTIONAL" to "100000",
                         "BOT_EXECUTION_LEVERAGE" to "15",
+                        "BOT_EXECUTION_LIQUIDATION_BUFFER_PCT" to "0.8",
                     ),
                 )
 
@@ -88,6 +89,7 @@ class AppConfigTest :
             config.execution.maxQuantity?.toPlainString() shouldBe "5"
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"
+            config.execution.liquidationBufferPct.toPlainString() shouldBe "0.8"
         }
 
         "live execution loop rejects an uncapped unverified strategy" {

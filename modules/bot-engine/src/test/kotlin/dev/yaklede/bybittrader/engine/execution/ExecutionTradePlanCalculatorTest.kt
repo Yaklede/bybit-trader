@@ -60,4 +60,17 @@ class ExecutionTradePlanCalculatorTest :
 
             rejection shouldBe "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES"
         }
+
+        "rejects a stop beyond the estimated liquidation boundary" {
+            val rejection =
+                ExecutionTradePlanCalculator.leverageStopRejection(
+                    side = Side.BUY,
+                    entryPrice = BigDecimal("100"),
+                    stopLoss = BigDecimal("95"),
+                    leverage = BigDecimal("25"),
+                    liquidationBufferPct = BigDecimal("0.6"),
+                )
+
+            rejection shouldBe "STOP_REACHES_ESTIMATED_LIQUIDATION"
+        }
     })

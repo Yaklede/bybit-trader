@@ -82,6 +82,27 @@ internal object ExecutionTradePlanCalculator {
         val roundTripCostMove = entryPrice.multiply(roundTripCostRate, MathContext.DECIMAL64)
         return if (grossTargetMove <= roundTripCostMove) "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES" else null
     }
+
+    fun leverageStopRejection(
+        side: Side,
+        entryPrice: BigDecimal,
+        stopLoss: BigDecimal,
+        leverage: BigDecimal?,
+        liquidationBufferPct: BigDecimal,
+    ): String? {
+        if (leverage == null) return null
+        val liquidationDistanceRate =
+            BigDecimal.ONE
+                .divide(leverage, MathContext.DECIMAL64)
+                .subtract(liquidationBufferPct.divide(BigDecimal("100"), MathContext.DECIMAL64))
+        if (liquidationDistanceRate <= BigDecimal.ZERO) return "INVALID_LIQUIDATION_BUFFER"
+        val stopDistanceRate =
+            when (side) {
+                Side.BUY -> entryPrice.subtract(stopLoss)
+                Side.SELL -> stopLoss.subtract(entryPrice)
+            }.divide(entryPrice, MathContext.DECIMAL64)
+        return if (stopDistanceRate >= liquidationDistanceRate) "STOP_REACHES_ESTIMATED_LIQUIDATION" else null
+    }
 }
 
 internal fun ExchangeExecutionConfig.sizingConstraints(): ExecutionSizingConstraints =
