@@ -75,6 +75,13 @@ export function oiChangeBand(changePct) {
   return "FLAT";
 }
 
+export function accountCrowdingBand(buyRatio) {
+  if (!Number.isFinite(buyRatio) || buyRatio < 0 || buyRatio > 1) return "UNAVAILABLE";
+  if (buyRatio <= 0.45) return "SHORT_HEAVY";
+  if (buyRatio >= 0.55) return "LONG_HEAVY";
+  return "BALANCED";
+}
+
 export function summarizeReturns(returns, costPct) {
   if (returns.length === 0) return null;
   const netReturns = returns.map((value) => value - costPct);
@@ -94,8 +101,10 @@ export function buildDiagnosticReport(options, records) {
   const costPct = options.roundTripCostBps / 100;
   const flowGroups = new Map();
   const flowOiGroups = new Map();
+  const flowOiCrowdingGroups = new Map();
   let skippedMissingFlow = 0;
   let skippedNoDirection = 0;
+  let missingAccountRatio = 0;
 
   for (const record of records) {
     if (!record.completeFlow) {
@@ -112,6 +121,9 @@ export function buildDiagnosticReport(options, records) {
     appendReturns(flowGroups, flowKey, record.futureReturnPct);
     const flowOiKey = `${flowKey}|oi=${oiChangeBand(record.openInterestChangePct)}`;
     appendReturns(flowOiGroups, flowOiKey, record.futureReturnPct);
+    const crowding = accountCrowdingBand(record.accountBuyRatio);
+    if (crowding === "UNAVAILABLE") missingAccountRatio += 1;
+    appendReturns(flowOiCrowdingGroups, `${flowOiKey}|crowding=${crowding}`, record.futureReturnPct);
   }
 
   return {
@@ -129,9 +141,11 @@ export function buildDiagnosticReport(options, records) {
       eligibleM5Candles: records.length - skippedMissingFlow - skippedNoDirection,
       skippedMissingFlow,
       skippedNoDirection,
+      missingAccountRatio,
     },
     flowOnly: summarizeGroups(flowGroups, costPct, options.minSamples),
     flowAndOpenInterest: summarizeGroups(flowOiGroups, costPct, options.minSamples),
+    flowAndOpenInterestAndAccountRatio: summarizeGroups(flowOiCrowdingGroups, costPct, options.minSamples),
   };
 }
 
@@ -169,10 +183,17 @@ function loadRecords(db, options) {
     WHERE symbol = ? AND interval = 'M5' AND timestamp <= ?
     ORDER BY timestamp
   `).all(options.symbol, isoInstant(replayEndAt));
+  const accountRatios = db.prepare(`
+    SELECT timestamp, buy_ratio, sell_ratio
+    FROM accountRatioSnapshots
+    WHERE symbol = ? AND period = 'M5' AND timestamp <= ?
+    ORDER BY timestamp
+  `).all(options.symbol, isoInstant(replayEndAt));
 
   const indexByOpenedAt = new Map(candles.map((candle, index) => [candle.opened_at, index]));
   const rollingVolumes = rollingAverage(candles.map((candle) => Number(candle.volume)), 20);
   const oiLookup = new OpenInterestLookup(openInterest, options.openInterestLookback);
+  const accountRatioLookup = new AccountRatioLookup(accountRatios);
   const records = [];
 
   for (let index = 0; index < candles.length - options.horizonM5; index += 1) {
@@ -201,6 +222,7 @@ function loadRecords(db, options) {
       imbalance: bucket?.imbalance ?? 0,
       relativeVolume,
       openInterestChangePct: oiLookup.changeAtOrBefore(closedAt),
+      accountBuyRatio: accountRatioLookup.buyRatioAtOrBefore(closedAt),
       futureReturnPct: sideReturnPct,
     });
   }
@@ -250,6 +272,27 @@ class OpenInterestLookup {
     const baseline = this.rows[this.pointer - this.lookback + 1].openInterest;
     if (!isPositiveFinite(latest) || !isPositiveFinite(baseline)) return null;
     return ((latest - baseline) / baseline) * 100;
+  }
+}
+
+class AccountRatioLookup {
+  constructor(rows) {
+    this.rows = rows.map((row) => ({
+      timestamp: new Date(row.timestamp),
+      buyRatio: Number(row.buy_ratio),
+      sellRatio: Number(row.sell_ratio),
+    }));
+    this.pointer = 0;
+  }
+
+  buyRatioAtOrBefore(decisionAt) {
+    while (this.pointer + 1 < this.rows.length && this.rows[this.pointer + 1].timestamp <= decisionAt) {
+      this.pointer += 1;
+    }
+    if (this.rows.length === 0 || this.rows[this.pointer].timestamp > decisionAt) return null;
+    const snapshot = this.rows[this.pointer];
+    if (!Number.isFinite(snapshot.buyRatio) || !Number.isFinite(snapshot.sellRatio)) return null;
+    return snapshot.buyRatio;
   }
 }
 

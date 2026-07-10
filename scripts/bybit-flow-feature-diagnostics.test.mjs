@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  accountCrowdingBand,
   buildDiagnosticReport,
   imbalanceBand,
   oiChangeBand,
@@ -28,6 +29,9 @@ test("bands preserve threshold boundaries", () => {
   assert.equal(relativeVolumeBand(3), "SURGE");
   assert.equal(oiChangeBand(-0.25), "CONTRACTING");
   assert.equal(oiChangeBand(null), "UNAVAILABLE");
+  assert.equal(accountCrowdingBand(0.45), "SHORT_HEAVY");
+  assert.equal(accountCrowdingBand(0.55), "LONG_HEAVY");
+  assert.equal(accountCrowdingBand(0.5), "BALANCED");
 });
 
 test("summarizeReturns applies round-trip cost before ranking outcomes", () => {
@@ -57,6 +61,7 @@ test("diagnostic report excludes incomplete flow and ranks both directions", () 
       imbalance: 0.8,
       relativeVolume: 3.2,
       openInterestChangePct: 0.5,
+      accountBuyRatio: 0.6,
       futureReturnPct: 0.3,
     },
     {
@@ -65,6 +70,7 @@ test("diagnostic report excludes incomplete flow and ranks both directions", () 
       imbalance: -0.8,
       relativeVolume: 3.2,
       openInterestChangePct: -0.5,
+      accountBuyRatio: 0.4,
       futureReturnPct: 0.3,
     },
   ]);
@@ -74,4 +80,8 @@ test("diagnostic report excludes incomplete flow and ranks both directions", () 
   assert.equal(report.flowOnly[0].continuation.meanNetReturnPct, 0.2);
   assert.equal(report.flowOnly[0].reversal.meanNetReturnPct, -0.4);
   assert.equal(report.flowAndOpenInterest[0].group.endsWith("oi=EXPANDING"), true);
+  assert.equal(
+    report.flowAndOpenInterestAndAccountRatio[0].group.endsWith("crowding=LONG_HEAVY"),
+    true,
+  );
 });

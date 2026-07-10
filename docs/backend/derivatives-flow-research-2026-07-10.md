@@ -24,6 +24,7 @@ The research database is a local clone populated from Bybit public history:
 |---|---|---:|
 | BTCUSDT taker flow, M1 | 2020-03-25 to 2026-07-02 | 3,269,804 |
 | Open interest, M5 | 2020-07-20 to 2026-07-02 | 621,701 |
+| Account long/short ratio, M5 | 2020-07-20 to 2026-07-02 | 621,231 |
 | Premium index, M15 | 2020-03-25 to 2026-07-02 | 219,889 |
 | Funding | 2020-03-25 to 2026-07-02 | 6,871 |
 
@@ -36,6 +37,7 @@ Official data references:
 
 - https://bybit-exchange.github.io/docs/v5/market/recent-trade
 - https://bybit-exchange.github.io/docs/v5/market/open-interest
+- https://bybit-exchange.github.io/docs/v5/market/long-short-ratio
 - https://bybit-exchange.github.io/docs/v5/market/premium-index-kline
 - https://bybit-exchange.github.io/docs/v5/market/history-fund-rate
 
@@ -106,6 +108,47 @@ Decision: do not turn the tested flow/OI states into runtime setup modes. A
 new strategy hypothesis needs information not represented by this simple
 feature set, such as a pre-specified transition-state model or independently
 available order-book/crowding history.
+
+## Account Ratio Diagnostic
+
+The public account long/short ratio was added as a separate M5 crowding
+dimension. Each decision uses only the latest ratio snapshot timestamped at
+or before the completed M5 candle close. The diagnostic uses fixed, untuned
+bands: `SHORT_HEAVY` at buy ratio `<= 0.45`, `LONG_HEAVY` at `>= 0.55`, and
+`BALANCED` otherwise. It evaluates the same flow, relative-volume, and
+open-interest states for both continuation and reversal after a 12-basis-point
+round-trip cost.
+
+This is still a conditional-return diagnostic, not a backtest. It does not
+model fills, sizing, stops, funding, liquidation, or compounded return.
+
+| Holding time | 2020-2021 eligible M5 bars | 2022-2023 eligible M5 bars | Common positive states | Best shared worst-period mean after cost |
+|---|---:|---:|---:|---:|
+| 5 minutes | 139,358 | 207,444 | 0 | -0.09171% |
+| 15 minutes | 139,356 | 207,442 | 0 | -0.07483% |
+| 30 minutes | 139,353 | 207,439 | 0 | -0.08018% |
+| 60 minutes | 139,347 | 207,433 | 0 | -0.06245% |
+
+Only 25 otherwise eligible early-period candles lacked a prior account-ratio
+snapshot; the later period had none. Therefore the rejection is not a coverage
+artifact. No common state had a positive mean net return in both chronological
+segments at any tested holding time.
+
+Decision: reject account-ratio crowding as an additional filter for the current
+volume-flow strategy family. It must not be added to a live or backtest profile
+solely because it is now available in storage.
+
+Reproduce each horizon by changing `--horizon-m5` to `1`, `3`, `6`, or `12`:
+
+```bash
+node --no-warnings scripts/bybit-flow-feature-diagnostics.mjs \
+  --db=/private/tmp/bybit-trader-diagnostics-20260710.sqlite \
+  --start=2020-07-20T00:00:00Z \
+  --end=2021-12-31T23:55:00Z \
+  --horizon-m5=3 \
+  --round-trip-cost-bps=12 \
+  --min-samples=100
+```
 
 ## Raw Absorption Simulator Correction
 
