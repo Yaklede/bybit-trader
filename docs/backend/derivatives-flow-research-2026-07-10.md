@@ -242,6 +242,75 @@ be evaluated as follows:
 5. Keep `BOT_EXECUTION_MAX_NOTIONAL` in place until the promotion gate passes
    and forward observation confirms order and alert parity.
 
+## Sealed Evaluation Protocol
+
+The earlier random-window tuning scripts are development tools and cannot be
+used as promotion evidence because they score candidate variants on the same
+windows. `config/volume-flow-sealed-windows-v1.json` fixes 40 BTCUSDT windows
+from one to sixty months, records their SHA-256 hash, and marks tuning as
+disallowed. The evaluator fails the entire protocol when any single window
+fails one of these gates:
+
+- causal fill-model version `causal-next-m1-open-v2`;
+- CDR at least `0.8%`;
+- mark-to-market drawdown at most `40%`;
+- no liquidations;
+- at least three trades and `2%` active-day coverage; and
+- sufficient common M1/M5/M15 replay coverage for the requested range.
+
+It accepts a fixed strategy config, increases only replay limits to cover the
+sealed range, and never mutates strategy parameters. A failed result is a
+rejection, not a tuning input:
+
+```bash
+node --test scripts/volume-flow-sealed-evaluate.test.mjs
+node scripts/volume-flow-sealed-evaluate.mjs \
+  --api=http://127.0.0.1:18080 \
+  --token="$BOT_CONTROL_TOKEN" \
+  --strategy=config/volume-flow-composite-causal-unverified.json \
+  --protocol=config/volume-flow-sealed-windows-v1.json \
+  --out=build/research/sealed-v1.json
+```
+
+## Sealed V1 Results (2026-07-11 KST)
+
+The first full execution used the entire recorded BTCUSDT history from
+`2020-03-25T10:36:00Z` to `2026-07-02T05:40:00Z`, engine version `2.0.0`,
+and the fixed protocol hash
+`51764b6427209db52304879c434b3524341c3dd040359f29553b1badb6fa0fce`.
+Both configurations existed before this evaluation. No parameter was changed
+between their runs. The generated raw reports are intentionally ignored under
+`build/research/` because they can be reproduced with the command above.
+
+| Configuration | Passed windows | Median CDR | Mean CDR | CDR range | Median trades | Mean active-day coverage | Maximum MTM MDD | Liquidations |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `volume-flow-composite-causal-unverified.json` | 0 / 40 | +0.00106% | +0.00392% | -0.01709% to +0.07066% | 6 | 0.89% | 11.74% | 0 |
+| `volume-flow-composite-current.json` | 0 / 40 | +0.01213% | -0.00359% | -0.45970% to +0.16647% | 15 | 2.99% | 28.08% | 0 |
+
+The conservative causal candidate failed CDR in every window, active-day
+coverage in 38 windows, and minimum trade coverage in 16 windows. Its two
+legs both constrain the market regime to `TREND_DOWN` and require regime-side
+alignment, so they can only submit SELL signals. It therefore cannot use the
+intended two-sided futures advantage and is far too selective to compound on
+short windows.
+
+The current operational profile increased coverage but did not solve the
+return problem. It also failed CDR in every window; its average CDR was
+negative and its worst one-month-equivalent outcome was -0.45970% daily.
+Its total returns in selected historical periods are not evidence that the
+profile can deliver a consistent daily compound return from an arbitrary
+starting point.
+
+No replay-coverage failures, fill-model mismatches, or simulated liquidations
+occurred. This isolates the rejection to edge quality and opportunity
+frequency rather than data availability or a reporting-contract defect.
+
+Decision: both configurations remain `UNVERIFIED`; neither is eligible for
+live exposure expansion. The V1 window set is now consumed as an evaluation
+record. It must not be used to select thresholds, risk fractions, exits, or
+new legs. The next strategy family must be developed using pre-declared
+chronological folds and then evaluated only after its parameters are frozen.
+
 ## Forward Data Collection Gate
 
 Historical Bybit REST data does not contain the event-level order-book history
