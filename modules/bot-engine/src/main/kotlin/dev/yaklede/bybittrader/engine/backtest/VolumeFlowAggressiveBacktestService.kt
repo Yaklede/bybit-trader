@@ -236,6 +236,8 @@ class VolumeFlowAggressiveBacktestService(
         val endAt = replayEndAt ?: candles.lastOrNull()?.openedAt
         val observedDays = observedDaysBetween(startAt, endAt)
         val netPnl = equity - config.initialEquity
+        val positiveR = trades.filter { it.rMultipleNet > 0.0 }.sumOf { it.rMultipleNet }
+        val negativeR = abs(trades.filter { it.rMultipleNet <= 0.0 }.sumOf { it.rMultipleNet })
         val compoundDailyReturnPct =
             if (equity > 0.0 && observedDays > 0) {
                 ((equity / config.initialEquity).pow(1.0 / observedDays) - 1.0) * 100.0
@@ -277,6 +279,15 @@ class VolumeFlowAggressiveBacktestService(
                     grossProfit > 0.0 -> 999.0
                     else -> null
                 },
+            rProfitFactor =
+                when {
+                    negativeR > 0.0 -> positiveR / negativeR
+                    positiveR > 0.0 -> 999.0
+                    else -> null
+                },
+            averageGrossR = trades.map { it.rMultipleGross }.averageOrZero(),
+            averageNetR = trades.map { it.rMultipleNet }.averageOrZero(),
+            averageCostR = trades.map { it.rMultipleGross - it.rMultipleNet }.averageOrZero(),
             performanceBySide = trades.toPerformanceSlices { it.side.name },
             performanceByExitReason = trades.toPerformanceSlices { it.exitReason.name },
             performanceBySignalHourUtc =
@@ -888,3 +899,5 @@ private fun Double.relativeVolumeBand(): String =
         this < 2.0 -> "1.5-2.0"
         else -> "2.0+"
     }
+
+private fun List<Double>.averageOrZero(): Double = if (isEmpty()) 0.0 else average()

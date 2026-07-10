@@ -43,6 +43,9 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.liquidationCount shouldBe 0
             (result.finalEquity > result.initialEquity) shouldBe true
             (result.compoundDailyReturnPct > 0.0) shouldBe true
+            (result.averageGrossR > result.averageNetR) shouldBe true
+            (result.averageCostR > 0.0) shouldBe true
+            result.rProfitFactor shouldBe 999.0
             result.performanceBySide.sumOf { it.tradeCount } shouldBe result.tradeCount
             result.performanceByExitReason.sumOf { it.tradeCount } shouldBe result.tradeCount
             result.performanceBySignalHourUtc.sumOf { it.tradeCount } shouldBe result.tradeCount
