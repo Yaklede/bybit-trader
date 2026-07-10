@@ -114,6 +114,9 @@ both the latest completed order-book and taker-trade bars. A liquidation
 timestamp can remain empty when no liquidation event occurred; it is not used
 as a connection-health signal. The panel also shows how many of the latest 60
 closed minutes were captured by both the order-book and taker-trade streams.
+If the collection stream or its minute-bar flush fails, the configured alert
+sink receives a warning. Repeated failure alerts are limited to one per
+15 minutes.
 
 ```bash
 BOT_FORWARD_MARKET_CAPTURE_ENABLED=true

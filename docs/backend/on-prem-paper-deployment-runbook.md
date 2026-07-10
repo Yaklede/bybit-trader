@@ -66,6 +66,8 @@ order-book and taker-trade minute bars are stored; an empty liquidation
 timestamp is normal when the market has no liquidation event.
 Use the panel's `최근 60분 공통 수집` value to verify that both streams are
 continuously stored before running the forward-data diagnostic.
+When the stream or minute-bar flush fails, Discord receives `시장 흐름 수집
+점검 필요`; repeated alerts are limited to one every 15 minutes.
 
 For private Bybit live execution, add:
 

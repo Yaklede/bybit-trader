@@ -385,8 +385,15 @@ class ForwardMarketCaptureLoop(
     private val config: ForwardMarketCaptureLoopConfig,
     private val clock: Clock = Clock.systemUTC(),
     private val retryDelay: suspend (Long) -> Unit = { millis -> kotlinx.coroutines.delay(millis) },
+    private val onFailure: suspend (Throwable) -> Unit = {},
+    failureAlertCooldown: Duration = Duration.ofMinutes(15),
 ) {
     private val logger = LoggerFactory.getLogger(ForwardMarketCaptureLoop::class.java)
+    private val failureAlertThrottle =
+        ForwardMarketCaptureFailureThrottle(
+            cooldown = failureAlertCooldown,
+            now = { Instant.now(clock) },
+        )
 
     fun start(scope: CoroutineScope): Job =
         scope.launch {
@@ -398,6 +405,7 @@ class ForwardMarketCaptureLoop(
                         } catch (error: Throwable) {
                             if (error is kotlin.coroutines.cancellation.CancellationException) throw error
                             logger.warn("forward market capture stream failed symbol={}", config.symbol.value, error)
+                            notifyFailure(error)
                         }
                         retryDelay(config.reconnectDelay.toMillis())
                     }
@@ -410,11 +418,40 @@ class ForwardMarketCaptureLoop(
                         } catch (error: Throwable) {
                             if (error is kotlin.coroutines.cancellation.CancellationException) throw error
                             logger.warn("forward market capture flush failed symbol={}", config.symbol.value, error)
+                            notifyFailure(error)
                         }
                     }
                 }
             }
         }
+
+    private suspend fun notifyFailure(error: Throwable) {
+        if (failureAlertThrottle.shouldNotify()) onFailure(error)
+    }
+}
+
+internal class ForwardMarketCaptureFailureThrottle(
+    private val cooldown: Duration,
+    private val now: () -> Instant = { Instant.now() },
+) {
+    init {
+        require(!cooldown.isNegative && !cooldown.isZero) { "Forward capture failure alert cooldown must be positive." }
+    }
+
+    private val mutex = Mutex()
+    private var lastAlertAt: Instant? = null
+
+    suspend fun shouldNotify(): Boolean {
+        val currentTime = now()
+        return mutex.withLock {
+            if (lastAlertAt?.plus(cooldown)?.isAfter(currentTime) == true) {
+                false
+            } else {
+                lastAlertAt = currentTime
+                true
+            }
+        }
+    }
 }
 
 data class ForwardMarketCaptureLoopConfig(

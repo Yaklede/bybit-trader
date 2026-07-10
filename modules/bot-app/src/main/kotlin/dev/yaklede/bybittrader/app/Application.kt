@@ -252,6 +252,7 @@ fun main() {
                     ),
                 captureService = ForwardMarketCaptureService(store = ledger),
                 config = ForwardMarketCaptureLoopConfig(symbol = config.marketData.symbol),
+                onFailure = { error -> alertingService.sendForwardMarketCaptureFailure(error) },
             ).start(forwardMarketCaptureScope)
         } else {
             logger.info("forward market capture disabled")
@@ -476,6 +477,16 @@ private suspend fun AlertingService.sendPaperLoopFailure(error: Throwable) {
             severity = AlertSeverity.WARNING,
             title = "모의 거래 점검 필요",
             body = loopFailureAlertBody(loopName = "모의 거래", error = error),
+        ),
+    )
+}
+
+private suspend fun AlertingService.sendForwardMarketCaptureFailure(error: Throwable) {
+    send(
+        AlertMessage(
+            severity = AlertSeverity.WARNING,
+            title = "시장 흐름 수집 점검 필요",
+            body = loopFailureAlertBody(loopName = "시장 흐름 수집", error = error),
         ),
     )
 }

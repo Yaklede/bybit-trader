@@ -133,6 +133,24 @@ class ForwardMarketCaptureServiceTest :
 
             status shouldBe ForwardMarketCaptureStatus.DISABLED
         }
+
+        "throttles repeated forward-capture failure notifications" {
+            var now = Instant.parse("2026-07-10T00:00:00Z")
+            val throttle =
+                ForwardMarketCaptureFailureThrottle(
+                    cooldown = java.time.Duration.ofMinutes(15),
+                    now = { now },
+                )
+
+            throttle.shouldNotify() shouldBe true
+            throttle.shouldNotify() shouldBe false
+
+            now = now.plusSeconds(14 * 60)
+            throttle.shouldNotify() shouldBe false
+
+            now = now.plusSeconds(60)
+            throttle.shouldNotify() shouldBe true
+        }
     })
 
 private class InMemoryForwardMarketCaptureStore : ForwardMarketCaptureStore {
