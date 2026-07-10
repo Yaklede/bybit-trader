@@ -10,6 +10,8 @@ Initial public repository placeholder for a Bybit trading automation project.
 > Those reports are invalid for live-readiness decisions. The aggressive profile
 > is `UNVERIFIED`; keep `BOT_EXECUTION_MAX_NOTIONAL` set and do not expand live
 > exposure until a causal walk-forward and sealed holdout pass is recorded.
+> The raw M5 feature-discovery simulator was corrected for the same issue; its
+> previous 0.8% CDR claim no longer reproduces under causal confirmation fills.
 
 Milestone 1 is the operational backend shell:
 

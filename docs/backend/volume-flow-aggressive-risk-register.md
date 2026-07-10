@@ -18,6 +18,10 @@ feature-discovery profile `absorption-adaptive-regime-final`
 - Profitability reports produced before `causal-m1-path-v2` are invalid for
   live-readiness decisions because they selected a breakout from a candle close
   and filled the trade at the same candle open.
+- The raw M5 feature-discovery simulator now fills only at the next M5 open
+  after confirmation. Its previously reported 0.8% CDR result does not
+  reproduce: a fixed 20-window replay passed `0/20`, had worst CDR
+  `-7.87551%`, and reached `100%` maximum drawdown.
 - Keep `BOT_EXECUTION_MAX_NOTIONAL` configured for every live automatic loop.
 - Do not increase live exposure until causal walk-forward and sealed holdout
   gates pass with fees, slippage, liquidation, and drawdown included.
@@ -34,7 +38,7 @@ feature-discovery profile `absorption-adaptive-regime-final`
 
 | ID | Risk | Impact | Deferred mitigation |
 | --- | --- | --- | --- |
-| R1 | Raw feature-discovery strategy is represented in Kotlin, but raw-script versus Kotlin trade-level parity is not fully proven. | Backtest result can diverge if candle boundaries, setup indexing, or runtime signal timing differ. | Keep `VolumeFlowAggressiveBacktestService` and `VolumeFlowAggressiveStrategy` as the implementation baseline, then add trace-level parity checks against script outputs before testnet execution. |
+| R1 | Raw feature-discovery results were invalidated by confirmation-fill leakage. | A candidate can appear profitable when a closed confirmation candle is filled at its own earlier open. | Keep the raw simulator research-only, require its next-candle fill regression test, and use the causal Kotlin engine for any future promotion evaluation. |
 | R2 | Aggressive compounding allows 50-77% peak-to-trough drawdowns. | Live account may become unusable before long-run recovery, especially with futures leverage and margin rules. | Add optional risk presets later: max leverage, max account risk, consecutive-loss throttle, and stress-regime size reducer. |
 | R3 | Backtest assumes simplified fills, fees, and slippage. | Real execution may reduce or invert expected edge during high-volume candles. | Run paper and testnet shadow mode with realized spread, slippage, rejection, and funding records. |
 | R4 | Large simulated balance growth ignores exchange liquidity and order-size limits. | Later-stage compounding is unrealistic if position size becomes too large for BTCUSDT depth. | Add notional caps, depth-aware sizing, and liquidity cap reporting before scaling capital. |

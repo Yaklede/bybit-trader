@@ -1,5 +1,13 @@
 # Volume Flow Tuning Log
 
+> **Superseded research note (2026-07-10):** The `2026-07-05 M5 Absorption
+> Regime Final Candidate` section below used a confirmation candle close to
+> choose a breakout, then filled at that same candle's open. That is future-data
+> leakage. After the raw simulator was corrected to fill at the next M5 open,
+> the fixed 20-window holdout for `absa_final_us_v1` passed `0/20`, with worst
+> CDR `-7.87551%` and maximum drawdown `100%`. The historical 480-window result
+> is invalid for strategy selection and live-readiness decisions.
+
 ## 2026-07-03 Recursive Rolling Robustness Retune
 
 Source note: measured against

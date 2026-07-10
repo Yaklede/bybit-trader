@@ -107,6 +107,29 @@ new strategy hypothesis needs information not represented by this simple
 feature set, such as a pre-specified transition-state model or independently
 available order-book/crowding history.
 
+## Raw Absorption Simulator Correction
+
+The previously reported raw M5 absorption candidate,
+`absa_final_us_v1`, was audited because its reported CDR conflicted with the
+causal Kotlin engine. The root cause was confirmed: the simulator selected a
+breakout from a confirmation candle close but filled at that same candle's
+earlier open and allowed that candle's high/low to resolve the exit.
+
+The simulator now waits for the confirmation candle to close, fills at the
+next M5 open, and begins exit evaluation from that fill candle. A regression
+fixture asserts that a `19:05` confirmation fills at `19:10`, not `19:05`.
+
+The candidate was then replayed against the existing fixed 20-window holdout,
+without retuning:
+
+| Candidate | Windows at or above 0.8% CDR | Worst CDR | Median CDR | Maximum drawdown |
+|---|---:|---:|---:|---:|
+| `absa_final_us_v1` after causal fill correction | 0 / 20 | -7.87551% | -4.63456% | 100.0% |
+
+Decision: invalidate the historical raw-simulator 0.8% claim. The profile is
+not eligible for deployment, and no subsequent candidate selection may use its
+pre-correction output as evidence.
+
 ## Aggressive Profile Check
 
 The `absa_final_us_v1` aggressive profile remains `UNVERIFIED`. Under the
