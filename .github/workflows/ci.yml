@@ -22,6 +22,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify research scripts
+        run: node --test scripts/*.test.mjs
+
       - name: Verify
         run: ./gradlew test lint build
 

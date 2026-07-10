@@ -269,3 +269,22 @@ This data must accumulate before any feature design or threshold tuning. The
 first research pass must freeze all feature definitions, use only bars that
 were available after their minute closed, and keep a final untouched time
 segment for evaluation.
+
+Use the forward-data diagnostic only after selecting a completed observation
+window. It aggregates five completed M1 order-book bars, enters at the next M5
+open, and reports descriptive after-cost outcomes by fixed order-book and
+liquidation bands. It does not submit orders, choose thresholds from the
+observed data, or declare a strategy pass:
+
+```bash
+node --test scripts/bybit-forward-capture-diagnostics.test.mjs
+node scripts/bybit-forward-capture-diagnostics.mjs \
+  --db=/path/to/bybit-trader.sqlite \
+  --symbol=BTCUSDT \
+  --start=2026-08-01T00:00:00Z \
+  --end=2026-10-31T23:55:00Z \
+  --horizons-m5=1,3,12 \
+  --round-trip-cost-bps=12 \
+  --min-samples=100 \
+  --out=build/research/forward-capture-diagnostic.json
+```
