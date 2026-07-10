@@ -65,14 +65,18 @@ export BOT_EXECUTION_LOOP_ENABLED="false"
 export BOT_EXECUTION_TIMEFRAME="M5"
 export BOT_EXECUTION_CANDLE_LIMIT="18000"
 export BOT_EXECUTION_SYNC_LIMIT="1000"
+export BOT_EXECUTION_ALERT_BATCH_LIMIT="100"
 export BOT_EXECUTION_INTERVAL_SECONDS="300"
-export BOT_EXECUTION_ACCOUNT_EQUITY="1000000"
+export BOT_EXECUTION_ACCOUNT_EQUITY="660"
+export BOT_EXECUTION_USE_LIVE_EQUITY="true"
 export BOT_EXECUTION_RISK_FRACTION="0.055"
 export BOT_EXECUTION_FEE_RATE="0.0006"
+export BOT_EXECUTION_SLIPPAGE_BUFFER_RATE="0.0002"
 export BOT_EXECUTION_QTY_STEP="0.001"
 export BOT_EXECUTION_MIN_QTY="0.001"
 export BOT_EXECUTION_MAX_QTY=""
 export BOT_EXECUTION_MAX_NOTIONAL="<initial-live-notional-cap>"
+export BOT_EXECUTION_LEVERAGE="15"
 ```
 
 Keep `BOT_EXECUTION_LOOP_ENABLED=false` for the first live smoke order. Turn it
@@ -182,7 +186,23 @@ curl -X POST \
   Bybit credentials are present, and `BOT_PRIVATE_EXECUTION_ENABLED=true`.
 - The order create response is treated as submitted only. Use
   `/execution/reconcile` to inspect Bybit open orders, positions, and recent
-  fills after submission.
+  fills after submission. This endpoint is read-only; the enabled execution
+  loop alone persists new closed PnL and sends close alerts.
+- The execution loop handles closure persistence and alerts before closed M5
+  sync and entry evaluation, so a public market-data failure does not delay
+  closure detection until a later successful evaluation cycle.
+- Close alerts are durable at-least-once. Failed deliveries increment the
+  closure attempt metadata and retry on the next five-minute M5 cycle without
+  blocking other pending alerts or trading evaluation. A crash after Discord
+  accepts a message but before SQLite records `delivered_at` can duplicate it.
+- An empty mode+symbol closure ledger suppresses provider history older than
+  process start as the first-deploy baseline. After that baseline exists,
+  restarts enqueue newly discovered downtime closures instead of suppressing
+  them.
+- Aggressive replay fills at next-candle open plus slippage, while live sizing
+  and TP/SL use the closed signal candle close as the pre-fill estimate. This is
+  a documented approximation; operators should not expect post-fill TP/SL
+  replacement in this release.
 
 ## Stop Condition Before Tokens
 

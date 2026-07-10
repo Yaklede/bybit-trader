@@ -63,14 +63,18 @@ override:
 - `BOT_EXECUTION_TIMEFRAME`: default `M5`.
 - `BOT_EXECUTION_CANDLE_LIMIT`: default `18000`.
 - `BOT_EXECUTION_SYNC_LIMIT`: default `1000`.
+- `BOT_EXECUTION_ALERT_BATCH_LIMIT`: default `100`.
 - `BOT_EXECUTION_INTERVAL_SECONDS`: default `300`.
-- `BOT_EXECUTION_ACCOUNT_EQUITY`: default `1000000`.
+- `BOT_EXECUTION_ACCOUNT_EQUITY`: default `660`.
+- `BOT_EXECUTION_USE_LIVE_EQUITY`: default `true`.
 - `BOT_EXECUTION_RISK_FRACTION`: default `0.055`.
 - `BOT_EXECUTION_FEE_RATE`: default `0.0006`.
+- `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`: default `0.0002`.
 - `BOT_EXECUTION_QTY_STEP`: default `0.001`.
 - `BOT_EXECUTION_MIN_QTY`: default `0.001`.
 - `BOT_EXECUTION_MAX_QTY`: unset by default.
-- `BOT_EXECUTION_MAX_NOTIONAL`: default `100000`.
+- `BOT_EXECUTION_MAX_NOTIONAL`: default `100` during live observation.
+- `BOT_EXECUTION_LEVERAGE`: default `15`.
 - `TELEGRAM_ALERTS_ENABLED`: default `false`.
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.
@@ -115,7 +119,7 @@ variables:
 gh secret set BOT_CONTROL_TOKEN --env onprem-live
 gh secret set BYBIT_API_KEY --env onprem-live
 gh secret set BYBIT_API_SECRET --env onprem-live
-gh variable set BOT_EXECUTION_MAX_NOTIONAL --env onprem-live --body 100000
+gh variable set BOT_EXECUTION_MAX_NOTIONAL --env onprem-live --body 100
 ```
 
 Note: the local root `.env` is the application runtime env. The remote
