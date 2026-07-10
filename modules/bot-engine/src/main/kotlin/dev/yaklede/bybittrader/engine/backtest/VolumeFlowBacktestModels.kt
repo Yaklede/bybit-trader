@@ -89,6 +89,15 @@ data class VolumeFlowBacktestConfig(
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
+    val flowLookbackM1Candles: Int = 5,
+    val takerFlowDirectionMode: TakerFlowDirectionMode = TakerFlowDirectionMode.ALIGN_WITH_SIDE,
+    val minDirectionalTakerImbalance: Double? = null,
+    val minOpenInterestChangePct: Double? = null,
+    val openInterestLookbackSnapshots: Int = 3,
+    val maxAbsPremiumIndex: Double? = null,
+    val maxAbsFundingRate: Double? = null,
+    val maxFlowDataStalenessMinutes: Long = 10,
+    val maxFundingDataStalenessMinutes: Long = 480,
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
@@ -319,8 +328,42 @@ data class VolumeFlowBacktestConfig(
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
         require(minTradesPerDay <= maxTradesPerDay) { "Min trades per day must be less than or equal to max trades per day." }
         require(maxConsecutiveLosses > 0) { "Max consecutive losses must be positive." }
+        require(flowLookbackM1Candles in 1..120) { "Flow lookback M1 candles must be between 1 and 120." }
+        require(minDirectionalTakerImbalance == null || flowLookbackM1Candles % 5 == 0) {
+            "Flow lookback M1 candles must be a multiple of 5 when taker flow filtering is enabled."
+        }
+        require(minDirectionalTakerImbalance == null || minDirectionalTakerImbalance in 0.0..1.0) {
+            "Minimum directional taker imbalance must be null or between 0 and 1."
+        }
+        require(minOpenInterestChangePct == null || minOpenInterestChangePct > 0.0) {
+            "Minimum open interest change percent must be null or positive."
+        }
+        require(openInterestLookbackSnapshots in 2..1_000) {
+            "Open interest lookback snapshots must be between 2 and 1000."
+        }
+        require(maxAbsPremiumIndex == null || maxAbsPremiumIndex >= 0.0) {
+            "Maximum absolute premium index must be null or non-negative."
+        }
+        require(maxAbsFundingRate == null || maxAbsFundingRate >= 0.0) {
+            "Maximum absolute funding rate must be null or non-negative."
+        }
+        require(maxFlowDataStalenessMinutes > 0) {
+            "Maximum flow data staleness minutes must be positive."
+        }
+        require(maxFundingDataStalenessMinutes > 0) {
+            "Maximum funding data staleness minutes must be positive."
+        }
+        require(!flowFiltersEnabled() || setupTimeframe == Timeframe.M5) {
+            "Flow filters currently require M5 setup timeframe."
+        }
     }
 }
+
+fun VolumeFlowBacktestConfig.flowFiltersEnabled(): Boolean =
+    minDirectionalTakerImbalance != null ||
+        minOpenInterestChangePct != null ||
+        maxAbsPremiumIndex != null ||
+        maxAbsFundingRate != null
 
 val defaultVolumeFlowMarketRegimes: Set<VolumeFlowMarketRegime> =
     setOf(
@@ -354,6 +397,11 @@ enum class VolumeFlowExitMode {
     FIXED_TARGET,
     RUNNER,
     TREND_BREAK,
+}
+
+enum class TakerFlowDirectionMode {
+    ALIGN_WITH_SIDE,
+    OPPOSE_SIDE,
 }
 
 enum class VolumeFlowMarketRegime {
@@ -424,6 +472,7 @@ data class VolumeFlowBacktestReport(
     val setupCount: Int,
     val rejectedSetupCount: Int,
     val noTradeReasonCounts: Map<String, Int>,
+    val flowFilterEnabled: Boolean = false,
     val performanceBySetupMode: List<VolumeFlowTagSummary>,
     val performanceBySide: List<VolumeFlowTagSummary>,
     val performanceByExitReason: List<VolumeFlowTagSummary>,
@@ -493,6 +542,14 @@ data class VolumeFlowBacktestTrade(
     val volumeZScore: Double,
     val setupBodyRatio: Double,
     val setupCloseLocation: Double,
+    val flowMetrics: VolumeFlowFilterMetrics? = null,
+)
+
+data class VolumeFlowFilterMetrics(
+    val directionalTakerImbalance: Double?,
+    val openInterestChangePct: Double?,
+    val premiumIndex: Double?,
+    val fundingRate: Double?,
 )
 
 enum class VolumeFlowExitReason {

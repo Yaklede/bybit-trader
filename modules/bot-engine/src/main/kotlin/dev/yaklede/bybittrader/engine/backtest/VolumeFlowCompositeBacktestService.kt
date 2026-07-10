@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -21,6 +22,7 @@ private const val WALK_FORWARD_WINDOW_COUNT = 4
 
 class VolumeFlowCompositeBacktestService(
     private val candleStore: MarketCandleStore,
+    private val flowMarketDataStore: FlowMarketDataStore? = candleStore as? FlowMarketDataStore,
 ) {
     suspend fun run(
         symbol: Symbol,
@@ -115,7 +117,7 @@ class VolumeFlowCompositeBacktestService(
             candleStore.recentCandles(symbol, timeframe, limit)
         }.sortedBy { it.openedAt }
 
-    internal fun runLoadedCandles(
+    internal suspend fun runLoadedCandles(
         symbol: Symbol,
         m1Candles: List<Candle>,
         m5Candles: List<Candle>,
@@ -130,7 +132,17 @@ class VolumeFlowCompositeBacktestService(
                 endAt = null,
             ),
     ): VolumeFlowCompositeBacktestReport {
-        val backtestService = VolumeFlowBacktestService(candleStore)
+        val backtestService = VolumeFlowBacktestService(candleStore, flowMarketDataStore)
+        val sharedFlowContext =
+            compositeFlowLoadConfig(config)?.let { flowConfig ->
+                backtestService.loadFlowContextIfEnabled(
+                    symbol = symbol,
+                    setupCandles = m5Candles,
+                    config = flowConfig,
+                    replayStartAt = replayRequest.startAt,
+                    replayEndAt = replayRequest.endAt,
+                )
+            }
         val legReports =
             config.legs.map { leg ->
                 val signalConfig =
@@ -159,6 +171,7 @@ class VolumeFlowCompositeBacktestService(
                             config = signalConfig,
                             replayStartAt = replayRequest.startAt,
                             replayEndAt = replayRequest.endAt,
+                            flowContext = sharedFlowContext,
                         ),
                 )
             }
@@ -361,6 +374,17 @@ private fun VolumeFlowBacktestConfig.usesMacroTrendContext(): Boolean =
         macroTrendMismatchRiskMultiplier < 1.0 ||
         highContextRangeRelativeVolumeMacroBypassMovePct != null ||
         highContextRangeRelativeVolumeMacroBypassEfficiency != null
+
+private fun compositeFlowLoadConfig(config: VolumeFlowCompositeBacktestConfig): VolumeFlowBacktestConfig? {
+    val enabledConfigs = config.legs.map { it.config }.filter { it.flowFiltersEnabled() }
+    if (enabledConfigs.isEmpty()) return null
+    val first = enabledConfigs.first()
+    return first.copy(
+        flowLookbackM1Candles = enabledConfigs.maxOf { it.flowLookbackM1Candles },
+        openInterestLookbackSnapshots = enabledConfigs.maxOf { it.openInterestLookbackSnapshots },
+        maxFundingDataStalenessMinutes = enabledConfigs.maxOf { it.maxFundingDataStalenessMinutes },
+    )
+}
 
 private fun Timeframe.seconds(): Long =
     when (this) {
@@ -729,6 +753,7 @@ private fun CompositeSignal.toCompositeTrade(
         volumeZScore = sourceTrade.volumeZScore,
         setupBodyRatio = sourceTrade.setupBodyRatio,
         setupCloseLocation = sourceTrade.setupCloseLocation,
+        flowMetrics = sourceTrade.flowMetrics,
     )
 }
 

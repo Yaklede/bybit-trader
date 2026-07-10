@@ -5,6 +5,12 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
+import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -131,6 +137,15 @@ class VolumeFlowBacktestServiceTest :
                 VolumeFlowBacktestConfig(profitProtectActivationR = 0.5)
             }.message shouldBe "Profit protect activation R and floor R must both be null or both be set."
 
+            VolumeFlowBacktestConfig(flowLookbackM1Candles = 6).flowLookbackM1Candles shouldBe 6
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowBacktestConfig(
+                    flowLookbackM1Candles = 6,
+                    minDirectionalTakerImbalance = 0.5,
+                )
+            }.message shouldBe
+                "Flow lookback M1 candles must be a multiple of 5 when taker flow filtering is enabled."
+
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowCompositeBacktestConfig(
                     robustnessWindowDays = 29,
@@ -210,6 +225,336 @@ class VolumeFlowBacktestServiceTest :
             result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
             result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
+        }
+
+        "does not load or change behavior when flow filters are disabled" {
+            val flowStore = InMemoryVolumeFlowDataStore(takerFlowBars = oppositeTakerFlowBars())
+            val baseline =
+                VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+                    .run(
+                        symbol = Symbol("BTCUSDT"),
+                        m1Limit = 80,
+                        m5Limit = 30,
+                        m15Limit = 30,
+                        config = testVolumeFlowConfig(),
+                    )
+            val result =
+                VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()), flowStore)
+                    .run(
+                        symbol = Symbol("BTCUSDT"),
+                        m1Limit = 80,
+                        m5Limit = 30,
+                        m15Limit = 30,
+                        config = testVolumeFlowConfig(),
+                    )
+
+            result.tradeCount shouldBe baseline.tradeCount
+            result.netPnl shouldBe baseline.netPnl
+            result.flowFilterEnabled shouldBe false
+            flowStore.takerFlowBetweenCalls shouldBe 0
+        }
+
+        "requires taker flow aligned with candidate side by default" {
+            val service =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(takerFlowBars = alignedTakerFlowBars()),
+                )
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5),
+                )
+
+            result.tradeCount shouldBe 1
+            result.flowFilterEnabled shouldBe true
+            val flowMetrics = result.trades.single().flowMetrics
+            flowMetrics?.directionalTakerImbalance shouldBe 0.6
+        }
+
+        "can require taker flow opposed to candidate side for absorption" {
+            val flowStore = InMemoryVolumeFlowDataStore(takerFlowBars = oppositeTakerFlowBars())
+            val defaultResult =
+                VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()), flowStore)
+                    .run(
+                        symbol = Symbol("BTCUSDT"),
+                        m1Limit = 80,
+                        m5Limit = 30,
+                        m15Limit = 30,
+                        config = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5),
+                    )
+            val absorptionResult =
+                VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()), flowStore)
+                    .run(
+                        symbol = Symbol("BTCUSDT"),
+                        m1Limit = 80,
+                        m5Limit = 30,
+                        m15Limit = 30,
+                        config =
+                            testVolumeFlowConfig().copy(
+                                minDirectionalTakerImbalance = 0.5,
+                                takerFlowDirectionMode = TakerFlowDirectionMode.OPPOSE_SIDE,
+                            ),
+                    )
+
+            defaultResult.tradeCount shouldBe 0
+            defaultResult.noTradeReasonCounts["DIRECTIONAL_TAKER_IMBALANCE_LOW"] shouldBe 1
+            absorptionResult.tradeCount shouldBe 1
+            val absorptionFlowMetrics = absorptionResult.trades.single().flowMetrics
+            absorptionFlowMetrics?.directionalTakerImbalance shouldBe 0.6
+        }
+
+        "rejects missing and stale flow inputs with explicit reasons" {
+            val settledFunding =
+                FundingRateSnapshot(
+                    symbol = Symbol("BTCUSDT"),
+                    timestamp = Instant.parse("2026-06-30T00:00:00Z"),
+                    fundingRate = BigDecimal("0.0001"),
+                )
+            val missingResult =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5),
+                )
+            val staleResult =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(
+                        fundingRateSnapshots = listOf(settledFunding),
+                    ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            maxAbsFundingRate = 0.01,
+                            maxFundingDataStalenessMinutes = 10,
+                        ),
+                )
+            val intervalValidResult =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(fundingRateSnapshots = listOf(settledFunding)),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxAbsFundingRate = 0.01),
+                )
+
+            missingResult.noTradeReasonCounts["MISSING_TAKER_FLOW"] shouldBe 1
+            staleResult.noTradeReasonCounts["STALE_FUNDING_RATE"] shouldBe 1
+            intervalValidResult.tradeCount shouldBe 1
+            val fundingMetrics = intervalValidResult.trades.single().flowMetrics
+            fundingMetrics?.fundingRate shouldBe 0.0001
+        }
+
+        "uses open interest snapshots as of the setup decision" {
+            val result =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(
+                        openInterestSnapshots =
+                            listOf(
+                                openInterestSnapshot("2026-06-30T00:55:00Z", "100"),
+                                openInterestSnapshot("2026-06-30T01:00:00Z", "103"),
+                                openInterestSnapshot("2026-06-30T01:06:00Z", "200"),
+                            ),
+                    ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            minOpenInterestChangePct = 5.0,
+                            openInterestLookbackSnapshots = 2,
+                        ),
+                )
+
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["OPEN_INTEREST_EXPANSION_LOW"] shouldBe 1
+        }
+
+        "excludes unclosed premium bars at the setup decision" {
+            val result =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(
+                        premiumIndexBars =
+                            listOf(
+                                premiumIndexBar("2026-06-30T00:45:00Z", "0.001"),
+                                premiumIndexBar("2026-06-30T01:00:00Z", "0.900"),
+                            ),
+                    ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(maxAbsPremiumIndex = 0.01),
+                )
+
+            result.tradeCount shouldBe 1
+            val flowMetrics = result.trades.single().flowMetrics
+            flowMetrics?.premiumIndex shouldBe 0.001
+        }
+
+        "rejects missing or duplicate minutes in a taker flow bucket" {
+            val bucketOpenedAt = Instant.parse("2026-06-30T01:00:00Z")
+            val missingMinuteResult =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(
+                        takerFlowBars =
+                            (0 until 4).map { index ->
+                                takerFlowBar(bucketOpenedAt.plusSeconds(index * 60L), "80", "20")
+                            },
+                    ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5),
+                )
+            val duplicateMinuteResult =
+                VolumeFlowBacktestService(
+                    InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    InMemoryVolumeFlowDataStore(
+                        takerFlowBars =
+                            alignedTakerFlowBars() +
+                                takerFlowBar(bucketOpenedAt.plusSeconds(180L), "80", "20"),
+                    ),
+                ).run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5),
+                )
+
+            missingMinuteResult.noTradeReasonCounts["MISSING_TAKER_FLOW"] shouldBe 1
+            duplicateMinuteResult.noTradeReasonCounts["MISSING_TAKER_FLOW"] shouldBe 1
+        }
+
+        "pages flow context beyond the store page limit" {
+            val startAt = Instant.parse("2026-06-22T00:00:00Z")
+            val setupCandles =
+                (0..2_001).map { index ->
+                    volumeFlowCandle(
+                        index = 0,
+                        timeframe = Timeframe.M5,
+                        seconds = 300L,
+                        open = "100",
+                        high = "101",
+                        low = "99",
+                        close = "100",
+                        volume = "10",
+                    ).copy(openedAt = startAt.plusSeconds(index * 300L))
+                }
+            val flowStore =
+                InMemoryVolumeFlowDataStore(
+                    takerFlowBars =
+                        (0 until 10_005).map { index ->
+                            takerFlowBar(startAt.plusSeconds(index * 60L), buyNotional = "80", sellNotional = "20")
+                        },
+                )
+            val context =
+                VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(emptyList()), flowStore)
+                    .loadFlowContextIfEnabled(
+                        symbol = Symbol("BTCUSDT"),
+                        setupCandles = setupCandles,
+                        config = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5),
+                    )
+
+            val buckets = context!!.takerFlowBuckets.values
+            buckets.size shouldBe 2_001
+            buckets.sumOf { it.takerBuyNotional } shouldBe 800_400.0
+            buckets.sumOf { it.takerSellNotional } shouldBe 200_100.0
+            buckets.sumOf { it.buyTradeCount } shouldBe 10_005
+            buckets.sumOf { it.sellTradeCount } shouldBe 10_005
+            buckets.all { it.hasCompleteMinuteCoverage } shouldBe true
+            flowStore.takerFlowBetweenCalls shouldBe 2
+        }
+
+        "uses bounded completed M5 taker lookups without future flow" {
+            val bucketOpenedAt = Instant.parse("2026-06-30T01:00:00Z")
+            val previousBucketOpenedAt = bucketOpenedAt.minusSeconds(300L)
+            val futureBucketOpenedAt = bucketOpenedAt.plusSeconds(300L)
+            val bucketLookup =
+                ExactLookupOnlyMap(
+                    mapOf(
+                        previousBucketOpenedAt to completeTakerFlowBucket(previousBucketOpenedAt),
+                        bucketOpenedAt to completeTakerFlowBucket(bucketOpenedAt),
+                        futureBucketOpenedAt to
+                            completeTakerFlowBucket(
+                                openedAt = futureBucketOpenedAt,
+                                takerBuyNotional = 0.0,
+                                takerSellNotional = 5_000.0,
+                            ),
+                    ),
+                )
+            val context =
+                VolumeFlowBacktestFlowContext(
+                    takerFlowBuckets = bucketLookup,
+                    openInterestSnapshots = emptyList(),
+                    premiumIndexBars = emptyList(),
+                    fundingRateSnapshots = emptyList(),
+                )
+
+            val decision =
+                context.evaluate(
+                    setupCandle = volumeFlowM5Candles().first { it.openedAt == bucketOpenedAt },
+                    setupClosedAt = Instant.parse("2026-06-30T01:05:00Z"),
+                    side = Side.BUY,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            flowLookbackM1Candles = 10,
+                            minDirectionalTakerImbalance = 0.5,
+                        ),
+                )
+
+            decision.reason shouldBe null
+            decision.metrics?.directionalTakerImbalance shouldBe 0.6
+            bucketLookup.getCalls shouldBe 2
+        }
+
+        "loads one shared flow context for composite legs" {
+            val flowStore = InMemoryVolumeFlowDataStore(takerFlowBars = alignedTakerFlowBars())
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()), flowStore)
+            val legConfig = testVolumeFlowConfig().copy(minDirectionalTakerImbalance = 0.5)
+
+            service.run(
+                symbol = Symbol("BTCUSDT"),
+                m1Limit = 80,
+                m5Limit = 30,
+                m15Limit = 30,
+                config =
+                    VolumeFlowCompositeBacktestConfig(
+                        legs =
+                            listOf(
+                                VolumeFlowCompositeBacktestLeg("primary", legConfig),
+                                VolumeFlowCompositeBacktestLeg("secondary", legConfig.copy(riskFraction = 0.005)),
+                            ),
+                    ),
+            )
+
+            flowStore.takerFlowBetweenCalls shouldBe 1
         }
 
         "uses only higher timeframe candles closed before the setup decision" {
@@ -1523,6 +1868,218 @@ private class InMemoryVolumeFlowCandleStore(
             }.sortedByDescending { it.openedAt }
             .take(limit)
 }
+
+private class InMemoryVolumeFlowDataStore(
+    private val takerFlowBars: List<TakerFlowBar> = emptyList(),
+    private val openInterestSnapshots: List<OpenInterestSnapshot> = emptyList(),
+    private val premiumIndexBars: List<PremiumIndexBar> = emptyList(),
+    private val fundingRateSnapshots: List<FundingRateSnapshot> = emptyList(),
+) : FlowMarketDataStore {
+    var takerFlowBetweenCalls: Int = 0
+        private set
+
+    override suspend fun upsertTakerFlowBars(bars: List<TakerFlowBar>) = Unit
+
+    override suspend fun takerFlowBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<TakerFlowBar> {
+        takerFlowBetweenCalls += 1
+        return takerFlowBars
+            .filter { it.symbol == symbol && !it.openedAt.isBefore(startAt) && !it.openedAt.isAfter(endAt) }
+            .sortedBy { it.openedAt }
+            .take(limit)
+    }
+
+    override suspend fun takerFlowBarsBefore(
+        symbol: Symbol,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<TakerFlowBar> =
+        takerFlowBars
+            .filter { it.symbol == symbol && it.openedAt.isBefore(beforeAt) }
+            .sortedByDescending { it.openedAt }
+            .take(limit)
+
+    override suspend fun upsertOpenInterestSnapshots(snapshots: List<OpenInterestSnapshot>) = Unit
+
+    override suspend fun openInterestSnapshotsBetween(
+        symbol: Symbol,
+        interval: OpenInterestInterval,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<OpenInterestSnapshot> =
+        openInterestSnapshots
+            .filter {
+                it.symbol == symbol &&
+                    it.interval == interval &&
+                    !it.timestamp.isBefore(startAt) &&
+                    !it.timestamp.isAfter(endAt)
+            }.sortedBy { it.timestamp }
+            .take(limit)
+
+    override suspend fun openInterestSnapshotsBefore(
+        symbol: Symbol,
+        interval: OpenInterestInterval,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<OpenInterestSnapshot> =
+        openInterestSnapshots
+            .filter { it.symbol == symbol && it.interval == interval && it.timestamp.isBefore(beforeAt) }
+            .sortedByDescending { it.timestamp }
+            .take(limit)
+
+    override suspend fun upsertPremiumIndexBars(bars: List<PremiumIndexBar>) = Unit
+
+    override suspend fun premiumIndexBarsBetween(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<PremiumIndexBar> =
+        premiumIndexBars
+            .filter {
+                it.symbol == symbol &&
+                    it.timeframe == timeframe &&
+                    !it.openedAt.isBefore(startAt) &&
+                    !it.openedAt.isAfter(endAt)
+            }.sortedBy { it.openedAt }
+            .take(limit)
+
+    override suspend fun premiumIndexBarsBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<PremiumIndexBar> =
+        premiumIndexBars
+            .filter { it.symbol == symbol && it.timeframe == timeframe && it.openedAt.isBefore(beforeAt) }
+            .sortedByDescending { it.openedAt }
+            .take(limit)
+
+    override suspend fun upsertFundingRateSnapshots(snapshots: List<FundingRateSnapshot>) = Unit
+
+    override suspend fun fundingRateSnapshotsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<FundingRateSnapshot> =
+        fundingRateSnapshots
+            .filter { it.symbol == symbol && !it.timestamp.isBefore(startAt) && !it.timestamp.isAfter(endAt) }
+            .sortedBy { it.timestamp }
+            .take(limit)
+
+    override suspend fun fundingRateSnapshotsBefore(
+        symbol: Symbol,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<FundingRateSnapshot> =
+        fundingRateSnapshots
+            .filter { it.symbol == symbol && it.timestamp.isBefore(beforeAt) }
+            .sortedByDescending { it.timestamp }
+            .take(limit)
+}
+
+private class ExactLookupOnlyMap<K, V>(
+    private val delegate: Map<K, V>,
+) : Map<K, V> {
+    var getCalls: Int = 0
+        private set
+
+    override val size: Int
+        get() = delegate.size
+
+    override val entries: Set<Map.Entry<K, V>>
+        get() = error("Entry iteration is not allowed in this lookup-only test map.")
+
+    override val keys: Set<K>
+        get() = error("Key iteration is not allowed in this lookup-only test map.")
+
+    override val values: Collection<V>
+        get() = error("Value iteration is not allowed in this lookup-only test map.")
+
+    override fun containsKey(key: K): Boolean = delegate.containsKey(key)
+
+    override fun containsValue(value: V): Boolean = error("Value scans are not allowed in this lookup-only test map.")
+
+    override fun get(key: K): V? {
+        getCalls += 1
+        return delegate[key]
+    }
+
+    override fun isEmpty(): Boolean = delegate.isEmpty()
+}
+
+private fun completeTakerFlowBucket(
+    openedAt: Instant,
+    takerBuyNotional: Double = 400.0,
+    takerSellNotional: Double = 100.0,
+): TakerFlowM5Bucket =
+    TakerFlowM5Bucket(
+        openedAt = openedAt,
+        takerBuyNotional = takerBuyNotional,
+        takerSellNotional = takerSellNotional,
+        buyTradeCount = 5,
+        sellTradeCount = 5,
+        minuteCoverageMask = FULL_TAKER_FLOW_M5_MINUTE_COVERAGE_MASK,
+        minuteRecordCount = 5,
+    )
+
+private fun alignedTakerFlowBars(): List<TakerFlowBar> =
+    (0 until 5).map { index ->
+        takerFlowBar(Instant.parse("2026-06-30T01:00:00Z").plusSeconds(index * 60L), "80", "20")
+    }
+
+private fun oppositeTakerFlowBars(): List<TakerFlowBar> =
+    (0 until 5).map { index ->
+        takerFlowBar(Instant.parse("2026-06-30T01:00:00Z").plusSeconds(index * 60L), "20", "80")
+    }
+
+private fun takerFlowBar(
+    openedAt: Instant,
+    buyNotional: String,
+    sellNotional: String,
+): TakerFlowBar =
+    TakerFlowBar(
+        symbol = Symbol("BTCUSDT"),
+        openedAt = openedAt,
+        takerBuyBase = BigDecimal.ONE,
+        takerBuyNotional = BigDecimal(buyNotional),
+        takerSellBase = BigDecimal.ONE,
+        takerSellNotional = BigDecimal(sellNotional),
+        buyTradeCount = 1,
+        sellTradeCount = 1,
+    )
+
+private fun openInterestSnapshot(
+    timestamp: String,
+    openInterest: String,
+): OpenInterestSnapshot =
+    OpenInterestSnapshot(
+        symbol = Symbol("BTCUSDT"),
+        interval = OpenInterestInterval.M5,
+        timestamp = Instant.parse(timestamp),
+        openInterest = BigDecimal(openInterest),
+    )
+
+private fun premiumIndexBar(
+    openedAt: String,
+    close: String,
+): PremiumIndexBar =
+    PremiumIndexBar(
+        symbol = Symbol("BTCUSDT"),
+        timeframe = Timeframe.M15,
+        openedAt = Instant.parse(openedAt),
+        open = BigDecimal(close),
+        high = BigDecimal(close),
+        low = BigDecimal(close),
+        close = BigDecimal(close),
+    )
 
 private fun volumeFlowCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
 

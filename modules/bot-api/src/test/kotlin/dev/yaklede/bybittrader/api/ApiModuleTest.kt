@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.api
 
+import dev.yaklede.bybittrader.api.backtest.VolumeFlowBacktestRequest
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeBacktestRequest
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeCurrentConfigProvider
 import dev.yaklede.bybittrader.api.backtest.VolumeFlowCompositeLegRequest
@@ -15,6 +16,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
+import dev.yaklede.bybittrader.engine.backtest.TakerFlowDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
@@ -81,6 +83,50 @@ import java.time.ZoneOffset
 
 class ApiModuleTest :
     StringSpec({
+        "maps volume flow filter request fields into backtest configs" {
+            val singleConfig =
+                VolumeFlowBacktestRequest(
+                    symbol = "BTCUSDT",
+                    minDirectionalTakerImbalance = 0.55,
+                    takerFlowDirectionMode = "OPPOSE_SIDE",
+                    minOpenInterestChangePct = 2.5,
+                    openInterestLookbackSnapshots = 4,
+                    maxAbsPremiumIndex = 0.01,
+                    maxAbsFundingRate = 0.02,
+                    maxFlowDataStalenessMinutes = 15,
+                    maxFundingDataStalenessMinutes = 720,
+                ).validated().toConfig()
+            val legConfig =
+                VolumeFlowCompositeLegRequest(
+                    id = "primary",
+                    minDirectionalTakerImbalance = 0.55,
+                    takerFlowDirectionMode = "OPPOSE_SIDE",
+                    minOpenInterestChangePct = 2.5,
+                    openInterestLookbackSnapshots = 4,
+                    maxAbsPremiumIndex = 0.01,
+                    maxAbsFundingRate = 0.02,
+                    maxFlowDataStalenessMinutes = 15,
+                    maxFundingDataStalenessMinutes = 720,
+                ).toLeg(initialEquity = 10_000.0).config
+            val defaultSingleConfig = VolumeFlowBacktestRequest(symbol = "BTCUSDT").validated().toConfig()
+            val defaultLegConfig = VolumeFlowCompositeLegRequest(id = "default").toLeg(initialEquity = 10_000.0).config
+
+            singleConfig.takerFlowDirectionMode shouldBe TakerFlowDirectionMode.OPPOSE_SIDE
+            singleConfig.minDirectionalTakerImbalance shouldBe 0.55
+            singleConfig.minOpenInterestChangePct shouldBe 2.5
+            singleConfig.openInterestLookbackSnapshots shouldBe 4
+            singleConfig.maxAbsPremiumIndex shouldBe 0.01
+            singleConfig.maxAbsFundingRate shouldBe 0.02
+            singleConfig.maxFlowDataStalenessMinutes shouldBe 15
+            singleConfig.maxFundingDataStalenessMinutes shouldBe 720
+            legConfig.takerFlowDirectionMode shouldBe TakerFlowDirectionMode.OPPOSE_SIDE
+            legConfig.minDirectionalTakerImbalance shouldBe 0.55
+            legConfig.minOpenInterestChangePct shouldBe 2.5
+            legConfig.maxFundingDataStalenessMinutes shouldBe 720
+            defaultSingleConfig.maxFundingDataStalenessMinutes shouldBe 480
+            defaultLegConfig.maxFundingDataStalenessMinutes shouldBe 480
+        }
+
         "health endpoint is public" {
             testApplication {
                 application {

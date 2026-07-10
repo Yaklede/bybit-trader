@@ -8,8 +8,15 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
+import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import dev.yaklede.bybittrader.strategy.volume.CandleShape
 import dev.yaklede.bybittrader.strategy.volume.VolumeFlowIndicators
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -18,6 +25,7 @@ import kotlin.math.sqrt
 
 class VolumeFlowBacktestService(
     private val candleStore: MarketCandleStore,
+    private val flowMarketDataStore: FlowMarketDataStore? = candleStore as? FlowMarketDataStore,
 ) {
     suspend fun run(
         symbol: Symbol,
@@ -56,7 +64,7 @@ class VolumeFlowBacktestService(
         )
     }
 
-    internal fun runLoadedCandles(
+    internal suspend fun runLoadedCandles(
         symbol: Symbol,
         m1Candles: List<Candle>,
         m5Candles: List<Candle>,
@@ -64,6 +72,7 @@ class VolumeFlowBacktestService(
         config: VolumeFlowBacktestConfig,
         replayStartAt: Instant? = null,
         replayEndAt: Instant? = null,
+        flowContext: VolumeFlowBacktestFlowContext? = null,
     ): VolumeFlowBacktestReport {
         require((replayStartAt == null) == (replayEndAt == null)) {
             "Replay start and end timestamps must both be set or both be omitted."
@@ -95,6 +104,8 @@ class VolumeFlowBacktestService(
         require(setupCandles.size > startIndex) {
             "Not enough setup candles for volume setup detection."
         }
+        val loadedFlowContext =
+            flowContext ?: loadFlowContextIfEnabled(symbol, setupCandles, config, replayStartAt, replayEndAt)
 
         for (setupIndex in startIndex until setupCandles.size) {
             val setupCandle = setupCandles[setupIndex]
@@ -170,6 +181,19 @@ class VolumeFlowBacktestService(
             if (!macroTrendAllows(macroTrendContext, candidate, config)) {
                 rejectedSetupCount += 1
                 incrementReason("MACRO_TREND_REJECTED", noTradeReasonCounts)
+                continue
+            }
+
+            val flowDecision =
+                loadedFlowContext?.evaluate(
+                    setupCandle = setupCandle,
+                    setupClosedAt = setupClosedAt,
+                    side = candidate.side,
+                    config = config,
+                )
+            if (flowDecision?.reason != null) {
+                rejectedSetupCount += 1
+                incrementReason(flowDecision.reason, noTradeReasonCounts)
                 continue
             }
 
@@ -320,6 +344,7 @@ class VolumeFlowBacktestService(
                     volumeZScore = candidate.volumeZScore,
                     setupBodyRatio = candidate.shape.bodyRatio,
                     setupCloseLocation = candidate.shape.closeLocation,
+                    flowMetrics = flowDecision?.metrics,
                 )
             trades += trade
             dayState.recordTrade(pnl, equity, config, consecutiveLosses)
@@ -340,6 +365,75 @@ class VolumeFlowBacktestService(
             noTradeReasonCounts = noTradeReasonCounts.toSortedMap(),
             dailyStates = dailyStates,
             trades = trades,
+        )
+    }
+
+    internal suspend fun loadFlowContextIfEnabled(
+        symbol: Symbol,
+        setupCandles: List<Candle>,
+        config: VolumeFlowBacktestConfig,
+        replayStartAt: Instant? = null,
+        replayEndAt: Instant? = null,
+    ): VolumeFlowBacktestFlowContext? {
+        if (!config.flowFiltersEnabled()) return null
+        val store =
+            requireNotNull(flowMarketDataStore) {
+                "Flow filters require a FlowMarketDataStore."
+            }
+        require(config.setupTimeframe == Timeframe.M5) {
+            "Flow filters currently require M5 setup timeframe."
+        }
+        val firstSetupOpenedAt = replayStartAt ?: setupCandles.firstOrNull()?.openedAt ?: return null
+        val lastSetupClosedAt =
+            replayEndAt ?: setupCandles.lastOrNull()?.openedAt?.plusSeconds(config.setupTimeframe.seconds()) ?: return null
+        val warmupMinutes =
+            maxOf(
+                if (config.minDirectionalTakerImbalance != null) config.flowLookbackM1Candles.toLong() else 0L,
+                if (config.minOpenInterestChangePct != null) {
+                    maxOf(
+                        config.openInterestLookbackSnapshots.toLong() * 5L,
+                        config.maxFlowDataStalenessMinutes,
+                    )
+                } else {
+                    0L
+                },
+                if (config.maxAbsPremiumIndex != null) config.maxFlowDataStalenessMinutes + 15L else 0L,
+                if (config.maxAbsFundingRate != null) config.maxFundingDataStalenessMinutes else 0L,
+            )
+        val startAt =
+            firstSetupOpenedAt.minus(
+                Duration.ofMinutes(warmupMinutes),
+            )
+        val endAt = lastSetupClosedAt
+        return VolumeFlowBacktestFlowContext(
+            takerFlowBuckets =
+                loadTakerFlowBuckets(
+                    store = store,
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = endAt,
+                ),
+            openInterestSnapshots =
+                loadOpenInterestSnapshots(
+                    store = store,
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = endAt,
+                ),
+            premiumIndexBars =
+                loadPremiumIndexBars(
+                    store = store,
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = endAt,
+                ),
+            fundingRateSnapshots =
+                loadFundingRateSnapshots(
+                    store = store,
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = endAt,
+                ),
         )
     }
 
@@ -1510,6 +1604,7 @@ class VolumeFlowBacktestService(
             setupCount = setupCount,
             rejectedSetupCount = rejectedSetupCount,
             noTradeReasonCounts = noTradeReasonCounts,
+            flowFilterEnabled = config.flowFiltersEnabled(),
             performanceBySetupMode = trades.tagSummaries { it.setupMode.name },
             performanceBySide = trades.tagSummaries { it.side.name },
             performanceByExitReason = trades.tagSummaries { it.exitReason.name },
@@ -1541,6 +1636,310 @@ private data class SetupCandidate(
     val keyLevel: KeyLevelContext,
     val volumePattern: VolumeFlowVolumePattern,
 )
+
+internal class VolumeFlowBacktestFlowContext(
+    val takerFlowBuckets: Map<Instant, TakerFlowM5Bucket>,
+    openInterestSnapshots: List<OpenInterestSnapshot>,
+    premiumIndexBars: List<PremiumIndexBar>,
+    fundingRateSnapshots: List<FundingRateSnapshot>,
+) {
+    private val openInterestIndex = FlowAvailabilityIndex(openInterestSnapshots) { it.availableAt }
+    private val premiumIndexBarIndex = FlowAvailabilityIndex(premiumIndexBars) { it.availableAt }
+    private val fundingRateIndex = FlowAvailabilityIndex(fundingRateSnapshots) { it.availableAt }
+
+    fun evaluate(
+        setupCandle: Candle,
+        setupClosedAt: Instant,
+        side: Side,
+        config: VolumeFlowBacktestConfig,
+    ): FlowFilterDecision {
+        var directionalImbalance: Double? = null
+        var openInterestChangePct: Double? = null
+        var premiumIndex: Double? = null
+        var fundingRate: Double? = null
+        val maxStaleness = Duration.ofMinutes(config.maxFlowDataStalenessMinutes)
+
+        val minImbalance = config.minDirectionalTakerImbalance
+        if (minImbalance != null) {
+            var buyNotional = 0.0
+            var sellNotional = 0.0
+            val requiredBucketCount = config.flowLookbackM1Candles / 5
+            for (bucketsBeforeDecision in 1..requiredBucketCount) {
+                val expectedOpenedAt = setupClosedAt.minus(Duration.ofMinutes(bucketsBeforeDecision * 5L))
+                val bucket =
+                    takerFlowBuckets[expectedOpenedAt]
+                        ?: return FlowFilterDecision("MISSING_TAKER_FLOW", null)
+                if (!bucket.hasCompleteMinuteCoverage || bucket.availableAt > setupClosedAt) {
+                    return FlowFilterDecision("MISSING_TAKER_FLOW", null)
+                }
+                buyNotional += bucket.takerBuyNotional
+                sellNotional += bucket.takerSellNotional
+            }
+            val totalNotional = buyNotional + sellNotional
+            if (totalNotional <= 0.0) {
+                return FlowFilterDecision("MISSING_TAKER_FLOW", null)
+            }
+            val signedImbalance = (buyNotional - sellNotional) / totalNotional
+            directionalImbalance =
+                when (side) {
+                    Side.BUY -> signedImbalance
+                    Side.SELL -> -signedImbalance
+                }
+            directionalImbalance =
+                when (config.takerFlowDirectionMode) {
+                    TakerFlowDirectionMode.ALIGN_WITH_SIDE -> directionalImbalance
+                    TakerFlowDirectionMode.OPPOSE_SIDE -> -directionalImbalance
+                }
+            if (directionalImbalance < minImbalance) {
+                return FlowFilterDecision("DIRECTIONAL_TAKER_IMBALANCE_LOW", null)
+            }
+        }
+
+        val minOiChangePct = config.minOpenInterestChangePct
+        if (minOiChangePct != null) {
+            val latestIndex = openInterestIndex.latestIndexAtOrBefore(setupClosedAt)
+            if (latestIndex + 1 < config.openInterestLookbackSnapshots) {
+                return FlowFilterDecision("MISSING_OPEN_INTEREST", null)
+            }
+            val latest = openInterestIndex[latestIndex]
+            if (Duration.between(latest.availableAt, setupClosedAt) > maxStaleness) {
+                return FlowFilterDecision("STALE_OPEN_INTEREST", null)
+            }
+            val baseline = openInterestIndex[latestIndex - config.openInterestLookbackSnapshots + 1]
+            val baselineOpenInterest = baseline.openInterest.toDouble()
+            if (baselineOpenInterest <= 0.0) {
+                return FlowFilterDecision("MISSING_OPEN_INTEREST", null)
+            }
+            openInterestChangePct = ((latest.openInterest.toDouble() - baselineOpenInterest) / baselineOpenInterest) * 100.0
+            if (openInterestChangePct < minOiChangePct) {
+                return FlowFilterDecision("OPEN_INTEREST_EXPANSION_LOW", null)
+            }
+        }
+
+        val maxPremium = config.maxAbsPremiumIndex
+        if (maxPremium != null) {
+            val latest =
+                premiumIndexBarIndex.latestAtOrBefore(setupClosedAt)
+                    ?: return FlowFilterDecision("MISSING_PREMIUM_INDEX", null)
+            if (Duration.between(latest.availableAt, setupClosedAt) > maxStaleness) {
+                return FlowFilterDecision("STALE_PREMIUM_INDEX", null)
+            }
+            premiumIndex = latest.close.toDouble()
+            if (abs(premiumIndex) > maxPremium) {
+                return FlowFilterDecision("PREMIUM_INDEX_TOO_WIDE", null)
+            }
+        }
+
+        val maxFunding = config.maxAbsFundingRate
+        if (maxFunding != null) {
+            val latest =
+                fundingRateIndex.latestAtOrBefore(setupClosedAt)
+                    ?: return FlowFilterDecision("MISSING_FUNDING_RATE", null)
+            val maxFundingStaleness = Duration.ofMinutes(config.maxFundingDataStalenessMinutes)
+            if (Duration.between(latest.availableAt, setupClosedAt) > maxFundingStaleness) {
+                return FlowFilterDecision("STALE_FUNDING_RATE", null)
+            }
+            fundingRate = latest.fundingRate.toDouble()
+            if (abs(fundingRate) > maxFunding) {
+                return FlowFilterDecision("FUNDING_RATE_TOO_WIDE", null)
+            }
+        }
+
+        return FlowFilterDecision(
+            reason = null,
+            metrics =
+                VolumeFlowFilterMetrics(
+                    directionalTakerImbalance = directionalImbalance,
+                    openInterestChangePct = openInterestChangePct,
+                    premiumIndex = premiumIndex,
+                    fundingRate = fundingRate,
+                ),
+        )
+    }
+}
+
+internal data class TakerFlowM5Bucket(
+    val openedAt: Instant,
+    val takerBuyNotional: Double,
+    val takerSellNotional: Double,
+    val buyTradeCount: Int,
+    val sellTradeCount: Int,
+    val minuteCoverageMask: Int,
+    val minuteRecordCount: Int,
+) {
+    val availableAt: Instant
+        get() = openedAt.plus(Duration.ofMinutes(5))
+
+    val hasCompleteMinuteCoverage: Boolean
+        get() =
+            minuteCoverageMask == FULL_TAKER_FLOW_M5_MINUTE_COVERAGE_MASK &&
+                minuteRecordCount == TAKER_FLOW_MINUTES_PER_M5_BUCKET
+}
+
+private data class MutableTakerFlowM5Bucket(
+    val openedAt: Instant,
+    var takerBuyNotional: Double = 0.0,
+    var takerSellNotional: Double = 0.0,
+    var buyTradeCount: Int = 0,
+    var sellTradeCount: Int = 0,
+    var minuteCoverageMask: Int = 0,
+    var minuteRecordCount: Int = 0,
+) {
+    fun add(bar: TakerFlowBar) {
+        takerBuyNotional += bar.takerBuyNotional.toDouble()
+        takerSellNotional += bar.takerSellNotional.toDouble()
+        buyTradeCount += bar.buyTradeCount
+        sellTradeCount += bar.sellTradeCount
+        minuteRecordCount += 1
+        bar.openedAt.minuteCoverageBitWithin(openedAt)?.let { minuteBit ->
+            minuteCoverageMask = minuteCoverageMask or minuteBit
+        }
+    }
+
+    fun immutable(): TakerFlowM5Bucket =
+        TakerFlowM5Bucket(
+            openedAt = openedAt,
+            takerBuyNotional = takerBuyNotional,
+            takerSellNotional = takerSellNotional,
+            buyTradeCount = buyTradeCount,
+            sellTradeCount = sellTradeCount,
+            minuteCoverageMask = minuteCoverageMask,
+            minuteRecordCount = minuteRecordCount,
+        )
+}
+
+private class FlowAvailabilityIndex<T>(
+    records: List<T>,
+    availableAt: (T) -> Instant,
+) {
+    private val sortedRecords = records.sortedBy(availableAt)
+    private val availabilityTimes = sortedRecords.map(availableAt)
+
+    operator fun get(index: Int): T = sortedRecords[index]
+
+    fun latestAtOrBefore(decisionAt: Instant): T? =
+        latestIndexAtOrBefore(decisionAt)
+            .takeIf { it >= 0 }
+            ?.let(sortedRecords::get)
+
+    fun latestIndexAtOrBefore(decisionAt: Instant): Int {
+        var lowerBound = 0
+        var upperBound = availabilityTimes.size
+        while (lowerBound < upperBound) {
+            val middle = lowerBound + (upperBound - lowerBound) / 2
+            if (availabilityTimes[middle] <= decisionAt) {
+                lowerBound = middle + 1
+            } else {
+                upperBound = middle
+            }
+        }
+        return lowerBound - 1
+    }
+}
+
+internal data class FlowFilterDecision(
+    val reason: String?,
+    val metrics: VolumeFlowFilterMetrics?,
+)
+
+private const val FLOW_STORE_PAGE_LIMIT = 10_000
+internal const val FULL_TAKER_FLOW_M5_MINUTE_COVERAGE_MASK = 0b1_1111
+private const val TAKER_FLOW_MINUTES_PER_M5_BUCKET = 5
+
+private suspend fun loadTakerFlowBuckets(
+    store: FlowMarketDataStore,
+    symbol: Symbol,
+    startAt: Instant,
+    endAt: Instant,
+): Map<Instant, TakerFlowM5Bucket> {
+    val buckets = mutableMapOf<Instant, MutableTakerFlowM5Bucket>()
+    var pageStartAt = startAt
+    while (!pageStartAt.isAfter(endAt)) {
+        val page =
+            store
+                .takerFlowBarsBetween(symbol, pageStartAt, endAt, FLOW_STORE_PAGE_LIMIT)
+                .sortedBy { it.openedAt }
+        if (page.isEmpty()) break
+        page.forEach { bar ->
+            val bucketOpenedAt = bar.openedAt.toM5BucketOpenedAt()
+            val bucket = buckets.getOrPut(bucketOpenedAt) { MutableTakerFlowM5Bucket(bucketOpenedAt) }
+            bucket.add(bar)
+        }
+        val lastOpenedAt = page.last().openedAt
+        pageStartAt = lastOpenedAt.plusNanos(1)
+        if (page.size < FLOW_STORE_PAGE_LIMIT) break
+    }
+    return buckets
+        .values
+        .sortedBy { it.openedAt }
+        .associate { it.openedAt to it.immutable() }
+}
+
+private suspend fun loadOpenInterestSnapshots(
+    store: FlowMarketDataStore,
+    symbol: Symbol,
+    startAt: Instant,
+    endAt: Instant,
+): List<OpenInterestSnapshot> =
+    loadChronologicalPages(startAt) { pageStartAt ->
+        store.openInterestSnapshotsBetween(symbol, OpenInterestInterval.M5, pageStartAt, endAt, FLOW_STORE_PAGE_LIMIT)
+    }.distinctBy { it.timestamp }
+
+private suspend fun loadPremiumIndexBars(
+    store: FlowMarketDataStore,
+    symbol: Symbol,
+    startAt: Instant,
+    endAt: Instant,
+): List<PremiumIndexBar> =
+    loadChronologicalPages(startAt) { pageStartAt ->
+        store.premiumIndexBarsBetween(symbol, Timeframe.M15, pageStartAt, endAt, FLOW_STORE_PAGE_LIMIT)
+    }.distinctBy { it.openedAt }
+
+private suspend fun loadFundingRateSnapshots(
+    store: FlowMarketDataStore,
+    symbol: Symbol,
+    startAt: Instant,
+    endAt: Instant,
+): List<FundingRateSnapshot> =
+    loadChronologicalPages(startAt) { pageStartAt ->
+        store.fundingRateSnapshotsBetween(symbol, pageStartAt, endAt, FLOW_STORE_PAGE_LIMIT)
+    }.distinctBy { it.timestamp }
+
+private suspend fun <T : Any> loadChronologicalPages(
+    startAt: Instant,
+    loadPage: suspend (Instant) -> List<T>,
+): List<T> {
+    val results = mutableListOf<T>()
+    var pageStartAt = startAt
+    while (true) {
+        val page = loadPage(pageStartAt).sortedBy { it.flowRecordTime() }
+        if (page.isEmpty()) break
+        results += page
+        pageStartAt = page.last().flowRecordTime().plusNanos(1)
+        if (page.size < FLOW_STORE_PAGE_LIMIT) break
+    }
+    return results.sortedBy { it.flowRecordTime() }
+}
+
+private fun Any.flowRecordTime(): Instant =
+    when (this) {
+        is OpenInterestSnapshot -> timestamp
+        is PremiumIndexBar -> openedAt
+        is FundingRateSnapshot -> timestamp
+        else -> error("Unsupported flow record type.")
+    }
+
+private fun Instant.toM5BucketOpenedAt(): Instant {
+    val epochSecond = epochSecond
+    return Instant.ofEpochSecond(epochSecond - (epochSecond % Timeframe.M5.seconds()))
+}
+
+private fun Instant.minuteCoverageBitWithin(bucketOpenedAt: Instant): Int? {
+    if (nano != 0) return null
+    val secondsFromBucketOpen = Duration.between(bucketOpenedAt, this).seconds
+    if (secondsFromBucketOpen !in 0L..240L || secondsFromBucketOpen % 60L != 0L) return null
+    return 1 shl (secondsFromBucketOpen / 60L).toInt()
+}
 
 private data class SetupRange(
     val high: Double,

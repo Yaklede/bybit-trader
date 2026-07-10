@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api.backtest
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.TakerFlowDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestLeg
@@ -295,6 +296,15 @@ data class VolumeFlowCompositeLegRequest(
     val profitProtectActivationR: Double? = null,
     val profitProtectFloorR: Double? = null,
     val maxHoldM1Candles: Int = 30,
+    val flowLookbackM1Candles: Int = 5,
+    val takerFlowDirectionMode: String = "ALIGN_WITH_SIDE",
+    val minDirectionalTakerImbalance: Double? = null,
+    val minOpenInterestChangePct: Double? = null,
+    val openInterestLookbackSnapshots: Int = 3,
+    val maxAbsPremiumIndex: Double? = null,
+    val maxAbsFundingRate: Double? = null,
+    val maxFlowDataStalenessMinutes: Long = 10,
+    val maxFundingDataStalenessMinutes: Long = 480,
 ) {
     fun toLeg(initialEquity: Double): VolumeFlowCompositeBacktestLeg {
         val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
@@ -302,6 +312,7 @@ data class VolumeFlowCompositeLegRequest(
             "Setup timeframe must be M1 or M5."
         }
         allowedMarketRegimes?.forEach(VolumeFlowMarketRegime::valueOf)
+        TakerFlowDirectionMode.valueOf(takerFlowDirectionMode)
         return VolumeFlowCompositeBacktestLeg(
             id = id,
             config =
@@ -377,6 +388,15 @@ data class VolumeFlowCompositeLegRequest(
                     profitProtectActivationR = profitProtectActivationR,
                     profitProtectFloorR = profitProtectFloorR,
                     maxHoldM1Candles = maxHoldM1Candles,
+                    flowLookbackM1Candles = flowLookbackM1Candles,
+                    takerFlowDirectionMode = TakerFlowDirectionMode.valueOf(takerFlowDirectionMode),
+                    minDirectionalTakerImbalance = minDirectionalTakerImbalance,
+                    minOpenInterestChangePct = minOpenInterestChangePct,
+                    openInterestLookbackSnapshots = openInterestLookbackSnapshots,
+                    maxAbsPremiumIndex = maxAbsPremiumIndex,
+                    maxAbsFundingRate = maxAbsFundingRate,
+                    maxFlowDataStalenessMinutes = maxFlowDataStalenessMinutes,
+                    maxFundingDataStalenessMinutes = maxFundingDataStalenessMinutes,
                 ),
         )
     }
@@ -622,6 +642,10 @@ data class VolumeFlowCompositeTradeResponse(
     val volumeZScore: Double,
     val setupBodyRatio: Double,
     val setupCloseLocation: Double,
+    val directionalTakerImbalance: Double?,
+    val openInterestChangePct: Double?,
+    val premiumIndex: Double?,
+    val fundingRate: Double?,
 )
 
 private fun VolumeFlowCompositeBacktestReport.toResponse(
@@ -908,4 +932,8 @@ private fun VolumeFlowCompositeBacktestTrade.toResponse(): VolumeFlowCompositeTr
         volumeZScore = volumeZScore.roundForApi(),
         setupBodyRatio = setupBodyRatio.roundForApi(),
         setupCloseLocation = setupCloseLocation.roundForApi(),
+        directionalTakerImbalance = flowMetrics?.directionalTakerImbalance?.roundForApi(),
+        openInterestChangePct = flowMetrics?.openInterestChangePct?.roundForApi(),
+        premiumIndex = flowMetrics?.premiumIndex?.roundForApi(),
+        fundingRate = flowMetrics?.fundingRate?.roundForApi(),
     )

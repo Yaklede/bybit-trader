@@ -328,4 +328,5 @@ data class VolumeFlowCompositeBacktestTrade(
     val volumeZScore: Double,
     val setupBodyRatio: Double,
     val setupCloseLocation: Double,
+    val flowMetrics: VolumeFlowFilterMetrics? = null,
 )

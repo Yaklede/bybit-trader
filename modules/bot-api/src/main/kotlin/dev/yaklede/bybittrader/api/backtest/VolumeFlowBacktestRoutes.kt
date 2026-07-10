@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api.backtest
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.TakerFlowDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
@@ -124,6 +125,15 @@ data class VolumeFlowBacktestRequest(
     val minTradesPerDay: Int = 1,
     val maxTradesPerDay: Int = 5,
     val maxConsecutiveLosses: Int = 3,
+    val flowLookbackM1Candles: Int = 5,
+    val takerFlowDirectionMode: String = "ALIGN_WITH_SIDE",
+    val minDirectionalTakerImbalance: Double? = null,
+    val minOpenInterestChangePct: Double? = null,
+    val openInterestLookbackSnapshots: Int = 3,
+    val maxAbsPremiumIndex: Double? = null,
+    val maxAbsFundingRate: Double? = null,
+    val maxFlowDataStalenessMinutes: Long = 10,
+    val maxFundingDataStalenessMinutes: Long = 480,
 ) {
     fun validated(): VolumeFlowBacktestRequest {
         Symbol(symbol)
@@ -131,6 +141,7 @@ data class VolumeFlowBacktestRequest(
         VolumeFlowEntryMode.valueOf(entryMode)
         VolumeFlowExitMode.valueOf(exitMode)
         VolumeFlowSideMode.valueOf(sideMode)
+        TakerFlowDirectionMode.valueOf(takerFlowDirectionMode)
         allowedMarketRegimes?.forEach(VolumeFlowMarketRegime::valueOf)
         val parsedSetupTimeframe = Timeframe.valueOf(setupTimeframe)
         require(parsedSetupTimeframe == Timeframe.M1 || parsedSetupTimeframe == Timeframe.M5) {
@@ -231,6 +242,15 @@ data class VolumeFlowBacktestRequest(
             minTradesPerDay = minTradesPerDay,
             maxTradesPerDay = maxTradesPerDay,
             maxConsecutiveLosses = maxConsecutiveLosses,
+            flowLookbackM1Candles = flowLookbackM1Candles,
+            takerFlowDirectionMode = TakerFlowDirectionMode.valueOf(takerFlowDirectionMode),
+            minDirectionalTakerImbalance = minDirectionalTakerImbalance,
+            minOpenInterestChangePct = minOpenInterestChangePct,
+            openInterestLookbackSnapshots = openInterestLookbackSnapshots,
+            maxAbsPremiumIndex = maxAbsPremiumIndex,
+            maxAbsFundingRate = maxAbsFundingRate,
+            maxFlowDataStalenessMinutes = maxFlowDataStalenessMinutes,
+            maxFundingDataStalenessMinutes = maxFundingDataStalenessMinutes,
         )
 }
 
@@ -282,6 +302,7 @@ data class VolumeFlowBacktestResponse(
     val setupCount: Int,
     val rejectedSetupCount: Int,
     val noTradeReasonCounts: Map<String, Int>,
+    val flowFilterEnabled: Boolean,
     val performanceBySetupMode: List<VolumeFlowTagSummaryResponse>,
     val performanceBySide: List<VolumeFlowTagSummaryResponse>,
     val performanceByExitReason: List<VolumeFlowTagSummaryResponse>,
@@ -353,6 +374,10 @@ data class VolumeFlowTradeResponse(
     val volumeZScore: Double,
     val setupBodyRatio: Double,
     val setupCloseLocation: Double,
+    val directionalTakerImbalance: Double?,
+    val openInterestChangePct: Double?,
+    val premiumIndex: Double?,
+    val fundingRate: Double?,
 )
 
 private fun VolumeFlowBacktestReport.toResponse(): VolumeFlowBacktestResponse =
@@ -403,6 +428,7 @@ private fun VolumeFlowBacktestReport.toResponse(): VolumeFlowBacktestResponse =
         setupCount = setupCount,
         rejectedSetupCount = rejectedSetupCount,
         noTradeReasonCounts = noTradeReasonCounts,
+        flowFilterEnabled = flowFilterEnabled,
         performanceBySetupMode = performanceBySetupMode.map(VolumeFlowTagSummary::toResponse),
         performanceBySide = performanceBySide.map(VolumeFlowTagSummary::toResponse),
         performanceByExitReason = performanceByExitReason.map(VolumeFlowTagSummary::toResponse),
@@ -474,4 +500,8 @@ private fun VolumeFlowBacktestTrade.toResponse(): VolumeFlowTradeResponse =
         volumeZScore = volumeZScore.roundForApi(),
         setupBodyRatio = setupBodyRatio.roundForApi(),
         setupCloseLocation = setupCloseLocation.roundForApi(),
+        directionalTakerImbalance = flowMetrics?.directionalTakerImbalance?.roundForApi(),
+        openInterestChangePct = flowMetrics?.openInterestChangePct?.roundForApi(),
+        premiumIndex = flowMetrics?.premiumIndex?.roundForApi(),
+        fundingRate = flowMetrics?.fundingRate?.roundForApi(),
     )
