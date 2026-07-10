@@ -311,6 +311,56 @@ record. It must not be used to select thresholds, risk fractions, exits, or
 new legs. The next strategy family must be developed using pre-declared
 chronological folds and then evaluated only after its parameters are frozen.
 
+## Runtime Aggressive Profile Audit (2026-07-11 KST)
+
+The real execution loop does not use either composite configuration above. It
+constructs `VolumeFlowAggressiveStrategy()` with the `absa_final_us_v1`
+profile. `config/aggressive-runtime-replay-contract-v1.json` records the
+matching 100 USDT runtime assumptions: 5.5% risk fraction, 0.001 BTC quantity
+step and minimum, 100 USDT maximum notional, 15x maximum leverage, and the
+same fee and slippage inputs used by execution.
+
+The full 40-window audit used this exact profile through
+`/backtests/volume-flow/aggressive/current/run`:
+
+| Metric | Result |
+|---|---:|
+| Passed windows | 0 / 40 |
+| Windows with replay response | 39 / 40 |
+| Replay warmup failures | 1 / 40 |
+| Profile validation state | `UNVERIFIED` in 39 / 39 responses |
+| CDR, median / mean / maximum | -0.36437% / -0.38433% / +0.00861% |
+| MDD, median / maximum | 96.23% / 99.09% |
+| Windows above 40% MDD | 31 / 39 |
+| Median trade count | 745 |
+| Mean active-day coverage | 65.85% |
+| Simulated liquidations | 0 |
+
+This rejects the runtime profile. High coverage is not evidence of quality:
+the profile makes many after-cost trades while its equity falls toward zero in
+long windows. A zero simulated liquidation count does not compensate for a
+near-total drawdown. The earliest sealed window also exposes a separate data
+readiness issue: the aggressive replay requires M5 warmup before its requested
+start, but that history is not available for the first case.
+
+Use the runtime audit before enabling an execution loop for any future
+aggressive profile:
+
+```bash
+node --test scripts/aggressive-runtime-replay-audit.test.mjs
+node scripts/aggressive-runtime-replay-audit.mjs \
+  --api=http://127.0.0.1:18080 \
+  --token="$BOT_CONTROL_TOKEN" \
+  --protocol=config/volume-flow-sealed-windows-v1.json \
+  --contract=config/aggressive-runtime-replay-contract-v1.json \
+  --out=build/research/aggressive-runtime-sealed-v1.json
+```
+
+Decision: `absa_final_us_v1` must not be promoted or used to justify automatic
+live execution. Its replay result and validation status are blockers. The
+runtime loop needs an explicit safety gate before any replacement profile is
+considered.
+
 ## Forward Data Collection Gate
 
 Historical Bybit REST data does not contain the event-level order-book history
