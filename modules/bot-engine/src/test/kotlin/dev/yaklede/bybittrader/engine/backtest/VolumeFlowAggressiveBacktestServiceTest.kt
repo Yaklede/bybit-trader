@@ -29,12 +29,39 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.activeDays shouldBe 1
             result.trades.single().side shouldBe Side.BUY
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+            result.trades.single().signalAt shouldBe Instant.parse("2026-06-30T13:10:00Z")
             result.trades.single().openedAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
             result.trades.single().closedAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
             result.trades.single().entryPrice shouldBe 102.0204
             result.trades.single().targetR shouldBe 2.2
             (result.finalEquity > result.initialEquity) shouldBe true
             (result.compoundDailyReturnPct > 0.0) shouldBe true
+        }
+
+        "never fills a breakout at the signal candle open" {
+            val candles =
+                aggressiveAbsorptionCandles().map { candle ->
+                    if (candle.openedAt == Instant.parse("2026-06-30T13:15:00Z")) {
+                        candle.copy(open = BigDecimal("110"), high = BigDecimal("111"), low = BigDecimal("109"), close = BigDecimal("110"))
+                    } else {
+                        candle
+                    }
+                }
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+
+            val result = service.run(Symbol("BTCUSDT"), 120, VolumeFlowAggressiveProfiles.finalUsV1())
+
+            result.tradeCount shouldBe 0
+        }
+
+        "rejects a signal when the next M5 candle is missing" {
+            val missingEntryAt = Instant.parse("2026-06-30T13:15:00Z")
+            val candles = aggressiveAbsorptionCandles().filterNot { it.openedAt == missingEntryAt }
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+
+            val result = service.run(Symbol("BTCUSDT"), 120, VolumeFlowAggressiveProfiles.finalUsV1())
+
+            result.tradeCount shouldBe 0
         }
 
         "applies execution notional and quantity limits to aggressive trades" {

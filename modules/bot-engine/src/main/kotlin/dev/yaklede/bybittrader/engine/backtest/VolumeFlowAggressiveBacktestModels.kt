@@ -241,6 +241,7 @@ data class VolumeFlowAggressiveBacktestReport(
 )
 
 data class VolumeFlowAggressiveBacktestTrade(
+    val signalAt: Instant,
     val openedAt: Instant,
     val closedAt: Instant,
     val side: Side,

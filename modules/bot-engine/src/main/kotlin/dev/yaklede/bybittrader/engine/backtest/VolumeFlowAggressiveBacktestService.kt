@@ -16,6 +16,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private const val AGGRESSIVE_WARMUP_CANDLES = 60
+private const val M5_CANDLE_SECONDS = 300L
 private const val MIN_ENTRY_RISK_PCT = 0.002
 private const val MAX_ENTRY_RISK_PCT = 0.035
 
@@ -114,6 +115,7 @@ class VolumeFlowAggressiveBacktestService(
             tradesByDay[setup.entry.day] = dayTradeCount + 1
             trades +=
                 VolumeFlowAggressiveBacktestTrade(
+                    signalAt = setup.signal.candle.openedAt,
                     openedAt = setup.entry.candle.openedAt,
                     closedAt = enriched[exit.exitIndex].candle.openedAt,
                     side = setup.side,
@@ -253,6 +255,7 @@ class VolumeFlowAggressiveBacktestService(
         val signal = candles[signalIndex]
         val entryIndex = signalIndex + 1
         val entry = candles[entryIndex]
+        if (entry.candle.openedAt != signal.candle.openedAt.plusSeconds(M5_CANDLE_SECONDS)) return null
         val entryOpen = entry.candle.open.toDouble()
         val entryPrice =
             when (side) {
@@ -293,6 +296,7 @@ class VolumeFlowAggressiveBacktestService(
         if (grossTargetMove <= roundTripFeeAndSlip) return null
         return AggressiveSetup(
             side = side,
+            signal = signal,
             entryIndex = entryIndex,
             entry = entry,
             entryPrice = entryPrice,
@@ -536,6 +540,7 @@ private data class AggressiveCluster(
 
 private data class AggressiveSetup(
     val side: Side,
+    val signal: AggressiveCandle,
     val entryIndex: Int,
     val entry: AggressiveCandle,
     val entryPrice: Double,

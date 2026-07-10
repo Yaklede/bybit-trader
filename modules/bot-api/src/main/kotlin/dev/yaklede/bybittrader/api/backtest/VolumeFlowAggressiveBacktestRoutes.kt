@@ -130,6 +130,7 @@ data class VolumeFlowAggressiveBacktestResponse(
 
 @Serializable
 data class VolumeFlowAggressiveTradeResponse(
+    val signalAt: String,
     val openedAt: String,
     val closedAt: String,
     val side: String,
@@ -187,6 +188,7 @@ private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): Volu
 
 private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressiveTradeResponse =
     VolumeFlowAggressiveTradeResponse(
+        signalAt = signalAt.toString(),
         openedAt = openedAt.toString(),
         closedAt = closedAt.toString(),
         side = side.name,
