@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.domain.SignalIntent
 import dev.yaklede.bybittrader.domain.SignalScore
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestConfig
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import dev.yaklede.bybittrader.engine.backtest.requiredWarmupCandles
@@ -40,10 +41,13 @@ class VolumeFlowAggressiveStrategy(
 
         val enriched = sortedCandles.toAggressiveCandles(config)
         val latestIndex = enriched.lastIndex
+        val entryHorizon =
+            config.entryLookaheadCandles +
+                if (config.entryMode == VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST) config.retestLookaheadCandles else 0
         val firstSetupIndex =
             maxOf(
                 config.clusterCandles - 1,
-                latestIndex - config.entryLookaheadCandles,
+                latestIndex - entryHorizon,
                 AGGRESSIVE_BASE_WARMUP_CANDLES,
             )
 
@@ -59,7 +63,7 @@ class VolumeFlowAggressiveStrategy(
 }
 
 private fun AggressiveSetup.toDecision(config: VolumeFlowAggressiveBacktestConfig): StrategyDecision {
-    val relativeVolume = signal.relativeVolume ?: 0.0
+    val relativeVolume = breakout.relativeVolume ?: 0.0
     val score =
         (80 + ((relativeVolume - 1.0) * 10.0) + ((targetR - 1.0) * 4.0))
             .roundToInt()
@@ -69,6 +73,7 @@ private fun AggressiveSetup.toDecision(config: VolumeFlowAggressiveBacktestConfi
             "AGGRESSIVE_ABSORPTION_BREAKOUT",
             "PROFILE_${config.profileId.uppercase()}",
             "SIGNAL_AT_${signal.candle.openedAt}",
+            "BREAKOUT_AT_${breakout.candle.openedAt}",
             "SIDE_${side.name}",
             "TARGET_R_${targetR.toReasonNumber()}",
             "RELATIVE_VOLUME_${relativeVolume.toReasonNumber()}",
@@ -109,15 +114,74 @@ private fun findSetup(
     val rangeAtr = (cluster.high - cluster.low) / atr
     if (displacementAtr > config.maxDisplacementAtr || rangeAtr > config.maxRangeAtr) return null
 
-    val latestSignal = minOf(index + config.entryLookaheadCandles, candles.lastIndex)
-    for (signalIndex in index + 1..latestSignal) {
-        val signal = candles[signalIndex]
-        if (!config.sessionHoursUtc.contains(signal.hourUtc)) continue
-        if (config.sideMode != VolumeFlowSideMode.SHORT_ONLY && signal.candle.close.toDouble() > cluster.high) {
-            return buildSetup(candles, Side.BUY, signalIndex, cluster, config)
+    val latestBreakout = minOf(index + config.entryLookaheadCandles, candles.lastIndex)
+    for (breakoutIndex in index + 1..latestBreakout) {
+        val breakout = candles[breakoutIndex]
+        if (!config.sessionHoursUtc.contains(breakout.hourUtc)) continue
+        if (
+            config.sideMode != VolumeFlowSideMode.SHORT_ONLY &&
+            aggressiveBreakoutAllowed(
+                side = Side.BUY,
+                close = breakout.candle.close.toDouble(),
+                boundary = cluster.high,
+                atr = atr,
+                relativeVolume = breakout.relativeVolume,
+                bodyRatio = breakout.bodyRatio,
+                closeLocation = breakout.closeLocation,
+                config = config,
+            )
+        ) {
+            val signalIndex = confirmationIndex(candles, Side.BUY, breakoutIndex, cluster.high, atr, config) ?: continue
+            return buildSetup(candles, Side.BUY, signalIndex, breakout, cluster, config)
         }
-        if (config.sideMode != VolumeFlowSideMode.LONG_ONLY && signal.candle.close.toDouble() < cluster.low) {
-            return buildSetup(candles, Side.SELL, signalIndex, cluster, config)
+        if (
+            config.sideMode != VolumeFlowSideMode.LONG_ONLY &&
+            aggressiveBreakoutAllowed(
+                side = Side.SELL,
+                close = breakout.candle.close.toDouble(),
+                boundary = cluster.low,
+                atr = atr,
+                relativeVolume = breakout.relativeVolume,
+                bodyRatio = breakout.bodyRatio,
+                closeLocation = breakout.closeLocation,
+                config = config,
+            )
+        ) {
+            val signalIndex = confirmationIndex(candles, Side.SELL, breakoutIndex, cluster.low, atr, config) ?: continue
+            return buildSetup(candles, Side.SELL, signalIndex, breakout, cluster, config)
+        }
+    }
+    return null
+}
+
+private fun confirmationIndex(
+    candles: List<AggressiveCandle>,
+    side: Side,
+    breakoutIndex: Int,
+    boundary: Double,
+    atr: Double,
+    config: VolumeFlowAggressiveBacktestConfig,
+): Int? {
+    if (config.entryMode == VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN) return breakoutIndex
+    val lastRetestIndex = minOf(breakoutIndex + config.retestLookaheadCandles, candles.lastIndex)
+    if (breakoutIndex + 1 > lastRetestIndex) return null
+    for (index in breakoutIndex + 1..lastRetestIndex) {
+        val candidate = candles[index]
+        if (!config.sessionHoursUtc.contains(candidate.hourUtc)) continue
+        if (
+            aggressiveRetestConfirmed(
+                side = side,
+                open = candidate.candle.open.toDouble(),
+                high = candidate.candle.high.toDouble(),
+                low = candidate.candle.low.toDouble(),
+                close = candidate.candle.close.toDouble(),
+                closeLocation = candidate.closeLocation,
+                boundary = boundary,
+                atr = atr,
+                config = config,
+            )
+        ) {
+            return index
         }
     }
     return null
@@ -127,6 +191,7 @@ private fun buildSetup(
     candles: List<AggressiveCandle>,
     side: Side,
     signalIndex: Int,
+    breakout: AggressiveCandle,
     cluster: AggressiveCluster,
     config: VolumeFlowAggressiveBacktestConfig,
 ): AggressiveSetup? {
@@ -152,6 +217,7 @@ private fun buildSetup(
     val targetR = targetRFor(candles, signalIndex, config)
     return AggressiveSetup(
         side = side,
+        breakout = breakout,
         signalIndex = signalIndex,
         signal = signal,
         stopPrice = stopPrice,
@@ -327,6 +393,7 @@ private data class AggressiveCluster(
 
 private data class AggressiveSetup(
     val side: Side,
+    val breakout: AggressiveCandle,
     val signalIndex: Int,
     val signal: AggressiveCandle,
     val stopPrice: Double,

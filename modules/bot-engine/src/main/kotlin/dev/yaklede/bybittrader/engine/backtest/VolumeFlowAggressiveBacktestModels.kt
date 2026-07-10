@@ -17,6 +17,11 @@ enum class AggressiveExecutionPathMode {
     M5_CONSERVATIVE,
 }
 
+enum class VolumeFlowAggressiveEntryMode {
+    BREAKOUT_NEXT_OPEN,
+    BREAKOUT_RETEST,
+}
+
 data class VolumeFlowAggressiveBacktestConfig(
     val profileId: String = "absa_final_us_v1",
     val initialEquity: Double = 1_000_000.0,
@@ -48,6 +53,14 @@ data class VolumeFlowAggressiveBacktestConfig(
     val maxHoldCandles: Int = 36,
     val maxTradesPerDay: Int = 5,
     val sideMode: VolumeFlowSideMode = VolumeFlowSideMode.BOTH,
+    val entryMode: VolumeFlowAggressiveEntryMode = VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN,
+    val breakoutRelativeVolumeMin: Double = 0.0,
+    val breakoutBodyRatioMin: Double = 0.0,
+    val breakoutDirectionalCloseMin: Double = 0.0,
+    val maxBreakoutDistanceAtr: Double? = null,
+    val retestLookaheadCandles: Int = 6,
+    val retestToleranceAtr: Double = 0.15,
+    val retestDirectionalCloseMin: Double = 0.55,
     val executionPathMode: AggressiveExecutionPathMode = AggressiveExecutionPathMode.M1_REQUIRED,
 ) {
     init {
@@ -83,6 +96,19 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(entryLookaheadCandles in 1..24) { "Entry lookahead candles must be between 1 and 24." }
         require(maxHoldCandles in 1..288) { "Max hold candles must be between 1 and 288." }
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
+        require(breakoutRelativeVolumeMin >= 0.0) { "Breakout relative volume minimum must not be negative." }
+        require(breakoutBodyRatioMin in 0.0..1.0) { "Breakout body ratio minimum must be between 0 and 1." }
+        require(breakoutDirectionalCloseMin in 0.0..1.0) {
+            "Breakout directional close minimum must be between 0 and 1."
+        }
+        require(maxBreakoutDistanceAtr == null || maxBreakoutDistanceAtr > 0.0) {
+            "Maximum breakout distance ATR must be positive."
+        }
+        require(retestLookaheadCandles in 1..24) { "Retest lookahead candles must be between 1 and 24." }
+        require(retestToleranceAtr in 0.0..2.0) { "Retest tolerance ATR must be between 0 and 2." }
+        require(retestDirectionalCloseMin in 0.0..1.0) {
+            "Retest directional close minimum must be between 0 and 1."
+        }
     }
 }
 
@@ -99,7 +125,7 @@ fun VolumeFlowAggressiveBacktestConfig.requiredWarmupCandles(): Int {
         atrLookback + 1,
         sideLookback + 1,
         adaptiveLookback + 1,
-        clusterCandles + entryLookaheadCandles + 1,
+        clusterCandles + entryLookaheadCandles + retestLookaheadCandles + 1,
     )
 }
 
@@ -340,6 +366,11 @@ data class VolumeFlowAggressiveBacktestTrade(
     val clusterVolumeRatio: Double,
     val clusterDisplacementAtr: Double,
     val clusterRangeAtr: Double,
+    val breakoutAt: Instant,
+    val breakoutRelativeVolume: Double,
+    val breakoutBodyRatio: Double,
+    val breakoutDirectionalClose: Double,
+    val breakoutDistanceAtr: Double,
     val signalRelativeVolume: Double,
     val signalRangePct: Double,
     val signalBodyRatio: Double,

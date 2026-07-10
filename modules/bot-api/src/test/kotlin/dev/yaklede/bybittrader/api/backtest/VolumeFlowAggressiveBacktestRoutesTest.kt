@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.api.backtest
 
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
@@ -19,6 +20,14 @@ class VolumeFlowAggressiveBacktestRoutesTest :
                     maxHoldCandles = 72,
                     maxTradesPerDay = 2,
                     sideMode = "long_only",
+                    entryMode = "breakout_retest",
+                    breakoutRelativeVolumeMin = 1.2,
+                    breakoutBodyRatioMin = 0.5,
+                    breakoutDirectionalCloseMin = 0.7,
+                    maxBreakoutDistanceAtr = 0.8,
+                    retestLookaheadCandles = 8,
+                    retestToleranceAtr = 0.2,
+                    retestDirectionalCloseMin = 0.6,
                     adaptiveRulesEnabled = false,
                     sideRegimeRulesEnabled = false,
                 ).validated().toConfig()
@@ -33,6 +42,14 @@ class VolumeFlowAggressiveBacktestRoutesTest :
             config.maxHoldCandles shouldBe 72
             config.maxTradesPerDay shouldBe 2
             config.sideMode shouldBe VolumeFlowSideMode.LONG_ONLY
+            config.entryMode shouldBe VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST
+            config.breakoutRelativeVolumeMin shouldBe 1.2
+            config.breakoutBodyRatioMin shouldBe 0.5
+            config.breakoutDirectionalCloseMin shouldBe 0.7
+            config.maxBreakoutDistanceAtr shouldBe 0.8
+            config.retestLookaheadCandles shouldBe 8
+            config.retestToleranceAtr shouldBe 0.2
+            config.retestDirectionalCloseMin shouldBe 0.6
             config.adaptiveStop shouldBe null
             config.adaptiveTarget shouldBe null
             config.sideRegimeBlocks shouldBe emptyList()

@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestConfi
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestTrade
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressivePerformanceSlice
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
@@ -68,6 +69,14 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     val maxHoldCandles: Int? = null,
     val maxTradesPerDay: Int? = null,
     val sideMode: String? = null,
+    val entryMode: String? = null,
+    val breakoutRelativeVolumeMin: Double? = null,
+    val breakoutBodyRatioMin: Double? = null,
+    val breakoutDirectionalCloseMin: Double? = null,
+    val maxBreakoutDistanceAtr: Double? = null,
+    val retestLookaheadCandles: Int? = null,
+    val retestToleranceAtr: Double? = null,
+    val retestDirectionalCloseMin: Double? = null,
     val adaptiveRulesEnabled: Boolean = true,
     val sideRegimeRulesEnabled: Boolean = true,
     val tradeLimit: Int = 50,
@@ -133,6 +142,14 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             maxHoldCandles = maxHoldCandles ?: base.maxHoldCandles,
             maxTradesPerDay = maxTradesPerDay ?: base.maxTradesPerDay,
             sideMode = sideMode?.toVolumeFlowSideMode() ?: base.sideMode,
+            entryMode = entryMode?.toAggressiveEntryMode() ?: base.entryMode,
+            breakoutRelativeVolumeMin = breakoutRelativeVolumeMin ?: base.breakoutRelativeVolumeMin,
+            breakoutBodyRatioMin = breakoutBodyRatioMin ?: base.breakoutBodyRatioMin,
+            breakoutDirectionalCloseMin = breakoutDirectionalCloseMin ?: base.breakoutDirectionalCloseMin,
+            maxBreakoutDistanceAtr = maxBreakoutDistanceAtr ?: base.maxBreakoutDistanceAtr,
+            retestLookaheadCandles = retestLookaheadCandles ?: base.retestLookaheadCandles,
+            retestToleranceAtr = retestToleranceAtr ?: base.retestToleranceAtr,
+            retestDirectionalCloseMin = retestDirectionalCloseMin ?: base.retestDirectionalCloseMin,
         )
     }
 }
@@ -140,6 +157,12 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
 private fun String.toVolumeFlowSideMode(): VolumeFlowSideMode =
     runCatching { VolumeFlowSideMode.valueOf(trim().uppercase()) }
         .getOrElse { throw IllegalArgumentException("Side mode must be BOTH, LONG_ONLY, or SHORT_ONLY.") }
+
+private fun String.toAggressiveEntryMode(): VolumeFlowAggressiveEntryMode =
+    runCatching { VolumeFlowAggressiveEntryMode.valueOf(trim().uppercase()) }
+        .getOrElse {
+            throw IllegalArgumentException("Entry mode must be BREAKOUT_NEXT_OPEN or BREAKOUT_RETEST.")
+        }
 
 private fun parseAggressiveReplayInstant(value: String): Instant =
     runCatching { Instant.parse(value) }
@@ -247,6 +270,11 @@ data class VolumeFlowAggressiveTradeResponse(
     val clusterVolumeRatio: Double,
     val clusterDisplacementAtr: Double,
     val clusterRangeAtr: Double,
+    val breakoutAt: String,
+    val breakoutRelativeVolume: Double,
+    val breakoutBodyRatio: Double,
+    val breakoutDirectionalClose: Double,
+    val breakoutDistanceAtr: Double,
     val signalRelativeVolume: Double,
     val signalRangePct: Double,
     val signalBodyRatio: Double,
@@ -356,6 +384,11 @@ private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressive
         clusterVolumeRatio = clusterVolumeRatio,
         clusterDisplacementAtr = clusterDisplacementAtr,
         clusterRangeAtr = clusterRangeAtr,
+        breakoutAt = breakoutAt.toString(),
+        breakoutRelativeVolume = breakoutRelativeVolume,
+        breakoutBodyRatio = breakoutBodyRatio,
+        breakoutDirectionalClose = breakoutDirectionalClose,
+        breakoutDistanceAtr = breakoutDistanceAtr,
         signalRelativeVolume = signalRelativeVolume,
         signalRangePct = signalRangePct,
         signalBodyRatio = signalBodyRatio,

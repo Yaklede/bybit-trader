@@ -200,6 +200,32 @@ class VolumeFlowAggressiveBacktestServiceTest :
                 .isBefore(replayStartAt) shouldBe false
         }
 
+        "enters only after a breakout retest confirmation closes" {
+            val candles = aggressiveRetestCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config =
+                        aggressiveTestConfig()
+                            .copy(
+                                entryMode = VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST,
+                                breakoutRelativeVolumeMin = 1.2,
+                                breakoutBodyRatioMin = 0.5,
+                                breakoutDirectionalCloseMin = 0.55,
+                                maxBreakoutDistanceAtr = 1.0,
+                            ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().breakoutAt shouldBe Instant.parse("2026-06-30T13:10:00Z")
+            result.trades.single().signalAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
+            result.trades.single().openedAt shouldBe Instant.parse("2026-06-30T13:20:00Z")
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+        }
+
         "uses M1 candles to resolve the execution path after entry" {
             val entryAt = Instant.parse("2026-06-30T13:15:00Z")
             val m5Candles =
@@ -374,6 +400,27 @@ private fun aggressiveAbsorptionCandles(): List<Candle> =
                     close = "100",
                     volume = "10",
                 )
+        }
+    }
+
+private fun aggressiveRetestCandles(): List<Candle> =
+    aggressiveAbsorptionCandles().mapIndexed { index, candle ->
+        when (index) {
+            73 ->
+                candle.copy(
+                    open = BigDecimal("102"),
+                    high = BigDecimal("102.4"),
+                    low = BigDecimal("100.9"),
+                    close = BigDecimal("102.2"),
+                )
+            74 ->
+                candle.copy(
+                    open = BigDecimal("102.2"),
+                    high = BigDecimal("112"),
+                    low = BigDecimal("102"),
+                    close = BigDecimal("110"),
+                )
+            else -> candle
         }
     }
 

@@ -4,6 +4,8 @@ import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
@@ -41,6 +43,29 @@ class VolumeFlowAggressiveStrategyTest :
 
             decision.intent shouldBe null
             decision.reasonCodes shouldBe listOf("INSUFFICIENT_AGGRESSIVE_HISTORY")
+        }
+
+        "emits a retest signal only after the latest confirmation candle closes" {
+            val config =
+                VolumeFlowAggressiveProfiles
+                    .finalUsV1()
+                    .copy(
+                        entryMode = VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST,
+                        breakoutRelativeVolumeMin = 1.2,
+                        breakoutBodyRatioMin = 0.5,
+                        breakoutDirectionalCloseMin = 0.55,
+                        maxBreakoutDistanceAtr = 1.0,
+                    )
+            val strategy = VolumeFlowAggressiveStrategy(config)
+
+            val decision = strategy.evaluate(aggressiveRetestBreakoutCandles())
+
+            decision.intent?.side shouldBe Side.BUY
+            decision.reasonCodes shouldContain "SIGNAL_AT_2026-06-01T14:00:00Z"
+            decision.reasonCodes shouldContain "BREAKOUT_AT_2026-06-01T13:55:00Z"
+
+            val beforeRetest = strategy.evaluate(aggressiveRetestBreakoutCandles().dropLast(1))
+            beforeRetest.intent shouldBe null
         }
     })
 
@@ -87,6 +112,20 @@ private fun aggressiveBreakoutCandles(): List<Candle> {
             close = "102",
             volume = "130",
         )
+    return candles
+}
+
+private fun aggressiveRetestBreakoutCandles(): List<Candle> {
+    val candles = aggressiveBreakoutCandles().toMutableList()
+    val latestAt = candles.last().openedAt
+    candles[candles.lastIndex - 3] =
+        testCandle(latestAt.minus(Duration.ofMinutes(15)), "100", "101", "99", "100.3", "150")
+    candles[candles.lastIndex - 2] =
+        testCandle(latestAt.minus(Duration.ofMinutes(10)), "100.2", "101", "99", "100.4", "150")
+    candles[candles.lastIndex - 1] =
+        testCandle(latestAt.minus(Duration.ofMinutes(5)), "100.5", "103", "100.5", "102", "130")
+    candles[candles.lastIndex] =
+        testCandle(latestAt, "102", "102.4", "100.9", "102.2", "100")
     return candles
 }
 
