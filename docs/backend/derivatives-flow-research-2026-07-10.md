@@ -398,9 +398,9 @@ node scripts/volume-flow-chronological-evaluate.mjs \
   --out=build/research/<candidate>-development.json
 ```
 
-The next candidate must use the forward-only order-book and liquidation data
-collection path. No further OHLCV-only candidate is justified by the current
-evidence.
+The next candidate must use the forward-only order-book, taker-trade, and
+liquidation data collection path. No further OHLCV-only candidate is justified
+by the current evidence.
 
 ## Forward Data Collection Gate
 
@@ -412,18 +412,23 @@ default-off collection path for future data only:
   aggregated into one-minute imbalance and spread bars.
 - `allLiquidation.BTCUSDT` produces liquidation events that are aggregated into
   one-minute long/short liquidation notionals and counts.
+- `publicTrade.BTCUSDT` produces real-time taker `Buy` and `Sell` executions
+  that are aggregated into one-minute base quantity, notional, and trade-count
+  flow bars.
 - It has no dependency on the strategy evaluator or exchange execution
   service. Enabling it cannot submit an order or alter a signal.
-- The dashboard marks collection as verified only when a completed order-book
-  bar has arrived within the last three minutes. A missing liquidation bar is
-  normal when no liquidation event occurred.
+- The dashboard marks collection as verified only when completed order-book
+  and taker-trade bars have arrived within the last three minutes. A missing
+  liquidation bar is normal when no liquidation event occurred.
 
 Source notes: Bybit documents REST order book as a snapshot and the public
 WebSocket feed as snapshot-plus-delta. It also documents the all-liquidation
-stream and the `Buy`/`Sell` liquidation-side mapping. See
+stream, the `Buy`/`Sell` liquidation-side mapping, and the real-time public
+trade stream's taker side, size, and price fields. See
 [order book REST](https://bybit-exchange.github.io/docs/v5/market/orderbook),
 [order book WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook),
-and [all liquidation WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation).
+[all liquidation WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation),
+and [public trade WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/trade).
 
 This data must accumulate before any feature design or threshold tuning. The
 first research pass must freeze all feature definitions, use only bars that

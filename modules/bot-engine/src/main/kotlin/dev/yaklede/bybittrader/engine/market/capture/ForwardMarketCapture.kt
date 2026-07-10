@@ -1,6 +1,8 @@
 package dev.yaklede.bybittrader.engine.market.capture
 
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -62,6 +64,22 @@ data class LiquidationEvent(
     init {
         require(notional > BigDecimal.ZERO) { "Liquidation notional must be positive." }
     }
+}
+
+data class TakerTradeEvent(
+    override val symbol: Symbol,
+    override val capturedAt: Instant,
+    val takerSide: Side,
+    val quantity: BigDecimal,
+    val price: BigDecimal,
+) : ForwardMarketCaptureEvent {
+    init {
+        require(quantity > BigDecimal.ZERO) { "Taker trade quantity must be positive." }
+        require(price > BigDecimal.ZERO) { "Taker trade price must be positive." }
+    }
+
+    val notional: BigDecimal
+        get() = quantity.multiply(price)
 }
 
 data class OrderBookImbalanceBar(
@@ -126,6 +144,15 @@ interface ForwardMarketCaptureStore {
         endAt: Instant,
         limit: Int,
     ): List<LiquidationFlowBar>
+
+    suspend fun upsertTakerFlowBars(bars: List<TakerFlowBar>)
+
+    suspend fun takerFlowBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<TakerFlowBar>
 }
 
 fun interface ForwardMarketCaptureFeed {
@@ -141,6 +168,7 @@ class ForwardMarketCaptureService(
     private val mutex = Mutex()
     private val orderBookAccumulators = mutableMapOf<CaptureBucketKey, OrderBookAccumulator>()
     private val liquidationAccumulators = mutableMapOf<CaptureBucketKey, LiquidationAccumulator>()
+    private val takerFlowAccumulators = mutableMapOf<CaptureBucketKey, TakerFlowAccumulator>()
 
     suspend fun record(event: ForwardMarketCaptureEvent) {
         val key = CaptureBucketKey(symbol = event.symbol, openedAt = event.capturedAt.minuteStart())
@@ -150,6 +178,8 @@ class ForwardMarketCaptureService(
                     orderBookAccumulators.getOrPut(key, ::OrderBookAccumulator).add(event)
                 is LiquidationEvent ->
                     liquidationAccumulators.getOrPut(key, ::LiquidationAccumulator).add(event)
+                is TakerTradeEvent ->
+                    takerFlowAccumulators.getOrPut(key, ::TakerFlowAccumulator).add(event)
             }
         }
     }
@@ -161,14 +191,17 @@ class ForwardMarketCaptureService(
                 PendingCaptureBars(
                     orderBook = orderBookAccumulators.filterKeys { key -> key.openedAt.isBefore(closingBefore) },
                     liquidation = liquidationAccumulators.filterKeys { key -> key.openedAt.isBefore(closingBefore) },
+                    takerFlow = takerFlowAccumulators.filterKeys { key -> key.openedAt.isBefore(closingBefore) },
                 )
             }
         if (pending.isEmpty()) return ForwardMarketCaptureFlushResult.EMPTY
 
         val orderBookBars = pending.orderBook.map { (key, accumulator) -> accumulator.toBar(key) }
         val liquidationBars = pending.liquidation.map { (key, accumulator) -> accumulator.toBar(key) }
+        val takerFlowBars = pending.takerFlow.map { (key, accumulator) -> accumulator.toBar(key) }
         if (orderBookBars.isNotEmpty()) store.upsertOrderBookImbalanceBars(orderBookBars)
         if (liquidationBars.isNotEmpty()) store.upsertLiquidationFlowBars(liquidationBars)
+        if (takerFlowBars.isNotEmpty()) store.upsertTakerFlowBars(takerFlowBars)
 
         mutex.withLock {
             pending.orderBook.forEach { (key, accumulator) ->
@@ -177,10 +210,14 @@ class ForwardMarketCaptureService(
             pending.liquidation.forEach { (key, accumulator) ->
                 if (liquidationAccumulators[key] === accumulator) liquidationAccumulators.remove(key)
             }
+            pending.takerFlow.forEach { (key, accumulator) ->
+                if (takerFlowAccumulators[key] === accumulator) takerFlowAccumulators.remove(key)
+            }
         }
         return ForwardMarketCaptureFlushResult(
             orderBookBars = orderBookBars.size,
             liquidationBars = liquidationBars.size,
+            takerFlowBars = takerFlowBars.size,
         )
     }
 }
@@ -220,12 +257,25 @@ class ForwardMarketCaptureStatusService(
                     endAt = now,
                     limit = STATUS_QUERY_LIMIT,
                 ).maxByOrNull(LiquidationFlowBar::openedAt)
+        val takerFlowBar =
+            store
+                .takerFlowBarsBetween(
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = now,
+                    limit = STATUS_QUERY_LIMIT,
+                ).maxByOrNull(TakerFlowBar::openedAt)
         return ForwardMarketCaptureStatus(
             enabled = true,
             latestOrderBookBarAt = orderBookBar?.openedAt,
             latestLiquidationBarAt = liquidationBar?.openedAt,
+            latestTakerFlowBarAt = takerFlowBar?.openedAt,
             orderBookFresh =
                 orderBookBar?.availableAt?.let { availableAt ->
+                    !availableAt.isBefore(now.minus(orderBookFreshness))
+                } ?: false,
+            takerFlowFresh =
+                takerFlowBar?.availableAt?.let { availableAt ->
                     !availableAt.isBefore(now.minus(orderBookFreshness))
                 } ?: false,
         )
@@ -236,7 +286,9 @@ data class ForwardMarketCaptureStatus(
     val enabled: Boolean,
     val latestOrderBookBarAt: Instant?,
     val latestLiquidationBarAt: Instant?,
+    val latestTakerFlowBarAt: Instant?,
     val orderBookFresh: Boolean,
+    val takerFlowFresh: Boolean,
 ) {
     companion object {
         val DISABLED =
@@ -244,7 +296,9 @@ data class ForwardMarketCaptureStatus(
                 enabled = false,
                 latestOrderBookBarAt = null,
                 latestLiquidationBarAt = null,
+                latestTakerFlowBarAt = null,
                 orderBookFresh = false,
+                takerFlowFresh = false,
             )
     }
 }
@@ -252,9 +306,10 @@ data class ForwardMarketCaptureStatus(
 data class ForwardMarketCaptureFlushResult(
     val orderBookBars: Int,
     val liquidationBars: Int,
+    val takerFlowBars: Int,
 ) {
     companion object {
-        val EMPTY = ForwardMarketCaptureFlushResult(orderBookBars = 0, liquidationBars = 0)
+        val EMPTY = ForwardMarketCaptureFlushResult(orderBookBars = 0, liquidationBars = 0, takerFlowBars = 0)
     }
 }
 
@@ -315,8 +370,9 @@ private data class CaptureBucketKey(
 private data class PendingCaptureBars(
     val orderBook: Map<CaptureBucketKey, OrderBookAccumulator>,
     val liquidation: Map<CaptureBucketKey, LiquidationAccumulator>,
+    val takerFlow: Map<CaptureBucketKey, TakerFlowAccumulator>,
 ) {
-    fun isEmpty(): Boolean = orderBook.isEmpty() && liquidation.isEmpty()
+    fun isEmpty(): Boolean = orderBook.isEmpty() && liquidation.isEmpty() && takerFlow.isEmpty()
 }
 
 private class OrderBookAccumulator {
@@ -376,6 +432,42 @@ private class LiquidationAccumulator {
             shortLiquidationNotional = shortNotional,
             longLiquidationCount = longCount,
             shortLiquidationCount = shortCount,
+        )
+}
+
+private class TakerFlowAccumulator {
+    private var buyBase = BigDecimal.ZERO
+    private var buyNotional = BigDecimal.ZERO
+    private var sellBase = BigDecimal.ZERO
+    private var sellNotional = BigDecimal.ZERO
+    private var buyTradeCount = 0
+    private var sellTradeCount = 0
+
+    fun add(event: TakerTradeEvent) {
+        when (event.takerSide) {
+            Side.BUY -> {
+                buyBase += event.quantity
+                buyNotional += event.notional
+                buyTradeCount += 1
+            }
+            Side.SELL -> {
+                sellBase += event.quantity
+                sellNotional += event.notional
+                sellTradeCount += 1
+            }
+        }
+    }
+
+    fun toBar(key: CaptureBucketKey): TakerFlowBar =
+        TakerFlowBar(
+            symbol = key.symbol,
+            openedAt = key.openedAt,
+            takerBuyBase = buyBase,
+            takerBuyNotional = buyNotional,
+            takerSellBase = sellBase,
+            takerSellNotional = sellNotional,
+            buyTradeCount = buyTradeCount,
+            sellTradeCount = sellTradeCount,
         )
 }
 

@@ -107,11 +107,12 @@ docker compose -f compose.yaml up -d
 ### Forward-only market capture
 
 `BOT_FORWARD_MARKET_CAPTURE_ENABLED` is disabled by default. When set to
-`true`, the process reads the public Bybit order book and liquidation streams,
-stores completed one-minute bars, and does not submit an order or change the
-active strategy. The dashboard's **시장 흐름 수집** panel confirms the latest
-completed order-book bar. A liquidation timestamp can remain empty when no
-liquidation event occurred; it is not used as a connection-health signal.
+`true`, the process reads the public Bybit order-book, trade, and liquidation
+streams, stores completed one-minute bars, and does not submit an order or
+change the active strategy. The dashboard's **시장 흐름 수집** panel confirms
+both the latest completed order-book and taker-trade bars. A liquidation
+timestamp can remain empty when no liquidation event occurred; it is not used
+as a connection-health signal.
 
 ```bash
 BOT_FORWARD_MARKET_CAPTURE_ENABLED=true

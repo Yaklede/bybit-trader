@@ -1,8 +1,10 @@
 package dev.yaklede.bybittrader.exchange.bybit
 
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.engine.market.capture.LiquidatedPositionSide
 import dev.yaklede.bybittrader.engine.market.capture.LiquidationEvent
 import dev.yaklede.bybittrader.engine.market.capture.OrderBookDepthSnapshot
+import dev.yaklede.bybittrader.engine.market.capture.TakerTradeEvent
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -66,5 +68,27 @@ class BybitPublicMarketCaptureClientTest :
                 LiquidatedPositionSide.SHORT,
             )
             events.map { it.notional }.shouldContainExactly(BigDecimal("200"), BigDecimal("303"))
+        }
+
+        "parser maps public trade sides to taker trades" {
+            val parser = BybitPublicMarketCaptureParser(orderBookDepth = 1)
+
+            val events =
+                parser
+                    .parse(
+                        """
+                        {
+                          "topic":"publicTrade.BTCUSDT",
+                          "data":[
+                            {"T":1719748800000,"s":"BTCUSDT","S":"Buy","v":"2","p":"100"},
+                            {"T":1719748800100,"s":"BTCUSDT","S":"Sell","v":"3","p":"101"}
+                          ]
+                        }
+                        """.trimIndent(),
+                    ).map { it as TakerTradeEvent }
+
+            events.map { it.takerSide }.shouldContainExactly(Side.BUY, Side.SELL)
+            events.map { it.quantity }.shouldContainExactly(BigDecimal("2"), BigDecimal("3"))
+            events.map { it.price }.shouldContainExactly(BigDecimal("100"), BigDecimal("101"))
         }
     })

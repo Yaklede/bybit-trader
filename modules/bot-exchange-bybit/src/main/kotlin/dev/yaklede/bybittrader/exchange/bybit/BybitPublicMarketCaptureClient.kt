@@ -1,11 +1,13 @@
 package dev.yaklede.bybittrader.exchange.bybit
 
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureEvent
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureFeed
 import dev.yaklede.bybittrader.engine.market.capture.LiquidatedPositionSide
 import dev.yaklede.bybittrader.engine.market.capture.LiquidationEvent
 import dev.yaklede.bybittrader.engine.market.capture.OrderBookDepthSnapshot
+import dev.yaklede.bybittrader.engine.market.capture.TakerTradeEvent
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
@@ -45,7 +47,7 @@ class BybitPublicMarketCaptureClient(
         httpClient.webSocket(urlString = baseUrl) {
             send(
                 Frame.Text(
-                    """{"op":"subscribe","args":["orderbook.${parser.orderBookDepth}.${symbol.value}","allLiquidation.${symbol.value}"]}""",
+                    """{"op":"subscribe","args":["orderbook.${parser.orderBookDepth}.${symbol.value}","allLiquidation.${symbol.value}","publicTrade.${symbol.value}"]}""",
                 ),
             )
             for (frame in incoming) {
@@ -73,6 +75,7 @@ class BybitPublicMarketCaptureParser(
         return when {
             topic.startsWith("orderbook.") -> parseOrderBook(root)
             topic.startsWith("allLiquidation.") -> parseLiquidations(root)
+            topic.startsWith("publicTrade.") -> parseTakerTrades(root)
             else -> emptyList()
         }
     }
@@ -130,6 +133,31 @@ class BybitPublicMarketCaptureParser(
                     capturedAt = capturedAt,
                     liquidatedSide = side,
                     notional = quantity.multiply(price),
+                )
+            }.orEmpty()
+
+    private fun parseTakerTrades(root: JsonObject): List<ForwardMarketCaptureEvent> =
+        root["data"]
+            ?.jsonArray
+            ?.mapNotNull { item ->
+                val data = item.jsonObject
+                val symbol = data["s"]?.jsonPrimitive?.contentOrNull?.let(::Symbol) ?: return@mapNotNull null
+                val capturedAt = data.epochMillis("T") ?: return@mapNotNull null
+                val side =
+                    when (data["S"]?.jsonPrimitive?.contentOrNull) {
+                        "Buy" -> Side.BUY
+                        "Sell" -> Side.SELL
+                        else -> return@mapNotNull null
+                    }
+                val quantity = data["v"]?.jsonPrimitive?.contentOrNull?.toBigDecimalOrNull() ?: return@mapNotNull null
+                val price = data["p"]?.jsonPrimitive?.contentOrNull?.toBigDecimalOrNull() ?: return@mapNotNull null
+                if (quantity <= BigDecimal.ZERO || price <= BigDecimal.ZERO) return@mapNotNull null
+                TakerTradeEvent(
+                    symbol = symbol,
+                    capturedAt = capturedAt,
+                    takerSide = side,
+                    quantity = quantity,
+                    price = price,
                 )
             }.orEmpty()
 }

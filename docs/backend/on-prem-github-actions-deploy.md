@@ -55,8 +55,8 @@ override:
 - `BOT_STRATEGY_PROFILE_STATE_PATH`: default
   `/data/strategy-profile-current.txt`.
 - `BOT_FORWARD_MARKET_CAPTURE_ENABLED`: default `false`. Set `true` to record
-  public order-book and liquidation data for future research only. This does
-  not submit orders or change the active strategy.
+  public order-book, taker-trade, and liquidation data for future research
+  only. This does not submit orders or change the active strategy.
 - `BYBIT_PUBLIC_WEBSOCKET_URL`: optional. Defaults by `BOT_MODE` to Bybit's
   public linear WebSocket URL.
 - `BOT_FORWARD_ORDER_BOOK_DEPTH`: default `50`, valid range `1` to `50`.

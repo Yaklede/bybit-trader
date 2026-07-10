@@ -49,7 +49,14 @@ const EMPTY_SUMMARY = {
   runtimeMode: "",
   executionAvailable: false,
   bot: { mode: "확인 필요", updatedAt: "", heartbeatAt: "" },
-  forwardMarketCapture: { enabled: false, orderBookFresh: false, latestOrderBookBarAt: "", latestLiquidationBarAt: "" },
+  forwardMarketCapture: {
+    enabled: false,
+    orderBookFresh: false,
+    takerFlowFresh: false,
+    latestOrderBookBarAt: "",
+    latestLiquidationBarAt: "",
+    latestTakerFlowBarAt: "",
+  },
   recentSignals: [],
   recentTrades: [],
 };
@@ -652,7 +659,7 @@ function App() {
             </section>
 
             <section className="panel">
-              <PanelHeader title="시장 흐름 수집" description="호가와 강제청산 데이터를 저장해 이후 전략 검증에 써요." />
+              <PanelHeader title="시장 흐름 수집" description="호가, 테이커 체결, 강제청산 데이터를 저장해 이후 전략 검증에 써요." />
               <div className="stats-grid">
                 <StatBlock
                   label="수집 상태"
@@ -660,11 +667,12 @@ function App() {
                   tone={forwardMarketCaptureTone(forwardMarketCapture)}
                 />
                 <StatBlock label="호가 1분 집계" value={formatShortDateTime(forwardMarketCapture.latestOrderBookBarAt)} />
+                <StatBlock label="테이커 체결 집계" value={formatShortDateTime(forwardMarketCapture.latestTakerFlowBarAt)} />
                 <StatBlock label="강제청산 집계" value={formatShortDateTime(forwardMarketCapture.latestLiquidationBarAt)} />
-                <StatBlock label="수집 기준" value={forwardMarketCapture.enabled ? "최근 3분" : "수집 꺼짐"} />
               </div>
               <dl className="detail-list compact">
                 <StateRow label="최근 호가 수집" value={formatDateTime(forwardMarketCapture.latestOrderBookBarAt)} />
+                <StateRow label="최근 테이커 체결 수집" value={formatDateTime(forwardMarketCapture.latestTakerFlowBarAt)} />
                 <StateRow label="최근 강제청산 수집" value={formatDateTime(forwardMarketCapture.latestLiquidationBarAt)} />
               </dl>
             </section>
@@ -1542,14 +1550,14 @@ function formatExecution(value, hasLoaded) {
 
 function formatForwardMarketCaptureStatus(capture) {
   if (!capture?.enabled) return "수집 꺼짐";
-  if (capture.orderBookFresh) return "수집 확인됨";
-  if (!capture.latestOrderBookBarAt) return "첫 집계 대기";
+  if (capture.orderBookFresh && capture.takerFlowFresh) return "수집 확인됨";
+  if (!capture.latestOrderBookBarAt && !capture.latestTakerFlowBarAt) return "첫 집계 대기";
   return "수집 확인 필요";
 }
 
 function forwardMarketCaptureTone(capture) {
   if (!capture?.enabled) return "neutral";
-  if (capture.orderBookFresh) return "positive";
+  if (capture.orderBookFresh && capture.takerFlowFresh) return "positive";
   return "neutral";
 }
 

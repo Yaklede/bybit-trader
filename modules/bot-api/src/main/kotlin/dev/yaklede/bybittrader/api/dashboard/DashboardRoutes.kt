@@ -216,8 +216,10 @@ data class DashboardSummaryResponse(
 data class DashboardForwardMarketCaptureResponse(
     val enabled: Boolean,
     val orderBookFresh: Boolean,
+    val takerFlowFresh: Boolean,
     val latestOrderBookBarAt: String?,
     val latestLiquidationBarAt: String?,
+    val latestTakerFlowBarAt: String?,
 )
 
 @Serializable
@@ -441,8 +443,10 @@ private fun ForwardMarketCaptureStatus.toResponse(): DashboardForwardMarketCaptu
     DashboardForwardMarketCaptureResponse(
         enabled = enabled,
         orderBookFresh = orderBookFresh,
+        takerFlowFresh = takerFlowFresh,
         latestOrderBookBarAt = latestOrderBookBarAt?.toString(),
         latestLiquidationBarAt = latestLiquidationBarAt?.toString(),
+        latestTakerFlowBarAt = latestTakerFlowBarAt?.toString(),
     )
 
 private fun ExchangeReconciliationReport.toResponse(): DashboardReconciliationResponse =

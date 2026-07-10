@@ -61,9 +61,9 @@ export BOT_FORWARD_ORDER_BOOK_DEPTH="50"
 
 Set `BOT_FORWARD_MARKET_CAPTURE_ENABLED=true` only after deployment when you
 want to begin accumulating new public data. It does not submit an order or
-change strategy evaluation. The dashboard shows `수집 확인됨` after a completed
-order-book minute bar is stored; an empty liquidation timestamp is normal when
-the market has no liquidation event.
+change strategy evaluation. The dashboard shows `수집 확인됨` after completed
+order-book and taker-trade minute bars are stored; an empty liquidation
+timestamp is normal when the market has no liquidation event.
 
 For private Bybit live execution, add:
 
