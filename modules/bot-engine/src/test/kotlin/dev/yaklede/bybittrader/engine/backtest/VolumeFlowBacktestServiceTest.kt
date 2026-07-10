@@ -714,6 +714,40 @@ class VolumeFlowBacktestServiceTest :
             flowStore.takerFlowBetweenCalls shouldBe 1
         }
 
+        "composite reuses order book capture and reports required coverage" {
+            val forwardStore = InMemoryForwardMarketCaptureStore(orderBookBars = alignedOrderBookBars())
+            val service =
+                VolumeFlowCompositeBacktestService(
+                    candleStore = InMemoryVolumeFlowCandleStore(volumeFlowCandles()),
+                    forwardMarketCaptureStore = forwardStore,
+                )
+            val legConfig = testVolumeFlowConfig().copy(minDirectionalOrderBookImbalance = 0.5)
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            legs =
+                                listOf(
+                                    VolumeFlowCompositeBacktestLeg("primary", legConfig),
+                                    VolumeFlowCompositeBacktestLeg("secondary", legConfig.copy(riskFraction = 0.005)),
+                                ),
+                        ),
+                )
+
+            forwardStore.orderBookBetweenCalls shouldBe 1
+            result.forwardCaptureReplayCoverage?.orderBookRequired shouldBe true
+            result.forwardCaptureReplayCoverage?.takerFlowRequired shouldBe false
+            result.forwardCaptureReplayCoverage?.requestedM5BucketCount shouldBe 30
+            result.forwardCaptureReplayCoverage?.completeOrderBookM5BucketCount shouldBe 1
+            result.forwardCaptureReplayCoverage?.completeRequiredM5BucketCount shouldBe 1
+            result.forwardCaptureReplayCoverage?.requiredCoveragePct shouldBe (100.0 / 30.0)
+        }
+
         "uses only higher timeframe candles closed before the setup decision" {
             val baselineService = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
             val unclosedContextChanged =

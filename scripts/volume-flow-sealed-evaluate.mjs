@@ -110,6 +110,19 @@ export function evaluateWindow(window, response, gates) {
   if (response.tradeCount < gates.minTradeCount) reasons.push("TRADE_COVERAGE_INSUFFICIENT");
   if (response.activeDayCoveragePct < gates.minActiveDayCoveragePct) reasons.push("ACTIVE_DAY_COVERAGE_INSUFFICIENT");
   if (!hasRequestedCoverage(window, response.commonReplayWindow)) reasons.push("REPLAY_COVERAGE_INSUFFICIENT");
+  if (response.forwardCaptureReplayCoverage != null) {
+    const captureCoverage = response.forwardCaptureReplayCoverage;
+    if (
+      !Number.isFinite(captureCoverage.requiredCoveragePct) ||
+      captureCoverage.requiredCoveragePct < 100 ||
+      !Number.isInteger(captureCoverage.requestedM5BucketCount) ||
+      captureCoverage.requestedM5BucketCount < 1 ||
+      !Number.isInteger(captureCoverage.completeRequiredM5BucketCount) ||
+      captureCoverage.completeRequiredM5BucketCount !== captureCoverage.requestedM5BucketCount
+    ) {
+      reasons.push("FORWARD_CAPTURE_COVERAGE_INSUFFICIENT");
+    }
+  }
 
   return {
     id: window.id,
@@ -128,6 +141,7 @@ export function evaluateWindow(window, response, gates) {
     liquidationCount: response.liquidationCount,
     tradeCount: response.tradeCount,
     activeDayCoveragePct: response.activeDayCoveragePct,
+    forwardCaptureReplayCoverage: response.forwardCaptureReplayCoverage ?? null,
     netReturnPct: response.netReturnPct,
     finalEquity: response.finalEquity,
   };

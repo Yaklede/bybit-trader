@@ -105,6 +105,9 @@ class ApiModuleTest :
                     id = "primary",
                     minDirectionalTakerImbalance = 0.55,
                     takerFlowDirectionMode = "OPPOSE_SIDE",
+                    minDirectionalOrderBookImbalance = 0.45,
+                    orderBookImbalanceDirectionMode = "OPPOSE_SIDE",
+                    maxMeanOrderBookSpreadBps = 4.5,
                     minOpenInterestChangePct = 2.5,
                     openInterestLookbackSnapshots = 4,
                     maxAbsPremiumIndex = 0.01,
@@ -128,12 +131,17 @@ class ApiModuleTest :
             singleConfig.maxFundingDataStalenessMinutes shouldBe 720
             legConfig.takerFlowDirectionMode shouldBe TakerFlowDirectionMode.OPPOSE_SIDE
             legConfig.minDirectionalTakerImbalance shouldBe 0.55
+            legConfig.orderBookImbalanceDirectionMode shouldBe OrderBookImbalanceDirectionMode.OPPOSE_SIDE
+            legConfig.minDirectionalOrderBookImbalance shouldBe 0.45
+            legConfig.maxMeanOrderBookSpreadBps shouldBe 4.5
             legConfig.minOpenInterestChangePct shouldBe 2.5
             legConfig.maxFundingDataStalenessMinutes shouldBe 720
             defaultSingleConfig.maxFundingDataStalenessMinutes shouldBe 480
             defaultSingleConfig.minDirectionalOrderBookImbalance shouldBe null
             defaultSingleConfig.maxMeanOrderBookSpreadBps shouldBe null
             defaultLegConfig.maxFundingDataStalenessMinutes shouldBe 480
+            defaultLegConfig.minDirectionalOrderBookImbalance shouldBe null
+            defaultLegConfig.maxMeanOrderBookSpreadBps shouldBe null
         }
 
         "health endpoint is public" {

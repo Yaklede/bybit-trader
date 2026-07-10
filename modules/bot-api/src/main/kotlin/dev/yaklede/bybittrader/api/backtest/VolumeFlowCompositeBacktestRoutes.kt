@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.api.backtest
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.OrderBookImbalanceDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.TakerFlowDirectionMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestConfig
@@ -14,6 +15,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeLegDrawdownRis
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowEquityCurvePoint
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowExitMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowForwardCaptureReplayCoverage
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowLegExitSummary
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowMarketRegime
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowPeriodSummary
@@ -299,6 +301,9 @@ data class VolumeFlowCompositeLegRequest(
     val flowLookbackM1Candles: Int = 5,
     val takerFlowDirectionMode: String = "ALIGN_WITH_SIDE",
     val minDirectionalTakerImbalance: Double? = null,
+    val orderBookImbalanceDirectionMode: String = "ALIGN_WITH_SIDE",
+    val minDirectionalOrderBookImbalance: Double? = null,
+    val maxMeanOrderBookSpreadBps: Double? = null,
     val minOpenInterestChangePct: Double? = null,
     val openInterestLookbackSnapshots: Int = 3,
     val maxAbsPremiumIndex: Double? = null,
@@ -313,6 +318,7 @@ data class VolumeFlowCompositeLegRequest(
         }
         allowedMarketRegimes?.forEach(VolumeFlowMarketRegime::valueOf)
         TakerFlowDirectionMode.valueOf(takerFlowDirectionMode)
+        OrderBookImbalanceDirectionMode.valueOf(orderBookImbalanceDirectionMode)
         return VolumeFlowCompositeBacktestLeg(
             id = id,
             config =
@@ -391,6 +397,9 @@ data class VolumeFlowCompositeLegRequest(
                     flowLookbackM1Candles = flowLookbackM1Candles,
                     takerFlowDirectionMode = TakerFlowDirectionMode.valueOf(takerFlowDirectionMode),
                     minDirectionalTakerImbalance = minDirectionalTakerImbalance,
+                    orderBookImbalanceDirectionMode = OrderBookImbalanceDirectionMode.valueOf(orderBookImbalanceDirectionMode),
+                    minDirectionalOrderBookImbalance = minDirectionalOrderBookImbalance,
+                    maxMeanOrderBookSpreadBps = maxMeanOrderBookSpreadBps,
                     minOpenInterestChangePct = minOpenInterestChangePct,
                     openInterestLookbackSnapshots = openInterestLookbackSnapshots,
                     maxAbsPremiumIndex = maxAbsPremiumIndex,
@@ -416,6 +425,7 @@ data class VolumeFlowCompositeBacktestResponse(
     val requestedCoverage: List<VolumeFlowRequestedReplayCoverageResponse>,
     val effectiveCoverage: List<VolumeFlowEffectiveReplayCoverageResponse>,
     val commonReplayWindow: VolumeFlowReplayWindowResponse,
+    val forwardCaptureReplayCoverage: VolumeFlowForwardCaptureReplayCoverageResponse?,
     val initialEquity: Double,
     val finalEquity: Double,
     val netPnl: Double,
@@ -539,6 +549,19 @@ data class VolumeFlowReplayWindowResponse(
 )
 
 @Serializable
+data class VolumeFlowForwardCaptureReplayCoverageResponse(
+    val orderBookRequired: Boolean,
+    val takerFlowRequired: Boolean,
+    val requestedM5BucketCount: Int,
+    val completeOrderBookM5BucketCount: Int?,
+    val completeTakerFlowM5BucketCount: Int?,
+    val completeRequiredM5BucketCount: Int,
+    val requiredCoveragePct: Double,
+    val startAt: String?,
+    val endAt: String?,
+)
+
+@Serializable
 data class VolumeFlowEquityCurvePointResponse(
     val sequence: Int,
     val at: String,
@@ -643,6 +666,8 @@ data class VolumeFlowCompositeTradeResponse(
     val setupBodyRatio: Double,
     val setupCloseLocation: Double,
     val directionalTakerImbalance: Double?,
+    val directionalOrderBookImbalance: Double?,
+    val meanOrderBookSpreadBps: Double?,
     val openInterestChangePct: Double?,
     val premiumIndex: Double?,
     val fundingRate: Double?,
@@ -670,6 +695,7 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(
                 startAt = commonReplayWindow.startAt?.toString(),
                 endAt = commonReplayWindow.endAt?.toString(),
             ),
+        forwardCaptureReplayCoverage = forwardCaptureReplayCoverage?.toResponse(),
         initialEquity = initialEquity.roundForApi(),
         finalEquity = finalEquity.roundForApi(),
         netPnl = netPnl.roundForApi(),
@@ -761,6 +787,19 @@ private fun VolumeFlowReplayCoverage.toEffectiveResponse(): VolumeFlowEffectiveR
         timeframe = timeframe.name,
         actualCount = actualCount,
         warmupCount = warmupCount,
+        startAt = startAt?.toString(),
+        endAt = endAt?.toString(),
+    )
+
+private fun VolumeFlowForwardCaptureReplayCoverage.toResponse(): VolumeFlowForwardCaptureReplayCoverageResponse =
+    VolumeFlowForwardCaptureReplayCoverageResponse(
+        orderBookRequired = orderBookRequired,
+        takerFlowRequired = takerFlowRequired,
+        requestedM5BucketCount = requestedM5BucketCount,
+        completeOrderBookM5BucketCount = completeOrderBookM5BucketCount,
+        completeTakerFlowM5BucketCount = completeTakerFlowM5BucketCount,
+        completeRequiredM5BucketCount = completeRequiredM5BucketCount,
+        requiredCoveragePct = requiredCoveragePct.roundForApi(),
         startAt = startAt?.toString(),
         endAt = endAt?.toString(),
     )
@@ -933,6 +972,8 @@ private fun VolumeFlowCompositeBacktestTrade.toResponse(): VolumeFlowCompositeTr
         setupBodyRatio = setupBodyRatio.roundForApi(),
         setupCloseLocation = setupCloseLocation.roundForApi(),
         directionalTakerImbalance = flowMetrics?.directionalTakerImbalance?.roundForApi(),
+        directionalOrderBookImbalance = flowMetrics?.directionalOrderBookImbalance?.roundForApi(),
+        meanOrderBookSpreadBps = flowMetrics?.meanOrderBookSpreadBps?.roundForApi(),
         openInterestChangePct = flowMetrics?.openInterestChangePct?.roundForApi(),
         premiumIndex = flowMetrics?.premiumIndex?.roundForApi(),
         fundingRate = flowMetrics?.fundingRate?.roundForApi(),

@@ -129,6 +129,7 @@ data class VolumeFlowCompositeBacktestReport(
     val endAt: Instant?,
     val replayCoverage: List<VolumeFlowReplayCoverage>,
     val commonReplayWindow: VolumeFlowCommonReplayWindow,
+    val forwardCaptureReplayCoverage: VolumeFlowForwardCaptureReplayCoverage? = null,
     val initialEquity: Double,
     val finalEquity: Double,
     val netPnl: Double,
@@ -236,6 +237,18 @@ data class VolumeFlowReplayCoverage(
 )
 
 data class VolumeFlowCommonReplayWindow(
+    val startAt: Instant?,
+    val endAt: Instant?,
+)
+
+data class VolumeFlowForwardCaptureReplayCoverage(
+    val orderBookRequired: Boolean,
+    val takerFlowRequired: Boolean,
+    val requestedM5BucketCount: Int,
+    val completeOrderBookM5BucketCount: Int?,
+    val completeTakerFlowM5BucketCount: Int?,
+    val completeRequiredM5BucketCount: Int,
+    val requiredCoveragePct: Double,
     val startAt: Instant?,
     val endAt: Instant?,
 )

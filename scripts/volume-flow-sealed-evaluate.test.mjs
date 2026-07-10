@@ -64,6 +64,77 @@ test("sealed evaluator requires causal fill, return, risk, liquidation, and cove
   assert.deepEqual(failed.reasons, ["LIQUIDATION_DETECTED", "ACTIVE_DAY_COVERAGE_INSUFFICIENT"]);
 });
 
+test("sealed evaluator rejects an incomplete forward capture replay window", () => {
+  const gates = {
+    minCompoundDailyReturnPct: 0.8,
+    maxMarkToMarketDrawdownPct: 40,
+    maxLiquidationCount: 0,
+    minTradeCount: 3,
+    minActiveDayCoveragePct: 2,
+    requiredFillModelVersion: "causal-next-m1-open-v2",
+  };
+  const window = { id: "S01", durationMonths: 1, replayStartAt: "2024-01-01T00:00:00Z", replayEndAt: "2024-02-01T00:00:00Z" };
+  const response = {
+    engineVersion: "2.0.0",
+    fillModelVersion: "causal-next-m1-open-v2",
+    commonReplayWindow: { startAt: "2024-01-01T00:00:00Z", endAt: "2024-02-01T00:00:00Z" },
+    forwardCaptureReplayCoverage: {
+      orderBookRequired: true,
+      takerFlowRequired: true,
+      requestedM5BucketCount: 100,
+      completeRequiredM5BucketCount: 99,
+      requiredCoveragePct: 99,
+    },
+    compoundDailyReturnPct: 0.9,
+    maxDrawdownPct: 20,
+    markToMarketMaxDrawdownPct: 30,
+    liquidationCount: 0,
+    tradeCount: 4,
+    activeDayCoveragePct: 3,
+    netReturnPct: 20,
+    finalEquity: 120,
+  };
+
+  const result = evaluateWindow(window, response, gates);
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.reasons, ["FORWARD_CAPTURE_COVERAGE_INSUFFICIENT"]);
+  assert.equal(result.forwardCaptureReplayCoverage.requiredCoveragePct, 99);
+});
+
+test("sealed evaluator rejects a malformed forward capture coverage report", () => {
+  const gates = {
+    minCompoundDailyReturnPct: 0.8,
+    maxMarkToMarketDrawdownPct: 40,
+    maxLiquidationCount: 0,
+    minTradeCount: 3,
+    minActiveDayCoveragePct: 2,
+    requiredFillModelVersion: "causal-next-m1-open-v2",
+  };
+  const window = { id: "S01", durationMonths: 1, replayStartAt: "2024-01-01T00:00:00Z", replayEndAt: "2024-02-01T00:00:00Z" };
+  const response = {
+    engineVersion: "2.0.0",
+    fillModelVersion: "causal-next-m1-open-v2",
+    commonReplayWindow: { startAt: "2024-01-01T00:00:00Z", endAt: "2024-02-01T00:00:00Z" },
+    forwardCaptureReplayCoverage: {
+      orderBookRequired: true,
+      takerFlowRequired: false,
+      requestedM5BucketCount: 100,
+      completeRequiredM5BucketCount: 99,
+      requiredCoveragePct: 100,
+    },
+    compoundDailyReturnPct: 0.9,
+    maxDrawdownPct: 20,
+    markToMarketMaxDrawdownPct: 30,
+    liquidationCount: 0,
+    tradeCount: 4,
+    activeDayCoveragePct: 3,
+    netReturnPct: 20,
+    finalEquity: 120,
+  };
+
+  assert.deepEqual(evaluateWindow(window, response, gates).reasons, ["FORWARD_CAPTURE_COVERAGE_INSUFFICIENT"]);
+});
+
 test("sealed evaluator does not mutate a strategy config and fails the whole protocol on one failed window", async () => {
   const protocol = verifyProtocol(JSON.parse(await fs.readFile(protocolPath, "utf8")));
   const strategy = { symbol: "BTCUSDT", legs: [{ id: "fixed" }] };

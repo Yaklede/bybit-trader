@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStore
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
 import java.time.Duration
 import java.time.Instant
@@ -23,6 +24,7 @@ private const val WALK_FORWARD_WINDOW_COUNT = 4
 class VolumeFlowCompositeBacktestService(
     private val candleStore: MarketCandleStore,
     private val flowMarketDataStore: FlowMarketDataStore? = candleStore as? FlowMarketDataStore,
+    private val forwardMarketCaptureStore: ForwardMarketCaptureStore? = candleStore as? ForwardMarketCaptureStore,
 ) {
     suspend fun run(
         symbol: Symbol,
@@ -132,7 +134,7 @@ class VolumeFlowCompositeBacktestService(
                 endAt = null,
             ),
     ): VolumeFlowCompositeBacktestReport {
-        val backtestService = VolumeFlowBacktestService(candleStore, flowMarketDataStore)
+        val backtestService = VolumeFlowBacktestService(candleStore, flowMarketDataStore, forwardMarketCaptureStore)
         val sharedFlowContext =
             compositeFlowLoadConfig(config)?.let { flowConfig ->
                 backtestService.loadFlowContextIfEnabled(
@@ -201,6 +203,13 @@ class VolumeFlowCompositeBacktestService(
             m15Candles = m15Candles,
             config = config,
             replayRequest = replayRequest,
+            forwardCaptureReplayCoverage =
+                forwardCaptureReplayCoverage(
+                    m5Candles = m5Candles,
+                    config = config,
+                    replayRequest = replayRequest,
+                    flowContext = sharedFlowContext,
+                ),
             finalEquity = simulationResult.finalEquity,
             maxDrawdownPct = simulationResult.maxDrawdownPct,
             markToMarketMaxDrawdownPct = simulationResult.markToMarketMaxDrawdownPct,
@@ -220,6 +229,7 @@ class VolumeFlowCompositeBacktestService(
         m15Candles: List<Candle>,
         config: VolumeFlowCompositeBacktestConfig,
         replayRequest: VolumeFlowReplayRequest,
+        forwardCaptureReplayCoverage: VolumeFlowForwardCaptureReplayCoverage?,
         finalEquity: Double,
         maxDrawdownPct: Double,
         markToMarketMaxDrawdownPct: Double,
@@ -264,6 +274,7 @@ class VolumeFlowCompositeBacktestService(
             endAt = endAt,
             replayCoverage = replayCoverage,
             commonReplayWindow = commonReplayWindow,
+            forwardCaptureReplayCoverage = forwardCaptureReplayCoverage,
             initialEquity = config.initialEquity,
             finalEquity = finalEquity,
             netPnl = netPnl,
@@ -379,12 +390,74 @@ private fun compositeFlowLoadConfig(config: VolumeFlowCompositeBacktestConfig): 
     val enabledConfigs = config.legs.map { it.config }.filter { it.flowFiltersEnabled() }
     if (enabledConfigs.isEmpty()) return null
     val first = enabledConfigs.first()
+    val takerFilterConfig = enabledConfigs.firstOrNull { it.minDirectionalTakerImbalance != null }
+    val orderBookFilterConfig = enabledConfigs.firstOrNull { it.orderBookFlowFiltersEnabled() }
+    val openInterestFilterConfig = enabledConfigs.firstOrNull { it.minOpenInterestChangePct != null }
+    val premiumFilterConfig = enabledConfigs.firstOrNull { it.maxAbsPremiumIndex != null }
+    val fundingFilterConfig = enabledConfigs.firstOrNull { it.maxAbsFundingRate != null }
     return first.copy(
         flowLookbackM1Candles = enabledConfigs.maxOf { it.flowLookbackM1Candles },
+        minDirectionalTakerImbalance = takerFilterConfig?.minDirectionalTakerImbalance,
+        orderBookImbalanceDirectionMode =
+            orderBookFilterConfig?.orderBookImbalanceDirectionMode ?: first.orderBookImbalanceDirectionMode,
+        minDirectionalOrderBookImbalance = orderBookFilterConfig?.minDirectionalOrderBookImbalance,
+        maxMeanOrderBookSpreadBps = orderBookFilterConfig?.maxMeanOrderBookSpreadBps,
+        minOpenInterestChangePct = openInterestFilterConfig?.minOpenInterestChangePct,
         openInterestLookbackSnapshots = enabledConfigs.maxOf { it.openInterestLookbackSnapshots },
+        maxAbsPremiumIndex = premiumFilterConfig?.maxAbsPremiumIndex,
+        maxAbsFundingRate = fundingFilterConfig?.maxAbsFundingRate,
+        maxFlowDataStalenessMinutes = enabledConfigs.maxOf { it.maxFlowDataStalenessMinutes },
         maxFundingDataStalenessMinutes = enabledConfigs.maxOf { it.maxFundingDataStalenessMinutes },
     )
 }
+
+private fun forwardCaptureReplayCoverage(
+    m5Candles: List<Candle>,
+    config: VolumeFlowCompositeBacktestConfig,
+    replayRequest: VolumeFlowReplayRequest,
+    flowContext: VolumeFlowBacktestFlowContext?,
+): VolumeFlowForwardCaptureReplayCoverage? {
+    val orderBookRequired = config.legs.any { it.config.orderBookFlowFiltersEnabled() }
+    val takerFlowRequired = config.legs.any { it.config.minDirectionalTakerImbalance != null }
+    if (!orderBookRequired && !takerFlowRequired) return null
+
+    val replayM5Candles =
+        m5Candles.filter { candle ->
+            (replayRequest.startAt == null || !candle.openedAt.isBefore(replayRequest.startAt)) &&
+                (replayRequest.endAt == null || !candle.openedAt.isAfter(replayRequest.endAt))
+        }
+    val completeOrderBookM5BucketCount =
+        orderBookRequired.thenCount(replayM5Candles) { candle ->
+            flowContext?.orderBookBuckets?.get(candle.openedAt)?.hasCompleteMinuteCoverage == true
+        }
+    val completeTakerFlowM5BucketCount =
+        takerFlowRequired.thenCount(replayM5Candles) { candle ->
+            flowContext?.takerFlowBuckets?.get(candle.openedAt)?.hasCompleteMinuteCoverage == true
+        }
+    val completeRequiredM5BucketCount =
+        replayM5Candles.count { candle ->
+            (!orderBookRequired || flowContext?.orderBookBuckets?.get(candle.openedAt)?.hasCompleteMinuteCoverage == true) &&
+                (!takerFlowRequired || flowContext?.takerFlowBuckets?.get(candle.openedAt)?.hasCompleteMinuteCoverage == true)
+        }
+    val requestedM5BucketCount = replayM5Candles.size
+    return VolumeFlowForwardCaptureReplayCoverage(
+        orderBookRequired = orderBookRequired,
+        takerFlowRequired = takerFlowRequired,
+        requestedM5BucketCount = requestedM5BucketCount,
+        completeOrderBookM5BucketCount = completeOrderBookM5BucketCount,
+        completeTakerFlowM5BucketCount = completeTakerFlowM5BucketCount,
+        completeRequiredM5BucketCount = completeRequiredM5BucketCount,
+        requiredCoveragePct =
+            if (requestedM5BucketCount == 0) 0.0 else (completeRequiredM5BucketCount.toDouble() / requestedM5BucketCount) * 100.0,
+        startAt = replayM5Candles.firstOrNull()?.openedAt,
+        endAt = replayM5Candles.lastOrNull()?.openedAt,
+    )
+}
+
+private fun Boolean.thenCount(
+    values: List<Candle>,
+    predicate: (Candle) -> Boolean,
+): Int? = if (this) values.count(predicate) else null
 
 private fun Timeframe.seconds(): Long =
     when (this) {
