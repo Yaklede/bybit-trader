@@ -45,7 +45,14 @@ internal object ExecutionTradePlanCalculator {
                     .normalizeToStep(constraints.quantityStep)
             if (quantity > maxQuantityByNotional) quantity = maxQuantityByNotional
         }
-        return if (constraints.minQuantity == null || quantity >= constraints.minQuantity) ExecutionSizing(quantity) else null
+        return if (
+            quantity > BigDecimal.ZERO &&
+            (constraints.minQuantity == null || quantity >= constraints.minQuantity)
+        ) {
+            ExecutionSizing(quantity)
+        } else {
+            null
+        }
     }
 
     fun calculateTakeProfit(

@@ -5,6 +5,8 @@ import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import java.time.Duration
 import java.time.Instant
@@ -103,6 +105,12 @@ class VolumeFlowCompositeBacktestService(
                 val signalConfig =
                     leg.config.copy(
                         initialEquity = config.initialEquity,
+                        quantityStep = config.quantityStep,
+                        minQuantity = config.minQuantity,
+                        maxQuantity = config.maxQuantity,
+                        maxNotional = config.maxNotional,
+                        leverage = config.leverage,
+                        liquidationBufferPct = config.liquidationBufferPct,
                         dailyTargetPct = null,
                         dailyStopPct = 10.0,
                         minTradesPerDay = 1,
@@ -226,6 +234,7 @@ class VolumeFlowCompositeBacktestService(
             tradeCount = trades.size,
             wins = wins,
             losses = losses,
+            liquidationCount = trades.count { it.exitReason == VolumeFlowExitReason.LIQUIDATION },
             winRatePct = winRatePct,
             profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
             expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
@@ -387,7 +396,7 @@ private fun simulateSinglePositionComposite(
         val riskMultiplier =
             config.portfolioDrawdownRiskMultiplier(equity, peakEquity) *
                 config.legDrawdownRiskMultiplier(signal.legId, legDrawdownState(signal.legId).riskDrawdownPct)
-        val trade = signal.toCompositeTrade(equity, riskMultiplier, noTradeReasonCounts) ?: continue
+        val trade = signal.toCompositeTrade(equity, riskMultiplier, config, noTradeReasonCounts) ?: continue
         val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
         markToMarketMaxDrawdownPct =
             maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
@@ -509,7 +518,19 @@ private fun simulateConcurrentComposite(
         val riskMultiplier =
             config.portfolioDrawdownRiskMultiplier(equity, peakEquity) *
                 config.legDrawdownRiskMultiplier(signal.legId, legDrawdownState(signal.legId).riskDrawdownPct)
-        val trade = signal.toCompositeTrade(equity, riskMultiplier, noTradeReasonCounts) ?: continue
+        val availableLeverageNotional =
+            config.leverage?.let { leverage ->
+                val openNotional = openTrades.sumOf { trade -> trade.entryPrice * trade.quantity }
+                (equity * leverage - openNotional).coerceAtLeast(0.0)
+            }
+        val trade =
+            signal.toCompositeTrade(
+                equity = equity,
+                riskMultiplier = riskMultiplier,
+                config = config,
+                noTradeReasonCounts = noTradeReasonCounts,
+                availableLeverageNotional = availableLeverageNotional,
+            ) ?: continue
         val markToMarketLowEquity = equity * (1.0 - (trade.maxUnrealizedDrawdownPct / 100.0))
         markToMarketMaxDrawdownPct =
             maxOf(markToMarketMaxDrawdownPct, ((peakEquity - markToMarketLowEquity) / peakEquity) * 100.0)
@@ -535,7 +556,9 @@ private fun simulateConcurrentComposite(
 private fun CompositeSignal.toCompositeTrade(
     equity: Double,
     riskMultiplier: Double,
+    config: VolumeFlowCompositeBacktestConfig,
     noTradeReasonCounts: MutableMap<String, Int>,
+    availableLeverageNotional: Double? = null,
 ): VolumeFlowCompositeBacktestTrade? {
     val sourceTrade = trade
     val riskPerUnit = abs(sourceTrade.entryPrice - sourceTrade.stopPrice)
@@ -545,8 +568,22 @@ private fun CompositeSignal.toCompositeTrade(
     }
 
     val effectiveRiskFraction = riskFraction * sourceTrade.riskMultiplier * riskMultiplier
-    val riskAmount = equity * effectiveRiskFraction
-    val quantity = riskAmount / riskPerUnit
+    val intendedRiskAmount = equity * effectiveRiskFraction
+    val sizing =
+        ExecutionTradePlanCalculator.calculateSizing(
+            entryPrice = sourceTrade.entryPrice.toBigDecimal(),
+            riskPerUnit = riskPerUnit.toBigDecimal(),
+            intendedRisk = intendedRiskAmount.toBigDecimal(),
+            accountEquity = equity.toBigDecimal(),
+            constraints = config.sizingConstraints(availableLeverageNotional),
+        )
+    if (sizing == null) {
+        incrementCompositeReason("EXECUTION_SIZE_UNAVAILABLE", noTradeReasonCounts)
+        return null
+    }
+    val quantity = sizing.quantity.toDouble()
+    val riskAmount = quantity * riskPerUnit
+    val actualRiskFraction = if (equity <= 0.0) 0.0 else riskAmount / equity
     val quantityScale = if (sourceTrade.quantity <= 0.0) 0.0 else quantity / sourceTrade.quantity
     val grossPnl = sourceTrade.grossPnl * quantityScale
     val fees = sourceTrade.fees * quantityScale
@@ -593,8 +630,8 @@ private fun CompositeSignal.toCompositeTrade(
         mfeCapturePct = mfeCapturePct,
         maxFavorablePrice = sourceTrade.maxFavorablePrice,
         maxAdversePrice = sourceTrade.maxAdversePrice,
-        maxUnrealizedProfitPct = sourceTrade.maxFavorableExcursionR * effectiveRiskFraction * 100.0,
-        maxUnrealizedDrawdownPct = sourceTrade.maxAdverseExcursionR * effectiveRiskFraction * 100.0,
+        maxUnrealizedProfitPct = sourceTrade.maxFavorableExcursionR * actualRiskFraction * 100.0,
+        maxUnrealizedDrawdownPct = sourceTrade.maxAdverseExcursionR * actualRiskFraction * 100.0,
         exitReason = sourceTrade.exitReason,
         marketRegime = sourceTrade.marketRegime,
         keyLevelType = sourceTrade.keyLevelType,
@@ -606,6 +643,15 @@ private fun CompositeSignal.toCompositeTrade(
         setupCloseLocation = sourceTrade.setupCloseLocation,
     )
 }
+
+private fun VolumeFlowCompositeBacktestConfig.sizingConstraints(availableLeverageNotional: Double? = null): ExecutionSizingConstraints =
+    ExecutionSizingConstraints(
+        quantityStep = quantityStep?.toBigDecimal(),
+        minQuantity = minQuantity?.toBigDecimal(),
+        maxQuantity = maxQuantity?.toBigDecimal(),
+        maxNotional = listOfNotNull(maxNotional, availableLeverageNotional).minOrNull()?.toBigDecimal(),
+        leverage = leverage?.toBigDecimal(),
+    )
 
 private fun VolumeFlowCompositeBacktestConfig.portfolioDrawdownRiskMultiplier(
     equity: Double,

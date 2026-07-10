@@ -118,6 +118,12 @@ data class VolumeFlowCompositeBacktestRequest(
     val replayStartAt: String? = null,
     val replayEndAt: String? = null,
     val initialEquity: Double = 10_000.0,
+    val quantityStep: Double? = null,
+    val minQuantity: Double? = null,
+    val maxQuantity: Double? = null,
+    val maxNotional: Double? = null,
+    val leverage: Double? = null,
+    val liquidationBufferPct: Double = 0.6,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
     val monthlyStopPct: Double? = null,
@@ -173,6 +179,12 @@ data class VolumeFlowCompositeBacktestRequest(
     fun toConfig(): VolumeFlowCompositeBacktestConfig =
         VolumeFlowCompositeBacktestConfig(
             initialEquity = initialEquity,
+            quantityStep = quantityStep,
+            minQuantity = minQuantity,
+            maxQuantity = maxQuantity,
+            maxNotional = maxNotional,
+            leverage = leverage,
+            liquidationBufferPct = liquidationBufferPct,
             dailyTargetPct = dailyTargetPct,
             dailyStopPct = dailyStopPct,
             monthlyStopPct = monthlyStopPct,
@@ -372,6 +384,9 @@ data class VolumeFlowCompositeLegRequest(
 
 @Serializable
 data class VolumeFlowCompositeBacktestResponse(
+    val engineVersion: String,
+    val fillModelVersion: String,
+    val validationStatus: String,
     val symbol: String,
     val m1CandleCount: Int,
     val m5CandleCount: Int,
@@ -394,6 +409,7 @@ data class VolumeFlowCompositeBacktestResponse(
     val tradeCount: Int,
     val wins: Int,
     val losses: Int,
+    val liquidationCount: Int,
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
@@ -613,6 +629,9 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(
     drawdownEventLimit: Int,
 ): VolumeFlowCompositeBacktestResponse =
     VolumeFlowCompositeBacktestResponse(
+        engineVersion = engineVersion,
+        fillModelVersion = fillModelVersion,
+        validationStatus = validationStatus.name,
         symbol = symbol.value,
         m1CandleCount = m1CandleCount,
         m5CandleCount = m5CandleCount,
@@ -639,6 +658,7 @@ private fun VolumeFlowCompositeBacktestReport.toResponse(
         tradeCount = tradeCount,
         wins = wins,
         losses = losses,
+        liquidationCount = liquidationCount,
         winRatePct = winRatePct.roundForApi(),
         profitFactor = profitFactor?.roundForApi(),
         expectancyR = expectancyR.roundForApi(),

@@ -5,11 +5,20 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import java.time.Instant
 
+const val VOLUME_FLOW_BACKTEST_ENGINE_VERSION = "2.0.0"
+const val VOLUME_FLOW_FILL_MODEL_VERSION = "causal-next-m1-open-v2"
+
 data class VolumeFlowBacktestConfig(
     val initialEquity: Double = 10_000.0,
     val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val quantityStep: Double? = null,
+    val minQuantity: Double? = null,
+    val maxQuantity: Double? = null,
+    val maxNotional: Double? = null,
+    val leverage: Double? = null,
+    val liquidationBufferPct: Double = 0.6,
     val setupMode: VolumeFlowSetupMode = VolumeFlowSetupMode.BREAKOUT_CONTINUATION,
     val entryMode: VolumeFlowEntryMode = VolumeFlowEntryMode.RETEST_CONFIRMATION,
     val sideMode: VolumeFlowSideMode = VolumeFlowSideMode.BOTH,
@@ -86,6 +95,15 @@ data class VolumeFlowBacktestConfig(
         require(riskFraction > 0.0 && riskFraction <= 0.20) { "Risk fraction must be between 0 and 0.20." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
+        require(quantityStep == null || quantityStep > 0.0) { "Quantity step must be positive." }
+        require(minQuantity == null || minQuantity > 0.0) { "Minimum quantity must be positive." }
+        require(maxQuantity == null || maxQuantity > 0.0) { "Maximum quantity must be positive." }
+        require(maxQuantity == null || minQuantity == null || maxQuantity >= minQuantity) {
+            "Maximum quantity must be greater than or equal to minimum quantity."
+        }
+        require(maxNotional == null || maxNotional > 0.0) { "Maximum notional must be positive." }
+        require(leverage == null || leverage > 1.0) { "Leverage must be greater than 1." }
+        require(liquidationBufferPct in 0.0..10.0) { "Liquidation buffer must be between 0 and 10 percent." }
         require(setupTimeframe == Timeframe.M1 || setupTimeframe == Timeframe.M5) {
             "Setup timeframe must be M1 or M5."
         }
@@ -361,6 +379,9 @@ enum class VolumeFlowVolumePattern {
 }
 
 data class VolumeFlowBacktestReport(
+    val engineVersion: String = VOLUME_FLOW_BACKTEST_ENGINE_VERSION,
+    val fillModelVersion: String = VOLUME_FLOW_FILL_MODEL_VERSION,
+    val validationStatus: StrategyValidationStatus = StrategyValidationStatus.UNVERIFIED,
     val symbol: Symbol,
     val m1CandleCount: Int,
     val m5CandleCount: Int,
@@ -379,6 +400,7 @@ data class VolumeFlowBacktestReport(
     val tradeCount: Int,
     val wins: Int,
     val losses: Int,
+    val liquidationCount: Int,
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,

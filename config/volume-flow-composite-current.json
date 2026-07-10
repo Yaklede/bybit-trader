@@ -3,12 +3,16 @@
   "m1Limit": 1578240,
   "m5Limit": 315648,
   "m15Limit": 105216,
-  "initialEquity": 1000000,
+  "initialEquity": 100,
+  "quantityStep": 0.001,
+  "minQuantity": 0.001,
+  "leverage": 15,
+  "liquidationBufferPct": 0.6,
   "dailyStopPct": 2,
   "minTradesPerDay": 1,
   "maxTradesPerDay": 5,
   "maxConsecutiveLosses": 2,
-  "maxConcurrentPositions": 5,
+  "maxConcurrentPositions": 1,
   "dedupeSameSetupSignals": false,
   "legs": [
     {

@@ -336,6 +336,83 @@ class VolumeFlowBacktestServiceTest :
             result.trades.single().exitAt shouldBe Instant.parse("2026-06-30T01:07:00Z")
         }
 
+        "caps risk sizing at the configured account leverage" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            initialEquity = 100.0,
+                            riskFraction = 0.20,
+                            leverage = 2.0,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            (result.trades.single().quantity * result.trades.single().entryPrice <= 200.0) shouldBe true
+        }
+
+        "rejects a stop that lies beyond the estimated liquidation boundary" {
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig().copy(leverage = 15.0),
+                )
+
+            result.tradeCount shouldBe 0
+            result.noTradeReasonCounts["STOP_REACHES_ESTIMATED_LIQUIDATION"] shouldBe 1
+        }
+
+        "reports liquidation when a candle gaps beyond both stop and liquidation" {
+            val gapCandles =
+                volumeFlowCandles().map { candle ->
+                    when {
+                        candle.timeframe == Timeframe.M1 &&
+                            candle.openedAt == Instant.parse("2026-06-30T01:06:00Z") ->
+                            candle.copy(
+                                high = BigDecimal("113"),
+                                low = BigDecimal("112"),
+                                close = BigDecimal("112.5"),
+                            )
+                        candle.timeframe == Timeframe.M1 &&
+                            candle.openedAt == Instant.parse("2026-06-30T01:07:00Z") ->
+                            candle.copy(
+                                open = BigDecimal("40"),
+                                low = BigDecimal("40"),
+                            )
+                        else -> candle
+                    }
+                }
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(gapCandles))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        testVolumeFlowConfig().copy(
+                            leverage = 2.0,
+                            targetR = 3.0,
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.liquidationCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.LIQUIDATION
+        }
+
         "runs a long trade from volume follow-through continuation and 1m close confirmation" {
             val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
 
@@ -1056,6 +1133,41 @@ class VolumeFlowBacktestServiceTest :
             (result.finalEquity > result.initialEquity) shouldBe true
         }
 
+        "composite backtest applies portfolio leverage to replayed leg sizing" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            initialEquity = 100.0,
+                            quantityStep = 0.001,
+                            minQuantity = 0.001,
+                            leverage = 2.0,
+                            maxConcurrentPositions = 2,
+                            legs =
+                                listOf(
+                                    VolumeFlowCompositeBacktestLeg(
+                                        "primary",
+                                        testVolumeFlowConfig().copy(riskFraction = 0.20),
+                                    ),
+                                    VolumeFlowCompositeBacktestLeg(
+                                        "duplicate",
+                                        testVolumeFlowConfig().copy(riskFraction = 0.20),
+                                    ),
+                                ),
+                        ),
+                )
+
+            result.tradeCount shouldBe 1
+            (result.trades.single().quantity * result.trades.single().entryPrice <= 200.0) shouldBe true
+            result.noTradeReasonCounts["EXECUTION_SIZE_UNAVAILABLE"] shouldBe 1
+        }
+
         "composite backtest can admit overlapping positions when concurrency is configured" {
             val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
             val legConfig = testVolumeFlowConfig()
@@ -1363,13 +1475,20 @@ private fun twoSignalThrottleCandles(): List<Candle> = twoSignalThrottleM1Candle
 
 private fun runnerVolumeFlowM1Candles(): List<Candle> =
     volumeFlowM1Candles().map { candle ->
-        if (candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")) {
-            candle.copy(
-                high = BigDecimal("130.0"),
-                close = BigDecimal("128.0"),
-            )
-        } else {
-            candle
+        when (candle.openedAt) {
+            Instant.parse("2026-06-30T01:06:00Z") ->
+                candle.copy(
+                    high = BigDecimal("130.0"),
+                    close = BigDecimal("128.0"),
+                )
+            Instant.parse("2026-06-30T01:07:00Z") ->
+                candle.copy(
+                    open = BigDecimal("128.0"),
+                    high = BigDecimal("130.0"),
+                    low = BigDecimal("127.0"),
+                    close = BigDecimal("129.0"),
+                )
+            else -> candle
         }
     }
 

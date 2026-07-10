@@ -5,6 +5,8 @@ import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.strategy.volume.CandleShape
 import dev.yaklede.bybittrader.strategy.volume.VolumeFlowIndicators
@@ -198,15 +200,49 @@ class VolumeFlowBacktestService(
                 incrementReason("ESTIMATED_FEE_R_TOO_HIGH", noTradeReasonCounts)
                 continue
             }
+            val leverageStopRejection =
+                ExecutionTradePlanCalculator.leverageStopRejection(
+                    side = candidate.side,
+                    entryPrice = entry.entryPrice.toBigDecimal(),
+                    stopLoss = entry.stopPrice.toBigDecimal(),
+                    leverage = config.leverage?.toBigDecimal(),
+                    liquidationBufferPct = config.liquidationBufferPct.toBigDecimal(),
+                )
+            if (leverageStopRejection != null) {
+                rejectedSetupCount += 1
+                incrementReason(leverageStopRejection, noTradeReasonCounts)
+                continue
+            }
 
             val entryEquity = equity
             val riskMultiplier =
                 macroTrendRiskMultiplier(macroTrendContext, candidate, config) *
                     contextRangeRiskMultiplier(contextQuality, config) *
                     relativeVolumeRiskMultiplier(candidate, contextQuality, config)
-            val riskAmount = entryEquity * config.riskFraction * riskMultiplier
-            val quantity = riskAmount / riskPerUnit
-            val exit = simulateExit(m1Candles, entry, config, contextQuality?.rangePct)
+            val intendedRiskAmount = entryEquity * config.riskFraction * riskMultiplier
+            val sizing =
+                ExecutionTradePlanCalculator.calculateSizing(
+                    entryPrice = entry.entryPrice.toBigDecimal(),
+                    riskPerUnit = riskPerUnit.toBigDecimal(),
+                    intendedRisk = intendedRiskAmount.toBigDecimal(),
+                    accountEquity = entryEquity.toBigDecimal(),
+                    constraints = config.sizingConstraints(),
+                )
+            if (sizing == null) {
+                rejectedSetupCount += 1
+                incrementReason("EXECUTION_SIZE_UNAVAILABLE", noTradeReasonCounts)
+                continue
+            }
+            val quantity = sizing.quantity.toDouble()
+            val riskAmount = quantity * riskPerUnit
+            val exit =
+                simulateExit(
+                    m1Candles = m1Candles,
+                    entry = entry,
+                    config = config,
+                    contextRangePct = contextQuality?.rangePct,
+                    liquidationPrice = estimatedLiquidationPrice(entry.entryPrice, candidate.side, config),
+                )
             val grossPnl = grossPnl(candidate.side, entry.entryPrice, exit.exitPrice, quantity)
             val fees = ((entry.entryPrice * quantity) + (exit.exitPrice * quantity)) * config.feeRate
             val pnl = grossPnl - fees
@@ -1093,6 +1129,7 @@ class VolumeFlowBacktestService(
         entry: EntryPlan,
         config: VolumeFlowBacktestConfig,
         contextRangePct: Double?,
+        liquidationPrice: Double?,
     ): ExitPlan {
         val startIndex = minOf(entry.entryIndex, m1Candles.lastIndex)
         val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles - 1, m1Candles.lastIndex)
@@ -1175,6 +1212,49 @@ class VolumeFlowBacktestService(
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
             recordExcursion(candle)
+            val candleOpen = candle.open.toDouble()
+            val liquidationGap =
+                when (entry.side) {
+                    Side.BUY -> liquidationPrice != null && candleOpen <= liquidationPrice
+                    Side.SELL -> liquidationPrice != null && candleOpen >= liquidationPrice
+                }
+            if (liquidationGap) {
+                return exitPlan(
+                    candle = candle,
+                    exitPrice = candleOpen.withExitSlippage(entry.side, config),
+                    reason = VolumeFlowExitReason.LIQUIDATION,
+                )
+            }
+            val stopGap =
+                when (entry.side) {
+                    Side.BUY -> candleOpen <= stopPrice
+                    Side.SELL -> candleOpen >= stopPrice
+                }
+            if (stopGap) {
+                return exitPlan(
+                    candle = candle,
+                    exitPrice = candleOpen.withExitSlippage(entry.side, config),
+                    reason = stopReason,
+                )
+            }
+            val liquidationBeforeStop =
+                when (entry.side) {
+                    Side.BUY ->
+                        liquidationPrice != null &&
+                            liquidationPrice >= stopPrice &&
+                            candle.low.toDouble() <= liquidationPrice
+                    Side.SELL ->
+                        liquidationPrice != null &&
+                            liquidationPrice <= stopPrice &&
+                            candle.high.toDouble() >= liquidationPrice
+                }
+            if (liquidationBeforeStop) {
+                return exitPlan(
+                    candle = candle,
+                    exitPrice = requireNotNull(liquidationPrice).withExitSlippage(entry.side, config),
+                    reason = VolumeFlowExitReason.LIQUIDATION,
+                )
+            }
             val stopHit =
                 when (entry.side) {
                     Side.BUY -> candle.low.toDouble() <= stopPrice
@@ -1395,6 +1475,7 @@ class VolumeFlowBacktestService(
             tradeCount = trades.size,
             wins = wins,
             losses = losses,
+            liquidationCount = trades.count { it.exitReason == VolumeFlowExitReason.LIQUIDATION },
             winRatePct = winRatePct,
             profitFactor = if (grossLoss == 0.0) null else grossProfit / grossLoss,
             expectancyR = if (trades.isEmpty()) 0.0 else trades.map { it.returnR }.average(),
@@ -1599,6 +1680,30 @@ private fun Double.improvedFor(
 private fun Instant.utcDate(): LocalDate = atZone(ZoneOffset.UTC).toLocalDate()
 
 private fun Candle.closedAt(): Instant = openedAt.plusSeconds(timeframe.seconds())
+
+private fun VolumeFlowBacktestConfig.sizingConstraints(): ExecutionSizingConstraints =
+    ExecutionSizingConstraints(
+        quantityStep = quantityStep?.toBigDecimal(),
+        minQuantity = minQuantity?.toBigDecimal(),
+        maxQuantity = maxQuantity?.toBigDecimal(),
+        maxNotional = maxNotional?.toBigDecimal(),
+        leverage = leverage?.toBigDecimal(),
+    )
+
+private fun estimatedLiquidationPrice(
+    entryPrice: Double,
+    side: Side,
+    config: VolumeFlowBacktestConfig,
+): Double? {
+    val leverage = config.leverage ?: return null
+    val liquidationDistancePct = (100.0 / leverage) - config.liquidationBufferPct
+    if (liquidationDistancePct <= 0.0) return entryPrice
+    val liquidationDistance = liquidationDistancePct / 100.0
+    return when (side) {
+        Side.BUY -> entryPrice * (1.0 - liquidationDistance)
+        Side.SELL -> entryPrice * (1.0 + liquidationDistance)
+    }
+}
 
 private fun Timeframe.seconds(): Long =
     when (this) {

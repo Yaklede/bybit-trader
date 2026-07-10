@@ -27,6 +27,26 @@ class ExecutionTradePlanCalculatorTest :
             sizing?.quantity shouldBe BigDecimal("0.001")
         }
 
+        "rejects sizing that rounds down to zero" {
+            val sizing =
+                ExecutionTradePlanCalculator.calculateSizing(
+                    entryPrice = BigDecimal("60000"),
+                    riskPerUnit = BigDecimal("600"),
+                    intendedRisk = BigDecimal("0.10"),
+                    accountEquity = BigDecimal("100"),
+                    constraints =
+                        ExecutionSizingConstraints(
+                            quantityStep = BigDecimal("0.001"),
+                            minQuantity = null,
+                            maxQuantity = null,
+                            maxNotional = null,
+                            leverage = BigDecimal("15"),
+                        ),
+                )
+
+            sizing shouldBe null
+        }
+
         "calculates symmetric long and short targets" {
             val longTarget =
                 ExecutionTradePlanCalculator.calculateTakeProfit(

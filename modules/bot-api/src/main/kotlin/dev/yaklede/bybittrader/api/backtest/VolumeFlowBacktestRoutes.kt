@@ -48,6 +48,12 @@ data class VolumeFlowBacktestRequest(
     val riskFraction: Double = 0.0075,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val quantityStep: Double? = null,
+    val minQuantity: Double? = null,
+    val maxQuantity: Double? = null,
+    val maxNotional: Double? = null,
+    val leverage: Double? = null,
+    val liquidationBufferPct: Double = 0.6,
     val setupMode: String = "BREAKOUT_CONTINUATION",
     val entryMode: String = "RETEST_CONFIRMATION",
     val sideMode: String = "BOTH",
@@ -149,6 +155,12 @@ data class VolumeFlowBacktestRequest(
             riskFraction = riskFraction,
             feeRate = feeRate,
             slippageRate = slippageRate,
+            quantityStep = quantityStep,
+            minQuantity = minQuantity,
+            maxQuantity = maxQuantity,
+            maxNotional = maxNotional,
+            leverage = leverage,
+            liquidationBufferPct = liquidationBufferPct,
             setupMode = VolumeFlowSetupMode.valueOf(setupMode),
             entryMode = VolumeFlowEntryMode.valueOf(entryMode),
             sideMode = VolumeFlowSideMode.valueOf(sideMode),
@@ -224,6 +236,9 @@ data class VolumeFlowBacktestRequest(
 
 @Serializable
 data class VolumeFlowBacktestResponse(
+    val engineVersion: String,
+    val fillModelVersion: String,
+    val validationStatus: String,
     val symbol: String,
     val m1CandleCount: Int,
     val m5CandleCount: Int,
@@ -243,6 +258,7 @@ data class VolumeFlowBacktestResponse(
     val tradeCount: Int,
     val wins: Int,
     val losses: Int,
+    val liquidationCount: Int,
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
@@ -341,6 +357,9 @@ data class VolumeFlowTradeResponse(
 
 private fun VolumeFlowBacktestReport.toResponse(): VolumeFlowBacktestResponse =
     VolumeFlowBacktestResponse(
+        engineVersion = engineVersion,
+        fillModelVersion = fillModelVersion,
+        validationStatus = validationStatus.name,
         symbol = symbol.value,
         m1CandleCount = m1CandleCount,
         m5CandleCount = m5CandleCount,
@@ -360,6 +379,7 @@ private fun VolumeFlowBacktestReport.toResponse(): VolumeFlowBacktestResponse =
         tradeCount = tradeCount,
         wins = wins,
         losses = losses,
+        liquidationCount = liquidationCount,
         winRatePct = winRatePct.roundForApi(),
         profitFactor = profitFactor?.roundForApi(),
         expectancyR = expectancyR.roundForApi(),

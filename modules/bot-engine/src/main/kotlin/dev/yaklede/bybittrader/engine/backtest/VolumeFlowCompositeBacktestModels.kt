@@ -7,6 +7,12 @@ import java.time.Instant
 
 data class VolumeFlowCompositeBacktestConfig(
     val initialEquity: Double = 10_000.0,
+    val quantityStep: Double? = null,
+    val minQuantity: Double? = null,
+    val maxQuantity: Double? = null,
+    val maxNotional: Double? = null,
+    val leverage: Double? = null,
+    val liquidationBufferPct: Double = 0.6,
     val dailyTargetPct: Double? = null,
     val dailyStopPct: Double = 1.0,
     val monthlyStopPct: Double? = null,
@@ -28,6 +34,15 @@ data class VolumeFlowCompositeBacktestConfig(
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
+        require(quantityStep == null || quantityStep > 0.0) { "Quantity step must be positive." }
+        require(minQuantity == null || minQuantity > 0.0) { "Minimum quantity must be positive." }
+        require(maxQuantity == null || maxQuantity > 0.0) { "Maximum quantity must be positive." }
+        require(maxQuantity == null || minQuantity == null || maxQuantity >= minQuantity) {
+            "Maximum quantity must be greater than or equal to minimum quantity."
+        }
+        require(maxNotional == null || maxNotional > 0.0) { "Maximum notional must be positive." }
+        require(leverage == null || leverage > 1.0) { "Leverage must be greater than 1." }
+        require(liquidationBufferPct in 0.0..10.0) { "Liquidation buffer must be between 0 and 10 percent." }
         require(dailyTargetPct == null || dailyTargetPct > 0.0 && dailyTargetPct <= 10.0) {
             "Daily target percent must be null or between 0 and 10."
         }
@@ -103,6 +118,9 @@ data class VolumeFlowCompositeBacktestLeg(
 }
 
 data class VolumeFlowCompositeBacktestReport(
+    val engineVersion: String = VOLUME_FLOW_BACKTEST_ENGINE_VERSION,
+    val fillModelVersion: String = VOLUME_FLOW_FILL_MODEL_VERSION,
+    val validationStatus: StrategyValidationStatus = StrategyValidationStatus.UNVERIFIED,
     val symbol: Symbol,
     val m1CandleCount: Int,
     val m5CandleCount: Int,
@@ -123,6 +141,7 @@ data class VolumeFlowCompositeBacktestReport(
     val tradeCount: Int,
     val wins: Int,
     val losses: Int,
+    val liquidationCount: Int,
     val winRatePct: Double,
     val profitFactor: Double?,
     val expectancyR: Double,
