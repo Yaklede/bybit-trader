@@ -54,6 +54,33 @@ data class OpenInterestSnapshot(
         get() = timestamp
 }
 
+enum class AccountRatioPeriod(
+    val bybitValue: String,
+    val duration: Duration,
+) {
+    M5("5min", FIVE_MINUTES),
+}
+
+data class AccountRatioSnapshot(
+    val symbol: Symbol,
+    val period: AccountRatioPeriod,
+    val timestamp: Instant,
+    val buyRatio: BigDecimal,
+    val sellRatio: BigDecimal,
+) {
+    init {
+        require(buyRatio >= BigDecimal.ZERO && buyRatio <= BigDecimal.ONE) {
+            "Account buy ratio must be between zero and one."
+        }
+        require(sellRatio >= BigDecimal.ZERO && sellRatio <= BigDecimal.ONE) {
+            "Account sell ratio must be between zero and one."
+        }
+    }
+
+    val availableAt: Instant
+        get() = timestamp
+}
+
 data class PremiumIndexBar(
     val symbol: Symbol,
     val timeframe: Timeframe,
@@ -113,6 +140,23 @@ interface FlowMarketDataStore {
         beforeAt: Instant,
         limit: Int,
     ): List<OpenInterestSnapshot>
+
+    suspend fun upsertAccountRatioSnapshots(snapshots: List<AccountRatioSnapshot>)
+
+    suspend fun accountRatioSnapshotsBetween(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<AccountRatioSnapshot>
+
+    suspend fun accountRatioSnapshotsBefore(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<AccountRatioSnapshot>
 
     suspend fun upsertPremiumIndexBars(bars: List<PremiumIndexBar>)
 

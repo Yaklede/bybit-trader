@@ -47,6 +47,18 @@ CREATE TABLE openInterestSnapshots (
 CREATE UNIQUE INDEX openInterestSnapshots_symbol_interval_timestamp_idx
 ON openInterestSnapshots(symbol, interval, timestamp);
 
+CREATE TABLE accountRatioSnapshots (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  period TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  buy_ratio TEXT NOT NULL,
+  sell_ratio TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX accountRatioSnapshots_symbol_period_timestamp_idx
+ON accountRatioSnapshots(symbol, period, timestamp);
+
 CREATE TABLE premiumIndexBars (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL,
@@ -471,6 +483,43 @@ SELECT symbol, interval, timestamp, open_interest
 FROM openInterestSnapshots
 WHERE symbol = :symbol
   AND interval = :interval
+  AND timestamp < :beforeAt
+ORDER BY timestamp DESC
+LIMIT :limit;
+
+upsertAccountRatioSnapshot:
+INSERT OR REPLACE INTO accountRatioSnapshots(
+  id,
+  symbol,
+  period,
+  timestamp,
+  buy_ratio,
+  sell_ratio
+)
+VALUES (
+  (SELECT id FROM accountRatioSnapshots WHERE symbol = :symbol AND period = :period AND timestamp = :timestamp),
+  :symbol,
+  :period,
+  :timestamp,
+  :buy_ratio,
+  :sell_ratio
+);
+
+selectAccountRatioSnapshotsBetween:
+SELECT symbol, period, timestamp, buy_ratio, sell_ratio
+FROM accountRatioSnapshots
+WHERE symbol = :symbol
+  AND period = :period
+  AND timestamp >= :startAt
+  AND timestamp <= :endAt
+ORDER BY timestamp ASC
+LIMIT :limit;
+
+selectAccountRatioSnapshotsBefore:
+SELECT symbol, period, timestamp, buy_ratio, sell_ratio
+FROM accountRatioSnapshots
+WHERE symbol = :symbol
+  AND period = :period
   AND timestamp < :beforeAt
 ORDER BY timestamp DESC
 LIMIT :limit;

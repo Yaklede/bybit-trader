@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.exchange.bybit
 
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
@@ -319,6 +320,75 @@ class BybitMarketDataClientTest :
                 ),
             )
             snapshots.first().openInterest shouldBe BigDecimal("10")
+            requestCount shouldBe 2
+        }
+
+        "fetchAccountRatioSnapshots paginates and normalizes reversed provider results" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/market/account-ratio"
+                    request.url.parameters["category"] shouldBe "linear"
+                    request.url.parameters["symbol"] shouldBe "BTCUSDT"
+                    request.url.parameters["period"] shouldBe "5min"
+                    request.url.parameters["limit"] shouldBe "2"
+                    requestCount += 1
+                    val result =
+                        when (requestCount) {
+                            1 -> {
+                                request.url.parameters["cursor"] shouldBe null
+                                """
+                                {
+                                  "symbol": "BTCUSDT",
+                                  "category": "linear",
+                                  "list": [
+                                    {"symbol": "BTCUSDT", "buyRatio": "0.60", "sellRatio": "0.40", "timestamp": "1719749400000"},
+                                    {"symbol": "BTCUSDT", "buyRatio": "0.55", "sellRatio": "0.45", "timestamp": "1719749100000"}
+                                  ],
+                                  "nextPageCursor": "page-2"
+                                }
+                                """.trimIndent()
+                            }
+                            else -> {
+                                request.url.parameters["cursor"] shouldBe "page-2"
+                                """
+                                {
+                                  "symbol": "BTCUSDT",
+                                  "category": "linear",
+                                  "list": [
+                                    {"symbol": "BTCUSDT", "buyRatio": "0.45", "sellRatio": "0.55", "timestamp": "1719748800000"}
+                                  ],
+                                  "nextPageCursor": ""
+                                }
+                                """.trimIndent()
+                            }
+                        }
+                    respond(
+                        content = "{\"retCode\":0,\"retMsg\":\"OK\",\"result\":$result}",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val snapshots =
+                client.fetchAccountRatioSnapshots(
+                    symbol = Symbol("BTCUSDT"),
+                    period = AccountRatioPeriod.M5,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749400000),
+                    limit = 2,
+                )
+
+            snapshots.map { it.timestamp }.shouldContainExactly(
+                listOf(
+                    Instant.ofEpochMilli(1719748800000),
+                    Instant.ofEpochMilli(1719749100000),
+                    Instant.ofEpochMilli(1719749400000),
+                ),
+            )
+            snapshots.first().buyRatio shouldBe BigDecimal("0.45")
+            snapshots.last().sellRatio shouldBe BigDecimal("0.40")
             requestCount shouldBe 2
         }
 

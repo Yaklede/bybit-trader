@@ -5,6 +5,8 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
@@ -1872,6 +1874,7 @@ private class InMemoryVolumeFlowCandleStore(
 private class InMemoryVolumeFlowDataStore(
     private val takerFlowBars: List<TakerFlowBar> = emptyList(),
     private val openInterestSnapshots: List<OpenInterestSnapshot> = emptyList(),
+    private val accountRatioSnapshots: List<AccountRatioSnapshot> = emptyList(),
     private val premiumIndexBars: List<PremiumIndexBar> = emptyList(),
     private val fundingRateSnapshots: List<FundingRateSnapshot> = emptyList(),
 ) : FlowMarketDataStore {
@@ -1929,6 +1932,35 @@ private class InMemoryVolumeFlowDataStore(
     ): List<OpenInterestSnapshot> =
         openInterestSnapshots
             .filter { it.symbol == symbol && it.interval == interval && it.timestamp.isBefore(beforeAt) }
+            .sortedByDescending { it.timestamp }
+            .take(limit)
+
+    override suspend fun upsertAccountRatioSnapshots(snapshots: List<AccountRatioSnapshot>) = Unit
+
+    override suspend fun accountRatioSnapshotsBetween(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<AccountRatioSnapshot> =
+        accountRatioSnapshots
+            .filter {
+                it.symbol == symbol &&
+                    it.period == period &&
+                    !it.timestamp.isBefore(startAt) &&
+                    !it.timestamp.isAfter(endAt)
+            }.sortedBy { it.timestamp }
+            .take(limit)
+
+    override suspend fun accountRatioSnapshotsBefore(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<AccountRatioSnapshot> =
+        accountRatioSnapshots
+            .filter { it.symbol == symbol && it.period == period && it.timestamp.isBefore(beforeAt) }
             .sortedByDescending { it.timestamp }
             .take(limit)
 

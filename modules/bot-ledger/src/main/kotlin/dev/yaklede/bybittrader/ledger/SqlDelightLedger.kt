@@ -25,6 +25,8 @@ import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpointStore
 import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
@@ -42,6 +44,8 @@ import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LivePerformanceSnapshots
 import dev.yaklede.bybittrader.ledger.db.PerformanceSnapshots
+import dev.yaklede.bybittrader.ledger.db.SelectAccountRatioSnapshotsBefore
+import dev.yaklede.bybittrader.ledger.db.SelectAccountRatioSnapshotsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectFundingRateSnapshotsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectFundingRateSnapshotsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBefore
@@ -304,6 +308,56 @@ class SqlDelightLedger(
                 limit = limit.toLong(),
             ).executeAsList()
             .map(SelectOpenInterestSnapshotsBefore::toOpenInterestSnapshot)
+    }
+
+    override suspend fun upsertAccountRatioSnapshots(snapshots: List<AccountRatioSnapshot>) {
+        database.ledgerQueries.transaction {
+            snapshots.forEach { snapshot ->
+                database.ledgerQueries.upsertAccountRatioSnapshot(
+                    symbol = snapshot.symbol.value,
+                    period = snapshot.period.name,
+                    timestamp = snapshot.timestamp.toString(),
+                    buy_ratio = snapshot.buyRatio.toPlainString(),
+                    sell_ratio = snapshot.sellRatio.toPlainString(),
+                )
+            }
+        }
+    }
+
+    override suspend fun accountRatioSnapshotsBetween(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<AccountRatioSnapshot> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectAccountRatioSnapshotsBetween(
+                symbol = symbol.value,
+                period = period.name,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectAccountRatioSnapshotsBetween::toAccountRatioSnapshot)
+    }
+
+    override suspend fun accountRatioSnapshotsBefore(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<AccountRatioSnapshot> {
+        validateFlowLimit(limit)
+        return database.ledgerQueries
+            .selectAccountRatioSnapshotsBefore(
+                symbol = symbol.value,
+                period = period.name,
+                beforeAt = beforeAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectAccountRatioSnapshotsBefore::toAccountRatioSnapshot)
     }
 
     override suspend fun upsertPremiumIndexBars(bars: List<PremiumIndexBar>) {
@@ -750,6 +804,24 @@ private fun SelectOpenInterestSnapshotsBefore.toOpenInterestSnapshot(): OpenInte
         interval = OpenInterestInterval.valueOf(interval),
         timestamp = Instant.parse(timestamp),
         openInterest = BigDecimal(open_interest),
+    )
+
+private fun SelectAccountRatioSnapshotsBetween.toAccountRatioSnapshot(): AccountRatioSnapshot =
+    AccountRatioSnapshot(
+        symbol = Symbol(symbol),
+        period = AccountRatioPeriod.valueOf(period),
+        timestamp = Instant.parse(timestamp),
+        buyRatio = BigDecimal(buy_ratio),
+        sellRatio = BigDecimal(sell_ratio),
+    )
+
+private fun SelectAccountRatioSnapshotsBefore.toAccountRatioSnapshot(): AccountRatioSnapshot =
+    AccountRatioSnapshot(
+        symbol = Symbol(symbol),
+        period = AccountRatioPeriod.valueOf(period),
+        timestamp = Instant.parse(timestamp),
+        buyRatio = BigDecimal(buy_ratio),
+        sellRatio = BigDecimal(sell_ratio),
     )
 
 private fun SelectPremiumIndexBarsBetween.toPremiumIndexBar(): PremiumIndexBar =

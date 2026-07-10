@@ -103,6 +103,20 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         ON openInterestSnapshots(symbol, interval, timestamp)
         """.trimIndent(),
         """
+        CREATE TABLE IF NOT EXISTS accountRatioSnapshots (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          period TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          buy_ratio TEXT NOT NULL,
+          sell_ratio TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS accountRatioSnapshots_symbol_period_timestamp_idx
+        ON accountRatioSnapshots(symbol, period, timestamp)
+        """.trimIndent(),
+        """
         CREATE TABLE IF NOT EXISTS premiumIndexBars (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           symbol TEXT NOT NULL,

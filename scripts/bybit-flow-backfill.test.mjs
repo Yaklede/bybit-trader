@@ -10,9 +10,9 @@ import {
 } from "./bybit-flow-backfill.mjs";
 
 test("parseArgs validates date ranges and dataset names", () => {
-  const options = parseArgs(["--db=/tmp/flow.sqlite", "--start=2024-01-01", "--end=2024-02-01", "--datasets=oi,coverage"]);
+  const options = parseArgs(["--db=/tmp/flow.sqlite", "--start=2024-01-01", "--end=2024-02-01", "--datasets=oi,account-ratio,coverage"]);
   assert.equal(options.start, "2024-01-01");
-  assert.deepEqual([...options.datasets], ["oi", "coverage"]);
+  assert.deepEqual([...options.datasets], ["oi", "account-ratio", "coverage"]);
   assert.throws(() => parseArgs(["--start=2024-02-01", "--end=2024-01-01"]));
   assert.throws(() => parseArgs(["--datasets=unknown"]));
 });

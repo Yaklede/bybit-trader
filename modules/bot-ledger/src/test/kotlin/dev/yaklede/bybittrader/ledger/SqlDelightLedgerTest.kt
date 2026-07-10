@@ -19,6 +19,8 @@ import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
 import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
@@ -213,6 +215,48 @@ class SqlDelightLedgerTest :
                     endAt = Instant.parse("2026-06-30T00:05:00Z"),
                     limit = 10,
                 ).map { it.openInterest } shouldBe listOf(BigDecimal("10"), BigDecimal("12"))
+
+            ledger.upsertAccountRatioSnapshots(
+                listOf(
+                    AccountRatioSnapshot(
+                        symbol,
+                        AccountRatioPeriod.M5,
+                        Instant.parse("2026-06-30T00:00:00Z"),
+                        BigDecimal("0.45"),
+                        BigDecimal("0.55"),
+                    ),
+                    AccountRatioSnapshot(
+                        symbol,
+                        AccountRatioPeriod.M5,
+                        Instant.parse("2026-06-30T00:05:00Z"),
+                        BigDecimal("0.55"),
+                        BigDecimal("0.45"),
+                    ),
+                    AccountRatioSnapshot(
+                        symbol,
+                        AccountRatioPeriod.M5,
+                        Instant.parse("2026-06-30T00:05:00Z"),
+                        BigDecimal("0.60"),
+                        BigDecimal("0.40"),
+                    ),
+                ),
+            )
+            ledger
+                .accountRatioSnapshotsBetween(
+                    symbol = symbol,
+                    period = AccountRatioPeriod.M5,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:05:00Z"),
+                    limit = 10,
+                ).map { it.buyRatio } shouldBe listOf(BigDecimal("0.45"), BigDecimal("0.60"))
+            ledger
+                .accountRatioSnapshotsBefore(
+                    symbol = symbol,
+                    period = AccountRatioPeriod.M5,
+                    beforeAt = Instant.parse("2026-06-30T00:05:00Z"),
+                    limit = 1,
+                ).single()
+                .sellRatio shouldBe BigDecimal("0.55")
 
             ledger.upsertPremiumIndexBars(
                 listOf(
@@ -520,7 +564,7 @@ class SqlDelightLedgerTest :
                 ).single()
                 .takerSellBase shouldBe BigDecimal("2")
             tableNames(driver).containsAll(
-                setOf("takerFlowBars", "openInterestSnapshots", "premiumIndexBars", "fundingRates"),
+                setOf("takerFlowBars", "openInterestSnapshots", "accountRatioSnapshots", "premiumIndexBars", "fundingRates"),
             ) shouldBe true
         }
     })

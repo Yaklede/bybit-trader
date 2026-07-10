@@ -6,6 +6,8 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataFeed
 import dev.yaklede.bybittrader.engine.market.MarketTicker
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
+import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
@@ -136,6 +138,61 @@ class BybitMarketDataClient(
             cursor = result.nextPageCursor?.takeIf(String::isNotBlank)
             if (cursor != null && !seenCursors.add(cursor)) {
                 throw BybitMarketDataException("Bybit open interest pagination repeated cursor $cursor.")
+            }
+        } while (cursor != null)
+
+        return snapshots
+            .filter { snapshot -> !snapshot.timestamp.isBefore(startAt) && !snapshot.timestamp.isAfter(endAt) }
+            .distinctBy { snapshot -> snapshot.timestamp }
+            .sortedBy { snapshot -> snapshot.timestamp }
+    }
+
+    suspend fun fetchAccountRatioSnapshots(
+        symbol: Symbol,
+        period: AccountRatioPeriod,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int = BYBIT_ACCOUNT_RATIO_MAX_LIMIT,
+    ): List<AccountRatioSnapshot> {
+        require(!startAt.isAfter(endAt)) { "Start time must be before or equal to end time." }
+        require(limit in 1..BYBIT_ACCOUNT_RATIO_MAX_LIMIT) {
+            "Account ratio limit must be between 1 and $BYBIT_ACCOUNT_RATIO_MAX_LIMIT."
+        }
+
+        val snapshots = mutableListOf<AccountRatioSnapshot>()
+        val seenCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        do {
+            val response =
+                httpClient
+                    .get("${baseUrl.trimEnd('/')}/v5/market/account-ratio") {
+                        parameter("category", category.apiValue)
+                        parameter("symbol", symbol.value)
+                        parameter("period", period.bybitValue)
+                        parameter("startTime", startAt.toEpochMilli())
+                        parameter("endTime", endAt.toEpochMilli())
+                        parameter("limit", limit)
+                        cursor?.takeIf(String::isNotBlank)?.let { parameter("cursor", it) }
+                    }.body<BybitAccountRatioResponse>()
+
+            if (response.retCode != 0) {
+                throw BybitMarketDataException(response.failureMessage("account ratio"))
+            }
+
+            val result = response.result ?: break
+            result.validateSymbolAndCategory(symbol = symbol, category = category)
+            val page = result.list.map { item -> item.toAccountRatioSnapshot(period = period) }
+            page.forEach { snapshot ->
+                if (snapshot.symbol != symbol) {
+                    throw BybitMarketDataException(
+                        "Bybit account ratio response had symbol ${snapshot.symbol.value}, expected ${symbol.value}.",
+                    )
+                }
+            }
+            snapshots += page
+            cursor = result.nextPageCursor?.takeIf(String::isNotBlank)
+            if (cursor != null && !seenCursors.add(cursor)) {
+                throw BybitMarketDataException("Bybit account ratio pagination repeated cursor $cursor.")
             }
         } while (cursor != null)
 
@@ -299,6 +356,9 @@ private fun BybitTickerResponse.failureMessage(action: String): String =
 private fun BybitOpenInterestResponse.failureMessage(action: String): String =
     bybitFailureMessage(action = action, retCode = retCode, retMsg = retMsg)
 
+private fun BybitAccountRatioResponse.failureMessage(action: String): String =
+    bybitFailureMessage(action = action, retCode = retCode, retMsg = retMsg)
+
 private fun BybitPremiumIndexKlineResponse.failureMessage(action: String): String =
     bybitFailureMessage(action = action, retCode = retCode, retMsg = retMsg)
 
@@ -395,6 +455,38 @@ private fun BybitOpenInterestItem.toOpenInterestSnapshot(
     )
 
 @Serializable
+private data class BybitAccountRatioResponse(
+    val retCode: Int,
+    val retMsg: String,
+    val result: BybitAccountRatioResult? = null,
+)
+
+@Serializable
+private data class BybitAccountRatioResult(
+    override val symbol: String? = null,
+    override val category: String? = null,
+    val list: List<BybitAccountRatioItem> = emptyList(),
+    val nextPageCursor: String? = null,
+) : BybitSymbolCategoryResult
+
+@Serializable
+private data class BybitAccountRatioItem(
+    val symbol: String,
+    val buyRatio: String,
+    val sellRatio: String,
+    val timestamp: String,
+)
+
+private fun BybitAccountRatioItem.toAccountRatioSnapshot(period: AccountRatioPeriod): AccountRatioSnapshot =
+    AccountRatioSnapshot(
+        symbol = Symbol(symbol),
+        period = period,
+        timestamp = Instant.ofEpochMilli(timestamp.toLong()),
+        buyRatio = BigDecimal(buyRatio),
+        sellRatio = BigDecimal(sellRatio),
+    )
+
+@Serializable
 private data class BybitPremiumIndexKlineResponse(
     val retCode: Int,
     val retMsg: String,
@@ -460,5 +552,6 @@ private interface BybitSymbolCategoryResult : BybitCategoryResult {
 }
 
 private const val BYBIT_OPEN_INTEREST_MAX_LIMIT = 200
+private const val BYBIT_ACCOUNT_RATIO_MAX_LIMIT = 500
 private const val BYBIT_FUNDING_MAX_LIMIT = 200
 private const val BYBIT_KLINE_MAX_LIMIT = 1000

@@ -29,7 +29,7 @@ export function parseArgs(argv) {
     symbol: (values.get("symbol") ?? "BTCUSDT").toUpperCase(),
     start: values.get("start") ?? DEFAULT_START,
     end: values.get("end") ?? today.toISOString().slice(0, 10),
-    datasets: new Set((values.get("datasets") ?? "trades,oi,premium,funding,coverage").split(",")),
+    datasets: new Set((values.get("datasets") ?? "trades,oi,account-ratio,premium,funding,coverage").split(",")),
     force: values.get("force") === "true",
     apiBaseUrl: values.get("api-base-url") ?? DEFAULT_BASE_URL,
     archiveBaseUrl: values.get("archive-base-url") ?? DEFAULT_ARCHIVE_URL,
@@ -39,7 +39,7 @@ export function parseArgs(argv) {
   if (!isDate(options.start) || !isDate(options.end) || options.start > options.end) {
     throw new Error("Start/end must be valid YYYY-MM-DD values with start <= end.");
   }
-  const allowed = new Set(["trades", "oi", "premium", "funding", "coverage"]);
+  const allowed = new Set(["trades", "oi", "account-ratio", "premium", "funding", "coverage"]);
   for (const dataset of options.datasets) {
     if (!allowed.has(dataset)) throw new Error(`Unsupported dataset: ${dataset}`);
   }
@@ -113,6 +113,16 @@ export function ensureSchema(db) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS openInterestSnapshots_symbol_interval_timestamp_idx
       ON openInterestSnapshots(symbol, interval, timestamp);
+    CREATE TABLE IF NOT EXISTS accountRatioSnapshots (
+      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      period TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      buy_ratio TEXT NOT NULL,
+      sell_ratio TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS accountRatioSnapshots_symbol_period_timestamp_idx
+      ON accountRatioSnapshots(symbol, period, timestamp);
     CREATE TABLE IF NOT EXISTS premiumIndexBars (
       id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       symbol TEXT NOT NULL,
@@ -146,6 +156,7 @@ export async function backfill(options, dependencies = {}) {
   try {
     if (options.datasets.has("trades")) await backfillTrades(db, options, fetchImpl, log);
     if (options.datasets.has("oi")) await backfillOpenInterest(db, options, request, log);
+    if (options.datasets.has("account-ratio")) await backfillAccountRatios(db, options, request, log);
     if (options.datasets.has("premium")) await backfillPremium(db, options, request, log);
     if (options.datasets.has("funding")) await backfillFunding(db, options, request, log);
     if (options.datasets.has("coverage")) log(JSON.stringify(coverageReport(db, options), null, 2));
@@ -242,6 +253,31 @@ async function backfillOpenInterest(db, options, request, log) {
     timestamp: (row) => Number(row.timestamp),
     insertRows: (rows) => inTransaction(db, () => rows.forEach((row) => insert.run(options.symbol, instantString(Number(row.timestamp)), row.openInterest))),
     label: "open-interest",
+    log,
+  });
+}
+
+async function backfillAccountRatios(db, options, request, log) {
+  const insert = db.prepare(`
+    INSERT INTO accountRatioSnapshots(symbol, period, timestamp, buy_ratio, sell_ratio)
+    VALUES (?, 'M5', ?, ?, ?)
+    ON CONFLICT(symbol, period, timestamp) DO UPDATE SET
+      buy_ratio=excluded.buy_ratio,
+      sell_ratio=excluded.sell_ratio
+  `);
+  await backfillReversePages({
+    options,
+    limit: 500,
+    requestPage: (end) => request("/v5/market/account-ratio", {
+      category: "linear", symbol: options.symbol, period: "5min",
+      startTime: dayStartMillis(options.start), endTime: end, limit: 500,
+    }),
+    rows: (result) => result.list ?? [],
+    timestamp: (row) => Number(row.timestamp),
+    insertRows: (rows) => inTransaction(db, () => rows.forEach((row) => {
+      insert.run(options.symbol, instantString(Number(row.timestamp)), row.buyRatio, row.sellRatio);
+    })),
+    label: "account-ratio",
     log,
   });
 }
@@ -350,6 +386,7 @@ export function coverageReport(db, options) {
     end: options.end,
     takerFlow: summary("takerFlowBars", "opened_at"),
     openInterest: summary("openInterestSnapshots", "timestamp", "AND interval='M5'"),
+    accountRatio: summary("accountRatioSnapshots", "timestamp", "AND period='M5'"),
     premium: summary("premiumIndexBars", "opened_at", "AND timeframe='M15'"),
     funding: summary("fundingRates", "timestamp"),
     missingPositiveVolumeTradeMinutes: Number(missingTradeMinutes),
