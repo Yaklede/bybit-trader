@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   accountCrowdingBand,
   buildDiagnosticReport,
+  fundingBand,
   imbalanceBand,
   oiChangeBand,
   parseArgs,
@@ -19,6 +20,15 @@ test("parseArgs validates research-only flow diagnostics options", () => {
   ]);
   assert.equal(options.symbol, "BTCUSDT");
   assert.equal(options.horizonM5, 3);
+  assert.equal(
+    parseArgs([
+      "--db=/tmp/flow.sqlite",
+      "--start=2024-01-01T00:00:00Z",
+      "--end=2024-02-01T00:00:00Z",
+      "--horizon-m5=288",
+    ]).horizonM5,
+    288,
+  );
   assert.throws(() => parseArgs(["--start=2024-02-01T00:00:00Z", "--end=2024-01-01T00:00:00Z"]));
   assert.throws(() => parseArgs(["--start=2024-01-01T00:00:00Z", "--end=2024-02-01T00:00:00Z", "--horizon-m5=4"]));
 });
@@ -32,6 +42,9 @@ test("bands preserve threshold boundaries", () => {
   assert.equal(accountCrowdingBand(0.45), "SHORT_HEAVY");
   assert.equal(accountCrowdingBand(0.55), "LONG_HEAVY");
   assert.equal(accountCrowdingBand(0.5), "BALANCED");
+  assert.equal(fundingBand(-0.0001), "NEGATIVE");
+  assert.equal(fundingBand(0.0001), "POSITIVE");
+  assert.equal(fundingBand(0), "NEUTRAL");
 });
 
 test("summarizeReturns applies round-trip cost before ranking outcomes", () => {
@@ -62,6 +75,7 @@ test("diagnostic report excludes incomplete flow and ranks both directions", () 
       relativeVolume: 3.2,
       openInterestChangePct: 0.5,
       accountBuyRatio: 0.6,
+      fundingRate: 0.0002,
       futureReturnPct: 0.3,
     },
     {
@@ -71,6 +85,7 @@ test("diagnostic report excludes incomplete flow and ranks both directions", () 
       relativeVolume: 3.2,
       openInterestChangePct: -0.5,
       accountBuyRatio: 0.4,
+      fundingRate: -0.0002,
       futureReturnPct: 0.3,
     },
   ]);
@@ -82,6 +97,10 @@ test("diagnostic report excludes incomplete flow and ranks both directions", () 
   assert.equal(report.flowAndOpenInterest[0].group.endsWith("oi=EXPANDING"), true);
   assert.equal(
     report.flowAndOpenInterestAndAccountRatio[0].group.endsWith("crowding=LONG_HEAVY"),
+    true,
+  );
+  assert.equal(
+    report.flowAndOpenInterestAndAccountRatioAndFunding[0].group.endsWith("funding=POSITIVE"),
     true,
   );
 });

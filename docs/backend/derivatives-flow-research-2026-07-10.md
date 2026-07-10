@@ -138,7 +138,8 @@ Decision: reject account-ratio crowding as an additional filter for the current
 volume-flow strategy family. It must not be added to a live or backtest profile
 solely because it is now available in storage.
 
-Reproduce each horizon by changing `--horizon-m5` to `1`, `3`, `6`, or `12`:
+Reproduce each horizon by changing `--horizon-m5` to `1`, `2`, `3`, `6`,
+`12`, `24`, `48`, `96`, or `288`:
 
 ```bash
 node --no-warnings scripts/bybit-flow-feature-diagnostics.mjs \
@@ -149,6 +150,37 @@ node --no-warnings scripts/bybit-flow-feature-diagnostics.mjs \
   --round-trip-cost-bps=12 \
   --min-samples=100
 ```
+
+## Funding-Conditioned Holding Diagnostic
+
+The same point-in-time diagnostic now adds the latest completed funding-rate
+snapshot with a maximum age of eight hours. Funding bands are fixed before
+evaluation: `NEGATIVE` at `<= -0.0001`, `POSITIVE` at `>= 0.0001`, and
+`NEUTRAL` otherwise. These are the rate units returned by the public Bybit
+funding-history endpoint, not a data-derived percentile split.
+
+For holding times from 5 minutes through 4 hours, no flow/OI/account/funding
+state had a positive after-cost mean in both 2020-2021 and 2022-2023. At eight
+hours, three states were positive in both development segments; at 24 hours,
+nine were. All were sent unchanged to the 2024-01-01 through 2026-07-01
+holdout before any strategy implementation.
+
+| Holding time | Development-positive states | 2024-2026 holdout result |
+|---|---:|---|
+| 8 hours | 3 | All reversed: `-0.13421%`, `-0.33855%`, and `-0.16963%` mean net return; each had at least 135 holdout samples. |
+| 24 hours | 9 | No state had both positive mean net return and 100 holdout samples. States with sufficient samples reversed, including `-0.27949%` and `-0.28851%`. |
+
+The most promising development-only 24-hour state had 300 and 351 observations
+with `+0.42198%` and `+0.16735%` mean net returns, but it had no matching
+holdout observations because the negative-funding and balanced-account regime
+did not recur. It therefore fails the coverage requirement rather than being
+treated as a dormant edge.
+
+Decision: reject funding-conditioned states for runtime use. This is a
+regime-stability failure, not a transaction-cost or missing-data artifact:
+funding data was available for every eligible candle in all three periods.
+
+Reproduction additionally requires `--funding-staleness-minutes=480`.
 
 ## Raw Absorption Simulator Correction
 

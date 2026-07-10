@@ -10,8 +10,10 @@ const DEFAULT_SYMBOL = "BTCUSDT";
 const DEFAULT_HORIZON_M5 = 3;
 const DEFAULT_ROUND_TRIP_COST_BPS = 12;
 const DEFAULT_OI_LOOKBACK = 3;
+const DEFAULT_FUNDING_STALENESS_MINUTES = 480;
 const DEFAULT_MIN_SAMPLES = 30;
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
+const ALLOWED_HORIZON_M5 = [1, 2, 3, 6, 12, 24, 48, 96, 288];
 
 export function parseArgs(argv) {
   const values = new Map();
@@ -31,6 +33,7 @@ export function parseArgs(argv) {
     horizonM5: Number(values.get("horizon-m5") ?? DEFAULT_HORIZON_M5),
     roundTripCostBps: Number(values.get("round-trip-cost-bps") ?? DEFAULT_ROUND_TRIP_COST_BPS),
     openInterestLookback: Number(values.get("oi-lookback") ?? DEFAULT_OI_LOOKBACK),
+    fundingStalenessMinutes: Number(values.get("funding-staleness-minutes") ?? DEFAULT_FUNDING_STALENESS_MINUTES),
     minSamples: Number(values.get("min-samples") ?? DEFAULT_MIN_SAMPLES),
     out: values.get("out") == null ? null : resolve(values.get("out")),
   };
@@ -38,14 +41,17 @@ export function parseArgs(argv) {
   if (!isInstant(options.start) || !isInstant(options.end) || options.start >= options.end) {
     throw new Error("start/end must be valid ISO-8601 instants with start < end.");
   }
-  if (!Number.isInteger(options.horizonM5) || ![1, 2, 3, 6, 12].includes(options.horizonM5)) {
-    throw new Error("horizon-m5 must be one of 1, 2, 3, 6, or 12.");
+  if (!Number.isInteger(options.horizonM5) || !ALLOWED_HORIZON_M5.includes(options.horizonM5)) {
+    throw new Error(`horizon-m5 must be one of ${ALLOWED_HORIZON_M5.join(", ")}.`);
   }
   if (!Number.isFinite(options.roundTripCostBps) || options.roundTripCostBps < 0 || options.roundTripCostBps > 500) {
     throw new Error("round-trip-cost-bps must be between 0 and 500.");
   }
   if (!Number.isInteger(options.openInterestLookback) || options.openInterestLookback < 2 || options.openInterestLookback > 100) {
     throw new Error("oi-lookback must be an integer between 2 and 100.");
+  }
+  if (!Number.isInteger(options.fundingStalenessMinutes) || options.fundingStalenessMinutes < 1 || options.fundingStalenessMinutes > 480) {
+    throw new Error("funding-staleness-minutes must be an integer between 1 and 480.");
   }
   if (!Number.isInteger(options.minSamples) || options.minSamples < 1 || options.minSamples > 100_000) {
     throw new Error("min-samples must be an integer between 1 and 100000.");
@@ -82,6 +88,13 @@ export function accountCrowdingBand(buyRatio) {
   return "BALANCED";
 }
 
+export function fundingBand(fundingRate) {
+  if (!Number.isFinite(fundingRate)) return "UNAVAILABLE";
+  if (fundingRate <= -0.0001) return "NEGATIVE";
+  if (fundingRate >= 0.0001) return "POSITIVE";
+  return "NEUTRAL";
+}
+
 export function summarizeReturns(returns, costPct) {
   if (returns.length === 0) return null;
   const netReturns = returns.map((value) => value - costPct);
@@ -102,9 +115,11 @@ export function buildDiagnosticReport(options, records) {
   const flowGroups = new Map();
   const flowOiGroups = new Map();
   const flowOiCrowdingGroups = new Map();
+  const flowOiCrowdingFundingGroups = new Map();
   let skippedMissingFlow = 0;
   let skippedNoDirection = 0;
   let missingAccountRatio = 0;
+  let missingFunding = 0;
 
   for (const record of records) {
     if (!record.completeFlow) {
@@ -123,7 +138,11 @@ export function buildDiagnosticReport(options, records) {
     appendReturns(flowOiGroups, flowOiKey, record.futureReturnPct);
     const crowding = accountCrowdingBand(record.accountBuyRatio);
     if (crowding === "UNAVAILABLE") missingAccountRatio += 1;
-    appendReturns(flowOiCrowdingGroups, `${flowOiKey}|crowding=${crowding}`, record.futureReturnPct);
+    const flowOiCrowdingKey = `${flowOiKey}|crowding=${crowding}`;
+    appendReturns(flowOiCrowdingGroups, flowOiCrowdingKey, record.futureReturnPct);
+    const funding = fundingBand(record.fundingRate);
+    if (funding === "UNAVAILABLE") missingFunding += 1;
+    appendReturns(flowOiCrowdingFundingGroups, `${flowOiCrowdingKey}|funding=${funding}`, record.futureReturnPct);
   }
 
   return {
@@ -142,10 +161,12 @@ export function buildDiagnosticReport(options, records) {
       skippedMissingFlow,
       skippedNoDirection,
       missingAccountRatio,
+      missingFunding,
     },
     flowOnly: summarizeGroups(flowGroups, costPct, options.minSamples),
     flowAndOpenInterest: summarizeGroups(flowOiGroups, costPct, options.minSamples),
     flowAndOpenInterestAndAccountRatio: summarizeGroups(flowOiCrowdingGroups, costPct, options.minSamples),
+    flowAndOpenInterestAndAccountRatioAndFunding: summarizeGroups(flowOiCrowdingFundingGroups, costPct, options.minSamples),
   };
 }
 
@@ -189,11 +210,18 @@ function loadRecords(db, options) {
     WHERE symbol = ? AND period = 'M5' AND timestamp <= ?
     ORDER BY timestamp
   `).all(options.symbol, isoInstant(replayEndAt));
+  const fundingRates = db.prepare(`
+    SELECT timestamp, funding_rate
+    FROM fundingRates
+    WHERE symbol = ? AND timestamp <= ?
+    ORDER BY timestamp
+  `).all(options.symbol, isoInstant(replayEndAt));
 
   const indexByOpenedAt = new Map(candles.map((candle, index) => [candle.opened_at, index]));
   const rollingVolumes = rollingAverage(candles.map((candle) => Number(candle.volume)), 20);
   const oiLookup = new OpenInterestLookup(openInterest, options.openInterestLookback);
   const accountRatioLookup = new AccountRatioLookup(accountRatios);
+  const fundingLookup = new FundingRateLookup(fundingRates, options.fundingStalenessMinutes * 60_000);
   const records = [];
 
   for (let index = 0; index < candles.length - options.horizonM5; index += 1) {
@@ -223,6 +251,7 @@ function loadRecords(db, options) {
       relativeVolume,
       openInterestChangePct: oiLookup.changeAtOrBefore(closedAt),
       accountBuyRatio: accountRatioLookup.buyRatioAtOrBefore(closedAt),
+      fundingRate: fundingLookup.rateAtOrBefore(closedAt),
       futureReturnPct: sideReturnPct,
     });
   }
@@ -293,6 +322,27 @@ class AccountRatioLookup {
     const snapshot = this.rows[this.pointer];
     if (!Number.isFinite(snapshot.buyRatio) || !Number.isFinite(snapshot.sellRatio)) return null;
     return snapshot.buyRatio;
+  }
+}
+
+class FundingRateLookup {
+  constructor(rows, maxStalenessMillis) {
+    this.rows = rows.map((row) => ({
+      timestamp: new Date(row.timestamp),
+      fundingRate: Number(row.funding_rate),
+    }));
+    this.maxStalenessMillis = maxStalenessMillis;
+    this.pointer = 0;
+  }
+
+  rateAtOrBefore(decisionAt) {
+    while (this.pointer + 1 < this.rows.length && this.rows[this.pointer + 1].timestamp <= decisionAt) {
+      this.pointer += 1;
+    }
+    if (this.rows.length === 0 || this.rows[this.pointer].timestamp > decisionAt) return null;
+    const snapshot = this.rows[this.pointer];
+    if (!Number.isFinite(snapshot.fundingRate) || decisionAt - snapshot.timestamp > this.maxStalenessMillis) return null;
+    return snapshot.fundingRate;
   }
 }
 
