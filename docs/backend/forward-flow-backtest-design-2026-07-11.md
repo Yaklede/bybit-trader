@@ -99,6 +99,22 @@
 수집 부족 자체를 실패로 기록한다. 아직 실제 수집 기간보다 긴 1~60개월 구간을
 생성하거나 기존 역사 구간에 호가 값을 합성하는 행위는 허용하지 않는다.
 
+순방향 관측 구간이 최소 60개월 누적된 뒤에는
+`scripts/forward-capture-sealed-protocol.mjs`가 명시적으로 지정된 월 경계 구간을
+검사한다. M1 호가·테이커와 M1/M5/M15 캔들이 빠짐없이 존재할 때만, 고정 seed로
+1~60개월 길이의 40개 구간과 SHA-256 해시를 생성한다. 한 분이라도 누락되면
+프로토콜 파일을 만들지 않는다.
+
+```bash
+node scripts/forward-capture-sealed-protocol.mjs \
+  --db=/path/to/bybit-trader.sqlite \
+  --symbol=BTCUSDT \
+  --start=2026-08-01T00:00:00.000Z \
+  --end=2031-08-01T00:00:00.000Z \
+  --seed=20310801 \
+  --out=config/forward-capture-sealed-windows-v1.json
+```
+
 ## 실패 처리와 검증
 
 - 저장소 부재는 `IllegalArgumentException`으로 중단한다.
