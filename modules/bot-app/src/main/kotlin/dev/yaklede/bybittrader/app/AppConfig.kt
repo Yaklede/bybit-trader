@@ -48,6 +48,9 @@ data class AppConfig(
             require(!executionLoop.enabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_LOOP_ENABLED=true."
             }
+            require(runtimeMode != RuntimeMode.LIVE || !executionLoop.enabled || execution.maxNotional != null) {
+                "BOT_EXECUTION_MAX_NOTIONAL is required for the unverified live execution loop."
+            }
             return AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,

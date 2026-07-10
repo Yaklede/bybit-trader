@@ -4,6 +4,14 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import java.time.Instant
 
+const val AGGRESSIVE_BACKTEST_ENGINE_VERSION = "2.0.0"
+const val AGGRESSIVE_FILL_MODEL_VERSION = "causal-next-open-v1"
+
+enum class StrategyValidationStatus {
+    UNVERIFIED,
+    VERIFIED,
+}
+
 data class VolumeFlowAggressiveBacktestConfig(
     val profileId: String = "absa_final_us_v1",
     val initialEquity: Double = 1_000_000.0,
@@ -206,6 +214,9 @@ object VolumeFlowAggressiveProfiles {
 }
 
 data class VolumeFlowAggressiveBacktestReport(
+    val engineVersion: String = AGGRESSIVE_BACKTEST_ENGINE_VERSION,
+    val fillModelVersion: String = AGGRESSIVE_FILL_MODEL_VERSION,
+    val validationStatus: StrategyValidationStatus = StrategyValidationStatus.UNVERIFIED,
     val symbol: Symbol,
     val profileId: String,
     val m5CandleCount: Int,

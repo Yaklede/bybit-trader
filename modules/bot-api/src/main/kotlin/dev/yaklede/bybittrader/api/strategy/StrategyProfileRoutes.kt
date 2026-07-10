@@ -39,9 +39,10 @@ class StrategyProfileService(
                 kind = StrategyProfileKind.RUNTIME,
                 strategyName = "volume-flow-aggressive-absa_final_us_v1",
                 description = "거래량 흡수 구간 이후 돌파를 양방향으로 추적하는 운영 기본 전략이에요.",
-                riskNote = "기본 실행 전략 · 고수익 구간을 길게 가져가지만 큰 잔고 흔들림이 생길 수 있어요.",
+                riskNote = "검증 전 전략 · 현실 체결 기준 재검증이 끝날 때까지 주문 한도를 유지해야 해요.",
                 backtestEndpoint = "/backtests/volume-flow/aggressive/current/run",
                 isDefault = true,
+                validationStatus = StrategyProfileValidationStatus.UNVERIFIED,
             ),
             StrategyProfile(
                 id = "volume-flow-composite-current",
@@ -52,6 +53,7 @@ class StrategyProfileService(
                 riskNote = "백테스트 비교 전용 · 실주문 루프는 공격형 전략을 유지해요.",
                 backtestEndpoint = "/backtests/volume-flow/composite/current/run",
                 isDefault = false,
+                validationStatus = StrategyProfileValidationStatus.BACKTEST_ONLY,
             ),
         )
 
@@ -119,7 +121,14 @@ data class StrategyProfile(
     val riskNote: String,
     val backtestEndpoint: String,
     val isDefault: Boolean,
+    val validationStatus: StrategyProfileValidationStatus,
 )
+
+enum class StrategyProfileValidationStatus {
+    UNVERIFIED,
+    VERIFIED,
+    BACKTEST_ONLY,
+}
 
 enum class StrategyProfileKind {
     RUNTIME,
@@ -160,6 +169,8 @@ data class StrategyProfileResponse(
     val backtestEndpoint: String,
     val defaultProfile: Boolean,
     val runtimeEligible: Boolean,
+    val validationStatus: String,
+    val liveExpansionAllowed: Boolean,
 )
 
 private fun StrategyProfileState.toResponse(): StrategyProfileStateResponse =
@@ -188,4 +199,6 @@ private fun StrategyProfile.toResponse(): StrategyProfileResponse =
         backtestEndpoint = backtestEndpoint,
         defaultProfile = isDefault,
         runtimeEligible = kind == StrategyProfileKind.RUNTIME,
+        validationStatus = validationStatus.name,
+        liveExpansionAllowed = validationStatus == StrategyProfileValidationStatus.VERIFIED,
     )

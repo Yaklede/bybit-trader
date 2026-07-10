@@ -14,12 +14,13 @@ feature-discovery profile `absorption-adaptive-regime-final`
 
 ## Current Decision
 
-- Direction: proceed with the aggressive profile for implementation and paper /
-  testnet validation.
-- Primary objective: preserve compound-growth behavior and validate that the
-  signal can be reproduced by the Kotlin production engine.
-- Deferred risk objective: reduce operational failure modes and document
-  drawdown events without blocking the current aggressive implementation.
+- Validation status: `UNVERIFIED`.
+- Profitability reports produced before `causal-next-open-v1` are invalid for
+  live-readiness decisions because they selected a breakout from a candle close
+  and filled the trade at the same candle open.
+- Keep `BOT_EXECUTION_MAX_NOTIONAL` configured for every live automatic loop.
+- Do not increase live exposure until causal walk-forward and sealed holdout
+  gates pass with fees, slippage, liquidation, and drawdown included.
 
 ## Observed Risk Events
 

@@ -90,6 +90,36 @@ class AppConfigTest :
             config.execution.leverage?.toPlainString() shouldBe "15"
         }
 
+        "live execution loop rejects an uncapped unverified strategy" {
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "LIVE",
+                        "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
+                        "BOT_EXECUTION_LOOP_ENABLED" to "true",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                    ),
+                )
+            }
+        }
+
+        "live execution loop accepts an explicit notional cap" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "LIVE",
+                        "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
+                        "BOT_EXECUTION_LOOP_ENABLED" to "true",
+                        "BOT_EXECUTION_MAX_NOTIONAL" to "100",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                    ),
+                )
+
+            config.execution.maxNotional?.toPlainString() shouldBe "100"
+        }
+
         "enabled telegram alerts require telegram environment values" {
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(mapOf("TELEGRAM_ALERTS_ENABLED" to "true"))

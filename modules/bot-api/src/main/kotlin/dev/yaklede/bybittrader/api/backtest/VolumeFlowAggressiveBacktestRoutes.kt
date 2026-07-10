@@ -101,6 +101,10 @@ private fun parseAggressiveReplayInstant(value: String): Instant =
 
 @Serializable
 data class VolumeFlowAggressiveBacktestResponse(
+    val engineVersion: String,
+    val fillModelVersion: String,
+    val validationStatus: String,
+    val liveExpansionAllowed: Boolean,
     val symbol: String,
     val profileId: String,
     val m5CandleCount: Int,
@@ -154,6 +158,10 @@ data class VolumeFlowAggressiveTradeResponse(
 
 private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): VolumeFlowAggressiveBacktestResponse =
     VolumeFlowAggressiveBacktestResponse(
+        engineVersion = engineVersion,
+        fillModelVersion = fillModelVersion,
+        validationStatus = validationStatus.name,
+        liveExpansionAllowed = validationStatus == dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus.VERIFIED,
         symbol = symbol.value,
         profileId = profileId,
         m5CandleCount = m5CandleCount,

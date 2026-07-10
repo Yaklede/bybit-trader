@@ -182,6 +182,8 @@ class ApiModuleTest :
                 response.status shouldBe HttpStatusCode.OK
                 response.bodyAsText() shouldContain """"activeProfileId":"volume-flow-aggressive""""
                 response.bodyAsText() shouldContain """"name":"공격형""""
+                response.bodyAsText() shouldContain """"validationStatus":"UNVERIFIED""""
+                response.bodyAsText() shouldContain """"liveExpansionAllowed":false"""
             }
         }
 
