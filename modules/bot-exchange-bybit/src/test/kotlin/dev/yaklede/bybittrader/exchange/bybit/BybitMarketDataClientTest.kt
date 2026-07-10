@@ -401,6 +401,50 @@ class BybitMarketDataClientTest :
             }
         }
 
+        "fetchPremiumIndexBars continues after a short non-terminal page" {
+            var requestCount = 0
+            val engine =
+                MockEngine {
+                    requestCount += 1
+                    val rows =
+                        if (requestCount == 1) {
+                            """
+                            [
+                              ["1719750600000", "0.2", "0.3", "0.1", "0.25"],
+                              ["1719749700000", "0.1", "0.2", "0.0", "0.15"]
+                            ]
+                            """.trimIndent()
+                        } else {
+                            """[["1719748800000", "0.0", "0.1", "-0.1", "0.05"]]"""
+                        }
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {"symbol": "BTCUSDT", "category": "linear", "list": $rows}
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val bars =
+                client.fetchPremiumIndexBars(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M15,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719750600000),
+                    limit = 3,
+                )
+
+            bars.size shouldBe 3
+            requestCount shouldBe 2
+        }
+
         "fetchFundingRateSnapshots fails on Bybit retCode error" {
             val engine =
                 MockEngine {

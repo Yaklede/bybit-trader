@@ -302,7 +302,6 @@ async function backfillReversePages({options, limit, requestPage, rows, timestam
     end = oldest - 1;
     pages += 1;
     if (pages % 50 === 0) log(`${label} pages=${pages} oldest=${instantString(oldest)}`);
-    if (page.length < limit) break;
   }
   log(`${label} complete pages=${pages}`);
 }

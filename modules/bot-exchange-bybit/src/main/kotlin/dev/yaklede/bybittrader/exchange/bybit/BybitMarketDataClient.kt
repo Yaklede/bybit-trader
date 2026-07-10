@@ -180,7 +180,7 @@ class BybitMarketDataClient(
             bars += page
             val earliest = page.minOfOrNull { bar -> bar.openedAt } ?: break
             pageEndAt = earliest.minusMillis(1)
-        } while (page.size == limit && !pageEndAt.isBefore(startAt))
+        } while (!pageEndAt.isBefore(startAt))
 
         return bars
             .filter { bar -> !bar.openedAt.isBefore(startAt) && !bar.openedAt.isAfter(endAt) }
@@ -227,7 +227,7 @@ class BybitMarketDataClient(
             snapshots += page
             val earliest = page.minOfOrNull { snapshot -> snapshot.timestamp } ?: break
             pageEndAt = earliest.minusMillis(1)
-        } while (page.size == limit && !pageEndAt.isBefore(startAt))
+        } while (!pageEndAt.isBefore(startAt))
 
         return snapshots
             .filter { snapshot -> !snapshot.timestamp.isBefore(startAt) && !snapshot.timestamp.isAfter(endAt) }
