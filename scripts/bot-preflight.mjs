@@ -15,6 +15,7 @@ const paperCandleLimit = Number(env.BOT_PAPER_CANDLE_LIMIT || (paperStrategy ===
 const paperSyncLimit = Number(env.BOT_PAPER_SYNC_LIMIT || "1000");
 const privateExecutionEnabled = parseBool(env.BOT_PRIVATE_EXECUTION_ENABLED);
 const executionLoopEnabled = parseBool(env.BOT_EXECUTION_LOOP_ENABLED);
+const executionAllowUnverifiedProfile = parseBool(env.BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE);
 const executionTimeframe = (env.BOT_EXECUTION_TIMEFRAME || "M5").toUpperCase();
 const executionCandleLimit = Number(env.BOT_EXECUTION_CANDLE_LIMIT || "18000");
 const executionSyncLimit = Number(env.BOT_EXECUTION_SYNC_LIMIT || "1000");
@@ -74,7 +75,11 @@ if (mode !== "PAPER") {
   check("BYBIT_API_KEY is set outside PAPER mode", isLongEnough(env.BYBIT_API_KEY, 8), "required for TESTNET/LIVE");
   check("BYBIT_API_SECRET is set outside PAPER mode", isLongEnough(env.BYBIT_API_SECRET, 16), "required for TESTNET/LIVE");
   check("private execution is enabled outside PAPER mode", privateExecutionEnabled, "set BOT_PRIVATE_EXECUTION_ENABLED=true");
-  check("execution loop is enabled outside PAPER mode", executionLoopEnabled, "set BOT_EXECUTION_LOOP_ENABLED=true for unattended operation");
+  check(
+    "unverified runtime profile has no automatic loop",
+    !executionLoopEnabled || executionAllowUnverifiedProfile,
+    "keep BOT_EXECUTION_LOOP_ENABLED=false or explicitly set BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true",
+  );
   check("execution timeframe is M5", executionTimeframe === "M5", `timeframe=${executionTimeframe}`);
   check("execution sync limit respects Bybit page limit", Number.isInteger(executionSyncLimit) && executionSyncLimit >= 1 && executionSyncLimit <= 1000, `executionSyncLimit=${executionSyncLimit}`);
   check("execution candle limit covers 60d regime rules", Number.isInteger(executionCandleLimit) && executionCandleLimit >= 17281, `candleLimit=${executionCandleLimit}`);

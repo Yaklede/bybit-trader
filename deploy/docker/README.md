@@ -73,4 +73,5 @@ Environment secrets, not in the repository.
    `BOT_EXECUTION_MAX_NOTIONAL`.
 3. Run `/execution/reconcile`.
 4. Confirm Bybit order, TP/SL, position, and alert behavior.
-5. Set `BOT_EXECUTION_LOOP_ENABLED=true` and restart the container.
+5. Do not enable `BOT_EXECUTION_LOOP_ENABLED` for the current unverified
+   aggressive profile. A replacement must pass its runtime replay gate first.

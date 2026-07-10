@@ -50,9 +50,9 @@ Milestone 1 is the operational backend shell:
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
-For live tuning, start with `BOT_EXECUTION_LOOP_ENABLED=false` and a small
-`BOT_EXECUTION_MAX_NOTIONAL`, submit one manual order, reconcile it, then enable
-the loop.
+For live smoke verification, keep `BOT_EXECUTION_LOOP_ENABLED=false` and use a
+small `BOT_EXECUTION_MAX_NOTIONAL`. The current aggressive profile is
+unverified and must not be enabled as an automatic loop.
 
 `POST /execution/reconcile` is an exchange read only. The enabled runtime loop
 is the sole closed-trade writer: it persists and alerts new closed PnL before
@@ -94,7 +94,8 @@ about 90 days of M5 history before enabling the loop. Run
 For Docker live execution, use `BOT_MODE=LIVE`, set `BYBIT_API_KEY` and
 `BYBIT_API_SECRET`, and enable `BOT_PRIVATE_EXECUTION_ENABLED`. Keep
 `BOT_EXECUTION_LOOP_ENABLED=false` until the first manual live order and
-reconcile pass.
+reconcile pass. A future automatic profile also requires its own replay gate;
+the current profile is blocked by default.
 
 Docker build:
 

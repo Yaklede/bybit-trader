@@ -49,6 +49,11 @@ data class AppConfig(
             require(!executionLoop.enabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_LOOP_ENABLED=true."
             }
+            require(!executionLoop.enabled || execution.allowUnverifiedProfile) {
+                "The runtime profile absa_final_us_v1 is UNVERIFIED. " +
+                    "Keep BOT_EXECUTION_LOOP_ENABLED=false or explicitly set " +
+                    "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true."
+            }
             require(runtimeMode != RuntimeMode.LIVE || !executionLoop.enabled || execution.maxNotional != null) {
                 "BOT_EXECUTION_MAX_NOTIONAL is required for the unverified live execution loop."
             }
@@ -376,6 +381,7 @@ data class ExecutionLoopSettings(
 
 data class ExecutionSettings(
     val enabled: Boolean,
+    val allowUnverifiedProfile: Boolean,
     val accountEquity: BigDecimal,
     val useLiveAccountEquity: Boolean,
     val riskFraction: BigDecimal,
@@ -415,6 +421,8 @@ data class ExecutionSettings(
         fun fromEnvironment(environment: Map<String, String>): ExecutionSettings =
             ExecutionSettings(
                 enabled = environment["BOT_PRIVATE_EXECUTION_ENABLED"].toBooleanStrictOrFalse(),
+                allowUnverifiedProfile =
+                    environment["BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE"].toBooleanStrictOrFalse(),
                 accountEquity = environment["BOT_EXECUTION_ACCOUNT_EQUITY"]?.let(::BigDecimal) ?: BigDecimal("1000000"),
                 useLiveAccountEquity = environment["BOT_EXECUTION_USE_LIVE_EQUITY"].toBooleanStrictOrFalse(),
                 riskFraction = environment["BOT_EXECUTION_RISK_FRACTION"]?.let(::BigDecimal) ?: BigDecimal("0.055"),

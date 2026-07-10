@@ -66,6 +66,10 @@ override:
 - `BYBIT_POSITION_IDX`: default `0`.
 - `BOT_PRIVATE_EXECUTION_ENABLED`: default `true`.
 - `BOT_EXECUTION_LOOP_ENABLED`: default `false`.
+- `BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE`: default `false`. The current
+  `absa_final_us_v1` runtime profile is unverified, so an automatic loop
+  requires this explicit override. Do not set it from the current profile's
+  historical result.
 - `BOT_EXECUTION_TIMEFRAME`: default `M5`.
 - `BOT_EXECUTION_CANDLE_LIMIT`: default `18000`.
 - `BOT_EXECUTION_SYNC_LIMIT`: default `1000`.

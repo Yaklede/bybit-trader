@@ -94,7 +94,8 @@ export BOT_EXECUTION_LEVERAGE="15"
 ```
 
 Keep `BOT_EXECUTION_LOOP_ENABLED=false` for the first live smoke order. Turn it
-on only after manual submit and reconcile are confirmed.
+on only for a replacement profile that passes its runtime replay gate. The
+current `absa_final_us_v1` profile is unverified and must remain disabled.
 
 Enable at least one alert sink:
 

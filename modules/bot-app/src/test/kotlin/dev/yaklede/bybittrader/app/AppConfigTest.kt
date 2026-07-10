@@ -28,6 +28,7 @@ class AppConfigTest :
             config.paperTrading.initialEquity.toPlainString() shouldBe "1000000"
             config.paperTrading.riskFraction.toPlainString() shouldBe "0.055"
             config.execution.enabled shouldBe false
+            config.execution.allowUnverifiedProfile shouldBe false
             config.execution.useLiveAccountEquity shouldBe false
             config.execution.leverage shouldBe null
             config.executionLoop.enabled shouldBe false
@@ -60,6 +61,7 @@ class AppConfigTest :
                         "BOT_MODE" to "TESTNET",
                         "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
                         "BOT_EXECUTION_LOOP_ENABLED" to "true",
+                        "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE" to "true",
                         "BYBIT_API_KEY" to "test-key",
                         "BYBIT_API_SECRET" to "test-secret",
                         "BYBIT_PRIVATE_BASE_URL" to "https://api-testnet.bybit.com",
@@ -83,6 +85,7 @@ class AppConfigTest :
             config.bybitPrivate.recvWindowMillis shouldBe 7000
             config.bybitPrivate.accountType shouldBe "UNIFIED"
             config.execution.enabled shouldBe true
+            config.execution.allowUnverifiedProfile shouldBe true
             config.executionLoop.enabled shouldBe true
             config.execution.accountEquity.toPlainString() shouldBe "2000000"
             config.execution.useLiveAccountEquity shouldBe true
@@ -94,13 +97,14 @@ class AppConfigTest :
             config.execution.liquidationBufferPct.toPlainString() shouldBe "0.8"
         }
 
-        "live execution loop rejects an uncapped unverified strategy" {
+        "execution loop rejects an unverified runtime profile without explicit approval" {
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(
                     mapOf(
                         "BOT_MODE" to "LIVE",
                         "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
                         "BOT_EXECUTION_LOOP_ENABLED" to "true",
+                        "BOT_EXECUTION_MAX_NOTIONAL" to "100",
                         "BYBIT_API_KEY" to "test-key",
                         "BYBIT_API_SECRET" to "test-secret",
                     ),
@@ -115,6 +119,7 @@ class AppConfigTest :
                         "BOT_MODE" to "LIVE",
                         "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
                         "BOT_EXECUTION_LOOP_ENABLED" to "true",
+                        "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE" to "true",
                         "BOT_EXECUTION_MAX_NOTIONAL" to "100",
                         "BYBIT_API_KEY" to "test-key",
                         "BYBIT_API_SECRET" to "test-secret",

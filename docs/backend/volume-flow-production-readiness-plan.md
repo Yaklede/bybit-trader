@@ -2,17 +2,19 @@
 
 ## Goal
 
-Turn the aggressive BTCUSDT volume-flow strategy into an on-prem operated bot
-that can be monitored and controlled through the private API behind Twingate.
+Turn a replay-validated BTCUSDT strategy into an on-prem operated bot that can
+be monitored and controlled through the private API behind Twingate.
 
-The active strategy direction is aggressive compounding. Drawdown reduction is
-tracked separately in
-[volume-flow-aggressive-risk-register.md](volume-flow-aggressive-risk-register.md)
-and is not the current blocking goal.
+The previous aggressive profile is retained only for audit. It is not an
+automatic-live candidate because its sealed runtime replay fails the return and
+drawdown gates.
 
 ## Current Baseline
 
-- The high-growth profile is `absa_final_us_v1`.
+- The runtime profile is `absa_final_us_v1`, marked `UNVERIFIED`.
+- The 40-window runtime audit recorded 0/40 passes, a -0.38433% mean CDR, and
+  31/39 replay windows above 40% MDD. See
+  [derivatives-flow-research-2026-07-10.md](derivatives-flow-research-2026-07-10.md).
 - The profile is now represented in Kotlin by
   `VolumeFlowAggressiveBacktestService`.
 - Operators can run the current aggressive profile through:
@@ -24,8 +26,8 @@ and is not the current blocking goal.
   before startup.
 - Bybit V5 private execution client is implemented for linear futures order
   create, cancel, open-order query, position query, and execution query.
-- `POST /execution/evaluate-and-submit` can submit the aggressive strategy to
-  private Bybit execution when `BOT_PRIVATE_EXECUTION_ENABLED=true`.
+- `POST /execution/evaluate-and-submit` can submit a manual private Bybit
+  execution smoke order when `BOT_PRIVATE_EXECUTION_ENABLED=true`.
 - `POST /execution/reconcile` reports open orders, positions, and recent fills.
 
 ## Milestones
@@ -108,6 +110,9 @@ strategy and execution path are consistent.
 Acceptance criteria:
 
 - Live mode requires explicit `BOT_MODE=LIVE` and private credentials.
+- Automatic execution of the current unverified profile requires the separate
+  `BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true` override and is blocked by
+  default.
 - Startup sends a live-mode warning alert.
 - Reconciliation passes before trading starts.
 - Initial notional/risk caps are configured separately from research sizing.
@@ -135,6 +140,6 @@ live credentials are provided.
 ## Next Engineering Step
 
 Run Docker preflight with real operator, alert, Twingate, SSH, and Bybit live
-tokens. Start live with `BOT_EXECUTION_LOOP_ENABLED=false` and a small
-`BOT_EXECUTION_MAX_NOTIONAL`, submit one manual order, reconcile, then enable
-the loop.
+tokens. Keep `BOT_EXECUTION_LOOP_ENABLED=false`, submit one manual order, and
+reconcile it. Do not enable the loop for `absa_final_us_v1`; first replace it
+with a profile that passes the runtime replay and validation gates.
