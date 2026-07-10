@@ -11,6 +11,7 @@ const DEFAULT_HORIZONS_M5 = [1, 3, 12];
 const DEFAULT_ROUND_TRIP_COST_BPS = 12;
 const DEFAULT_MIN_SAMPLES = 30;
 const ORDER_BOOK_DIRECTION_THRESHOLD = 0.1;
+const TAKER_FLOW_DIRECTION_THRESHOLD = 0.1;
 const LIQUIDATION_DOMINANCE_THRESHOLD = 0.5;
 const FIVE_MINUTES_MILLIS = 5 * 60_000;
 const ONE_MINUTE_MILLIS = 60_000;
@@ -83,6 +84,20 @@ export function liquidationBand(longNotional, shortNotional) {
   return "MIXED";
 }
 
+export function takerFlowDirection(buyNotional, sellNotional) {
+  const buyValue = Number(buyNotional);
+  const sellValue = Number(sellNotional);
+  if (!Number.isFinite(buyValue) || !Number.isFinite(sellValue) || buyValue < 0 || sellValue < 0) {
+    return "UNAVAILABLE";
+  }
+  const total = buyValue + sellValue;
+  if (total === 0) return "NEUTRAL";
+  const imbalance = (buyValue - sellValue) / total;
+  if (imbalance >= TAKER_FLOW_DIRECTION_THRESHOLD) return "BUY";
+  if (imbalance <= -TAKER_FLOW_DIRECTION_THRESHOLD) return "SELL";
+  return "NEUTRAL";
+}
+
 export function aggregateOrderBookBuckets(rows) {
   const buckets = new Map();
   for (const row of rows) {
@@ -123,17 +138,74 @@ export function aggregateOrderBookBuckets(rows) {
     .sort((left, right) => left.openedAt.localeCompare(right.openedAt));
 }
 
+export function aggregateTakerFlowBuckets(rows) {
+  const buckets = new Map();
+  for (const row of rows) {
+    const openedAtMillis = new Date(row.opened_at).getTime();
+    const buyNotional = Number(row.taker_buy_notional);
+    const sellNotional = Number(row.taker_sell_notional);
+    const buyTradeCount = Number(row.buy_trade_count);
+    const sellTradeCount = Number(row.sell_trade_count);
+    if (
+      !Number.isFinite(openedAtMillis) ||
+      !Number.isFinite(buyNotional) ||
+      !Number.isFinite(sellNotional) ||
+      buyNotional < 0 ||
+      sellNotional < 0 ||
+      !Number.isInteger(buyTradeCount) ||
+      !Number.isInteger(sellTradeCount) ||
+      buyTradeCount < 0 ||
+      sellTradeCount < 0
+    ) {
+      continue;
+    }
+    const bucketMillis = Math.floor(openedAtMillis / FIVE_MINUTES_MILLIS) * FIVE_MINUTES_MILLIS;
+    const bucket =
+      buckets.get(bucketMillis) ?? {
+        openedAt: isoInstant(new Date(bucketMillis)),
+        minuteStarts: new Set(),
+        buyNotional: 0,
+        sellNotional: 0,
+        buyTradeCount: 0,
+        sellTradeCount: 0,
+      };
+    bucket.minuteStarts.add(openedAtMillis);
+    bucket.buyNotional += buyNotional;
+    bucket.sellNotional += sellNotional;
+    bucket.buyTradeCount += buyTradeCount;
+    bucket.sellTradeCount += sellTradeCount;
+    buckets.set(bucketMillis, bucket);
+  }
+
+  return [...buckets.values()]
+    .map((bucket) => {
+      const bucketMillis = new Date(bucket.openedAt).getTime();
+      return {
+        ...bucket,
+        complete: [0, 1, 2, 3, 4].every((offset) => bucket.minuteStarts.has(bucketMillis + offset * ONE_MINUTE_MILLIS)),
+      };
+    })
+    .sort((left, right) => left.openedAt.localeCompare(right.openedAt));
+}
+
 export function buildDiagnosticReport(options, loaded) {
   const costPct = options.roundTripCostBps / 100;
   const horizons = options.horizonsM5.map((horizonM5) => ({
     horizonM5,
     bookOnly: summarizeGroups(loaded.records, horizonM5, costPct, options.minSamples, (record) => `book=${record.direction}`),
-    bookAndLiquidation: summarizeGroups(
+    bookAndTaker: summarizeGroups(
       loaded.records,
       horizonM5,
       costPct,
       options.minSamples,
-      (record) => `book=${record.direction}|liquidation=${record.liquidationBand}`,
+      (record) => `book=${record.direction}|taker=${record.takerDirection}`,
+    ),
+    bookTakerAndLiquidation: summarizeGroups(
+      loaded.records,
+      horizonM5,
+      costPct,
+      options.minSamples,
+      (record) => `book=${record.direction}|taker=${record.takerDirection}|liquidation=${record.liquidationBand}`,
     ),
   }));
 
@@ -146,8 +218,11 @@ export function buildDiagnosticReport(options, loaded) {
       roundTripCostBps: options.roundTripCostBps,
       minimumSamples: options.minSamples,
       orderBookDirectionThreshold: ORDER_BOOK_DIRECTION_THRESHOLD,
+      takerFlowDirectionThreshold: TAKER_FLOW_DIRECTION_THRESHOLD,
       liquidationDominanceThreshold: LIQUIDATION_DOMINANCE_THRESHOLD,
-      causalEntryRule: "Aggregate a complete five-minute capture bucket, then enter at the next M5 candle open.",
+      causalEntryRule:
+        "Aggregate complete five-minute order-book and taker-flow capture buckets, then enter at the next M5 candle open.",
+      returnOrientation: "Returns are oriented by the order-book direction. Taker direction is a fixed conditioning dimension only.",
       interpretation: "Descriptive forward-data analysis only. It is not a strategy backtest, an execution decision, or a profitability claim.",
     },
     coverage: loaded.coverage,
@@ -172,6 +247,12 @@ export function loadRecords(db, options) {
     WHERE symbol = ? AND opened_at >= ? AND opened_at <= ?
     ORDER BY opened_at
   `).all(options.symbol, options.start, options.end);
+  const takerFlowRows = db.prepare(`
+    SELECT opened_at, taker_buy_notional, taker_sell_notional, buy_trade_count, sell_trade_count
+    FROM takerFlowBars
+    WHERE symbol = ? AND opened_at >= ? AND opened_at <= ?
+    ORDER BY opened_at
+  `).all(options.symbol, options.start, options.end);
   const candles = db.prepare(`
     SELECT opened_at, open, close
     FROM marketCandles
@@ -180,15 +261,22 @@ export function loadRecords(db, options) {
   `).all(options.symbol, isoInstant(startAt), extendedEndAt);
 
   const liquidationByBucket = aggregateLiquidations(liquidationRows);
+  const takerFlowByBucket = new Map(aggregateTakerFlowBuckets(takerFlowRows).map((bucket) => [bucket.openedAt, bucket]));
   const candlesByOpenedAt = new Map(candles.map((candle) => [candle.opened_at, candle]));
   const buckets = aggregateOrderBookBuckets(orderBookRows);
   const coverage = {
     orderBookMinuteBars: orderBookRows.length,
     completeOrderBookM5Buckets: 0,
     incompleteOrderBookM5Buckets: 0,
+    takerFlowMinuteBars: takerFlowRows.length,
+    completeTakerFlowM5Buckets: [...takerFlowByBucket.values()].filter((bucket) => bucket.complete).length,
+    incompleteTakerFlowM5Buckets: [...takerFlowByBucket.values()].filter((bucket) => !bucket.complete).length,
+    completeCommonM5Buckets: 0,
+    skippedIncompleteCommonCapture: 0,
     liquidationsObservedM5Buckets: liquidationByBucket.size,
     usableDirectionalBuckets: 0,
     skippedNeutralOrderBook: 0,
+    neutralTakerFlowBuckets: 0,
     skippedMissingEntryCandle: 0,
     skippedMissingExitCandle: 0,
   };
@@ -200,6 +288,12 @@ export function loadRecords(db, options) {
       continue;
     }
     coverage.completeOrderBookM5Buckets += 1;
+    const takerFlow = takerFlowByBucket.get(bucket.openedAt);
+    if (takerFlow == null || !takerFlow.complete) {
+      coverage.skippedIncompleteCommonCapture += 1;
+      continue;
+    }
+    coverage.completeCommonM5Buckets += 1;
     const direction = orderBookDirection(bucket.meanImbalance);
     if (direction === "NEUTRAL" || direction === "UNAVAILABLE") {
       coverage.skippedNeutralOrderBook += 1;
@@ -226,11 +320,18 @@ export function loadRecords(db, options) {
     if (!completeFuture) coverage.skippedMissingExitCandle += 1;
     coverage.usableDirectionalBuckets += 1;
     const liquidation = liquidationByBucket.get(bucket.openedAt) ?? { longNotional: 0, shortNotional: 0 };
+    const takerDirection = takerFlowDirection(takerFlow.buyNotional, takerFlow.sellNotional);
+    if (takerDirection === "NEUTRAL") coverage.neutralTakerFlowBuckets += 1;
     records.push({
       openedAt: bucket.openedAt,
       direction,
       meanImbalance: bucket.meanImbalance,
       meanSpreadBps: bucket.meanSpreadBps,
+      takerDirection,
+      takerBuyNotional: takerFlow.buyNotional,
+      takerSellNotional: takerFlow.sellNotional,
+      takerBuyTradeCount: takerFlow.buyTradeCount,
+      takerSellTradeCount: takerFlow.sellTradeCount,
       liquidationBand: liquidationBand(liquidation.longNotional, liquidation.shortNotional),
       returnsByHorizon,
     });

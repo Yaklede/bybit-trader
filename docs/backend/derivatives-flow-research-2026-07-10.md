@@ -436,10 +436,12 @@ were available after their minute closed, and keep a final untouched time
 segment for evaluation.
 
 Use the forward-data diagnostic only after selecting a completed observation
-window. It aggregates five completed M1 order-book bars, enters at the next M5
-open, and reports descriptive after-cost outcomes by fixed order-book and
-liquidation bands. It does not submit orders, choose thresholds from the
-observed data, or declare a strategy pass:
+window. It requires all five M1 order-book and taker-flow bars in each M5
+bucket, enters at the next M5 open, and reports descriptive after-cost outcomes
+by fixed order-book, taker-flow, and liquidation bands. Returns remain oriented
+by the order-book direction; taker flow is a conditioning dimension, not a
+retuned signal. It does not submit orders, choose thresholds from the observed
+data, or declare a strategy pass:
 
 ```bash
 node --test scripts/bybit-forward-capture-diagnostics.test.mjs
