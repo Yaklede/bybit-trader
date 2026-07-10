@@ -76,6 +76,58 @@ private fun Connection.hasColumn(
 private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
     listOf(
         """
+        CREATE TABLE IF NOT EXISTS takerFlowBars (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          opened_at TEXT NOT NULL,
+          taker_buy_base TEXT NOT NULL,
+          taker_buy_notional TEXT NOT NULL,
+          taker_sell_base TEXT NOT NULL,
+          taker_sell_notional TEXT NOT NULL,
+          buy_trade_count INTEGER NOT NULL,
+          sell_trade_count INTEGER NOT NULL
+        )
+        """.trimIndent(),
+        "CREATE UNIQUE INDEX IF NOT EXISTS takerFlowBars_symbol_openedAt_idx ON takerFlowBars(symbol, opened_at)",
+        """
+        CREATE TABLE IF NOT EXISTS openInterestSnapshots (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          interval TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          open_interest TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS openInterestSnapshots_symbol_interval_timestamp_idx
+        ON openInterestSnapshots(symbol, interval, timestamp)
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS premiumIndexBars (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          timeframe TEXT NOT NULL,
+          opened_at TEXT NOT NULL,
+          open TEXT NOT NULL,
+          high TEXT NOT NULL,
+          low TEXT NOT NULL,
+          close TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS premiumIndexBars_symbol_timeframe_openedAt_idx
+        ON premiumIndexBars(symbol, timeframe, opened_at)
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS fundingRates (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          funding_rate TEXT NOT NULL
+        )
+        """.trimIndent(),
+        "CREATE UNIQUE INDEX IF NOT EXISTS fundingRates_symbol_timestamp_idx ON fundingRates(symbol, timestamp)",
+        """
         CREATE TABLE IF NOT EXISTS marketSyncCheckpoints (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           symbol TEXT NOT NULL,

@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.exchange.bybit
 
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -239,6 +240,238 @@ class BybitMarketDataClientTest :
             ticker.fundingRate shouldBe BigDecimal("0.0001")
             ticker.nextFundingTime shouldBe Instant.ofEpochMilli(1719752400000)
             ticker.capturedAt shouldBe Instant.ofEpochMilli(1719749900000)
+        }
+
+        "fetchOpenInterestSnapshots paginates and normalizes reversed provider results" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/market/open-interest"
+                    request.url.parameters["category"] shouldBe "linear"
+                    request.url.parameters["symbol"] shouldBe "BTCUSDT"
+                    request.url.parameters["intervalTime"] shouldBe "5min"
+                    request.url.parameters["limit"] shouldBe "2"
+                    requestCount += 1
+                    when (requestCount) {
+                        1 -> {
+                            request.url.parameters["cursor"] shouldBe null
+                            respond(
+                                content =
+                                    """
+                                    {
+                                      "retCode": 0,
+                                      "retMsg": "OK",
+                                      "result": {
+                                        "symbol": "BTCUSDT",
+                                        "category": "linear",
+                                        "list": [
+                                          {"openInterest": "12", "timestamp": "1719749400000"},
+                                          {"openInterest": "11", "timestamp": "1719749100000"}
+                                        ],
+                                        "nextPageCursor": "page-2"
+                                      }
+                                    }
+                                    """.trimIndent(),
+                                status = HttpStatusCode.OK,
+                                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                            )
+                        }
+                        else -> {
+                            request.url.parameters["cursor"] shouldBe "page-2"
+                            respond(
+                                content =
+                                    """
+                                    {
+                                      "retCode": 0,
+                                      "retMsg": "OK",
+                                      "result": {
+                                        "symbol": "BTCUSDT",
+                                        "category": "linear",
+                                        "list": [
+                                          {"openInterest": "10", "timestamp": "1719748800000"}
+                                        ],
+                                        "nextPageCursor": ""
+                                      }
+                                    }
+                                    """.trimIndent(),
+                                status = HttpStatusCode.OK,
+                                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                            )
+                        }
+                    }
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val snapshots =
+                client.fetchOpenInterestSnapshots(
+                    symbol = Symbol("BTCUSDT"),
+                    interval = OpenInterestInterval.M5,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749400000),
+                    limit = 2,
+                )
+
+            snapshots.map { it.timestamp }.shouldContainExactly(
+                listOf(
+                    Instant.ofEpochMilli(1719748800000),
+                    Instant.ofEpochMilli(1719749100000),
+                    Instant.ofEpochMilli(1719749400000),
+                ),
+            )
+            snapshots.first().openInterest shouldBe BigDecimal("10")
+            requestCount shouldBe 2
+        }
+
+        "fetchPremiumIndexBars normalizes reverse-sorted Bybit rows" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/market/premium-index-price-kline"
+                    request.url.parameters["interval"] shouldBe "15"
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "symbol": "BTCUSDT",
+                                "category": "linear",
+                                "list": [
+                                  ["1719749700000", "0.2", "0.3", "0.1", "0.25"],
+                                  ["1719748800000", "0.1", "0.2", "0.0", "0.15"]
+                                ]
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            val bars =
+                client.fetchPremiumIndexBars(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M15,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749700000),
+                    limit = 2,
+                )
+
+            bars.map { it.openedAt }.shouldContainExactly(
+                listOf(
+                    Instant.ofEpochMilli(1719748800000),
+                    Instant.ofEpochMilli(1719749700000),
+                ),
+            )
+            bars.first().close shouldBe BigDecimal("0.15")
+        }
+
+        "fetchOpenInterestSnapshots rejects a repeated pagination cursor" {
+            val engine =
+                MockEngine {
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "symbol": "BTCUSDT",
+                                "category": "linear",
+                                "list": [{"openInterest": "12", "timestamp": "1719749400000"}],
+                                "nextPageCursor": "stuck"
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            shouldThrow<BybitMarketDataException> {
+                client.fetchOpenInterestSnapshots(
+                    symbol = Symbol("BTCUSDT"),
+                    interval = OpenInterestInterval.M5,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749400000),
+                    limit = 1,
+                )
+            }
+        }
+
+        "fetchFundingRateSnapshots fails on Bybit retCode error" {
+            val engine =
+                MockEngine {
+                    respond(
+                        content = """{"retCode":10006,"retMsg":"rate limit"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            shouldThrow<BybitMarketDataException> {
+                client.fetchFundingRateSnapshots(
+                    symbol = Symbol("BTCUSDT"),
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719749700000),
+                )
+            }
+        }
+
+        "archive CSV parser aggregates taker side flow by minute boundary" {
+            val bars =
+                BybitTakerFlowArchiveParser.parse(
+                    lines =
+                        sequenceOf(
+                            "timestamp,symbol,side,size,price",
+                            "1719748859.999,BTCUSDT,Buy,0.10,60000",
+                            "1719748860.000,BTCUSDT,Sell,0.20,60010",
+                            "1719748861.250,BTCUSDT,Buy,0.05,60020",
+                        ),
+                    symbol = Symbol("BTCUSDT"),
+                )
+
+            bars.map { it.openedAt }.shouldContainExactly(
+                listOf(
+                    Instant.ofEpochMilli(1719748800000),
+                    Instant.ofEpochMilli(1719748860000),
+                ),
+            )
+            bars.first().takerBuyBase shouldBe BigDecimal("0.10")
+            bars.first().buyTradeCount shouldBe 1
+            bars.last().takerSellBase shouldBe BigDecimal("0.20")
+            bars.last().takerSellNotional shouldBe BigDecimal("12002.00")
+            bars.last().buyTradeCount shouldBe 1
+        }
+
+        "archive CSV parser rejects malformed rows by default and can skip them" {
+            val lines =
+                sequenceOf(
+                    "timestamp,symbol,side,size,price",
+                    "1719748800000,BTCUSDT,Buy,0.10,60000",
+                    "bad-timestamp,BTCUSDT,Sell,0.20,60010",
+                )
+
+            shouldThrow<BybitMarketDataException> {
+                BybitTakerFlowArchiveParser.parse(lines = lines, symbol = Symbol("BTCUSDT"))
+            }
+
+            val skipped =
+                BybitTakerFlowArchiveParser.parse(
+                    lines =
+                        sequenceOf(
+                            "timestamp,symbol,side,size,price",
+                            "1719748800000,BTCUSDT,Buy,0.10,60000",
+                            "bad-timestamp,BTCUSDT,Sell,0.20,60010",
+                        ),
+                    symbol = Symbol("BTCUSDT"),
+                    malformedRowPolicy = MalformedArchiveRowPolicy.SKIP,
+                )
+
+            skipped.single().takerBuyNotional shouldBe BigDecimal("6000.00")
         }
     })
 

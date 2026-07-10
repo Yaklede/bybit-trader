@@ -25,6 +25,12 @@ import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpointStore
 import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
+import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
+import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
@@ -36,11 +42,19 @@ import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LivePerformanceSnapshots
 import dev.yaklede.bybittrader.ledger.db.PerformanceSnapshots
+import dev.yaklede.bybittrader.ledger.db.SelectFundingRateSnapshotsBefore
+import dev.yaklede.bybittrader.ledger.db.SelectFundingRateSnapshotsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBefore
 import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBetween
 import dev.yaklede.bybittrader.ledger.db.SelectMarketSyncCheckpoints
+import dev.yaklede.bybittrader.ledger.db.SelectOpenInterestSnapshotsBefore
+import dev.yaklede.bybittrader.ledger.db.SelectOpenInterestSnapshotsBetween
+import dev.yaklede.bybittrader.ledger.db.SelectPremiumIndexBarsBefore
+import dev.yaklede.bybittrader.ledger.db.SelectPremiumIndexBarsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectRecentMarketCandles
 import dev.yaklede.bybittrader.ledger.db.SelectRecentTrades
+import dev.yaklede.bybittrader.ledger.db.SelectTakerFlowBarsBefore
+import dev.yaklede.bybittrader.ledger.db.SelectTakerFlowBarsBetween
 import dev.yaklede.bybittrader.ledger.db.Signals
 import java.math.BigDecimal
 import java.time.Clock
@@ -55,6 +69,7 @@ class SqlDelightLedger(
     AlertDeliveryRecorder,
     MarketCandleStore,
     MarketSyncCheckpointStore,
+    FlowMarketDataStore,
     ExecutionProjectionStore,
     PaperTradingStore {
     override suspend fun current(): BotRuntimeStatus {
@@ -191,6 +206,200 @@ class SqlDelightLedger(
                 limit = limit.toLong(),
             ).executeAsList()
             .map(SelectMarketCandlesBefore::toCandle)
+    }
+
+    override suspend fun upsertTakerFlowBars(bars: List<TakerFlowBar>) {
+        database.ledgerQueries.transaction {
+            bars.forEach { bar ->
+                database.ledgerQueries.upsertTakerFlowBar(
+                    symbol = bar.symbol.value,
+                    opened_at = bar.openedAt.toString(),
+                    taker_buy_base = bar.takerBuyBase.toPlainString(),
+                    taker_buy_notional = bar.takerBuyNotional.toPlainString(),
+                    taker_sell_base = bar.takerSellBase.toPlainString(),
+                    taker_sell_notional = bar.takerSellNotional.toPlainString(),
+                    buy_trade_count = bar.buyTradeCount.toLong(),
+                    sell_trade_count = bar.sellTradeCount.toLong(),
+                )
+            }
+        }
+    }
+
+    override suspend fun takerFlowBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<TakerFlowBar> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectTakerFlowBarsBetween(
+                symbol = symbol.value,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectTakerFlowBarsBetween::toTakerFlowBar)
+    }
+
+    override suspend fun takerFlowBarsBefore(
+        symbol: Symbol,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<TakerFlowBar> {
+        validateFlowLimit(limit)
+        return database.ledgerQueries
+            .selectTakerFlowBarsBefore(
+                symbol = symbol.value,
+                beforeAt = beforeAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectTakerFlowBarsBefore::toTakerFlowBar)
+    }
+
+    override suspend fun upsertOpenInterestSnapshots(snapshots: List<OpenInterestSnapshot>) {
+        database.ledgerQueries.transaction {
+            snapshots.forEach { snapshot ->
+                database.ledgerQueries.upsertOpenInterestSnapshot(
+                    symbol = snapshot.symbol.value,
+                    interval = snapshot.interval.name,
+                    timestamp = snapshot.timestamp.toString(),
+                    open_interest = snapshot.openInterest.toPlainString(),
+                )
+            }
+        }
+    }
+
+    override suspend fun openInterestSnapshotsBetween(
+        symbol: Symbol,
+        interval: OpenInterestInterval,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<OpenInterestSnapshot> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectOpenInterestSnapshotsBetween(
+                symbol = symbol.value,
+                interval = interval.name,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectOpenInterestSnapshotsBetween::toOpenInterestSnapshot)
+    }
+
+    override suspend fun openInterestSnapshotsBefore(
+        symbol: Symbol,
+        interval: OpenInterestInterval,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<OpenInterestSnapshot> {
+        validateFlowLimit(limit)
+        return database.ledgerQueries
+            .selectOpenInterestSnapshotsBefore(
+                symbol = symbol.value,
+                interval = interval.name,
+                beforeAt = beforeAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectOpenInterestSnapshotsBefore::toOpenInterestSnapshot)
+    }
+
+    override suspend fun upsertPremiumIndexBars(bars: List<PremiumIndexBar>) {
+        database.ledgerQueries.transaction {
+            bars.forEach { bar ->
+                database.ledgerQueries.upsertPremiumIndexBar(
+                    symbol = bar.symbol.value,
+                    timeframe = bar.timeframe.name,
+                    opened_at = bar.openedAt.toString(),
+                    open = bar.open.toPlainString(),
+                    high = bar.high.toPlainString(),
+                    low = bar.low.toPlainString(),
+                    close = bar.close.toPlainString(),
+                )
+            }
+        }
+    }
+
+    override suspend fun premiumIndexBarsBetween(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<PremiumIndexBar> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectPremiumIndexBarsBetween(
+                symbol = symbol.value,
+                timeframe = timeframe.name,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectPremiumIndexBarsBetween::toPremiumIndexBar)
+    }
+
+    override suspend fun premiumIndexBarsBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<PremiumIndexBar> {
+        validateFlowLimit(limit)
+        return database.ledgerQueries
+            .selectPremiumIndexBarsBefore(
+                symbol = symbol.value,
+                timeframe = timeframe.name,
+                beforeAt = beforeAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectPremiumIndexBarsBefore::toPremiumIndexBar)
+    }
+
+    override suspend fun upsertFundingRateSnapshots(snapshots: List<FundingRateSnapshot>) {
+        database.ledgerQueries.transaction {
+            snapshots.forEach { snapshot ->
+                database.ledgerQueries.upsertFundingRateSnapshot(
+                    symbol = snapshot.symbol.value,
+                    timestamp = snapshot.timestamp.toString(),
+                    funding_rate = snapshot.fundingRate.toPlainString(),
+                )
+            }
+        }
+    }
+
+    override suspend fun fundingRateSnapshotsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<FundingRateSnapshot> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectFundingRateSnapshotsBetween(
+                symbol = symbol.value,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectFundingRateSnapshotsBetween::toFundingRateSnapshot)
+    }
+
+    override suspend fun fundingRateSnapshotsBefore(
+        symbol: Symbol,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<FundingRateSnapshot> {
+        validateFlowLimit(limit)
+        return database.ledgerQueries
+            .selectFundingRateSnapshotsBefore(
+                symbol = symbol.value,
+                beforeAt = beforeAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectFundingRateSnapshotsBefore::toFundingRateSnapshot)
     }
 
     override suspend fun recordSignal(signal: PaperSignalRecord): Long {
@@ -503,6 +712,82 @@ private fun SelectMarketCandlesBefore.toCandle(): Candle =
         volume = BigDecimal(volume),
     )
 
+private fun SelectTakerFlowBarsBetween.toTakerFlowBar(): TakerFlowBar =
+    TakerFlowBar(
+        symbol = Symbol(symbol),
+        openedAt = Instant.parse(opened_at),
+        takerBuyBase = BigDecimal(taker_buy_base),
+        takerBuyNotional = BigDecimal(taker_buy_notional),
+        takerSellBase = BigDecimal(taker_sell_base),
+        takerSellNotional = BigDecimal(taker_sell_notional),
+        buyTradeCount = buy_trade_count.toInt(),
+        sellTradeCount = sell_trade_count.toInt(),
+    )
+
+private fun SelectTakerFlowBarsBefore.toTakerFlowBar(): TakerFlowBar =
+    TakerFlowBar(
+        symbol = Symbol(symbol),
+        openedAt = Instant.parse(opened_at),
+        takerBuyBase = BigDecimal(taker_buy_base),
+        takerBuyNotional = BigDecimal(taker_buy_notional),
+        takerSellBase = BigDecimal(taker_sell_base),
+        takerSellNotional = BigDecimal(taker_sell_notional),
+        buyTradeCount = buy_trade_count.toInt(),
+        sellTradeCount = sell_trade_count.toInt(),
+    )
+
+private fun SelectOpenInterestSnapshotsBetween.toOpenInterestSnapshot(): OpenInterestSnapshot =
+    OpenInterestSnapshot(
+        symbol = Symbol(symbol),
+        interval = OpenInterestInterval.valueOf(interval),
+        timestamp = Instant.parse(timestamp),
+        openInterest = BigDecimal(open_interest),
+    )
+
+private fun SelectOpenInterestSnapshotsBefore.toOpenInterestSnapshot(): OpenInterestSnapshot =
+    OpenInterestSnapshot(
+        symbol = Symbol(symbol),
+        interval = OpenInterestInterval.valueOf(interval),
+        timestamp = Instant.parse(timestamp),
+        openInterest = BigDecimal(open_interest),
+    )
+
+private fun SelectPremiumIndexBarsBetween.toPremiumIndexBar(): PremiumIndexBar =
+    PremiumIndexBar(
+        symbol = Symbol(symbol),
+        timeframe = Timeframe.valueOf(timeframe),
+        openedAt = Instant.parse(opened_at),
+        open = BigDecimal(open_),
+        high = BigDecimal(high),
+        low = BigDecimal(low),
+        close = BigDecimal(close),
+    )
+
+private fun SelectPremiumIndexBarsBefore.toPremiumIndexBar(): PremiumIndexBar =
+    PremiumIndexBar(
+        symbol = Symbol(symbol),
+        timeframe = Timeframe.valueOf(timeframe),
+        openedAt = Instant.parse(opened_at),
+        open = BigDecimal(open_),
+        high = BigDecimal(high),
+        low = BigDecimal(low),
+        close = BigDecimal(close),
+    )
+
+private fun SelectFundingRateSnapshotsBetween.toFundingRateSnapshot(): FundingRateSnapshot =
+    FundingRateSnapshot(
+        symbol = Symbol(symbol),
+        timestamp = Instant.parse(timestamp),
+        fundingRate = BigDecimal(funding_rate),
+    )
+
+private fun SelectFundingRateSnapshotsBefore.toFundingRateSnapshot(): FundingRateSnapshot =
+    FundingRateSnapshot(
+        symbol = Symbol(symbol),
+        timestamp = Instant.parse(timestamp),
+        fundingRate = BigDecimal(funding_rate),
+    )
+
 private fun PerformanceSnapshots.toPaperPerformanceSnapshot(): PaperPerformanceSnapshot =
     PaperPerformanceSnapshot(
         id = id,
@@ -596,3 +881,18 @@ private fun String.splitReasons(): List<String> =
     split(REASON_SEPARATOR)
         .map(String::trim)
         .filter(String::isNotEmpty)
+
+private fun validateFlowQueryBounds(
+    startAt: Instant,
+    endAt: Instant,
+    limit: Int,
+) {
+    validateFlowLimit(limit)
+    require(!endAt.isBefore(startAt)) { "End timestamp must be greater than or equal to start timestamp." }
+}
+
+private fun validateFlowLimit(limit: Int) {
+    require(limit in 1..FLOW_QUERY_LIMIT) { "Flow query limit must be between 1 and $FLOW_QUERY_LIMIT." }
+}
+
+private const val FLOW_QUERY_LIMIT = 10_000

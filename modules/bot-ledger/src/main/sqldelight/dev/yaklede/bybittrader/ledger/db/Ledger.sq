@@ -21,6 +21,56 @@ CREATE TABLE marketCandles (
 CREATE UNIQUE INDEX marketCandles_symbol_timeframe_openedAt_idx
 ON marketCandles(symbol, timeframe, opened_at);
 
+CREATE TABLE takerFlowBars (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  taker_buy_base TEXT NOT NULL,
+  taker_buy_notional TEXT NOT NULL,
+  taker_sell_base TEXT NOT NULL,
+  taker_sell_notional TEXT NOT NULL,
+  buy_trade_count INTEGER NOT NULL,
+  sell_trade_count INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX takerFlowBars_symbol_openedAt_idx
+ON takerFlowBars(symbol, opened_at);
+
+CREATE TABLE openInterestSnapshots (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  interval TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  open_interest TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX openInterestSnapshots_symbol_interval_timestamp_idx
+ON openInterestSnapshots(symbol, interval, timestamp);
+
+CREATE TABLE premiumIndexBars (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  open TEXT NOT NULL,
+  high TEXT NOT NULL,
+  low TEXT NOT NULL,
+  close TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX premiumIndexBars_symbol_timeframe_openedAt_idx
+ON premiumIndexBars(symbol, timeframe, opened_at);
+
+CREATE TABLE fundingRates (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  funding_rate TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX fundingRates_symbol_timestamp_idx
+ON fundingRates(symbol, timestamp);
+
 CREATE TABLE signals (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   strategy TEXT NOT NULL,
@@ -345,6 +395,156 @@ WHERE symbol = :symbol
   AND timeframe = :timeframe
   AND opened_at < :beforeAt
 ORDER BY opened_at DESC
+LIMIT :limit;
+
+upsertTakerFlowBar:
+INSERT OR REPLACE INTO takerFlowBars(
+  id,
+  symbol,
+  opened_at,
+  taker_buy_base,
+  taker_buy_notional,
+  taker_sell_base,
+  taker_sell_notional,
+  buy_trade_count,
+  sell_trade_count
+)
+VALUES (
+  (SELECT id FROM takerFlowBars WHERE symbol = :symbol AND opened_at = :opened_at),
+  :symbol,
+  :opened_at,
+  :taker_buy_base,
+  :taker_buy_notional,
+  :taker_sell_base,
+  :taker_sell_notional,
+  :buy_trade_count,
+  :sell_trade_count
+);
+
+selectTakerFlowBarsBetween:
+SELECT symbol, opened_at, taker_buy_base, taker_buy_notional, taker_sell_base, taker_sell_notional,
+  buy_trade_count, sell_trade_count
+FROM takerFlowBars
+WHERE symbol = :symbol
+  AND opened_at >= :startAt
+  AND opened_at <= :endAt
+ORDER BY opened_at ASC
+LIMIT :limit;
+
+selectTakerFlowBarsBefore:
+SELECT symbol, opened_at, taker_buy_base, taker_buy_notional, taker_sell_base, taker_sell_notional,
+  buy_trade_count, sell_trade_count
+FROM takerFlowBars
+WHERE symbol = :symbol
+  AND opened_at < :beforeAt
+ORDER BY opened_at DESC
+LIMIT :limit;
+
+upsertOpenInterestSnapshot:
+INSERT OR REPLACE INTO openInterestSnapshots(
+  id,
+  symbol,
+  interval,
+  timestamp,
+  open_interest
+)
+VALUES (
+  (SELECT id FROM openInterestSnapshots WHERE symbol = :symbol AND interval = :interval AND timestamp = :timestamp),
+  :symbol,
+  :interval,
+  :timestamp,
+  :open_interest
+);
+
+selectOpenInterestSnapshotsBetween:
+SELECT symbol, interval, timestamp, open_interest
+FROM openInterestSnapshots
+WHERE symbol = :symbol
+  AND interval = :interval
+  AND timestamp >= :startAt
+  AND timestamp <= :endAt
+ORDER BY timestamp ASC
+LIMIT :limit;
+
+selectOpenInterestSnapshotsBefore:
+SELECT symbol, interval, timestamp, open_interest
+FROM openInterestSnapshots
+WHERE symbol = :symbol
+  AND interval = :interval
+  AND timestamp < :beforeAt
+ORDER BY timestamp DESC
+LIMIT :limit;
+
+upsertPremiumIndexBar:
+INSERT OR REPLACE INTO premiumIndexBars(
+  id,
+  symbol,
+  timeframe,
+  opened_at,
+  open,
+  high,
+  low,
+  close
+)
+VALUES (
+  (SELECT id FROM premiumIndexBars WHERE symbol = :symbol AND timeframe = :timeframe AND opened_at = :opened_at),
+  :symbol,
+  :timeframe,
+  :opened_at,
+  :open,
+  :high,
+  :low,
+  :close
+);
+
+selectPremiumIndexBarsBetween:
+SELECT symbol, timeframe, opened_at, open, high, low, close
+FROM premiumIndexBars
+WHERE symbol = :symbol
+  AND timeframe = :timeframe
+  AND opened_at >= :startAt
+  AND opened_at <= :endAt
+ORDER BY opened_at ASC
+LIMIT :limit;
+
+selectPremiumIndexBarsBefore:
+SELECT symbol, timeframe, opened_at, open, high, low, close
+FROM premiumIndexBars
+WHERE symbol = :symbol
+  AND timeframe = :timeframe
+  AND opened_at < :beforeAt
+ORDER BY opened_at DESC
+LIMIT :limit;
+
+upsertFundingRateSnapshot:
+INSERT OR REPLACE INTO fundingRates(
+  id,
+  symbol,
+  timestamp,
+  funding_rate
+)
+VALUES (
+  (SELECT id FROM fundingRates WHERE symbol = :symbol AND timestamp = :timestamp),
+  :symbol,
+  :timestamp,
+  :funding_rate
+);
+
+selectFundingRateSnapshotsBetween:
+SELECT symbol, timestamp, funding_rate
+FROM fundingRates
+WHERE symbol = :symbol
+  AND timestamp >= :startAt
+  AND timestamp <= :endAt
+ORDER BY timestamp ASC
+LIMIT :limit;
+
+selectFundingRateSnapshotsBefore:
+SELECT symbol, timestamp, funding_rate
+FROM fundingRates
+WHERE symbol = :symbol
+  AND timestamp < :beforeAt
+ORDER BY timestamp DESC
 LIMIT :limit;
 
 upsertMarketSyncCheckpoint:

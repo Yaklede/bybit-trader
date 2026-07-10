@@ -19,6 +19,11 @@ import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
 import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
+import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
+import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
@@ -155,6 +160,88 @@ class SqlDelightLedgerTest :
                     Instant.parse("2026-06-30T00:05:00Z"),
                     Instant.parse("2026-06-30T00:00:00Z"),
                 )
+        }
+
+        "upserts flow data idempotently and reads bounded point-in-time windows" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val database = createLedgerDatabase(driver)
+            val ledger = SqlDelightLedger(database = database)
+            val symbol = Symbol("BTCUSDT")
+
+            ledger.upsertTakerFlowBars(
+                listOf(
+                    sampleTakerFlowBar(symbol, "2026-06-30T00:00:00Z", buyBase = "1", sellBase = "2"),
+                    sampleTakerFlowBar(symbol, "2026-06-30T00:01:00Z", buyBase = "3", sellBase = "4"),
+                    sampleTakerFlowBar(symbol, "2026-06-30T00:01:00Z", buyBase = "5", sellBase = "6"),
+                    sampleTakerFlowBar(symbol, "2026-06-30T00:02:00Z", buyBase = "7", sellBase = "8"),
+                ),
+            )
+            val betweenFlow =
+                ledger.takerFlowBarsBetween(
+                    symbol = symbol,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:02:00Z"),
+                    limit = 10,
+                )
+            betweenFlow.map { it.openedAt } shouldBe
+                listOf(
+                    Instant.parse("2026-06-30T00:00:00Z"),
+                    Instant.parse("2026-06-30T00:01:00Z"),
+                    Instant.parse("2026-06-30T00:02:00Z"),
+                )
+            betweenFlow[1].takerBuyBase shouldBe BigDecimal("5")
+            betweenFlow[1].availableAt shouldBe Instant.parse("2026-06-30T00:02:00Z")
+            ledger.takerFlowBarsBefore(symbol, Instant.parse("2026-06-30T00:02:00Z"), 2).map { it.openedAt } shouldBe
+                listOf(
+                    Instant.parse("2026-06-30T00:01:00Z"),
+                    Instant.parse("2026-06-30T00:00:00Z"),
+                )
+
+            ledger.upsertOpenInterestSnapshots(
+                listOf(
+                    OpenInterestSnapshot(symbol, OpenInterestInterval.M5, Instant.parse("2026-06-30T00:00:00Z"), BigDecimal("10")),
+                    OpenInterestSnapshot(symbol, OpenInterestInterval.M5, Instant.parse("2026-06-30T00:05:00Z"), BigDecimal("11")),
+                    OpenInterestSnapshot(symbol, OpenInterestInterval.M5, Instant.parse("2026-06-30T00:05:00Z"), BigDecimal("12")),
+                ),
+            )
+            ledger
+                .openInterestSnapshotsBetween(
+                    symbol = symbol,
+                    interval = OpenInterestInterval.M5,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:05:00Z"),
+                    limit = 10,
+                ).map { it.openInterest } shouldBe listOf(BigDecimal("10"), BigDecimal("12"))
+
+            ledger.upsertPremiumIndexBars(
+                listOf(
+                    samplePremiumIndexBar(symbol, "2026-06-30T00:00:00Z", close = "0.01"),
+                    samplePremiumIndexBar(symbol, "2026-06-30T00:15:00Z", close = "0.02"),
+                ),
+            )
+            val premium =
+                ledger.premiumIndexBarsBefore(symbol, Timeframe.M15, Instant.parse("2026-06-30T00:30:00Z"), 1).single()
+            premium.openedAt shouldBe Instant.parse("2026-06-30T00:15:00Z")
+            premium.availableAt shouldBe Instant.parse("2026-06-30T00:30:00Z")
+
+            ledger.upsertFundingRateSnapshots(
+                listOf(
+                    FundingRateSnapshot(symbol, Instant.parse("2026-06-30T00:00:00Z"), BigDecimal("0.0001")),
+                    FundingRateSnapshot(symbol, Instant.parse("2026-06-30T08:00:00Z"), BigDecimal("0.0002")),
+                ),
+            )
+            ledger
+                .fundingRateSnapshotsBetween(
+                    symbol = symbol,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T08:00:00Z"),
+                    limit = 10,
+                ).map { it.fundingRate } shouldBe listOf(BigDecimal("0.0001"), BigDecimal("0.0002"))
+            database.ledgerQueries
+                .selectTakerFlowBarsBetween("BTCUSDT", "2026-06-30T00:00:00Z", "2026-06-30T00:02:00Z", 10)
+                .executeAsList()
+                .size shouldBe 3
         }
 
         "records and reads paper trading audit events" {
@@ -391,6 +478,51 @@ class SqlDelightLedgerTest :
             migratedState.attemptCount shouldBe 0L
             migratedState.lastAttemptAt shouldBe null
         }
+
+        "additive migration creates flow tables on legacy database" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            driver.execute(
+                null,
+                """
+                CREATE TABLE executionTradeClosures (
+                  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                  mode TEXT NOT NULL,
+                  symbol TEXT NOT NULL,
+                  side TEXT NOT NULL,
+                  opened_at TEXT NOT NULL,
+                  closed_at TEXT NOT NULL,
+                  entry_price TEXT NOT NULL,
+                  exit_price TEXT NOT NULL,
+                  quantity TEXT NOT NULL,
+                  gross_pnl TEXT NOT NULL,
+                  fees TEXT NOT NULL,
+                  net_pnl TEXT NOT NULL,
+                  exit_reason TEXT NOT NULL,
+                  exchange_order_id TEXT,
+                  client_order_id TEXT,
+                  identity_key TEXT NOT NULL
+                )
+                """.trimIndent(),
+                0,
+            )
+
+            ensureAdditiveLedgerSchema(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val symbol = Symbol("BTCUSDT")
+
+            ledger.upsertTakerFlowBars(listOf(sampleTakerFlowBar(symbol, "2026-06-30T00:00:00Z", "1", "2")))
+            ledger
+                .takerFlowBarsBetween(
+                    symbol = symbol,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    limit = 1,
+                ).single()
+                .takerSellBase shouldBe BigDecimal("2")
+            tableNames(driver).containsAll(
+                setOf("takerFlowBars", "openInterestSnapshots", "premiumIndexBars", "fundingRates"),
+            ) shouldBe true
+        }
     })
 
 private data class StoredClosureAlertState(
@@ -473,3 +605,52 @@ private fun sampleCandle(
         close = BigDecimal("105"),
         volume = BigDecimal("10.5"),
     )
+
+private fun sampleTakerFlowBar(
+    symbol: Symbol,
+    openedAt: String,
+    buyBase: String,
+    sellBase: String,
+): TakerFlowBar =
+    TakerFlowBar(
+        symbol = symbol,
+        openedAt = Instant.parse(openedAt),
+        takerBuyBase = BigDecimal(buyBase),
+        takerBuyNotional = BigDecimal(buyBase).multiply(BigDecimal("100")),
+        takerSellBase = BigDecimal(sellBase),
+        takerSellNotional = BigDecimal(sellBase).multiply(BigDecimal("100")),
+        buyTradeCount = 1,
+        sellTradeCount = 1,
+    )
+
+private fun samplePremiumIndexBar(
+    symbol: Symbol,
+    openedAt: String,
+    close: String,
+): PremiumIndexBar =
+    PremiumIndexBar(
+        symbol = symbol,
+        timeframe = Timeframe.M15,
+        openedAt = Instant.parse(openedAt),
+        open = BigDecimal.ZERO,
+        high = BigDecimal(close),
+        low = BigDecimal.ZERO,
+        close = BigDecimal(close),
+    )
+
+private fun tableNames(driver: JdbcSqliteDriver): Set<String> {
+    val connection = driver.getConnection()
+    try {
+        return connection.createStatement().use { statement ->
+            statement
+                .executeQuery("SELECT name FROM sqlite_master WHERE type = 'table'")
+                .use { rows ->
+                    buildSet {
+                        while (rows.next()) add(rows.getString("name"))
+                    }
+                }
+        }
+    } finally {
+        driver.closeConnection(connection)
+    }
+}
