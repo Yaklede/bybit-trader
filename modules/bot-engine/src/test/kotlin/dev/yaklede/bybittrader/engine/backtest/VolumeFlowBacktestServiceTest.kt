@@ -193,6 +193,8 @@ class VolumeFlowBacktestServiceTest :
             (result.trades.single().maxUnrealizedProfitPct > 0.0) shouldBe true
             (result.trades.single().maxUnrealizedDrawdownPct > 0.0) shouldBe true
             result.trades.single().setupMode shouldBe VolumeFlowSetupMode.BREAKOUT_CONTINUATION
+            result.trades.single().setupAt shouldBe Instant.parse("2026-06-30T01:05:00Z")
+            result.trades.single().entryAt shouldBe Instant.parse("2026-06-30T01:06:00Z")
             result.trades.single().marketRegime shouldBe VolumeFlowMarketRegime.TREND_UP
             result.trades.single().keyLevelType shouldBe VolumeFlowKeyLevelType.RANGE_HIGH
             result.trades.single().volumePattern shouldBe VolumeFlowVolumePattern.BREAKOUT_ACCEPTANCE
@@ -208,6 +210,130 @@ class VolumeFlowBacktestServiceTest :
             result.performanceBySetupMode.single().tag shouldBe "BREAKOUT_CONTINUATION"
             result.performanceByMarketRegime.single().tag shouldBe "TREND_UP"
             result.performanceByVolumePattern.single().tag shouldBe "BREAKOUT_ACCEPTANCE"
+        }
+
+        "uses only higher timeframe candles closed before the setup decision" {
+            val baselineService = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
+            val unclosedContextChanged =
+                volumeFlowCandles().map { candle ->
+                    if (
+                        candle.timeframe == Timeframe.M15 &&
+                        candle.openedAt == Instant.parse("2026-06-30T01:00:00Z")
+                    ) {
+                        candle.copy(
+                            high = BigDecimal("300"),
+                            low = BigDecimal("1"),
+                            close = BigDecimal("1"),
+                            volume = BigDecimal("999999"),
+                        )
+                    } else {
+                        candle
+                    }
+                }
+            val changedService = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(unclosedContextChanged))
+
+            val baseline =
+                baselineService.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+            val changed =
+                changedService.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+
+            changed.tradeCount shouldBe baseline.tradeCount
+            changed.trades.single().marketRegime shouldBe baseline.trades.single().marketRegime
+            changed.trades.single().contextTrendMovePct shouldBe baseline.trades.single().contextTrendMovePct
+            changed.trades.single().contextRangePct shouldBe baseline.trades.single().contextRangePct
+            changed.trades.single().contextQuoteVolume shouldBe baseline.trades.single().contextQuoteVolume
+        }
+
+        "fills a confirmed signal at the next contiguous m1 open" {
+            val nextOpen = 114.0
+            val shiftedEntryCandles =
+                volumeFlowCandles().map { candle ->
+                    if (
+                        candle.timeframe == Timeframe.M1 &&
+                        candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")
+                    ) {
+                        candle.copy(open = BigDecimal(nextOpen))
+                    } else {
+                        candle
+                    }
+                }
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(shiftedEntryCandles))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().entryAt shouldBe Instant.parse("2026-06-30T01:06:00Z")
+            result.trades.single().entryPrice shouldBe nextOpen * (1.0 + testVolumeFlowConfig().slippageRate)
+        }
+
+        "skips a confirmed signal when its next m1 candle is missing" {
+            val candlesWithEntryGap =
+                volumeFlowCandles().filterNot { candle ->
+                    candle.timeframe == Timeframe.M1 &&
+                        candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")
+                }
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(candlesWithEntryGap))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 79,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+
+            result.tradeCount shouldBe 0
+        }
+
+        "evaluates stop before target inside the entry m1 candle" {
+            val ambiguousEntryCandle =
+                volumeFlowCandles().map { candle ->
+                    if (
+                        candle.timeframe == Timeframe.M1 &&
+                        candle.openedAt == Instant.parse("2026-06-30T01:06:00Z")
+                    ) {
+                        candle.copy(
+                            high = BigDecimal("130"),
+                            low = BigDecimal("100"),
+                        )
+                    } else {
+                        candle
+                    }
+                }
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(ambiguousEntryCandle))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 80,
+                    m5Limit = 30,
+                    m15Limit = 30,
+                    config = testVolumeFlowConfig(),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.STOP
+            result.trades.single().exitAt shouldBe Instant.parse("2026-06-30T01:07:00Z")
         }
 
         "runs a long trade from volume follow-through continuation and 1m close confirmation" {
@@ -633,6 +759,7 @@ class VolumeFlowBacktestServiceTest :
 
             result.tradeCount shouldBe 1
             result.trades.single().entryAt shouldBe Instant.parse("2026-06-30T01:05:00Z")
+            result.trades.single().entryPrice shouldBe 112.0 * (1.0 + testVolumeFlowConfig().slippageRate)
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
         }
 

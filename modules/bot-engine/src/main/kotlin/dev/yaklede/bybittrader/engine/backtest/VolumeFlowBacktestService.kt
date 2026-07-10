@@ -88,11 +88,12 @@ class VolumeFlowBacktestService(
 
         for (setupIndex in startIndex until setupCandles.size) {
             val setupCandle = setupCandles[setupIndex]
-            if (!setupCandle.openedAt.isAfter(blockedUntil)) {
+            val setupClosedAt = setupCandle.openedAt.plusSeconds(config.setupTimeframe.seconds())
+            if (!setupClosedAt.isAfter(blockedUntil)) {
                 continue
             }
             val dayState =
-                dailyStates.getOrPut(setupCandle.openedAt.utcDate()) {
+                dailyStates.getOrPut(setupClosedAt.utcDate()) {
                     DailyBacktestState(startingEquity = equity)
                 }
             if (dayState.blocksNewEntries()) {
@@ -102,9 +103,9 @@ class VolumeFlowBacktestService(
 
             val candidate = detectSetup(setupCandles, setupIndex, config, noTradeReasonCounts) ?: continue
             setupCount += 1
-            val contextQuality = contextQualityContext(m15Timeline, setupCandle.openedAt, config)
-            val marketRegime = classifyMarketRegime(m15Timeline, setupCandle.openedAt, config)
-            val macroTrendContext = macroTrendContext(m15Timeline, setupCandle.openedAt, config)
+            val contextQuality = contextQualityContext(m15Timeline, setupClosedAt, config)
+            val marketRegime = classifyMarketRegime(m15Timeline, setupClosedAt, config)
+            val macroTrendContext = macroTrendContext(m15Timeline, setupClosedAt, config)
 
             if (!config.allowedMarketRegimes.contains(marketRegime)) {
                 rejectedSetupCount += 1
@@ -112,7 +113,7 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            if (!contextRangeAllows(m15Timeline, setupCandle.openedAt, config)) {
+            if (!contextRangeAllows(m15Timeline, setupClosedAt, config)) {
                 rejectedSetupCount += 1
                 incrementReason("CONTEXT_RANGE_TOO_WIDE", noTradeReasonCounts)
                 continue
@@ -124,7 +125,7 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            if (!contextQuoteVolumeAllows(m15Timeline, setupCandle.openedAt, config)) {
+            if (!contextQuoteVolumeAllows(m15Timeline, setupClosedAt, config)) {
                 rejectedSetupCount += 1
                 incrementReason("CONTEXT_QUOTE_VOLUME_TOO_LOW", noTradeReasonCounts)
                 continue
@@ -142,13 +143,13 @@ class VolumeFlowBacktestService(
                 continue
             }
 
-            if (!localContextAllows(m5Timeline, setupCandle.openedAt, candidate.side, config)) {
+            if (!localContextAllows(m5Timeline, setupClosedAt, candidate.side, config)) {
                 rejectedSetupCount += 1
                 incrementReason("M5_CONTEXT_REJECTED", noTradeReasonCounts)
                 continue
             }
 
-            if (!contextAllows(m15Timeline, setupCandle.openedAt, candidate.side, config)) {
+            if (!contextAllows(m15Timeline, setupClosedAt, candidate.side, config)) {
                 rejectedSetupCount += 1
                 incrementReason("CONTEXT_REJECTED", noTradeReasonCounts)
                 continue
@@ -232,9 +233,9 @@ class VolumeFlowBacktestService(
                 VolumeFlowBacktestTrade(
                     side = candidate.side,
                     setupMode = candidate.setupMode,
-                    setupAt = setupCandle.openedAt,
+                    setupAt = setupClosedAt,
                     entryAt = entry.entryAt,
-                    exitAt = exit.exitCandle.openedAt,
+                    exitAt = exit.exitAt,
                     entryPrice = entry.entryPrice,
                     stopPrice = entry.stopPrice,
                     targetPrice = entry.targetPrice,
@@ -276,7 +277,7 @@ class VolumeFlowBacktestService(
                 )
             trades += trade
             dayState.recordTrade(pnl, equity, config, consecutiveLosses)
-            blockedUntil = exit.exitCandle.openedAt
+            blockedUntil = exit.exitAt
         }
 
         return buildReport(
@@ -784,7 +785,7 @@ class VolumeFlowBacktestService(
         setupAt: Instant,
         config: VolumeFlowBacktestConfig,
     ): MacroTrendContext? {
-        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.macroTrendLookbackM15Candles)
+        val contextCandles = m15Timeline.takeLastClosedAtOrBefore(setupAt, config.macroTrendLookbackM15Candles)
         if (contextCandles.size < config.macroTrendLookbackM15Candles) return null
         val firstClose = contextCandles.first().close.toDouble()
         val latestClose = contextCandles.last().close.toDouble()
@@ -818,7 +819,7 @@ class VolumeFlowBacktestService(
         val maxContextRangePct = config.maxContextRangePct ?: return true
         val averageRangePct =
             averageRangePct(
-                m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback),
+                m15Timeline.takeLastClosedAtOrBefore(setupAt, config.contextVwapLookback),
             ) ?: return false
         return averageRangePct <= maxContextRangePct
     }
@@ -831,7 +832,7 @@ class VolumeFlowBacktestService(
         val minContextQuoteVolume = config.minContextQuoteVolume ?: return true
         val averageQuoteVolume =
             averageQuoteVolume(
-                m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback),
+                m15Timeline.takeLastClosedAtOrBefore(setupAt, config.contextVwapLookback),
             ) ?: return false
         return averageQuoteVolume >= minContextQuoteVolume
     }
@@ -841,7 +842,7 @@ class VolumeFlowBacktestService(
         setupAt: Instant,
         config: VolumeFlowBacktestConfig,
     ): TrendQualityContext? {
-        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback)
+        val contextCandles = m15Timeline.takeLastClosedAtOrBefore(setupAt, config.contextVwapLookback)
         if (contextCandles.size < config.contextVwapLookback) return null
         val firstClose = contextCandles.first().close.toDouble()
         val latestClose = contextCandles.last().close.toDouble()
@@ -877,7 +878,7 @@ class VolumeFlowBacktestService(
         requireVwap: Boolean = true,
         requireTrend: Boolean,
     ): Boolean {
-        val contextCandles = timeline.takeLastAtOrBefore(setupAt, lookback)
+        val contextCandles = timeline.takeLastClosedAtOrBefore(setupAt, lookback)
         if (contextCandles.size < lookback) return false
         val latest = contextCandles.last()
         if (requireVwap) {
@@ -905,7 +906,7 @@ class VolumeFlowBacktestService(
         setupAt: Instant,
         config: VolumeFlowBacktestConfig,
     ): VolumeFlowMarketRegime {
-        val contextCandles = m15Timeline.takeLastAtOrBefore(setupAt, config.contextVwapLookback)
+        val contextCandles = m15Timeline.takeLastClosedAtOrBefore(setupAt, config.contextVwapLookback)
         if (contextCandles.size < 3) return VolumeFlowMarketRegime.UNKNOWN
 
         val firstClose = contextCandles.first().close.toDouble()
@@ -988,12 +989,15 @@ class VolumeFlowBacktestService(
         val startIndex = m1Timeline.firstIndexAtOrAfter(setupClosedAt)
         if (startIndex < 0) return null
         if (config.entryMode == VolumeFlowEntryMode.SETUP_CLOSE_CONFIRMATION) {
-            val entryIndex = startIndex - 1
-            if (entryIndex < 0) return null
+            val confirmationIndex = startIndex - 1
+            val entryIndex = startIndex
+            if (confirmationIndex < 0) return null
+            val confirmationCandle = m1Candles[confirmationIndex]
             val entryCandle = m1Candles[entryIndex]
-            val entryShape = VolumeFlowIndicators.candleShape(entryCandle)
+            if (confirmationCandle.closedAt() != setupClosedAt || entryCandle.openedAt != setupClosedAt) return null
+            val entryShape = VolumeFlowIndicators.candleShape(confirmationCandle)
             if (config.minEntryBodyRatio != null && entryShape.bodyRatio < config.minEntryBodyRatio) return null
-            val rawEntryPrice = setupCandle.close.toDouble()
+            val rawEntryPrice = entryCandle.open.toDouble()
             val entryPrice =
                 when (candidate.side) {
                     Side.BUY -> rawEntryPrice * (1.0 + config.slippageRate)
@@ -1012,23 +1016,23 @@ class VolumeFlowBacktestService(
                 }
             return EntryPlan(
                 side = candidate.side,
-                entryAt = setupClosedAt,
+                entryAt = entryCandle.openedAt,
                 entryIndex = entryIndex,
-                entryCandle = entryCandle,
                 delayM1Candles = 0,
                 shape = entryShape,
-                relativeVolume = relativeVolumeAt(m1Candles, entryIndex, config.volumeLookback),
-                volumeZScore = volumeZScoreAt(m1Candles, entryIndex, config.volumeLookback),
+                relativeVolume = relativeVolumeAt(m1Candles, confirmationIndex, config.volumeLookback),
+                volumeZScore = volumeZScoreAt(m1Candles, confirmationIndex, config.volumeLookback),
                 entryPrice = entryPrice,
                 stopPrice = stopPrice,
                 targetPrice = targetPrice,
             )
         }
-        val endIndex = minOf(startIndex + config.entryLookaheadM1Candles, m1Candles.lastIndex)
-        val latestEntryAt = setupClosedAt.plusSeconds(config.entryLookaheadM1Candles.toLong() * 60L)
+        val endIndex = minOf(startIndex + config.entryLookaheadM1Candles - 1, m1Candles.lastIndex - 1)
+        if (endIndex < startIndex) return null
         for (index in startIndex..endIndex) {
             val candle = m1Candles[index]
-            if (candle.openedAt.isAfter(latestEntryAt)) return null
+            val expectedConfirmationAt = setupClosedAt.plusSeconds((index - startIndex).toLong() * 60L)
+            if (candle.openedAt != expectedConfirmationAt) return null
             val shape = VolumeFlowIndicators.candleShape(candle)
             if (config.minEntryBodyRatio != null && shape.bodyRatio < config.minEntryBodyRatio) continue
             if (
@@ -1036,7 +1040,10 @@ class VolumeFlowBacktestService(
                 shape.closesStronglyFor(candidate.side, config.minDirectionalCloseStrength) &&
                 entryTriggerAccepted(candle, candidate, config)
             ) {
-                val rawEntryPrice = candle.close.toDouble()
+                val entryIndex = index + 1
+                val entryCandle = m1Candles[entryIndex]
+                if (entryCandle.openedAt != candle.closedAt()) continue
+                val rawEntryPrice = entryCandle.open.toDouble()
                 val entryPrice =
                     when (candidate.side) {
                         Side.BUY -> rawEntryPrice * (1.0 + config.slippageRate)
@@ -1055,9 +1062,8 @@ class VolumeFlowBacktestService(
                     }
                 return EntryPlan(
                     side = candidate.side,
-                    entryAt = candle.openedAt,
-                    entryIndex = index,
-                    entryCandle = candle,
+                    entryAt = entryCandle.openedAt,
+                    entryIndex = entryIndex,
                     delayM1Candles = index - startIndex,
                     shape = shape,
                     relativeVolume = relativeVolumeAt(m1Candles, index, config.volumeLookback),
@@ -1088,16 +1094,16 @@ class VolumeFlowBacktestService(
         config: VolumeFlowBacktestConfig,
         contextRangePct: Double?,
     ): ExitPlan {
-        val startIndex = minOf(entry.entryIndex + 1, m1Candles.lastIndex)
-        val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles, m1Candles.lastIndex)
+        val startIndex = minOf(entry.entryIndex, m1Candles.lastIndex)
+        val endIndex = minOf(entry.entryIndex + config.maxHoldM1Candles - 1, m1Candles.lastIndex)
         val initialRiskPerUnit = abs(entry.entryPrice - entry.stopPrice)
-        val followThroughCheckIndex = config.followThroughCheckM1Candles?.let { entry.entryIndex + it }
+        val followThroughCheckIndex = config.followThroughCheckM1Candles?.let { entry.entryIndex + it - 1 }
         val minFollowThroughMove = config.minFollowThroughR?.let { initialRiskPerUnit * it }
         val followThroughRangeArmed =
             config.followThroughMinContextRangePct?.let { minRangePct ->
                 contextRangePct != null && contextRangePct >= minRangePct
             } ?: true
-        val adverseExitCheckIndex = config.adverseExitCheckM1Candles?.let { entry.entryIndex + it }
+        val adverseExitCheckIndex = config.adverseExitCheckM1Candles?.let { entry.entryIndex + it - 1 }
         val maxAdverseMoveBeforeExit = config.maxAdverseRBeforeExit?.let { initialRiskPerUnit * it }
         val minFavorableMoveBeforeAdverseExit =
             config.minFavorableRBeforeAdverseExit?.let { initialRiskPerUnit * it }
@@ -1155,6 +1161,7 @@ class VolumeFlowBacktestService(
         ): ExitPlan =
             ExitPlan(
                 exitCandle = candle,
+                exitAt = candle.closedAt(),
                 exitPrice = exitPrice,
                 reason = reason,
                 maxFavorableExcursionR =
@@ -1490,7 +1497,6 @@ private data class EntryPlan(
     val side: Side,
     val entryAt: Instant,
     val entryIndex: Int,
-    val entryCandle: Candle,
     val delayM1Candles: Int,
     val shape: CandleShape,
     val relativeVolume: Double?,
@@ -1502,6 +1508,7 @@ private data class EntryPlan(
 
 private data class ExitPlan(
     val exitCandle: Candle,
+    val exitAt: Instant,
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
     val maxFavorableExcursionR: Double,
@@ -1514,6 +1521,7 @@ private class CandleTimeline(
     val candles: List<Candle>,
 ) {
     private val openedAt = candles.map { it.openedAt }
+    private val closedAt = candles.map { it.closedAt() }
 
     fun firstIndexAtOrAfter(time: Instant): Int {
         val index = openedAt.binarySearch(time)
@@ -1521,18 +1529,18 @@ private class CandleTimeline(
         return if (nextIndex <= candles.lastIndex) nextIndex else -1
     }
 
-    fun takeLastAtOrBefore(
+    fun takeLastClosedAtOrBefore(
         time: Instant,
         count: Int,
     ): List<Candle> {
-        val latestIndex = lastIndexAtOrBefore(time)
+        val latestIndex = lastClosedIndexAtOrBefore(time)
         if (latestIndex < 0) return emptyList()
         val startIndex = maxOf(0, latestIndex - count + 1)
         return candles.subList(startIndex, latestIndex + 1)
     }
 
-    private fun lastIndexAtOrBefore(time: Instant): Int {
-        val index = openedAt.binarySearch(time)
+    private fun lastClosedIndexAtOrBefore(time: Instant): Int {
+        val index = closedAt.binarySearch(time)
         return if (index >= 0) index else -index - 2
     }
 }
@@ -1589,6 +1597,8 @@ private fun Double.improvedFor(
     }
 
 private fun Instant.utcDate(): LocalDate = atZone(ZoneOffset.UTC).toLocalDate()
+
+private fun Candle.closedAt(): Instant = openedAt.plusSeconds(timeframe.seconds())
 
 private fun Timeframe.seconds(): Long =
     when (this) {
