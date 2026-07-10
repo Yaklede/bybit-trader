@@ -164,6 +164,16 @@ class AppConfigTest :
             config.forwardMarketCapture.enabled shouldBe true
             config.forwardMarketCapture.orderBookDepth shouldBe 25
 
+            AppConfig
+                .fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "TESTNET",
+                        "BYBIT_PUBLIC_WEBSOCKET_URL" to "",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                    ),
+                ).forwardMarketCapture.publicWebSocketUrl shouldBe "wss://stream-testnet.bybit.com/v5/public/linear"
+
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(mapOf("BOT_FORWARD_ORDER_BOOK_DEPTH" to "51"))
             }

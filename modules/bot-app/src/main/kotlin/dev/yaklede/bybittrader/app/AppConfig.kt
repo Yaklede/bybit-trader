@@ -201,6 +201,7 @@ data class ForwardMarketCaptureSettings(
                 enabled = environment["BOT_FORWARD_MARKET_CAPTURE_ENABLED"].toBooleanStrictOrFalse(),
                 publicWebSocketUrl =
                     environment["BYBIT_PUBLIC_WEBSOCKET_URL"]
+                        ?.takeIf(String::isNotBlank)
                         ?: when (runtimeMode) {
                             RuntimeMode.TESTNET -> "wss://stream-testnet.bybit.com/v5/public/linear"
                             RuntimeMode.LIVE,

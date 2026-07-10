@@ -30,6 +30,11 @@ const bybitPrivateBaseUrl =
 const symbol = env.BOT_SYMBOL || "BTCUSDT";
 const databasePath = env.BOT_DATABASE_PATH || "data/bybit-trader.sqlite";
 const compositeConfigPath = env.BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH || "config/volume-flow-composite-current.json";
+const forwardMarketCaptureEnabled = parseBool(env.BOT_FORWARD_MARKET_CAPTURE_ENABLED);
+const bybitPublicWebSocketUrl =
+  env.BYBIT_PUBLIC_WEBSOCKET_URL ||
+  (mode === "TESTNET" ? "wss://stream-testnet.bybit.com/v5/public/linear" : "wss://stream.bybit.com/v5/public/linear");
+const forwardOrderBookDepth = Number(env.BOT_FORWARD_ORDER_BOOK_DEPTH || "50");
 const telegramEnabled = parseBool(env.TELEGRAM_ALERTS_ENABLED);
 const discordEnabled = parseBool(env.DISCORD_ALERTS_ENABLED);
 
@@ -39,6 +44,19 @@ check("paper strategy is supported", ["volume-flow-aggressive", "mean-reversion"
 check("paper sync limit respects Bybit page limit", Number.isInteger(paperSyncLimit) && paperSyncLimit >= 1 && paperSyncLimit <= 1000, `paperSyncLimit=${paperSyncLimit}`);
 check("composite config file exists", fs.existsSync(compositeConfigPath), compositeConfigPath);
 checkWritableParent(databasePath);
+
+if (forwardMarketCaptureEnabled) {
+  check(
+    "forward market capture WebSocket URL is valid",
+    /^wss?:\/\/.+/.test(bybitPublicWebSocketUrl),
+    bybitPublicWebSocketUrl,
+  );
+  check(
+    "forward market capture order book depth is supported",
+    Number.isInteger(forwardOrderBookDepth) && forwardOrderBookDepth >= 1 && forwardOrderBookDepth <= 50,
+    `depth=${forwardOrderBookDepth}`,
+  );
+}
 
 if (mode === "PAPER") {
   check("paper loop is enabled", paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=true for paper operation");

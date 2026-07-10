@@ -54,6 +54,12 @@ override:
   `/opt/bybit-trader/config/volume-flow-composite-current.json`.
 - `BOT_STRATEGY_PROFILE_STATE_PATH`: default
   `/data/strategy-profile-current.txt`.
+- `BOT_FORWARD_MARKET_CAPTURE_ENABLED`: default `false`. Set `true` to record
+  public order-book and liquidation data for future research only. This does
+  not submit orders or change the active strategy.
+- `BYBIT_PUBLIC_WEBSOCKET_URL`: optional. Defaults by `BOT_MODE` to Bybit's
+  public linear WebSocket URL.
+- `BOT_FORWARD_ORDER_BOOK_DEPTH`: default `50`, valid range `1` to `50`.
 - `BYBIT_PRIVATE_BASE_URL`: defaults from `BOT_MODE`: `https://api.bybit.com`
   for `LIVE`, `https://api-testnet.bybit.com` for `TESTNET`.
 - `BYBIT_RECV_WINDOW_MILLIS`: default `5000`.
@@ -120,6 +126,9 @@ gh secret set BOT_CONTROL_TOKEN --env onprem-live
 gh secret set BYBIT_API_KEY --env onprem-live
 gh secret set BYBIT_API_SECRET --env onprem-live
 gh variable set BOT_EXECUTION_MAX_NOTIONAL --env onprem-live --body 100
+# Optional forward-only research collection
+gh variable set BOT_FORWARD_MARKET_CAPTURE_ENABLED --env onprem-live --body true
+gh variable set BOT_FORWARD_ORDER_BOOK_DEPTH --env onprem-live --body 50
 ```
 
 Note: the local root `.env` is the application runtime env. The remote
