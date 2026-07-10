@@ -361,6 +361,47 @@ live execution. Its replay result and validation status are blockers. The
 runtime loop needs an explicit safety gate before any replacement profile is
 considered.
 
+## Chronological Development V2 Rejection (2026-07-11 KST)
+
+`config/volume-flow-development-folds-v2.json` fixes four chronological
+development folds ending on `2024-01-01`. Unlike the sealed protocol, this
+development-only protocol may be used to choose a candidate, but it cannot
+promote one. The fold list is SHA-256 protected so repeated runs use the same
+history.
+
+The first bidirectional hypothesis combined an M1 volume-follow-through trend
+leg with an M5 failed-break reversal leg. It was not attached to the runtime
+strategy. Its full development result was:
+
+| Fold | Net return | CDR | MTM MDD | Trades | Active-day coverage |
+|---|---:|---:|---:|---:|---:|
+| D01: 2020-06 to 2021-06 | -21.67% | -0.06672% | 24.26% | 91 | 22.40% |
+| D02: 2021-06 to 2022-06 | -22.94% | -0.07118% | 23.28% | 89 | 22.40% |
+| D03: 2022-06 to 2023-06 | -21.79% | -0.06712% | 25.12% | 66 | 16.39% |
+| D04: 2023-06 to 2024-01 | +7.82% | +0.03503% | 5.61% | 11 | 4.65% |
+
+The hypothesis is rejected: three independent folds lose after cost, so its
+improved trade coverage is not an edge. Do not lower its filters, raise risk,
+or alter exits to recover these results. That would fit known folds instead of
+creating a new source of information.
+
+Run a future predeclared candidate through the development protocol only after
+its signal hypothesis and data requirements are written down:
+
+```bash
+node --test scripts/volume-flow-chronological-evaluate.test.mjs
+node scripts/volume-flow-chronological-evaluate.mjs \
+  --api=http://127.0.0.1:18080 \
+  --token="$BOT_CONTROL_TOKEN" \
+  --protocol=config/volume-flow-development-folds-v2.json \
+  --strategy=config/<candidate>.json \
+  --out=build/research/<candidate>-development.json
+```
+
+The next candidate must use the forward-only order-book and liquidation data
+collection path. No further OHLCV-only candidate is justified by the current
+evidence.
+
 ## Forward Data Collection Gate
 
 Historical Bybit REST data does not contain the event-level order-book history
