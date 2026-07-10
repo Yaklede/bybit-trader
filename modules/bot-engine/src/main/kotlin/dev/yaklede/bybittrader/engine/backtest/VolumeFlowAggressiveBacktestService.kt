@@ -9,7 +9,9 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.strategy.aggressiveBreakoutAllowed
+import dev.yaklede.bybittrader.engine.strategy.aggressiveBreakoutSideAllowed
 import dev.yaklede.bybittrader.engine.strategy.aggressiveDirectionalClose
+import dev.yaklede.bybittrader.engine.strategy.aggressiveFailedBreakConfirmed
 import dev.yaklede.bybittrader.engine.strategy.aggressiveRetestConfirmed
 import dev.yaklede.bybittrader.strategy.volume.VolumeFlowIndicators
 import java.math.BigDecimal
@@ -228,9 +230,10 @@ class VolumeFlowAggressiveBacktestService(
                     clusterDisplacementAtr = setup.clusterDisplacementAtr,
                     clusterRangeAtr = setup.clusterRangeAtr,
                     breakoutAt = setup.breakout.candle.openedAt,
+                    breakoutSide = setup.breakoutSide,
                     breakoutRelativeVolume = setup.breakout.relativeVolume ?: 0.0,
                     breakoutBodyRatio = setup.breakout.bodyRatio,
-                    breakoutDirectionalClose = aggressiveDirectionalClose(setup.side, setup.breakout.closeLocation),
+                    breakoutDirectionalClose = aggressiveDirectionalClose(setup.breakoutSide, setup.breakout.closeLocation),
                     breakoutDistanceAtr = setup.breakoutDistanceAtr,
                     signalRelativeVolume = setup.signal.relativeVolume ?: 0.0,
                     signalRangePct = setup.signal.rangePct,
@@ -359,7 +362,7 @@ class VolumeFlowAggressiveBacktestService(
             val breakout = candles[breakoutIndex]
             if (!config.sessionHoursUtc.contains(breakout.hourUtc)) continue
             if (
-                config.sideMode != VolumeFlowSideMode.SHORT_ONLY &&
+                aggressiveBreakoutSideAllowed(Side.BUY, config) &&
                 aggressiveBreakoutAllowed(
                     side = Side.BUY,
                     close = breakout.candle.close.toDouble(),
@@ -371,11 +374,12 @@ class VolumeFlowAggressiveBacktestService(
                     config = config,
                 )
             ) {
-                val signalIndex =
+                val confirmation =
                     confirmationIndex(
                         candles,
                         Side.BUY,
                         breakoutIndex,
+                        breakout,
                         cluster.high,
                         atr,
                         replayEndIndex,
@@ -383,11 +387,13 @@ class VolumeFlowAggressiveBacktestService(
                     ) ?: continue
                 return buildSetup(
                     candles,
+                    confirmation.tradeSide,
+                    confirmation.signalIndex,
                     Side.BUY,
-                    signalIndex,
                     breakout,
                     candle,
                     cluster,
+                    confirmation.structuralStop,
                     clusterVolumeRatio,
                     displacementAtr,
                     rangeAtr,
@@ -395,7 +401,7 @@ class VolumeFlowAggressiveBacktestService(
                 )
             }
             if (
-                config.sideMode != VolumeFlowSideMode.LONG_ONLY &&
+                aggressiveBreakoutSideAllowed(Side.SELL, config) &&
                 aggressiveBreakoutAllowed(
                     side = Side.SELL,
                     close = breakout.candle.close.toDouble(),
@@ -407,11 +413,12 @@ class VolumeFlowAggressiveBacktestService(
                     config = config,
                 )
             ) {
-                val signalIndex =
+                val confirmation =
                     confirmationIndex(
                         candles,
                         Side.SELL,
                         breakoutIndex,
+                        breakout,
                         cluster.low,
                         atr,
                         replayEndIndex,
@@ -419,11 +426,13 @@ class VolumeFlowAggressiveBacktestService(
                     ) ?: continue
                 return buildSetup(
                     candles,
+                    confirmation.tradeSide,
+                    confirmation.signalIndex,
                     Side.SELL,
-                    signalIndex,
                     breakout,
                     candle,
                     cluster,
+                    confirmation.structuralStop,
                     clusterVolumeRatio,
                     displacementAtr,
                     rangeAtr,
@@ -436,15 +445,18 @@ class VolumeFlowAggressiveBacktestService(
 
     private fun confirmationIndex(
         candles: List<AggressiveCandle>,
-        side: Side,
+        breakoutSide: Side,
         breakoutIndex: Int,
+        breakout: AggressiveCandle,
         boundary: Double,
         atr: Double,
         replayEndIndex: Int,
         config: VolumeFlowAggressiveBacktestConfig,
-    ): Int? {
+    ): AggressiveEntryConfirmation? {
         if (config.entryMode == VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN) {
-            return breakoutIndex.takeIf { config.entrySignalHoursUtc?.contains(candles[it].hourUtc) != false }
+            return breakoutIndex
+                .takeIf { config.entrySignalHoursUtc?.contains(candles[it].hourUtc) != false }
+                ?.let { AggressiveEntryConfirmation(it, breakoutSide, null) }
         }
         val lastRetestIndex = minOf(breakoutIndex + config.retestLookaheadCandles, replayEndIndex - 2)
         if (breakoutIndex + 1 > lastRetestIndex) return null
@@ -452,20 +464,44 @@ class VolumeFlowAggressiveBacktestService(
             val candidate = candles[index]
             if (!config.sessionHoursUtc.contains(candidate.hourUtc)) continue
             if (config.entrySignalHoursUtc?.contains(candidate.hourUtc) == false) continue
-            if (
-                aggressiveRetestConfirmed(
-                    side = side,
-                    open = candidate.candle.open.toDouble(),
-                    high = candidate.candle.high.toDouble(),
-                    low = candidate.candle.low.toDouble(),
-                    close = candidate.candle.close.toDouble(),
-                    closeLocation = candidate.closeLocation,
-                    boundary = boundary,
-                    atr = atr,
-                    config = config,
-                )
-            ) {
-                return index
+            when (config.entryMode) {
+                VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST ->
+                    if (
+                        aggressiveRetestConfirmed(
+                            side = breakoutSide,
+                            open = candidate.candle.open.toDouble(),
+                            high = candidate.candle.high.toDouble(),
+                            low = candidate.candle.low.toDouble(),
+                            close = candidate.candle.close.toDouble(),
+                            closeLocation = candidate.closeLocation,
+                            boundary = boundary,
+                            atr = atr,
+                            config = config,
+                        )
+                    ) {
+                        return AggressiveEntryConfirmation(index, breakoutSide, null)
+                    }
+                VolumeFlowAggressiveEntryMode.FAILED_BREAK_REVERSAL ->
+                    if (
+                        aggressiveFailedBreakConfirmed(
+                            breakoutSide = breakoutSide,
+                            open = candidate.candle.open.toDouble(),
+                            close = candidate.candle.close.toDouble(),
+                            closeLocation = candidate.closeLocation,
+                            boundary = boundary,
+                            config = config,
+                        )
+                    ) {
+                        val tradeSide = if (breakoutSide == Side.BUY) Side.SELL else Side.BUY
+                        val structuralStop =
+                            if (breakoutSide == Side.BUY) {
+                                breakout.candle.high.toDouble()
+                            } else {
+                                breakout.candle.low.toDouble()
+                            }
+                        return AggressiveEntryConfirmation(index, tradeSide, structuralStop)
+                    }
+                VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN -> Unit
             }
         }
         return null
@@ -475,9 +511,11 @@ class VolumeFlowAggressiveBacktestService(
         candles: List<AggressiveCandle>,
         side: Side,
         signalIndex: Int,
+        breakoutSide: Side,
         breakout: AggressiveCandle,
         absorption: AggressiveCandle,
         cluster: AggressiveCluster,
+        structuralStopOverride: Double?,
         clusterVolumeRatio: Double,
         clusterDisplacementAtr: Double,
         clusterRangeAtr: Double,
@@ -499,10 +537,11 @@ class VolumeFlowAggressiveBacktestService(
         val atr = signal.atr ?: return null
         val atrStop = atr * stopAtr
         val structuralStop =
-            when (side) {
-                Side.BUY -> cluster.low
-                Side.SELL -> cluster.high
-            }
+            structuralStopOverride
+                ?: when (side) {
+                    Side.BUY -> cluster.low
+                    Side.SELL -> cluster.high
+                }
         val stopPrice =
             when (side) {
                 Side.BUY -> minOf(structuralStop, signalReference - atrStop)
@@ -548,6 +587,7 @@ class VolumeFlowAggressiveBacktestService(
         return AggressiveSetup(
             side = side,
             absorption = absorption,
+            breakoutSide = breakoutSide,
             breakout = breakout,
             signal = signal,
             entryIndex = entryIndex,
@@ -872,6 +912,7 @@ private data class AggressiveCluster(
 private data class AggressiveSetup(
     val side: Side,
     val absorption: AggressiveCandle,
+    val breakoutSide: Side,
     val breakout: AggressiveCandle,
     val signal: AggressiveCandle,
     val entryIndex: Int,
@@ -888,6 +929,12 @@ private data class AggressiveSetup(
     val clusterDisplacementAtr: Double,
     val clusterRangeAtr: Double,
     val breakoutDistanceAtr: Double,
+)
+
+private data class AggressiveEntryConfirmation(
+    val signalIndex: Int,
+    val tradeSide: Side,
+    val structuralStop: Double?,
 )
 
 private data class AggressiveExit(

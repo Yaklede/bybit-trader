@@ -177,7 +177,9 @@ private fun String.toVolumeFlowSideMode(): VolumeFlowSideMode =
 private fun String.toAggressiveEntryMode(): VolumeFlowAggressiveEntryMode =
     runCatching { VolumeFlowAggressiveEntryMode.valueOf(trim().uppercase()) }
         .getOrElse {
-            throw IllegalArgumentException("Entry mode must be BREAKOUT_NEXT_OPEN or BREAKOUT_RETEST.")
+            throw IllegalArgumentException(
+                "Entry mode must be BREAKOUT_NEXT_OPEN, BREAKOUT_RETEST, or FAILED_BREAK_REVERSAL.",
+            )
         }
 
 private fun parseAggressiveReplayInstant(value: String): Instant =
@@ -287,6 +289,7 @@ data class VolumeFlowAggressiveTradeResponse(
     val clusterDisplacementAtr: Double,
     val clusterRangeAtr: Double,
     val breakoutAt: String,
+    val breakoutSide: String,
     val breakoutRelativeVolume: Double,
     val breakoutBodyRatio: Double,
     val breakoutDirectionalClose: Double,
@@ -401,6 +404,7 @@ private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressive
         clusterDisplacementAtr = clusterDisplacementAtr,
         clusterRangeAtr = clusterRangeAtr,
         breakoutAt = breakoutAt.toString(),
+        breakoutSide = breakoutSide.name,
         breakoutRelativeVolume = breakoutRelativeVolume,
         breakoutBodyRatio = breakoutBodyRatio,
         breakoutDirectionalClose = breakoutDirectionalClose,

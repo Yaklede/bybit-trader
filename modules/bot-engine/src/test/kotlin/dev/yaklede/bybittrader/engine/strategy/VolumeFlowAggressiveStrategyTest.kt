@@ -78,6 +78,27 @@ class VolumeFlowAggressiveStrategyTest :
             val beforeRetest = strategy.evaluate(aggressiveRetestBreakoutCandles().dropLast(1))
             beforeRetest.intent shouldBe null
         }
+
+        "emits the opposite side only after a failed breakout confirmation" {
+            val config =
+                VolumeFlowAggressiveProfiles
+                    .finalUsV1()
+                    .copy(
+                        entryMode = VolumeFlowAggressiveEntryMode.FAILED_BREAK_REVERSAL,
+                        breakoutRelativeVolumeMin = 1.2,
+                        breakoutBodyRatioMin = 0.5,
+                        breakoutDirectionalCloseMin = 0.55,
+                        maxBreakoutDistanceAtr = 1.0,
+                    )
+            val strategy = VolumeFlowAggressiveStrategy(config)
+
+            val decision = strategy.evaluate(aggressiveFailedBreakoutCandles())
+
+            decision.intent?.side shouldBe Side.SELL
+            decision.reasonCodes shouldContain "ENTRY_MODE_FAILED_BREAK_REVERSAL"
+            val beforeFailure = strategy.evaluate(aggressiveFailedBreakoutCandles().dropLast(1))
+            beforeFailure.intent shouldBe null
+        }
     })
 
 private fun aggressiveBreakoutCandles(): List<Candle> {
@@ -137,6 +158,14 @@ private fun aggressiveRetestBreakoutCandles(): List<Candle> {
         testCandle(latestAt.minus(Duration.ofMinutes(5)), "100.5", "103", "100.5", "102", "130")
     candles[candles.lastIndex] =
         testCandle(latestAt, "102", "102.4", "100.9", "102.2", "100")
+    return candles
+}
+
+private fun aggressiveFailedBreakoutCandles(): List<Candle> {
+    val candles = aggressiveRetestBreakoutCandles().toMutableList()
+    val latestAt = candles.last().openedAt
+    candles[candles.lastIndex] =
+        testCandle(latestAt, "102", "103.2", "100", "100.5", "100")
     return candles
 }
 

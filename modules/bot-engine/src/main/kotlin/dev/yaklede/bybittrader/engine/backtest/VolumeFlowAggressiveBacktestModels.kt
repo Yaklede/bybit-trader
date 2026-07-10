@@ -20,6 +20,7 @@ enum class AggressiveExecutionPathMode {
 enum class VolumeFlowAggressiveEntryMode {
     BREAKOUT_NEXT_OPEN,
     BREAKOUT_RETEST,
+    FAILED_BREAK_REVERSAL,
 }
 
 data class VolumeFlowAggressiveBacktestConfig(
@@ -388,6 +389,7 @@ data class VolumeFlowAggressiveBacktestTrade(
     val clusterDisplacementAtr: Double,
     val clusterRangeAtr: Double,
     val breakoutAt: Instant,
+    val breakoutSide: Side,
     val breakoutRelativeVolume: Double,
     val breakoutBodyRatio: Double,
     val breakoutDirectionalClose: Double,

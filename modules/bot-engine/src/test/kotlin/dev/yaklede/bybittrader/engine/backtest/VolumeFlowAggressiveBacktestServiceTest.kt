@@ -239,6 +239,34 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
         }
 
+        "reverses only after a breakout closes back inside the cluster" {
+            val candles = aggressiveFailedBreakCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config =
+                        aggressiveTestConfig()
+                            .copy(
+                                entryMode = VolumeFlowAggressiveEntryMode.FAILED_BREAK_REVERSAL,
+                                breakoutRelativeVolumeMin = 1.2,
+                                breakoutBodyRatioMin = 0.5,
+                                breakoutDirectionalCloseMin = 0.55,
+                                maxBreakoutDistanceAtr = 1.0,
+                            ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().side shouldBe Side.SELL
+            result.trades.single().breakoutSide shouldBe Side.BUY
+            result.trades.single().breakoutAt shouldBe Instant.parse("2026-06-30T13:10:00Z")
+            result.trades.single().signalAt shouldBe Instant.parse("2026-06-30T13:15:00Z")
+            result.trades.single().openedAt shouldBe Instant.parse("2026-06-30T13:20:00Z")
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.TARGET
+        }
+
         "uses M1 candles to resolve the execution path after entry" {
             val entryAt = Instant.parse("2026-06-30T13:15:00Z")
             val m5Candles =
@@ -475,6 +503,27 @@ private fun aggressiveRetestCandles(): List<Candle> =
                     high = BigDecimal("112"),
                     low = BigDecimal("102"),
                     close = BigDecimal("110"),
+                )
+            else -> candle
+        }
+    }
+
+private fun aggressiveFailedBreakCandles(): List<Candle> =
+    aggressiveAbsorptionCandles().mapIndexed { index, candle ->
+        when (index) {
+            73 ->
+                candle.copy(
+                    open = BigDecimal("102"),
+                    high = BigDecimal("103.2"),
+                    low = BigDecimal("100"),
+                    close = BigDecimal("100.5"),
+                )
+            74 ->
+                candle.copy(
+                    open = BigDecimal("100.5"),
+                    high = BigDecimal("101"),
+                    low = BigDecimal("90"),
+                    close = BigDecimal("92"),
                 )
             else -> candle
         }

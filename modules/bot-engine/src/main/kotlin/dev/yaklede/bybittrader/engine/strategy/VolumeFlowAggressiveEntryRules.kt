@@ -2,6 +2,25 @@ package dev.yaklede.bybittrader.engine.strategy
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestConfig
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
+
+internal fun aggressiveBreakoutSideAllowed(
+    breakoutSide: Side,
+    config: VolumeFlowAggressiveBacktestConfig,
+): Boolean {
+    val tradeSide =
+        if (config.entryMode == VolumeFlowAggressiveEntryMode.FAILED_BREAK_REVERSAL) {
+            if (breakoutSide == Side.BUY) Side.SELL else Side.BUY
+        } else {
+            breakoutSide
+        }
+    return when (config.sideMode) {
+        VolumeFlowSideMode.BOTH -> true
+        VolumeFlowSideMode.LONG_ONLY -> tradeSide == Side.BUY
+        VolumeFlowSideMode.SHORT_ONLY -> tradeSide == Side.SELL
+    }
+}
 
 internal fun aggressiveDirectionalClose(
     side: Side,
@@ -50,5 +69,21 @@ internal fun aggressiveRetestConfirmed(
     return when (side) {
         Side.BUY -> low <= boundary + tolerance && close > boundary && close > open
         Side.SELL -> high >= boundary - tolerance && close < boundary && close < open
+    }
+}
+
+internal fun aggressiveFailedBreakConfirmed(
+    breakoutSide: Side,
+    open: Double,
+    close: Double,
+    closeLocation: Double,
+    boundary: Double,
+    config: VolumeFlowAggressiveBacktestConfig,
+): Boolean {
+    val reversalSide = if (breakoutSide == Side.BUY) Side.SELL else Side.BUY
+    if (aggressiveDirectionalClose(reversalSide, closeLocation) < config.retestDirectionalCloseMin) return false
+    return when (breakoutSide) {
+        Side.BUY -> close < boundary && close < open
+        Side.SELL -> close > boundary && close > open
     }
 }
