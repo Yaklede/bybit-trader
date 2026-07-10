@@ -35,6 +35,10 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoopConfig
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureLoop
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureLoopConfig
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureService
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationStatus
 import dev.yaklede.bybittrader.engine.paper.PaperTradingConfig
@@ -45,6 +49,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeFlowAggressiveStrategy
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClientConfig
+import dev.yaklede.bybittrader.exchange.bybit.BybitPublicMarketCaptureClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitTradingCategory
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
@@ -54,6 +59,7 @@ import dev.yaklede.bybittrader.strategy.MeanReversionStrategy
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.engine.embeddedServer
 import kotlinx.coroutines.CoroutineScope
@@ -75,12 +81,13 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} executionLoop={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} executionLoop={} forwardCapture={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
         config.execution.enabled,
         config.executionLoop.enabled,
+        config.forwardMarketCapture.enabled,
         config.marketData.symbol.value,
         config.marketData.timeframes.joinToString(",") { it.name },
     )
@@ -227,6 +234,29 @@ fun main() {
             logger.info("execution loop disabled")
             null
         }
+    val forwardMarketCaptureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val forwardMarketCaptureJob =
+        if (config.forwardMarketCapture.enabled) {
+            logger.info(
+                "forward market capture enabled symbol={} depth={} streamUrl={}",
+                config.marketData.symbol.value,
+                config.forwardMarketCapture.orderBookDepth,
+                config.forwardMarketCapture.publicWebSocketUrl,
+            )
+            ForwardMarketCaptureLoop(
+                feed =
+                    BybitPublicMarketCaptureClient(
+                        httpClient = httpClient,
+                        baseUrl = config.forwardMarketCapture.publicWebSocketUrl,
+                        orderBookDepth = config.forwardMarketCapture.orderBookDepth,
+                    ),
+                captureService = ForwardMarketCaptureService(store = ledger),
+                config = ForwardMarketCaptureLoopConfig(symbol = config.marketData.symbol),
+            ).start(forwardMarketCaptureScope)
+        } else {
+            logger.info("forward market capture disabled")
+            null
+        }
     val resumeReadinessScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val resumeReadinessJob =
         BotResumeReadinessService(
@@ -271,9 +301,11 @@ fun main() {
             }
             paperLoopJob?.cancel()
             executionLoopJob?.cancel()
+            forwardMarketCaptureJob?.cancel()
             resumeReadinessJob.cancel()
             paperLoopScope.cancel()
             executionLoopScope.cancel()
+            forwardMarketCaptureScope.cancel()
             resumeReadinessScope.cancel()
             httpClient.close()
         },
@@ -300,6 +332,8 @@ fun main() {
                 executionService = executionService,
                 strategyProfileService = strategyProfileService,
                 runtimeMode = config.runtimeMode.name,
+                forwardMarketCaptureStatusService = ForwardMarketCaptureStatusService(store = ledger),
+                forwardMarketCaptureEnabled = config.forwardMarketCapture.enabled,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
                 onSmokeAlert = { message -> alertingService.sendSmokeAlert(message) },
                 controlCredential = config.api.controlCredential,
@@ -324,6 +358,7 @@ private fun openLedgerDatabase(path: Path): LedgerDatabase {
 
 private fun createJsonHttpClient(): HttpClient =
     HttpClient(ClientCIO) {
+        install(WebSockets)
         install(ContentNegotiation) {
             json(
                 Json {

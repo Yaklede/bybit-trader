@@ -241,3 +241,31 @@ be evaluated as follows:
    stays within the drawdown gate, and has meaningful trade coverage.
 5. Keep `BOT_EXECUTION_MAX_NOTIONAL` in place until the promotion gate passes
    and forward observation confirms order and alert parity.
+
+## Forward Data Collection Gate
+
+Historical Bybit REST data does not contain the event-level order-book history
+needed to test book imbalance causally. The runtime now has a separate,
+default-off collection path for future data only:
+
+- `orderbook.{depth}.BTCUSDT` produces top-of-book depth snapshots that are
+  aggregated into one-minute imbalance and spread bars.
+- `allLiquidation.BTCUSDT` produces liquidation events that are aggregated into
+  one-minute long/short liquidation notionals and counts.
+- It has no dependency on the strategy evaluator or exchange execution
+  service. Enabling it cannot submit an order or alter a signal.
+- The dashboard marks collection as verified only when a completed order-book
+  bar has arrived within the last three minutes. A missing liquidation bar is
+  normal when no liquidation event occurred.
+
+Source notes: Bybit documents REST order book as a snapshot and the public
+WebSocket feed as snapshot-plus-delta. It also documents the all-liquidation
+stream and the `Buy`/`Sell` liquidation-side mapping. See
+[order book REST](https://bybit-exchange.github.io/docs/v5/market/orderbook),
+[order book WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook),
+and [all liquidation WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation).
+
+This data must accumulate before any feature design or threshold tuning. The
+first research pass must freeze all feature definitions, use only bars that
+were available after their minute closed, and keep a final untouched time
+segment for evaluation.

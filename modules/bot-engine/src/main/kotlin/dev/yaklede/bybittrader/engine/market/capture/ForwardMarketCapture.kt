@@ -17,6 +17,7 @@ import java.time.Instant
 
 private val ONE_MINUTE: Duration = Duration.ofMinutes(1)
 private val DECIMAL_CONTEXT: MathContext = MathContext.DECIMAL64
+private const val STATUS_QUERY_LIMIT = 10
 
 sealed interface ForwardMarketCaptureEvent {
     val symbol: Symbol
@@ -181,6 +182,70 @@ class ForwardMarketCaptureService(
             orderBookBars = orderBookBars.size,
             liquidationBars = liquidationBars.size,
         )
+    }
+}
+
+class ForwardMarketCaptureStatusService(
+    private val store: ForwardMarketCaptureStore,
+    private val clock: Clock = Clock.systemUTC(),
+    private val orderBookFreshness: Duration = Duration.ofMinutes(3),
+) {
+    init {
+        require(!orderBookFreshness.isNegative && !orderBookFreshness.isZero) {
+            "Forward order book freshness must be positive."
+        }
+    }
+
+    suspend fun status(
+        symbol: Symbol,
+        enabled: Boolean,
+    ): ForwardMarketCaptureStatus {
+        if (!enabled) return ForwardMarketCaptureStatus.DISABLED
+
+        val now = Instant.now(clock)
+        val startAt = now.minus(orderBookFreshness.plus(ONE_MINUTE))
+        val orderBookBar =
+            store
+                .orderBookImbalanceBarsBetween(
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = now,
+                    limit = STATUS_QUERY_LIMIT,
+                ).maxByOrNull(OrderBookImbalanceBar::openedAt)
+        val liquidationBar =
+            store
+                .liquidationFlowBarsBetween(
+                    symbol = symbol,
+                    startAt = startAt,
+                    endAt = now,
+                    limit = STATUS_QUERY_LIMIT,
+                ).maxByOrNull(LiquidationFlowBar::openedAt)
+        return ForwardMarketCaptureStatus(
+            enabled = true,
+            latestOrderBookBarAt = orderBookBar?.openedAt,
+            latestLiquidationBarAt = liquidationBar?.openedAt,
+            orderBookFresh =
+                orderBookBar?.availableAt?.let { availableAt ->
+                    !availableAt.isBefore(now.minus(orderBookFreshness))
+                } ?: false,
+        )
+    }
+}
+
+data class ForwardMarketCaptureStatus(
+    val enabled: Boolean,
+    val latestOrderBookBarAt: Instant?,
+    val latestLiquidationBarAt: Instant?,
+    val orderBookFresh: Boolean,
+) {
+    companion object {
+        val DISABLED =
+            ForwardMarketCaptureStatus(
+                enabled = false,
+                latestOrderBookBarAt = null,
+                latestLiquidationBarAt = null,
+                orderBookFresh = false,
+            )
     }
 }
 

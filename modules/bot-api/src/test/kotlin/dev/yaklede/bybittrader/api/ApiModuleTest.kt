@@ -1118,6 +1118,7 @@ class ApiModuleTest :
                 body shouldContain """"totalEquity":"1200.5""""
                 body shouldContain """"positions":[{"""
                 body shouldContain """"unrealizedPnl":"10""""
+                body shouldContain "\"forwardMarketCapture\":{\"enabled\":false,\"orderBookFresh\":false"
             }
         }
 

@@ -12,6 +12,8 @@ class AppConfigTest :
             config.runtimeMode shouldBe RuntimeMode.PAPER
             config.marketData.symbol.value shouldBe "BTCUSDT"
             config.marketData.timeframes.map { it.name } shouldBe listOf("M1", "M5", "M15")
+            config.forwardMarketCapture.enabled shouldBe false
+            config.forwardMarketCapture.orderBookDepth shouldBe 50
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
             config.bybitPrivate.accountType shouldBe "UNIFIED"
@@ -147,6 +149,24 @@ class AppConfigTest :
             config.marketData.symbol.value shouldBe "ETHUSDT"
             config.marketData.timeframes.map { it.name } shouldBe listOf("M15")
             config.marketData.bybitPublicBaseUrl shouldBe "https://api-testnet.bybit.com"
+        }
+
+        "forward market capture settings are opt-in and validate their order book depth" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_FORWARD_MARKET_CAPTURE_ENABLED" to "true",
+                        "BYBIT_PUBLIC_WEBSOCKET_URL" to "wss://stream.bybit.test/v5/public/linear",
+                        "BOT_FORWARD_ORDER_BOOK_DEPTH" to "25",
+                    ),
+                )
+
+            config.forwardMarketCapture.enabled shouldBe true
+            config.forwardMarketCapture.orderBookDepth shouldBe 25
+
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(mapOf("BOT_FORWARD_ORDER_BOOK_DEPTH" to "51"))
+            }
         }
 
         "paper loop settings can be read from environment" {

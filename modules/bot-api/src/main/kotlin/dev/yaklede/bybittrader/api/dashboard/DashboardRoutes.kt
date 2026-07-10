@@ -16,6 +16,8 @@ import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.market.MarketTicker
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatus
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
@@ -34,6 +36,8 @@ fun Route.configureDashboardRoutes(
     marketDataSyncService: MarketDataSyncService,
     executionService: ExchangeExecutionService?,
     runtimeMode: String? = null,
+    forwardMarketCaptureStatusService: ForwardMarketCaptureStatusService? = null,
+    forwardMarketCaptureEnabled: Boolean = false,
 ) {
     val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.api.dashboard")
     authenticate("control") {
@@ -54,6 +58,10 @@ fun Route.configureDashboardRoutes(
                 }
             val balance = executionService?.accountBalance(request.coin)
             val reconciliation = executionService?.reconcile(request.symbol)
+            val forwardMarketCapture =
+                forwardMarketCaptureStatusService
+                    ?.status(symbol = request.symbol, enabled = forwardMarketCaptureEnabled)
+                    ?: ForwardMarketCaptureStatus.DISABLED
             val response =
                 DashboardSummaryResponse(
                     capturedAt = Instant.now().toString(),
@@ -63,6 +71,7 @@ fun Route.configureDashboardRoutes(
                     market = market?.toResponse(),
                     account = balance?.toResponse(),
                     reconciliation = reconciliation?.toResponse(),
+                    forwardMarketCapture = forwardMarketCapture.toResponse(),
                     performance = paperTradingReportStore.latestPerformanceSummary().toResponse(),
                     recentSignals =
                         paperTradingReportStore
@@ -197,9 +206,18 @@ data class DashboardSummaryResponse(
     val market: DashboardMarketResponse?,
     val account: DashboardAccountBalanceResponse?,
     val reconciliation: DashboardReconciliationResponse?,
+    val forwardMarketCapture: DashboardForwardMarketCaptureResponse,
     val performance: DashboardPerformanceResponse,
     val recentSignals: List<DashboardSignalResponse>,
     val recentTrades: List<DashboardTradeResponse>,
+)
+
+@Serializable
+data class DashboardForwardMarketCaptureResponse(
+    val enabled: Boolean,
+    val orderBookFresh: Boolean,
+    val latestOrderBookBarAt: String?,
+    val latestLiquidationBarAt: String?,
 )
 
 @Serializable
@@ -417,6 +435,14 @@ private fun MarketTicker.toResponse(): DashboardMarketResponse =
         fundingRate = fundingRate?.toPlainString(),
         nextFundingTime = nextFundingTime?.toString(),
         capturedAt = capturedAt.toString(),
+    )
+
+private fun ForwardMarketCaptureStatus.toResponse(): DashboardForwardMarketCaptureResponse =
+    DashboardForwardMarketCaptureResponse(
+        enabled = enabled,
+        orderBookFresh = orderBookFresh,
+        latestOrderBookBarAt = latestOrderBookBarAt?.toString(),
+        latestLiquidationBarAt = latestLiquidationBarAt?.toString(),
     )
 
 private fun ExchangeReconciliationReport.toResponse(): DashboardReconciliationResponse =

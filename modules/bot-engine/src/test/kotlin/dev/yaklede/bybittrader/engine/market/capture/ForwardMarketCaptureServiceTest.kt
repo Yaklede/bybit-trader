@@ -4,7 +4,9 @@ import dev.yaklede.bybittrader.domain.Symbol
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.math.BigDecimal
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 
 class ForwardMarketCaptureServiceTest :
     StringSpec({
@@ -44,6 +46,42 @@ class ForwardMarketCaptureServiceTest :
 
             service.flushClosedBars(Instant.parse("2026-07-10T00:02:00Z")).orderBookBars shouldBe 1
         }
+
+        "reports a fresh order book bar separately from optional liquidation activity" {
+            val store = InMemoryForwardMarketCaptureStore()
+            val symbol = Symbol("BTCUSDT")
+            store.orderBookBars +=
+                OrderBookImbalanceBar(
+                    symbol = symbol,
+                    openedAt = Instant.parse("2026-07-10T00:03:00Z"),
+                    sampleCount = 2,
+                    meanBidNotional = BigDecimal("100"),
+                    meanAskNotional = BigDecimal("80"),
+                    meanImbalance = BigDecimal("0.111"),
+                    meanSpreadBps = BigDecimal("1"),
+                    maxSpreadBps = BigDecimal("1"),
+                )
+            val status =
+                ForwardMarketCaptureStatusService(
+                    store = store,
+                    clock = Clock.fixed(Instant.parse("2026-07-10T00:05:00Z"), ZoneOffset.UTC),
+                ).status(symbol = symbol, enabled = true)
+
+            status.enabled shouldBe true
+            status.orderBookFresh shouldBe true
+            status.latestOrderBookBarAt shouldBe Instant.parse("2026-07-10T00:03:00Z")
+            status.latestLiquidationBarAt shouldBe null
+        }
+
+        "reports disabled capture without exposing old bars" {
+            val status =
+                ForwardMarketCaptureStatusService(InMemoryForwardMarketCaptureStore()).status(
+                    symbol = Symbol("BTCUSDT"),
+                    enabled = false,
+                )
+
+            status shouldBe ForwardMarketCaptureStatus.DISABLED
+        }
     })
 
 private class InMemoryForwardMarketCaptureStore : ForwardMarketCaptureStore {
@@ -59,7 +97,11 @@ private class InMemoryForwardMarketCaptureStore : ForwardMarketCaptureStore {
         startAt: Instant,
         endAt: Instant,
         limit: Int,
-    ): List<OrderBookImbalanceBar> = emptyList()
+    ): List<OrderBookImbalanceBar> =
+        orderBookBars
+            .filter { it.symbol == symbol && !it.openedAt.isBefore(startAt) && !it.openedAt.isAfter(endAt) }
+            .sortedBy(OrderBookImbalanceBar::openedAt)
+            .take(limit)
 
     override suspend fun upsertLiquidationFlowBars(bars: List<LiquidationFlowBar>) {
         liquidationBars += bars
@@ -70,7 +112,11 @@ private class InMemoryForwardMarketCaptureStore : ForwardMarketCaptureStore {
         startAt: Instant,
         endAt: Instant,
         limit: Int,
-    ): List<LiquidationFlowBar> = emptyList()
+    ): List<LiquidationFlowBar> =
+        liquidationBars
+            .filter { it.symbol == symbol && !it.openedAt.isBefore(startAt) && !it.openedAt.isAfter(endAt) }
+            .sortedBy(LiquidationFlowBar::openedAt)
+            .take(limit)
 }
 
 private fun orderBookSnapshot(

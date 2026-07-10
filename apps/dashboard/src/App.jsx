@@ -49,6 +49,7 @@ const EMPTY_SUMMARY = {
   runtimeMode: "",
   executionAvailable: false,
   bot: { mode: "확인 필요", updatedAt: "", heartbeatAt: "" },
+  forwardMarketCapture: { enabled: false, orderBookFresh: false, latestOrderBookBarAt: "", latestLiquidationBarAt: "" },
   recentSignals: [],
   recentTrades: [],
 };
@@ -431,6 +432,7 @@ function App() {
       : false;
   const latestSignal = activitySignals[0];
   const lastCapturedAt = mobileSummary.capturedAt || account?.capturedAt || summary.bot?.updatedAt;
+  const forwardMarketCapture = summary.forwardMarketCapture || EMPTY_SUMMARY.forwardMarketCapture;
 
   const runManualMarketOrder = useCallback(
     () =>
@@ -646,6 +648,24 @@ function App() {
               <dl className="detail-list compact">
                 <StateRow label="마지막 동기화" value={formatDateTime(primarySync?.lastSyncAt)} />
                 <StateRow label="최근 종료 알림" value={formatDateTime(mobileSummary.alerts?.latestExitAlertAt)} />
+              </dl>
+            </section>
+
+            <section className="panel">
+              <PanelHeader title="시장 흐름 수집" description="호가와 강제청산 데이터를 저장해 이후 전략 검증에 써요." />
+              <div className="stats-grid">
+                <StatBlock
+                  label="수집 상태"
+                  value={formatForwardMarketCaptureStatus(forwardMarketCapture)}
+                  tone={forwardMarketCaptureTone(forwardMarketCapture)}
+                />
+                <StatBlock label="호가 1분 집계" value={formatShortDateTime(forwardMarketCapture.latestOrderBookBarAt)} />
+                <StatBlock label="강제청산 집계" value={formatShortDateTime(forwardMarketCapture.latestLiquidationBarAt)} />
+                <StatBlock label="수집 기준" value={forwardMarketCapture.enabled ? "최근 3분" : "수집 꺼짐"} />
+              </div>
+              <dl className="detail-list compact">
+                <StateRow label="최근 호가 수집" value={formatDateTime(forwardMarketCapture.latestOrderBookBarAt)} />
+                <StateRow label="최근 강제청산 수집" value={formatDateTime(forwardMarketCapture.latestLiquidationBarAt)} />
               </dl>
             </section>
 
@@ -1518,6 +1538,19 @@ function formatShortDateTime(value) {
 function formatExecution(value, hasLoaded) {
   if (!hasLoaded) return "조회 전";
   return value ? "연결됨" : "확인 필요";
+}
+
+function formatForwardMarketCaptureStatus(capture) {
+  if (!capture?.enabled) return "수집 꺼짐";
+  if (capture.orderBookFresh) return "수집 확인됨";
+  if (!capture.latestOrderBookBarAt) return "첫 집계 대기";
+  return "수집 확인 필요";
+}
+
+function forwardMarketCaptureTone(capture) {
+  if (!capture?.enabled) return "neutral";
+  if (capture.orderBookFresh) return "positive";
+  return "neutral";
 }
 
 function formatBotMode(mode) {

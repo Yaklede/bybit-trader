@@ -32,6 +32,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
 import dev.yaklede.bybittrader.engine.paper.EmptyPaperTradingReportStore
 import dev.yaklede.bybittrader.engine.paper.PaperTradingReportStore
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
@@ -66,6 +67,8 @@ fun Application.configureApi(
     executionService: ExchangeExecutionService? = null,
     strategyProfileService: StrategyProfileService? = null,
     runtimeMode: String? = null,
+    forwardMarketCaptureStatusService: ForwardMarketCaptureStatusService? = null,
+    forwardMarketCaptureEnabled: Boolean = false,
     onControlResult: suspend (ControlResult) -> Unit = {},
     onSmokeAlert: (suspend (String) -> SmokeAlertDeliveryResponse)? = null,
     controlCredential: String?,
@@ -128,7 +131,15 @@ fun Application.configureApi(
     routing {
         configureHealthRoutes()
         configureStatusRoutes(stateStore, paperTradingReportStore)
-        configureDashboardRoutes(stateStore, paperTradingReportStore, marketDataSyncService, executionService, runtimeMode)
+        configureDashboardRoutes(
+            stateStore = stateStore,
+            paperTradingReportStore = paperTradingReportStore,
+            marketDataSyncService = marketDataSyncService,
+            executionService = executionService,
+            runtimeMode = runtimeMode,
+            forwardMarketCaptureStatusService = forwardMarketCaptureStatusService,
+            forwardMarketCaptureEnabled = forwardMarketCaptureEnabled,
+        )
         configureControlRoutes(controlService, onControlResult)
         configureMarketDataRoutes(marketDataSyncService)
         strategyProfileService?.let(::configureStrategyProfileRoutes)

@@ -8,6 +8,7 @@ import java.math.BigDecimal
 data class AppConfig(
     val runtimeMode: RuntimeMode,
     val marketData: MarketDataConfig,
+    val forwardMarketCapture: ForwardMarketCaptureSettings,
     val bybitPrivate: BybitPrivateSettings,
     val api: ApiConfig,
     val database: DatabaseConfig,
@@ -54,6 +55,7 @@ data class AppConfig(
             return AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,
+                forwardMarketCapture = ForwardMarketCaptureSettings.fromEnvironment(environment, runtimeMode),
                 bybitPrivate = BybitPrivateSettings.fromEnvironment(environment, runtimeMode),
                 api =
                     ApiConfig(
@@ -174,6 +176,38 @@ data class MarketDataConfig(
                         ?.map(Timeframe::valueOf)
                         ?: listOf(Timeframe.M1, Timeframe.M5, Timeframe.M15),
                 bybitPublicBaseUrl = environment["BYBIT_PUBLIC_BASE_URL"] ?: "https://api.bybit.com",
+            )
+    }
+}
+
+data class ForwardMarketCaptureSettings(
+    val enabled: Boolean,
+    val publicWebSocketUrl: String,
+    val orderBookDepth: Int,
+) {
+    init {
+        require(publicWebSocketUrl.startsWith("ws://") || publicWebSocketUrl.startsWith("wss://")) {
+            "Bybit public WebSocket URL must use ws or wss."
+        }
+        require(orderBookDepth in 1..50) { "Forward order book depth must be between 1 and 50." }
+    }
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            runtimeMode: RuntimeMode,
+        ): ForwardMarketCaptureSettings =
+            ForwardMarketCaptureSettings(
+                enabled = environment["BOT_FORWARD_MARKET_CAPTURE_ENABLED"].toBooleanStrictOrFalse(),
+                publicWebSocketUrl =
+                    environment["BYBIT_PUBLIC_WEBSOCKET_URL"]
+                        ?: when (runtimeMode) {
+                            RuntimeMode.TESTNET -> "wss://stream-testnet.bybit.com/v5/public/linear"
+                            RuntimeMode.LIVE,
+                            RuntimeMode.PAPER,
+                            -> "wss://stream.bybit.com/v5/public/linear"
+                        },
+                orderBookDepth = environment["BOT_FORWARD_ORDER_BOOK_DEPTH"]?.toIntOrNull() ?: 50,
             )
     }
 }
