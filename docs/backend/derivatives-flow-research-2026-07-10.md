@@ -72,6 +72,41 @@ not an optimization sweep and are not used to change the deployed profile.
 The immediate and confirmed flow-exhaustion setup prototypes were removed from
 the working tree after both independent development segments failed.
 
+## Conditional Feature Diagnostic
+
+`scripts/bybit-flow-feature-diagnostics.mjs` is a read-only diagnostic. It
+uses completed M5 candles, complete five-minute taker-flow buckets, and only
+open-interest observations available by the candle close. It reports the
+after-cost 15-minute conditional return for both continuation and reversal; it
+does not simulate entries, sizing, stops, or liquidation.
+
+Reproduction:
+
+```bash
+node --no-warnings scripts/bybit-flow-feature-diagnostics.mjs \
+  --db=/private/tmp/bybit-trader-diagnostics-20260710.sqlite \
+  --start=2020-07-20T00:00:00Z \
+  --end=2021-12-31T23:55:00Z \
+  --horizon-m5=3 \
+  --round-trip-cost-bps=12 \
+  --min-samples=100
+```
+
+The top-ranked states in each independent development segment were still
+negative after the 12 basis-point round-trip cost assumption:
+
+| Segment | Dimension | Best state | Continuation | Reversal | Samples |
+|---|---|---|---:|---:|---:|
+| 2020-07-20 to 2021-12-31 | Flow only | aligned, low imbalance, volume surge | -0.18940% | -0.05060% | 1,928 |
+| 2020-07-20 to 2021-12-31 | Flow and OI | aligned, low imbalance, volume surge, OI contracting | -0.21916% | -0.02084% | 835 |
+| 2022-01-01 to 2023-12-31 | Flow only | aligned, medium imbalance, volume surge | -0.13968% | -0.10032% | 4,941 |
+| 2022-01-01 to 2023-12-31 | Flow and OI | opposed, medium imbalance, normal volume, OI contracting | -0.06675% | -0.17325% | 231 |
+
+Decision: do not turn the tested flow/OI states into runtime setup modes. A
+new strategy hypothesis needs information not represented by this simple
+feature set, such as a pre-specified transition-state model or independently
+available order-book/crowding history.
+
 ## Aggressive Profile Check
 
 The `absa_final_us_v1` aggressive profile remains `UNVERIFIED`. Under the
