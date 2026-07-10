@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestServi
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressivePerformanceSlice
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -54,6 +55,21 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     val leverage: Double? = null,
     val liquidationBufferPct: Double? = null,
     val sessionHoursUtc: Set<Int>? = null,
+    val volumeLookback: Int? = null,
+    val atrLookback: Int? = null,
+    val relativeVolumeMin: Double? = null,
+    val clusterCandles: Int? = null,
+    val clusterVolumeMin: Double? = null,
+    val maxDisplacementAtr: Double? = null,
+    val maxRangeAtr: Double? = null,
+    val stopAtr: Double? = null,
+    val targetR: Double? = null,
+    val entryLookaheadCandles: Int? = null,
+    val maxHoldCandles: Int? = null,
+    val maxTradesPerDay: Int? = null,
+    val sideMode: String? = null,
+    val adaptiveRulesEnabled: Boolean = true,
+    val sideRegimeRulesEnabled: Boolean = true,
     val tradeLimit: Int = 50,
 ) {
     fun validated(): VolumeFlowAggressiveCurrentBacktestRequest {
@@ -101,9 +117,29 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             leverage = leverage ?: base.leverage,
             liquidationBufferPct = liquidationBufferPct ?: base.liquidationBufferPct,
             sessionHoursUtc = sessionHoursUtc ?: base.sessionHoursUtc,
+            volumeLookback = volumeLookback ?: base.volumeLookback,
+            atrLookback = atrLookback ?: base.atrLookback,
+            relativeVolumeMin = relativeVolumeMin ?: base.relativeVolumeMin,
+            clusterCandles = clusterCandles ?: base.clusterCandles,
+            clusterVolumeMin = clusterVolumeMin ?: base.clusterVolumeMin,
+            maxDisplacementAtr = maxDisplacementAtr ?: base.maxDisplacementAtr,
+            maxRangeAtr = maxRangeAtr ?: base.maxRangeAtr,
+            stopAtr = stopAtr ?: base.stopAtr,
+            adaptiveStop = base.adaptiveStop.takeIf { adaptiveRulesEnabled },
+            targetR = targetR ?: base.targetR,
+            adaptiveTarget = base.adaptiveTarget.takeIf { adaptiveRulesEnabled },
+            sideRegimeBlocks = base.sideRegimeBlocks.takeIf { sideRegimeRulesEnabled }.orEmpty(),
+            entryLookaheadCandles = entryLookaheadCandles ?: base.entryLookaheadCandles,
+            maxHoldCandles = maxHoldCandles ?: base.maxHoldCandles,
+            maxTradesPerDay = maxTradesPerDay ?: base.maxTradesPerDay,
+            sideMode = sideMode?.toVolumeFlowSideMode() ?: base.sideMode,
         )
     }
 }
+
+private fun String.toVolumeFlowSideMode(): VolumeFlowSideMode =
+    runCatching { VolumeFlowSideMode.valueOf(trim().uppercase()) }
+        .getOrElse { throw IllegalArgumentException("Side mode must be BOTH, LONG_ONLY, or SHORT_ONLY.") }
 
 private fun parseAggressiveReplayInstant(value: String): Instant =
     runCatching { Instant.parse(value) }
