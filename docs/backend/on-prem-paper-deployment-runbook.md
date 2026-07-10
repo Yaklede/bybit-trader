@@ -64,6 +64,8 @@ want to begin accumulating new public data. It does not submit an order or
 change strategy evaluation. The dashboard shows `수집 확인됨` after completed
 order-book and taker-trade minute bars are stored; an empty liquidation
 timestamp is normal when the market has no liquidation event.
+Use the panel's `최근 60분 공통 수집` value to verify that both streams are
+continuously stored before running the forward-data diagnostic.
 
 For private Bybit live execution, add:
 

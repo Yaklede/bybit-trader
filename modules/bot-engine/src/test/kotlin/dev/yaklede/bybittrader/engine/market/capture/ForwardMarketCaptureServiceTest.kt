@@ -96,6 +96,32 @@ class ForwardMarketCaptureServiceTest :
             status.latestLiquidationBarAt shouldBe null
             status.latestTakerFlowBarAt shouldBe Instant.parse("2026-07-10T00:03:00Z")
             status.takerFlowFresh shouldBe true
+            status.recentCoverage?.expectedMinuteBars shouldBe 60
+            status.recentCoverage?.orderBookMinuteBars shouldBe 1
+            status.recentCoverage?.takerFlowMinuteBars shouldBe 1
+            status.recentCoverage?.commonMinuteBars shouldBe 1
+        }
+
+        "reports common recent coverage only for closed minutes captured by both sources" {
+            val store = InMemoryForwardMarketCaptureStore()
+            val symbol = Symbol("BTCUSDT")
+            val startAt = Instant.parse("2026-07-10T00:00:00Z")
+            repeat(60) { offset ->
+                val openedAt = startAt.plusSeconds(offset * 60L)
+                store.orderBookBars += sampleOrderBookBar(symbol, openedAt)
+                if (offset != 30) store.takerFlowBars += sampleTakerFlowBar(symbol, openedAt)
+            }
+
+            val status =
+                ForwardMarketCaptureStatusService(
+                    store = store,
+                    clock = Clock.fixed(Instant.parse("2026-07-10T01:00:00Z"), ZoneOffset.UTC),
+                ).status(symbol = symbol, enabled = true)
+
+            status.recentCoverage?.expectedMinuteBars shouldBe 60
+            status.recentCoverage?.orderBookMinuteBars shouldBe 60
+            status.recentCoverage?.takerFlowMinuteBars shouldBe 59
+            status.recentCoverage?.commonMinuteBars shouldBe 59
         }
 
         "reports disabled capture without exposing old bars" {
@@ -201,4 +227,34 @@ private fun takerTradeEvent(
         takerSide = side,
         quantity = BigDecimal(quantity),
         price = BigDecimal(price),
+    )
+
+private fun sampleOrderBookBar(
+    symbol: Symbol,
+    openedAt: Instant,
+): OrderBookImbalanceBar =
+    OrderBookImbalanceBar(
+        symbol = symbol,
+        openedAt = openedAt,
+        sampleCount = 1,
+        meanBidNotional = BigDecimal("100"),
+        meanAskNotional = BigDecimal("80"),
+        meanImbalance = BigDecimal("0.111"),
+        meanSpreadBps = BigDecimal.ONE,
+        maxSpreadBps = BigDecimal.ONE,
+    )
+
+private fun sampleTakerFlowBar(
+    symbol: Symbol,
+    openedAt: Instant,
+): TakerFlowBar =
+    TakerFlowBar(
+        symbol = symbol,
+        openedAt = openedAt,
+        takerBuyBase = BigDecimal("2"),
+        takerBuyNotional = BigDecimal("200"),
+        takerSellBase = BigDecimal.ONE,
+        takerSellNotional = BigDecimal("100"),
+        buyTradeCount = 2,
+        sellTradeCount = 1,
     )

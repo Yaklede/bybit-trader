@@ -20,6 +20,7 @@ import java.time.Instant
 private val ONE_MINUTE: Duration = Duration.ofMinutes(1)
 private val DECIMAL_CONTEXT: MathContext = MathContext.DECIMAL64
 private const val STATUS_QUERY_LIMIT = 10
+private val RECENT_COVERAGE_WINDOW: Duration = Duration.ofHours(1)
 
 sealed interface ForwardMarketCaptureEvent {
     val symbol: Symbol
@@ -226,10 +227,17 @@ class ForwardMarketCaptureStatusService(
     private val store: ForwardMarketCaptureStore,
     private val clock: Clock = Clock.systemUTC(),
     private val orderBookFreshness: Duration = Duration.ofMinutes(3),
+    private val recentCoverageWindow: Duration = RECENT_COVERAGE_WINDOW,
 ) {
     init {
         require(!orderBookFreshness.isNegative && !orderBookFreshness.isZero) {
             "Forward order book freshness must be positive."
+        }
+        require(!recentCoverageWindow.isNegative && !recentCoverageWindow.isZero) {
+            "Forward capture coverage window must be positive."
+        }
+        require(recentCoverageWindow.seconds % ONE_MINUTE.seconds == 0L) {
+            "Forward capture coverage window must use whole minutes."
         }
     }
 
@@ -265,6 +273,7 @@ class ForwardMarketCaptureStatusService(
                     endAt = now,
                     limit = STATUS_QUERY_LIMIT,
                 ).maxByOrNull(TakerFlowBar::openedAt)
+        val recentCoverage = recentCoverage(symbol = symbol, now = now)
         return ForwardMarketCaptureStatus(
             enabled = true,
             latestOrderBookBarAt = orderBookBar?.openedAt,
@@ -278,7 +287,62 @@ class ForwardMarketCaptureStatusService(
                 takerFlowBar?.availableAt?.let { availableAt ->
                     !availableAt.isBefore(now.minus(orderBookFreshness))
                 } ?: false,
+            recentCoverage = recentCoverage,
         )
+    }
+
+    private suspend fun recentCoverage(
+        symbol: Symbol,
+        now: Instant,
+    ): ForwardMarketCaptureRecentCoverage {
+        val expectedMinuteBars = recentCoverageWindow.toMinutes().toInt()
+        val windowEndAt = now.minuteStart().minus(ONE_MINUTE)
+        val windowStartAt = windowEndAt.minus(recentCoverageWindow.minus(ONE_MINUTE))
+        val orderBookOpenedAt =
+            store
+                .orderBookImbalanceBarsBetween(
+                    symbol = symbol,
+                    startAt = windowStartAt,
+                    endAt = windowEndAt,
+                    limit = expectedMinuteBars,
+                ).map(OrderBookImbalanceBar::openedAt)
+                .toSet()
+        val takerFlowOpenedAt =
+            store
+                .takerFlowBarsBetween(
+                    symbol = symbol,
+                    startAt = windowStartAt,
+                    endAt = windowEndAt,
+                    limit = expectedMinuteBars,
+                ).map(TakerFlowBar::openedAt)
+                .toSet()
+        return ForwardMarketCaptureRecentCoverage(
+            windowStartAt = windowStartAt,
+            windowEndAt = windowEndAt,
+            expectedMinuteBars = expectedMinuteBars,
+            orderBookMinuteBars = orderBookOpenedAt.size,
+            takerFlowMinuteBars = takerFlowOpenedAt.size,
+            commonMinuteBars = orderBookOpenedAt.intersect(takerFlowOpenedAt).size,
+        )
+    }
+}
+
+data class ForwardMarketCaptureRecentCoverage(
+    val windowStartAt: Instant,
+    val windowEndAt: Instant,
+    val expectedMinuteBars: Int,
+    val orderBookMinuteBars: Int,
+    val takerFlowMinuteBars: Int,
+    val commonMinuteBars: Int,
+) {
+    init {
+        require(expectedMinuteBars > 0) { "Forward capture expected minute bars must be positive." }
+        require(orderBookMinuteBars in 0..expectedMinuteBars) { "Order book coverage must fit the observation window." }
+        require(takerFlowMinuteBars in 0..expectedMinuteBars) { "Taker-flow coverage must fit the observation window." }
+        require(commonMinuteBars in 0..expectedMinuteBars) { "Common coverage must fit the observation window." }
+        require(commonMinuteBars <= orderBookMinuteBars && commonMinuteBars <= takerFlowMinuteBars) {
+            "Common coverage cannot exceed an individual source coverage."
+        }
     }
 }
 
@@ -289,6 +353,7 @@ data class ForwardMarketCaptureStatus(
     val latestTakerFlowBarAt: Instant?,
     val orderBookFresh: Boolean,
     val takerFlowFresh: Boolean,
+    val recentCoverage: ForwardMarketCaptureRecentCoverage?,
 ) {
     companion object {
         val DISABLED =
@@ -299,6 +364,7 @@ data class ForwardMarketCaptureStatus(
                 latestTakerFlowBarAt = null,
                 orderBookFresh = false,
                 takerFlowFresh = false,
+                recentCoverage = null,
             )
     }
 }

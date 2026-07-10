@@ -112,7 +112,8 @@ streams, stores completed one-minute bars, and does not submit an order or
 change the active strategy. The dashboard's **시장 흐름 수집** panel confirms
 both the latest completed order-book and taker-trade bars. A liquidation
 timestamp can remain empty when no liquidation event occurred; it is not used
-as a connection-health signal.
+as a connection-health signal. The panel also shows how many of the latest 60
+closed minutes were captured by both the order-book and taker-trade streams.
 
 ```bash
 BOT_FORWARD_MARKET_CAPTURE_ENABLED=true

@@ -16,6 +16,7 @@ import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.market.MarketTicker
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureRecentCoverage
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatus
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
@@ -220,6 +221,17 @@ data class DashboardForwardMarketCaptureResponse(
     val latestOrderBookBarAt: String?,
     val latestLiquidationBarAt: String?,
     val latestTakerFlowBarAt: String?,
+    val recentCoverage: DashboardForwardMarketCaptureCoverageResponse?,
+)
+
+@Serializable
+data class DashboardForwardMarketCaptureCoverageResponse(
+    val windowStartAt: String,
+    val windowEndAt: String,
+    val expectedMinuteBars: Int,
+    val orderBookMinuteBars: Int,
+    val takerFlowMinuteBars: Int,
+    val commonMinuteBars: Int,
 )
 
 @Serializable
@@ -447,6 +459,17 @@ private fun ForwardMarketCaptureStatus.toResponse(): DashboardForwardMarketCaptu
         latestOrderBookBarAt = latestOrderBookBarAt?.toString(),
         latestLiquidationBarAt = latestLiquidationBarAt?.toString(),
         latestTakerFlowBarAt = latestTakerFlowBarAt?.toString(),
+        recentCoverage = recentCoverage?.toResponse(),
+    )
+
+private fun ForwardMarketCaptureRecentCoverage.toResponse(): DashboardForwardMarketCaptureCoverageResponse =
+    DashboardForwardMarketCaptureCoverageResponse(
+        windowStartAt = windowStartAt.toString(),
+        windowEndAt = windowEndAt.toString(),
+        expectedMinuteBars = expectedMinuteBars,
+        orderBookMinuteBars = orderBookMinuteBars,
+        takerFlowMinuteBars = takerFlowMinuteBars,
+        commonMinuteBars = commonMinuteBars,
     )
 
 private fun ExchangeReconciliationReport.toResponse(): DashboardReconciliationResponse =

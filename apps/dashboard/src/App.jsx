@@ -56,6 +56,7 @@ const EMPTY_SUMMARY = {
     latestOrderBookBarAt: "",
     latestLiquidationBarAt: "",
     latestTakerFlowBarAt: "",
+    recentCoverage: false,
   },
   recentSignals: [],
   recentTrades: [],
@@ -671,6 +672,8 @@ function App() {
                 <StatBlock label="강제청산 집계" value={formatShortDateTime(forwardMarketCapture.latestLiquidationBarAt)} />
               </div>
               <dl className="detail-list compact">
+                <StateRow label="최근 60분 공통 수집" value={formatForwardCommonCoverage(forwardMarketCapture.recentCoverage)} />
+                <StateRow label="호가 · 테이커 개별 수집" value={formatForwardSourceCoverage(forwardMarketCapture.recentCoverage)} />
                 <StateRow label="최근 호가 수집" value={formatDateTime(forwardMarketCapture.latestOrderBookBarAt)} />
                 <StateRow label="최근 테이커 체결 수집" value={formatDateTime(forwardMarketCapture.latestTakerFlowBarAt)} />
                 <StateRow label="최근 강제청산 수집" value={formatDateTime(forwardMarketCapture.latestLiquidationBarAt)} />
@@ -1559,6 +1562,16 @@ function forwardMarketCaptureTone(capture) {
   if (!capture?.enabled) return "neutral";
   if (capture.orderBookFresh && capture.takerFlowFresh) return "positive";
   return "neutral";
+}
+
+function formatForwardCommonCoverage(coverage) {
+  if (!coverage) return "집계 대기";
+  return `${formatCount(coverage.commonMinuteBars)} / ${formatCount(coverage.expectedMinuteBars)}분`;
+}
+
+function formatForwardSourceCoverage(coverage) {
+  if (!coverage) return "집계 대기";
+  return `${formatCount(coverage.orderBookMinuteBars)} / ${formatCount(coverage.expectedMinuteBars)} · ${formatCount(coverage.takerFlowMinuteBars)} / ${formatCount(coverage.expectedMinuteBars)}분`;
 }
 
 function formatBotMode(mode) {
