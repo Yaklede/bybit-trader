@@ -74,6 +74,23 @@ data class VolumeFlowAggressiveBacktestConfig(
     }
 }
 
+fun VolumeFlowAggressiveBacktestConfig.requiredWarmupCandles(): Int {
+    val sideLookback =
+        sideRegimeBlocks
+            .flatMap { listOf(it.lookbackCandles, it.confirmLookbackCandles ?: 0) }
+            .maxOrNull()
+            ?: 0
+    val adaptiveLookback = maxOf(adaptiveStop?.lookbackCandles ?: 0, adaptiveTarget?.lookbackCandles ?: 0)
+    return maxOf(
+        60,
+        volumeLookback + 1,
+        atrLookback + 1,
+        sideLookback + 1,
+        adaptiveLookback + 1,
+        clusterCandles + entryLookaheadCandles + 1,
+    )
+}
+
 data class VolumeFlowAggressiveAdaptiveStop(
     val stopAtr: Double,
     val lookbackCandles: Int,
@@ -220,6 +237,7 @@ data class VolumeFlowAggressiveBacktestReport(
     val symbol: Symbol,
     val profileId: String,
     val m5CandleCount: Int,
+    val warmupCandleCount: Int,
     val startAt: Instant?,
     val endAt: Instant?,
     val initialEquity: Double,

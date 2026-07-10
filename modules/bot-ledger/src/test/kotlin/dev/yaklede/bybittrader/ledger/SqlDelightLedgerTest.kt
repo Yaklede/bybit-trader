@@ -135,6 +135,28 @@ class SqlDelightLedgerTest :
                 .size shouldBe 2
         }
 
+        "reads bounded warmup candles before a replay start" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(createLedgerDatabase(driver))
+            val symbol = Symbol("BTCUSDT")
+            ledger.upsert(
+                listOf(
+                    sampleCandle(symbol, Timeframe.M5, "2026-06-30T00:00:00Z", "100"),
+                    sampleCandle(symbol, Timeframe.M5, "2026-06-30T00:05:00Z", "101"),
+                    sampleCandle(symbol, Timeframe.M5, "2026-06-30T00:10:00Z", "102"),
+                ),
+            )
+
+            val candles = ledger.candlesBefore(symbol, Timeframe.M5, Instant.parse("2026-06-30T00:10:00Z"), 2)
+
+            candles.map { it.openedAt } shouldBe
+                listOf(
+                    Instant.parse("2026-06-30T00:05:00Z"),
+                    Instant.parse("2026-06-30T00:00:00Z"),
+                )
+        }
+
         "records and reads paper trading audit events" {
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             LedgerDatabase.Schema.create(driver)

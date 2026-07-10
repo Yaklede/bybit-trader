@@ -338,6 +338,15 @@ WHERE symbol = :symbol
 ORDER BY opened_at DESC
 LIMIT :limit;
 
+selectMarketCandlesBefore:
+SELECT symbol, timeframe, opened_at, open, high, low, close, volume
+FROM marketCandles
+WHERE symbol = :symbol
+  AND timeframe = :timeframe
+  AND opened_at < :beforeAt
+ORDER BY opened_at DESC
+LIMIT :limit;
+
 upsertMarketSyncCheckpoint:
 INSERT OR REPLACE INTO marketSyncCheckpoints(
   id,

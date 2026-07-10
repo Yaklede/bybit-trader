@@ -9,6 +9,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestConfig
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
+import dev.yaklede.bybittrader.engine.backtest.requiredWarmupCandles
 import dev.yaklede.bybittrader.strategy.StrategyDecision
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import dev.yaklede.bybittrader.strategy.volume.VolumeFlowIndicators
@@ -25,7 +26,7 @@ class VolumeFlowAggressiveStrategy(
     private val config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
 ) : TradingStrategy {
     override val name: String = "volume-flow-aggressive-${config.profileId}"
-    override val warmupCandles: Int = config.requiredRuntimeWarmupCandles()
+    override val warmupCandles: Int = config.requiredWarmupCandles()
 
     override fun evaluate(candles: List<Candle>): StrategyDecision {
         if (candles.size < warmupCandles) {
@@ -55,23 +56,6 @@ class VolumeFlowAggressiveStrategy(
 
         return StrategyDecision.noTrade("NO_AGGRESSIVE_ABSORPTION_BREAKOUT")
     }
-}
-
-internal fun VolumeFlowAggressiveBacktestConfig.requiredRuntimeWarmupCandles(): Int {
-    val sideLookback =
-        sideRegimeBlocks
-            .flatMap { listOf(it.lookbackCandles, it.confirmLookbackCandles ?: 0) }
-            .maxOrNull()
-            ?: 0
-    val adaptiveLookback = maxOf(adaptiveStop?.lookbackCandles ?: 0, adaptiveTarget?.lookbackCandles ?: 0)
-    return maxOf(
-        AGGRESSIVE_BASE_WARMUP_CANDLES,
-        volumeLookback + 1,
-        atrLookback + 1,
-        sideLookback + 1,
-        adaptiveLookback + 1,
-        clusterCandles + entryLookaheadCandles + 1,
-    )
 }
 
 private fun AggressiveSetup.toDecision(config: VolumeFlowAggressiveBacktestConfig): StrategyDecision {

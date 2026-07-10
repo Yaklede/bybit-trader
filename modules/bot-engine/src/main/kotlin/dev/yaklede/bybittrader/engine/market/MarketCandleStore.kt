@@ -23,4 +23,15 @@ interface MarketCandleStore {
     ): List<Candle> =
         recentCandles(symbol, timeframe, limit)
             .filter { candle -> !candle.openedAt.isBefore(startAt) && !candle.openedAt.isAfter(endAt) }
+
+    suspend fun candlesBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<Candle> =
+        recentCandles(symbol, timeframe, limit)
+            .filter { candle -> candle.openedAt.isBefore(beforeAt) }
+            .sortedByDescending { it.openedAt }
+            .take(limit)
 }

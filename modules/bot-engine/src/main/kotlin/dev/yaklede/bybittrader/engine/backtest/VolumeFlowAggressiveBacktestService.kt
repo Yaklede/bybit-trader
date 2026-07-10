@@ -39,16 +39,31 @@ class VolumeFlowAggressiveBacktestService(
         require(replayStartAt == null || replayEndAt == null || replayEndAt.isAfter(replayStartAt)) {
             "Replay end timestamp must be after replay start timestamp."
         }
-        val candles =
+        val loaded =
             if (replayStartAt != null && replayEndAt != null) {
-                candleStore.candlesBetween(symbol, Timeframe.M5, replayStartAt, replayEndAt, m5Limit)
+                val warmupLimit = config.requiredWarmupCandles()
+                val warmup = candleStore.candlesBefore(symbol, Timeframe.M5, replayStartAt, warmupLimit).sortedBy { it.openedAt }
+                require(warmup.size >= warmupLimit) {
+                    "Not enough M5 warmup candles before the aggressive replay start."
+                }
+                val replay = candleStore.candlesBetween(symbol, Timeframe.M5, replayStartAt, replayEndAt, m5Limit).sortedBy { it.openedAt }
+                LoadedAggressiveCandles(warmup + replay, replay.size, warmup.size)
             } else {
-                candleStore.recentCandles(symbol, Timeframe.M5, m5Limit)
-            }.sortedBy { it.openedAt }
-        require(candles.size >= AGGRESSIVE_WARMUP_CANDLES + config.maxHoldCandles + 2) {
+                val recent = candleStore.recentCandles(symbol, Timeframe.M5, m5Limit).sortedBy { it.openedAt }
+                LoadedAggressiveCandles(recent, recent.size, 0)
+            }
+        require(loaded.candles.size >= config.requiredWarmupCandles() + config.maxHoldCandles + 2) {
             "Not enough M5 candles for aggressive absorption replay."
         }
-        return runLoadedCandles(symbol, candles, config, replayStartAt, replayEndAt)
+        return runLoadedCandles(
+            symbol = symbol,
+            candles = loaded.candles,
+            config = config,
+            replayStartAt = replayStartAt,
+            replayEndAt = replayEndAt,
+            replayCandleCount = loaded.replayCandleCount,
+            warmupCandleCount = loaded.warmupCandleCount,
+        )
     }
 
     internal fun runLoadedCandles(
@@ -57,6 +72,8 @@ class VolumeFlowAggressiveBacktestService(
         config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
         replayStartAt: Instant? = null,
         replayEndAt: Instant? = null,
+        replayCandleCount: Int = candles.size,
+        warmupCandleCount: Int = 0,
     ): VolumeFlowAggressiveBacktestReport {
         val enriched = candles.enriched(config)
         var equity = config.initialEquity
@@ -71,7 +88,12 @@ class VolumeFlowAggressiveBacktestService(
         val tradesByDay = mutableMapOf<String, Int>()
         val trades = mutableListOf<VolumeFlowAggressiveBacktestTrade>()
 
-        var index = AGGRESSIVE_WARMUP_CANDLES
+        val firstReplayIndex =
+            replayStartAt
+                ?.let { startAt -> enriched.indexOfFirst { !it.candle.openedAt.isBefore(startAt) } }
+                ?.takeIf { it >= 0 }
+                ?: config.requiredWarmupCandles()
+        var index = maxOf(config.requiredWarmupCandles(), firstReplayIndex)
         val replayEndIndex = enriched.size
         while (index < replayEndIndex - config.maxHoldCandles - 2) {
             val setup = findSetup(enriched, index, replayEndIndex, config)
@@ -157,7 +179,8 @@ class VolumeFlowAggressiveBacktestService(
         return VolumeFlowAggressiveBacktestReport(
             symbol = symbol,
             profileId = config.profileId,
-            m5CandleCount = candles.size,
+            m5CandleCount = replayCandleCount,
+            warmupCandleCount = warmupCandleCount,
             startAt = startAt,
             endAt = endAt,
             initialEquity = config.initialEquity,
@@ -410,6 +433,12 @@ class VolumeFlowAggressiveBacktestService(
         }
     }
 }
+
+private data class LoadedAggressiveCandles(
+    val candles: List<Candle>,
+    val replayCandleCount: Int,
+    val warmupCandleCount: Int,
+)
 
 private fun List<Candle>.enriched(config: VolumeFlowAggressiveBacktestConfig): List<AggressiveCandle> {
     val result = ArrayList<AggressiveCandle>(size)

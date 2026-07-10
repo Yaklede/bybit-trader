@@ -19,7 +19,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
                 service.run(
                     symbol = Symbol("BTCUSDT"),
                     m5Limit = 120,
-                    config = VolumeFlowAggressiveProfiles.finalUsV1(),
+                    config = aggressiveTestConfig(),
                 )
 
             result.profileId shouldBe "absa_final_us_v1"
@@ -49,7 +49,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
                 }
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
 
-            val result = service.run(Symbol("BTCUSDT"), 120, VolumeFlowAggressiveProfiles.finalUsV1())
+            val result = service.run(Symbol("BTCUSDT"), 120, aggressiveTestConfig())
 
             result.tradeCount shouldBe 0
         }
@@ -59,7 +59,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
             val candles = aggressiveAbsorptionCandles().filterNot { it.openedAt == missingEntryAt }
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
 
-            val result = service.run(Symbol("BTCUSDT"), 120, VolumeFlowAggressiveProfiles.finalUsV1())
+            val result = service.run(Symbol("BTCUSDT"), 120, aggressiveTestConfig())
 
             result.tradeCount shouldBe 0
         }
@@ -72,8 +72,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
                     symbol = Symbol("BTCUSDT"),
                     m5Limit = 120,
                     config =
-                        VolumeFlowAggressiveProfiles
-                            .finalUsV1()
+                        aggressiveTestConfig()
                             .copy(
                                 initialEquity = 660.0,
                                 quantityStep = 0.001,
@@ -96,8 +95,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
                     symbol = Symbol("BTCUSDT"),
                     m5Limit = 120,
                     config =
-                        VolumeFlowAggressiveProfiles
-                            .finalUsV1()
+                        aggressiveTestConfig()
                             .copy(
                                 initialEquity = 100.0,
                                 quantityStep = 0.001,
@@ -118,8 +116,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
                     symbol = Symbol("BTCUSDT"),
                     m5Limit = 120,
                     config =
-                        VolumeFlowAggressiveProfiles
-                            .finalUsV1()
+                        aggressiveTestConfig()
                             .copy(
                                 leverage = 100.0,
                                 liquidationBufferPct = 2.0,
@@ -133,8 +130,7 @@ class VolumeFlowAggressiveBacktestServiceTest :
         "can block aggressive entries by side regime rules" {
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
             val blockedConfig =
-                VolumeFlowAggressiveProfiles
-                    .finalUsV1()
+                aggressiveTestConfig()
                     .copy(
                         sideRegimeBlocks =
                             listOf(
@@ -157,7 +153,42 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.tradeCount shouldBe 0
             result.finalEquity shouldBe result.initialEquity
         }
+
+        "loads warmup before a bounded replay without trading in the warmup range" {
+            val candles = aggressiveAbsorptionCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+            val replayStartAt = candles[60].openedAt
+            val replayEndAt = candles.last().openedAt
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 60,
+                    config = aggressiveTestConfig(),
+                    replayStartAt = replayStartAt,
+                    replayEndAt = replayEndAt,
+                )
+
+            result.startAt shouldBe replayStartAt
+            result.endAt shouldBe replayEndAt
+            result.warmupCandleCount shouldBe 60
+            result.m5CandleCount shouldBe 60
+            result.tradeCount shouldBe 1
+            result.trades
+                .single()
+                .openedAt
+                .isBefore(replayStartAt) shouldBe false
+        }
     })
+
+private fun aggressiveTestConfig(): VolumeFlowAggressiveBacktestConfig =
+    VolumeFlowAggressiveProfiles
+        .finalUsV1()
+        .copy(
+            adaptiveStop = null,
+            adaptiveTarget = null,
+            sideRegimeBlocks = emptyList(),
+        )
 
 private class InMemoryAggressiveCandleStore(
     private val candles: List<Candle>,
@@ -171,6 +202,17 @@ private class InMemoryAggressiveCandleStore(
     ): List<Candle> =
         candles
             .filter { it.symbol == symbol && it.timeframe == timeframe }
+            .sortedByDescending { it.openedAt }
+            .take(limit)
+
+    override suspend fun candlesBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<Candle> =
+        candles
+            .filter { it.symbol == symbol && it.timeframe == timeframe && it.openedAt.isBefore(beforeAt) }
             .sortedByDescending { it.openedAt }
             .take(limit)
 }

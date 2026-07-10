@@ -36,6 +36,7 @@ import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LivePerformanceSnapshots
 import dev.yaklede.bybittrader.ledger.db.PerformanceSnapshots
+import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBefore
 import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBetween
 import dev.yaklede.bybittrader.ledger.db.SelectMarketSyncCheckpoints
 import dev.yaklede.bybittrader.ledger.db.SelectRecentMarketCandles
@@ -171,6 +172,25 @@ class SqlDelightLedger(
                 limit = limit.toLong(),
             ).executeAsList()
             .map(SelectMarketCandlesBetween::toCandle)
+    }
+
+    override suspend fun candlesBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<Candle> {
+        require(limit in 1..ResearchCandleLimits.MAX_M1_REPLAY_CANDLES) {
+            "Limit must be between 1 and ${ResearchCandleLimits.MAX_M1_REPLAY_CANDLES}."
+        }
+        return database.ledgerQueries
+            .selectMarketCandlesBefore(
+                symbol = symbol.value,
+                timeframe = timeframe.name,
+                beforeAt = beforeAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectMarketCandlesBefore::toCandle)
     }
 
     override suspend fun recordSignal(signal: PaperSignalRecord): Long {
@@ -460,6 +480,18 @@ private fun SelectRecentMarketCandles.toCandle(): Candle =
     )
 
 private fun SelectMarketCandlesBetween.toCandle(): Candle =
+    Candle(
+        symbol = Symbol(symbol),
+        timeframe = Timeframe.valueOf(timeframe),
+        openedAt = Instant.parse(opened_at),
+        open = BigDecimal(open_),
+        high = BigDecimal(high),
+        low = BigDecimal(low),
+        close = BigDecimal(close),
+        volume = BigDecimal(volume),
+    )
+
+private fun SelectMarketCandlesBefore.toCandle(): Candle =
     Candle(
         symbol = Symbol(symbol),
         timeframe = Timeframe.valueOf(timeframe),
