@@ -1414,6 +1414,34 @@ private class InMemoryMarketCandleStore(
             .filter { it.symbol == symbol && it.timeframe == timeframe }
             .sortedByDescending { it.openedAt }
             .take(limit)
+
+    override suspend fun candlesBetween(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> =
+        existingCandles
+            .filter { candle ->
+                candle.symbol == symbol &&
+                    candle.timeframe == timeframe &&
+                    !candle.openedAt.isBefore(startAt) &&
+                    !candle.openedAt.isAfter(endAt)
+            }.sortedBy { it.openedAt }
+            .take(limit)
+
+    override suspend fun candlesBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<Candle> =
+        existingCandles
+            .filter { candle ->
+                candle.symbol == symbol && candle.timeframe == timeframe && candle.openedAt.isBefore(beforeAt)
+            }.sortedByDescending { it.openedAt }
+            .take(limit)
 }
 
 private class FailingMarketDataFeed : MarketDataFeed {
@@ -1793,7 +1821,28 @@ private fun sweepApiCandles(): List<Candle> =
         )
     }
 
-private fun volumeFlowApiCandles(): List<Candle> = volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
+private fun volumeFlowApiCandles(): List<Candle> =
+    volumeFlowWarmupCandles() + volumeFlowM1Candles() + volumeFlowM5Candles() + volumeFlowM15Candles()
+
+private fun volumeFlowWarmupCandles(): List<Candle> =
+    listOf(
+        Timeframe.M1 to 60L,
+        Timeframe.M5 to 300L,
+        Timeframe.M15 to 900L,
+    ).flatMap { (timeframe, seconds) ->
+        (-12 until 0).map { index ->
+            apiCandle(
+                index = index,
+                timeframe = timeframe,
+                seconds = seconds,
+                open = "100",
+                high = "101",
+                low = "99",
+                close = "100",
+                volume = "10",
+            )
+        }
+    }
 
 private fun volumeFlowSweepApiCandles(): List<Candle> =
     volumeFlowSweepM1Candles() + volumeFlowSweepM5Candles() + volumeFlowSweepM15Candles()

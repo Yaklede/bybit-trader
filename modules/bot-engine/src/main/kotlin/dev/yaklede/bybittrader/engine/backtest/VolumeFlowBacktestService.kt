@@ -62,7 +62,15 @@ class VolumeFlowBacktestService(
         m5Candles: List<Candle>,
         m15Candles: List<Candle>,
         config: VolumeFlowBacktestConfig,
+        replayStartAt: Instant? = null,
+        replayEndAt: Instant? = null,
     ): VolumeFlowBacktestReport {
+        require((replayStartAt == null) == (replayEndAt == null)) {
+            "Replay start and end timestamps must both be set or both be omitted."
+        }
+        require(replayStartAt == null || replayEndAt == null || replayEndAt.isAfter(replayStartAt)) {
+            "Replay end timestamp must be after replay start timestamp."
+        }
         var equity = config.initialEquity
         var peakEquity = equity
         var maxDrawdownPct = 0.0
@@ -91,6 +99,8 @@ class VolumeFlowBacktestService(
         for (setupIndex in startIndex until setupCandles.size) {
             val setupCandle = setupCandles[setupIndex]
             val setupClosedAt = setupCandle.openedAt.plusSeconds(config.setupTimeframe.seconds())
+            if (replayStartAt != null && setupClosedAt.isBefore(replayStartAt)) continue
+            if (replayEndAt != null && setupClosedAt.isAfter(replayEndAt)) break
             if (!setupClosedAt.isAfter(blockedUntil)) {
                 continue
             }

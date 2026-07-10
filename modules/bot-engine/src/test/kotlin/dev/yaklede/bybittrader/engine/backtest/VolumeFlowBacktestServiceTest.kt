@@ -256,6 +256,24 @@ class VolumeFlowBacktestServiceTest :
             changed.trades.single().contextQuoteVolume shouldBe baseline.trades.single().contextQuoteVolume
         }
 
+        "does not count warmup setups as replay trades" {
+            val candles = volumeFlowCandles()
+            val service = VolumeFlowBacktestService(InMemoryVolumeFlowCandleStore(candles))
+
+            val result =
+                service.runLoadedCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Candles = candles.filter { it.timeframe == Timeframe.M1 },
+                    m5Candles = candles.filter { it.timeframe == Timeframe.M5 },
+                    m15Candles = candles.filter { it.timeframe == Timeframe.M15 },
+                    config = testVolumeFlowConfig(),
+                    replayStartAt = Instant.parse("2026-06-30T01:10:00Z"),
+                    replayEndAt = Instant.parse("2026-06-30T01:19:00Z"),
+                )
+
+            result.tradeCount shouldBe 0
+        }
+
         "fills a confirmed signal at the next contiguous m1 open" {
             val nextOpen = 114.0
             val shiftedEntryCandles =
@@ -1168,6 +1186,36 @@ class VolumeFlowBacktestServiceTest :
             result.noTradeReasonCounts["EXECUTION_SIZE_UNAVAILABLE"] shouldBe 1
         }
 
+        "composite replay loads warmup candles without expanding reported coverage" {
+            val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(twoSignalThrottleCandles()))
+            val replayStartAt = Instant.parse("2026-06-30T01:00:00Z")
+            val replayEndAt = Instant.parse("2026-06-30T01:59:00Z")
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m1Limit = 120,
+                    m5Limit = 40,
+                    m15Limit = 30,
+                    config =
+                        VolumeFlowCompositeBacktestConfig(
+                            dailyStopPct = 10.0,
+                            maxConsecutiveLosses = 10,
+                            legs = listOf(VolumeFlowCompositeBacktestLeg("primary", testVolumeFlowConfig())),
+                        ),
+                    replayStartAt = replayStartAt,
+                    replayEndAt = replayEndAt,
+                )
+
+            result.replayCoverage.single { it.timeframe == Timeframe.M1 }.warmupCount shouldBe 4
+            result.replayCoverage.single { it.timeframe == Timeframe.M1 }.actualCount shouldBe 60
+            result.replayCoverage.single { it.timeframe == Timeframe.M5 }.warmupCount shouldBe 12
+            result.replayCoverage.single { it.timeframe == Timeframe.M15 }.warmupCount shouldBe 3
+            result.startAt shouldBe replayStartAt
+            result.endAt shouldBe Instant.parse("2026-06-30T01:45:00Z")
+            result.trades.all { trade -> !trade.setupAt.isBefore(replayStartAt) } shouldBe true
+        }
+
         "composite backtest can admit overlapping positions when concurrency is configured" {
             val service = VolumeFlowCompositeBacktestService(InMemoryVolumeFlowCandleStore(volumeFlowCandles()))
             val legConfig = testVolumeFlowConfig()
@@ -1445,6 +1493,34 @@ private class InMemoryVolumeFlowCandleStore(
         candles
             .filter { it.symbol == symbol && it.timeframe == timeframe }
             .sortedByDescending { it.openedAt }
+            .take(limit)
+
+    override suspend fun candlesBetween(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> =
+        candles
+            .filter { candle ->
+                candle.symbol == symbol &&
+                    candle.timeframe == timeframe &&
+                    !candle.openedAt.isBefore(startAt) &&
+                    !candle.openedAt.isAfter(endAt)
+            }.sortedBy { it.openedAt }
+            .take(limit)
+
+    override suspend fun candlesBefore(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        beforeAt: Instant,
+        limit: Int,
+    ): List<Candle> =
+        candles
+            .filter { candle ->
+                candle.symbol == symbol && candle.timeframe == timeframe && candle.openedAt.isBefore(beforeAt)
+            }.sortedByDescending { it.openedAt }
             .take(limit)
 }
 

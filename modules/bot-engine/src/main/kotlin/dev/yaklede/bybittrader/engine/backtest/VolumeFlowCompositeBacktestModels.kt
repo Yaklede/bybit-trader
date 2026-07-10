@@ -230,6 +230,7 @@ data class VolumeFlowReplayCoverage(
     val requestedStartAt: Instant?,
     val requestedEndAt: Instant?,
     val actualCount: Int,
+    val warmupCount: Int,
     val startAt: Instant?,
     val endAt: Instant?,
 )

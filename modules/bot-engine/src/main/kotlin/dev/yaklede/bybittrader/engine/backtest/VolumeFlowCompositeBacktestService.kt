@@ -47,12 +47,36 @@ class VolumeFlowCompositeBacktestService(
             "Replay end timestamp must be after replay start timestamp."
         }
 
-        val m1Candles = loadReplayCandles(symbol, Timeframe.M1, m1Limit, replayStartAt, replayEndAt)
-        val m5Candles = loadReplayCandles(symbol, Timeframe.M5, m5Limit, replayStartAt, replayEndAt)
-        val m15Candles = loadReplayCandles(symbol, Timeframe.M15, m15Limit, replayStartAt, replayEndAt)
-        require(m1Candles.size >= 60) { "At least 60 M1 candles are required." }
-        require(m5Candles.size >= 30) { "At least 30 M5 candles are required." }
-        require(m15Candles.size >= 30) { "At least 30 M15 candles are required." }
+        val m1Candles =
+            loadReplayCandles(
+                symbol,
+                Timeframe.M1,
+                m1Limit,
+                replayStartAt,
+                replayEndAt,
+                config.requiredWarmupCandles(Timeframe.M1),
+            )
+        val m5Candles =
+            loadReplayCandles(
+                symbol,
+                Timeframe.M5,
+                m5Limit,
+                replayStartAt,
+                replayEndAt,
+                config.requiredWarmupCandles(Timeframe.M5),
+            )
+        val m15Candles =
+            loadReplayCandles(
+                symbol,
+                Timeframe.M15,
+                m15Limit,
+                replayStartAt,
+                replayEndAt,
+                config.requiredWarmupCandles(Timeframe.M15),
+            )
+        require(m1Candles.isNotEmpty()) { "M1 replay candles are required." }
+        require(m5Candles.isNotEmpty()) { "M5 replay candles are required." }
+        require(m15Candles.isNotEmpty()) { "M15 replay candles are required." }
 
         return runLoadedCandles(
             symbol = symbol,
@@ -77,9 +101,16 @@ class VolumeFlowCompositeBacktestService(
         limit: Int,
         replayStartAt: Instant?,
         replayEndAt: Instant?,
+        warmupLimit: Int,
     ): List<Candle> =
         if (replayStartAt != null && replayEndAt != null) {
-            candleStore.candlesBetween(symbol, timeframe, replayStartAt, replayEndAt, limit)
+            val warmupBeforeAt = replayStartAt.minusSeconds(timeframe.seconds()).plusNanos(1)
+            val warmup = candleStore.candlesBefore(symbol, timeframe, warmupBeforeAt, warmupLimit).sortedBy { it.openedAt }
+            require(warmup.size >= warmupLimit) {
+                "Not enough ${timeframe.name} warmup candles before the composite replay start."
+            }
+            val replay = candleStore.candlesBetween(symbol, timeframe, replayStartAt, replayEndAt, limit)
+            (warmup + replay).distinctBy { it.openedAt }
         } else {
             candleStore.recentCandles(symbol, timeframe, limit)
         }.sortedBy { it.openedAt }
@@ -119,7 +150,16 @@ class VolumeFlowCompositeBacktestService(
                     )
                 LegSignalReport(
                     leg = leg.copy(config = signalConfig),
-                    report = backtestService.runLoadedCandles(symbol, m1Candles, m5Candles, m15Candles, signalConfig),
+                    report =
+                        backtestService.runLoadedCandles(
+                            symbol = symbol,
+                            m1Candles = m1Candles,
+                            m5Candles = m5Candles,
+                            m15Candles = m15Candles,
+                            config = signalConfig,
+                            replayStartAt = replayRequest.startAt,
+                            replayEndAt = replayRequest.endAt,
+                        ),
                 )
             }
         val signals =
@@ -177,24 +217,15 @@ class VolumeFlowCompositeBacktestService(
         dailyStates: Map<LocalDate, CompositeDailyBacktestState>,
         trades: List<VolumeFlowCompositeBacktestTrade>,
     ): VolumeFlowCompositeBacktestReport {
-        val startAt =
-            listOfNotNull(
-                m1Candles.firstOrNull()?.openedAt,
-                m5Candles.firstOrNull()?.openedAt,
-                m15Candles.firstOrNull()?.openedAt,
-            ).minOrNull()
-        val endAt =
-            listOfNotNull(
-                m1Candles.lastOrNull()?.openedAt,
-                m5Candles.lastOrNull()?.openedAt,
-                m15Candles.lastOrNull()?.openedAt,
-            ).maxOrNull()
         val replayCoverage =
             listOf(
                 m1Candles.toReplayCoverage(Timeframe.M1, replayRequest.m1Limit, replayRequest.startAt, replayRequest.endAt),
                 m5Candles.toReplayCoverage(Timeframe.M5, replayRequest.m5Limit, replayRequest.startAt, replayRequest.endAt),
                 m15Candles.toReplayCoverage(Timeframe.M15, replayRequest.m15Limit, replayRequest.startAt, replayRequest.endAt),
             )
+        val commonReplayWindow = replayCoverage.commonReplayWindow()
+        val startAt = commonReplayWindow.startAt
+        val endAt = commonReplayWindow.endAt
         val observedDays = observedDaysBetween(startAt, endAt)
         val activeDays = dailyStates.values.count { it.tradeCount > 0 }
         val tradeFrequencyTargetDays =
@@ -213,13 +244,13 @@ class VolumeFlowCompositeBacktestService(
         val netPnl = finalEquity - config.initialEquity
         return VolumeFlowCompositeBacktestReport(
             symbol = symbol,
-            m1CandleCount = m1Candles.size,
-            m5CandleCount = m5Candles.size,
-            m15CandleCount = m15Candles.size,
+            m1CandleCount = replayCoverage.single { it.timeframe == Timeframe.M1 }.actualCount,
+            m5CandleCount = replayCoverage.single { it.timeframe == Timeframe.M5 }.actualCount,
+            m15CandleCount = replayCoverage.single { it.timeframe == Timeframe.M15 }.actualCount,
             startAt = startAt,
             endAt = endAt,
             replayCoverage = replayCoverage,
-            commonReplayWindow = replayCoverage.commonReplayWindow(),
+            commonReplayWindow = commonReplayWindow,
             initialEquity = config.initialEquity,
             finalEquity = finalEquity,
             netPnl = netPnl,
@@ -297,21 +328,78 @@ data class VolumeFlowReplayRequest(
     val endAt: Instant?,
 )
 
+private fun VolumeFlowCompositeBacktestConfig.requiredWarmupCandles(timeframe: Timeframe): Int =
+    when (timeframe) {
+        Timeframe.M1 ->
+            legs.maxOf { leg -> maxOf(leg.config.volumeLookback, leg.config.setupRangeLookback) } + 1
+        Timeframe.M5 ->
+            legs.maxOf { leg ->
+                maxOf(
+                    leg.config.m5VwapLookback,
+                    if (leg.config.setupTimeframe == Timeframe.M5) {
+                        maxOf(leg.config.volumeLookback, leg.config.setupRangeLookback) + 1
+                    } else {
+                        0
+                    },
+                )
+            }
+        Timeframe.M15 ->
+            legs.maxOf { leg ->
+                val config = leg.config
+                val macroLookback = if (config.usesMacroTrendContext()) config.macroTrendLookbackM15Candles else 0
+                maxOf(config.contextVwapLookback, macroLookback)
+            }
+        Timeframe.H1 -> error("H1 is not used by the composite volume-flow replay.")
+    }
+
+private fun VolumeFlowBacktestConfig.usesMacroTrendContext(): Boolean =
+    requireMacroTrendAlignment ||
+        minMacroTrendMovePct > 0.0 ||
+        minMacroTrendEfficiency != null ||
+        macroTrendEfficiencyRelativeVolumeMin != null ||
+        macroTrendEfficiencyRelativeVolumeMax != null ||
+        macroTrendMismatchRiskMultiplier < 1.0 ||
+        highContextRangeRelativeVolumeMacroBypassMovePct != null ||
+        highContextRangeRelativeVolumeMacroBypassEfficiency != null
+
+private fun Timeframe.seconds(): Long =
+    when (this) {
+        Timeframe.M1 -> 60L
+        Timeframe.M5 -> 300L
+        Timeframe.M15 -> 900L
+        Timeframe.H1 -> 3_600L
+    }
+
 private fun List<Candle>.toReplayCoverage(
     timeframe: Timeframe,
     requestedLimit: Int,
     requestedStartAt: Instant?,
     requestedEndAt: Instant?,
 ): VolumeFlowReplayCoverage =
-    VolumeFlowReplayCoverage(
-        timeframe = timeframe,
-        requestedLimit = requestedLimit,
-        requestedStartAt = requestedStartAt,
-        requestedEndAt = requestedEndAt,
-        actualCount = size,
-        startAt = firstOrNull()?.openedAt,
-        endAt = lastOrNull()?.openedAt,
-    )
+    if (requestedStartAt != null && requestedEndAt != null) {
+        val replayCandles = filter { candle -> !candle.openedAt.isBefore(requestedStartAt) && !candle.openedAt.isAfter(requestedEndAt) }
+        VolumeFlowReplayCoverage(
+            timeframe = timeframe,
+            requestedLimit = requestedLimit,
+            requestedStartAt = requestedStartAt,
+            requestedEndAt = requestedEndAt,
+            actualCount = replayCandles.size,
+            warmupCount = size - replayCandles.size,
+            startAt = replayCandles.firstOrNull()?.openedAt,
+            endAt = replayCandles.lastOrNull()?.openedAt,
+        )
+    } else {
+        VolumeFlowReplayCoverage(
+            timeframe = timeframe,
+            requestedLimit = requestedLimit,
+            requestedStartAt = null,
+            requestedEndAt = null,
+            actualCount = size,
+            warmupCount = 0,
+            startAt = firstOrNull()?.openedAt,
+            endAt = lastOrNull()?.openedAt,
+        )
+    }
 
 private fun List<VolumeFlowReplayCoverage>.commonReplayWindow(): VolumeFlowCommonReplayWindow {
     val starts = mapNotNull { it.startAt }

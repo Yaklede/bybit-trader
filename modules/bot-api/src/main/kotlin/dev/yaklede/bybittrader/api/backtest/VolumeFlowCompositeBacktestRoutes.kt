@@ -507,6 +507,7 @@ data class VolumeFlowRequestedReplayCoverageResponse(
 data class VolumeFlowEffectiveReplayCoverageResponse(
     val timeframe: String,
     val actualCount: Int,
+    val warmupCount: Int,
     val startAt: String?,
     val endAt: String?,
 )
@@ -735,6 +736,7 @@ private fun VolumeFlowReplayCoverage.toEffectiveResponse(): VolumeFlowEffectiveR
     VolumeFlowEffectiveReplayCoverageResponse(
         timeframe = timeframe.name,
         actualCount = actualCount,
+        warmupCount = warmupCount,
         startAt = startAt?.toString(),
         endAt = endAt?.toString(),
     )
