@@ -117,6 +117,38 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         ON accountRatioSnapshots(symbol, period, timestamp)
         """.trimIndent(),
         """
+        CREATE TABLE IF NOT EXISTS orderBookImbalanceBars (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          opened_at TEXT NOT NULL,
+          sample_count INTEGER NOT NULL,
+          mean_bid_notional TEXT NOT NULL,
+          mean_ask_notional TEXT NOT NULL,
+          mean_imbalance TEXT NOT NULL,
+          mean_spread_bps TEXT NOT NULL,
+          max_spread_bps TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS orderBookImbalanceBars_symbol_openedAt_idx
+        ON orderBookImbalanceBars(symbol, opened_at)
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS liquidationFlowBars (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          opened_at TEXT NOT NULL,
+          long_liquidation_notional TEXT NOT NULL,
+          short_liquidation_notional TEXT NOT NULL,
+          long_liquidation_count INTEGER NOT NULL,
+          short_liquidation_count INTEGER NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS liquidationFlowBars_symbol_openedAt_idx
+        ON liquidationFlowBars(symbol, opened_at)
+        """.trimIndent(),
+        """
         CREATE TABLE IF NOT EXISTS premiumIndexBars (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           symbol TEXT NOT NULL,

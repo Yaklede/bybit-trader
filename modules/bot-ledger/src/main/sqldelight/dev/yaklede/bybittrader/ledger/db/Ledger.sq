@@ -59,6 +59,34 @@ CREATE TABLE accountRatioSnapshots (
 CREATE UNIQUE INDEX accountRatioSnapshots_symbol_period_timestamp_idx
 ON accountRatioSnapshots(symbol, period, timestamp);
 
+CREATE TABLE orderBookImbalanceBars (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  sample_count INTEGER NOT NULL,
+  mean_bid_notional TEXT NOT NULL,
+  mean_ask_notional TEXT NOT NULL,
+  mean_imbalance TEXT NOT NULL,
+  mean_spread_bps TEXT NOT NULL,
+  max_spread_bps TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX orderBookImbalanceBars_symbol_openedAt_idx
+ON orderBookImbalanceBars(symbol, opened_at);
+
+CREATE TABLE liquidationFlowBars (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  opened_at TEXT NOT NULL,
+  long_liquidation_notional TEXT NOT NULL,
+  short_liquidation_notional TEXT NOT NULL,
+  long_liquidation_count INTEGER NOT NULL,
+  short_liquidation_count INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX liquidationFlowBars_symbol_openedAt_idx
+ON liquidationFlowBars(symbol, opened_at);
+
 CREATE TABLE premiumIndexBars (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL,
@@ -522,6 +550,68 @@ WHERE symbol = :symbol
   AND period = :period
   AND timestamp < :beforeAt
 ORDER BY timestamp DESC
+LIMIT :limit;
+
+upsertOrderBookImbalanceBar:
+INSERT OR REPLACE INTO orderBookImbalanceBars(
+  id,
+  symbol,
+  opened_at,
+  sample_count,
+  mean_bid_notional,
+  mean_ask_notional,
+  mean_imbalance,
+  mean_spread_bps,
+  max_spread_bps
+)
+VALUES (
+  (SELECT id FROM orderBookImbalanceBars WHERE symbol = :symbol AND opened_at = :opened_at),
+  :symbol,
+  :opened_at,
+  :sample_count,
+  :mean_bid_notional,
+  :mean_ask_notional,
+  :mean_imbalance,
+  :mean_spread_bps,
+  :max_spread_bps
+);
+
+selectOrderBookImbalanceBarsBetween:
+SELECT symbol, opened_at, sample_count, mean_bid_notional, mean_ask_notional, mean_imbalance, mean_spread_bps, max_spread_bps
+FROM orderBookImbalanceBars
+WHERE symbol = :symbol
+  AND opened_at >= :startAt
+  AND opened_at <= :endAt
+ORDER BY opened_at ASC
+LIMIT :limit;
+
+upsertLiquidationFlowBar:
+INSERT OR REPLACE INTO liquidationFlowBars(
+  id,
+  symbol,
+  opened_at,
+  long_liquidation_notional,
+  short_liquidation_notional,
+  long_liquidation_count,
+  short_liquidation_count
+)
+VALUES (
+  (SELECT id FROM liquidationFlowBars WHERE symbol = :symbol AND opened_at = :opened_at),
+  :symbol,
+  :opened_at,
+  :long_liquidation_notional,
+  :short_liquidation_notional,
+  :long_liquidation_count,
+  :short_liquidation_count
+);
+
+selectLiquidationFlowBarsBetween:
+SELECT symbol, opened_at, long_liquidation_notional, short_liquidation_notional, long_liquidation_count, short_liquidation_count
+FROM liquidationFlowBars
+WHERE symbol = :symbol
+  AND opened_at >= :startAt
+  AND opened_at <= :endAt
+ORDER BY opened_at ASC
 LIMIT :limit;
 
 upsertPremiumIndexBar:

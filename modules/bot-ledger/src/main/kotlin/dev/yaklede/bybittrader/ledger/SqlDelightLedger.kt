@@ -25,6 +25,9 @@ import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpointStore
 import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStore
+import dev.yaklede.bybittrader.engine.market.capture.LiquidationFlowBar
+import dev.yaklede.bybittrader.engine.market.capture.OrderBookImbalanceBar
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
@@ -48,11 +51,13 @@ import dev.yaklede.bybittrader.ledger.db.SelectAccountRatioSnapshotsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectAccountRatioSnapshotsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectFundingRateSnapshotsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectFundingRateSnapshotsBetween
+import dev.yaklede.bybittrader.ledger.db.SelectLiquidationFlowBarsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBefore
 import dev.yaklede.bybittrader.ledger.db.SelectMarketCandlesBetween
 import dev.yaklede.bybittrader.ledger.db.SelectMarketSyncCheckpoints
 import dev.yaklede.bybittrader.ledger.db.SelectOpenInterestSnapshotsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectOpenInterestSnapshotsBetween
+import dev.yaklede.bybittrader.ledger.db.SelectOrderBookImbalanceBarsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectPremiumIndexBarsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectPremiumIndexBarsBetween
 import dev.yaklede.bybittrader.ledger.db.SelectRecentMarketCandles
@@ -74,6 +79,7 @@ class SqlDelightLedger(
     MarketCandleStore,
     MarketSyncCheckpointStore,
     FlowMarketDataStore,
+    ForwardMarketCaptureStore,
     ExecutionProjectionStore,
     PaperTradingStore {
     override suspend fun current(): BotRuntimeStatus {
@@ -358,6 +364,72 @@ class SqlDelightLedger(
                 limit = limit.toLong(),
             ).executeAsList()
             .map(SelectAccountRatioSnapshotsBefore::toAccountRatioSnapshot)
+    }
+
+    override suspend fun upsertOrderBookImbalanceBars(bars: List<OrderBookImbalanceBar>) {
+        database.ledgerQueries.transaction {
+            bars.forEach { bar ->
+                database.ledgerQueries.upsertOrderBookImbalanceBar(
+                    symbol = bar.symbol.value,
+                    opened_at = bar.openedAt.toString(),
+                    sample_count = bar.sampleCount.toLong(),
+                    mean_bid_notional = bar.meanBidNotional.toPlainString(),
+                    mean_ask_notional = bar.meanAskNotional.toPlainString(),
+                    mean_imbalance = bar.meanImbalance.toPlainString(),
+                    mean_spread_bps = bar.meanSpreadBps.toPlainString(),
+                    max_spread_bps = bar.maxSpreadBps.toPlainString(),
+                )
+            }
+        }
+    }
+
+    override suspend fun orderBookImbalanceBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<OrderBookImbalanceBar> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectOrderBookImbalanceBarsBetween(
+                symbol = symbol.value,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectOrderBookImbalanceBarsBetween::toOrderBookImbalanceBar)
+    }
+
+    override suspend fun upsertLiquidationFlowBars(bars: List<LiquidationFlowBar>) {
+        database.ledgerQueries.transaction {
+            bars.forEach { bar ->
+                database.ledgerQueries.upsertLiquidationFlowBar(
+                    symbol = bar.symbol.value,
+                    opened_at = bar.openedAt.toString(),
+                    long_liquidation_notional = bar.longLiquidationNotional.toPlainString(),
+                    short_liquidation_notional = bar.shortLiquidationNotional.toPlainString(),
+                    long_liquidation_count = bar.longLiquidationCount.toLong(),
+                    short_liquidation_count = bar.shortLiquidationCount.toLong(),
+                )
+            }
+        }
+    }
+
+    override suspend fun liquidationFlowBarsBetween(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<LiquidationFlowBar> {
+        validateFlowQueryBounds(startAt = startAt, endAt = endAt, limit = limit)
+        return database.ledgerQueries
+            .selectLiquidationFlowBarsBetween(
+                symbol = symbol.value,
+                startAt = startAt.toString(),
+                endAt = endAt.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(SelectLiquidationFlowBarsBetween::toLiquidationFlowBar)
     }
 
     override suspend fun upsertPremiumIndexBars(bars: List<PremiumIndexBar>) {
@@ -822,6 +894,28 @@ private fun SelectAccountRatioSnapshotsBefore.toAccountRatioSnapshot(): AccountR
         timestamp = Instant.parse(timestamp),
         buyRatio = BigDecimal(buy_ratio),
         sellRatio = BigDecimal(sell_ratio),
+    )
+
+private fun SelectOrderBookImbalanceBarsBetween.toOrderBookImbalanceBar(): OrderBookImbalanceBar =
+    OrderBookImbalanceBar(
+        symbol = Symbol(symbol),
+        openedAt = Instant.parse(opened_at),
+        sampleCount = sample_count.toInt(),
+        meanBidNotional = BigDecimal(mean_bid_notional),
+        meanAskNotional = BigDecimal(mean_ask_notional),
+        meanImbalance = BigDecimal(mean_imbalance),
+        meanSpreadBps = BigDecimal(mean_spread_bps),
+        maxSpreadBps = BigDecimal(max_spread_bps),
+    )
+
+private fun SelectLiquidationFlowBarsBetween.toLiquidationFlowBar(): LiquidationFlowBar =
+    LiquidationFlowBar(
+        symbol = Symbol(symbol),
+        openedAt = Instant.parse(opened_at),
+        longLiquidationNotional = BigDecimal(long_liquidation_notional),
+        shortLiquidationNotional = BigDecimal(short_liquidation_notional),
+        longLiquidationCount = long_liquidation_count.toInt(),
+        shortLiquidationCount = short_liquidation_count.toInt(),
     )
 
 private fun SelectPremiumIndexBarsBetween.toPremiumIndexBar(): PremiumIndexBar =

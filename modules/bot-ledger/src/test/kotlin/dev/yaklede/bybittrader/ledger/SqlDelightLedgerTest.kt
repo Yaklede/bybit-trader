@@ -19,6 +19,8 @@ import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
 import dev.yaklede.bybittrader.engine.market.MarketSyncStatus
+import dev.yaklede.bybittrader.engine.market.capture.LiquidationFlowBar
+import dev.yaklede.bybittrader.engine.market.capture.OrderBookImbalanceBar
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
@@ -257,6 +259,50 @@ class SqlDelightLedgerTest :
                     limit = 1,
                 ).single()
                 .sellRatio shouldBe BigDecimal("0.55")
+
+            ledger.upsertOrderBookImbalanceBars(
+                listOf(
+                    OrderBookImbalanceBar(
+                        symbol = symbol,
+                        openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                        sampleCount = 2,
+                        meanBidNotional = BigDecimal("100"),
+                        meanAskNotional = BigDecimal("80"),
+                        meanImbalance = BigDecimal("0.1"),
+                        meanSpreadBps = BigDecimal("1.2"),
+                        maxSpreadBps = BigDecimal("1.5"),
+                    ),
+                ),
+            )
+            ledger
+                .orderBookImbalanceBarsBetween(
+                    symbol = symbol,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    limit = 1,
+                ).single()
+                .meanImbalance shouldBe BigDecimal("0.1")
+
+            ledger.upsertLiquidationFlowBars(
+                listOf(
+                    LiquidationFlowBar(
+                        symbol = symbol,
+                        openedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                        longLiquidationNotional = BigDecimal("150"),
+                        shortLiquidationNotional = BigDecimal("80"),
+                        longLiquidationCount = 1,
+                        shortLiquidationCount = 2,
+                    ),
+                ),
+            )
+            ledger
+                .liquidationFlowBarsBetween(
+                    symbol = symbol,
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    limit = 1,
+                ).single()
+                .shortLiquidationCount shouldBe 2
 
             ledger.upsertPremiumIndexBars(
                 listOf(
@@ -564,7 +610,15 @@ class SqlDelightLedgerTest :
                 ).single()
                 .takerSellBase shouldBe BigDecimal("2")
             tableNames(driver).containsAll(
-                setOf("takerFlowBars", "openInterestSnapshots", "accountRatioSnapshots", "premiumIndexBars", "fundingRates"),
+                setOf(
+                    "takerFlowBars",
+                    "openInterestSnapshots",
+                    "accountRatioSnapshots",
+                    "orderBookImbalanceBars",
+                    "liquidationFlowBars",
+                    "premiumIndexBars",
+                    "fundingRates",
+                ),
             ) shouldBe true
         }
     })
