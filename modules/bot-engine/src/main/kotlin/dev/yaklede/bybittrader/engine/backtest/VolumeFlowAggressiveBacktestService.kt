@@ -631,12 +631,13 @@ class VolumeFlowAggressiveBacktestService(
         val liquidationPrice = approximateLiquidationPrice(setup, config)
         var mfeR = 0.0
         var maeR = 0.0
+        var activeStop = AggressiveManagedStop(setup.stopPrice, VolumeFlowExitReason.STOP)
         for (index in setup.entryIndex..end) {
             val candle = candles[index].candle
             val excursion = candle.excursionR(setup)
             mfeR = maxOf(mfeR, excursion.first)
             maeR = maxOf(maeR, excursion.second)
-            val protectiveExit = candle.protectiveExit(setup, liquidationPrice)
+            val protectiveExit = candle.protectiveExit(setup, liquidationPrice, activeStop)
             if (protectiveExit != null) {
                 return AggressiveExit(index, candle.openedAt, protectiveExit.price, protectiveExit.reason, mfeR, maeR)
             }
@@ -649,6 +650,7 @@ class VolumeFlowAggressiveBacktestService(
                     return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             }
+            activeStop = managedStopAfterClose(candle, setup, config, activeStop)
         }
         return AggressiveExit(
             end,
@@ -673,6 +675,7 @@ class VolumeFlowAggressiveBacktestService(
         var lastCandle: Candle? = null
         var mfeR = 0.0
         var maeR = 0.0
+        var activeStop = AggressiveManagedStop(setup.stopPrice, VolumeFlowExitReason.STOP)
         repeat(pathMinutes) { minuteOffset ->
             val candle = candles.getOrNull(startIndex + minuteOffset) ?: return null
             val expectedAt = entryAt.plusSeconds(minuteOffset * 60L)
@@ -682,7 +685,7 @@ class VolumeFlowAggressiveBacktestService(
             mfeR = maxOf(mfeR, excursion.first)
             maeR = maxOf(maeR, excursion.second)
             val exitM5Index = setup.entryIndex + (minuteOffset / 5)
-            val protectiveExit = candle.protectiveExit(setup, liquidationPrice)
+            val protectiveExit = candle.protectiveExit(setup, liquidationPrice, activeStop)
             if (protectiveExit != null) {
                 return AggressiveExit(
                     exitM5Index,
@@ -702,6 +705,7 @@ class VolumeFlowAggressiveBacktestService(
                     return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             }
+            activeStop = managedStopAfterClose(candle, setup, config, activeStop)
         }
         val timeExit = lastCandle ?: return null
         return AggressiveExit(
@@ -897,6 +901,11 @@ private data class AggressiveProtectiveExit(
     val reason: VolumeFlowExitReason,
 )
 
+private data class AggressiveManagedStop(
+    val price: Double,
+    val reason: VolumeFlowExitReason,
+)
+
 private data class AggressivePriorStats(
     val returnPct: Double,
     val avgVolume: Double,
@@ -945,6 +954,7 @@ private fun Candle.excursionR(setup: AggressiveSetup): Pair<Double, Double> {
 private fun Candle.protectiveExit(
     setup: AggressiveSetup,
     liquidationPrice: Double?,
+    activeStop: AggressiveManagedStop,
 ): AggressiveProtectiveExit? {
     val candleOpen = open.toDouble()
     return when (setup.side) {
@@ -952,10 +962,10 @@ private fun Candle.protectiveExit(
             when {
                 liquidationPrice != null && candleOpen <= liquidationPrice ->
                     AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.LIQUIDATION)
-                candleOpen <= setup.stopPrice -> AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.STOP)
-                liquidationPrice != null && liquidationPrice >= setup.stopPrice && low.toDouble() <= liquidationPrice ->
+                candleOpen <= activeStop.price -> AggressiveProtectiveExit(candleOpen, activeStop.reason)
+                liquidationPrice != null && liquidationPrice >= activeStop.price && low.toDouble() <= liquidationPrice ->
                     AggressiveProtectiveExit(liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
-                low.toDouble() <= setup.stopPrice -> AggressiveProtectiveExit(setup.stopPrice, VolumeFlowExitReason.STOP)
+                low.toDouble() <= activeStop.price -> AggressiveProtectiveExit(activeStop.price, activeStop.reason)
                 else -> null
             }
         }
@@ -963,15 +973,61 @@ private fun Candle.protectiveExit(
             when {
                 liquidationPrice != null && candleOpen >= liquidationPrice ->
                     AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.LIQUIDATION)
-                candleOpen >= setup.stopPrice -> AggressiveProtectiveExit(candleOpen, VolumeFlowExitReason.STOP)
-                liquidationPrice != null && liquidationPrice <= setup.stopPrice && high.toDouble() >= liquidationPrice ->
+                candleOpen >= activeStop.price -> AggressiveProtectiveExit(candleOpen, activeStop.reason)
+                liquidationPrice != null && liquidationPrice <= activeStop.price && high.toDouble() >= liquidationPrice ->
                     AggressiveProtectiveExit(liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
-                high.toDouble() >= setup.stopPrice -> AggressiveProtectiveExit(setup.stopPrice, VolumeFlowExitReason.STOP)
+                high.toDouble() >= activeStop.price -> AggressiveProtectiveExit(activeStop.price, activeStop.reason)
                 else -> null
             }
         }
     }
 }
+
+private fun managedStopAfterClose(
+    candle: Candle,
+    setup: AggressiveSetup,
+    config: VolumeFlowAggressiveBacktestConfig,
+    current: AggressiveManagedStop,
+): AggressiveManagedStop {
+    val close = candle.close.toDouble()
+    val favorableCloseR =
+        when (setup.side) {
+            Side.BUY -> (close - setup.entryPrice) / setup.riskPerUnit
+            Side.SELL -> (setup.entryPrice - close) / setup.riskPerUnit
+        }
+    var next = current
+    config.breakEvenTriggerR?.let { triggerR ->
+        if (favorableCloseR >= triggerR) {
+            val candidate =
+                when (setup.side) {
+                    Side.BUY -> setup.entryPrice + (setup.riskPerUnit * config.breakEvenLockR)
+                    Side.SELL -> setup.entryPrice - (setup.riskPerUnit * config.breakEvenLockR)
+                }
+            next = next.tighter(candidate, VolumeFlowExitReason.BREAKEVEN_STOP, setup.side)
+        }
+    }
+    val trailingTriggerR = config.trailingTriggerR
+    val trailingDistanceR = config.trailingDistanceR
+    if (trailingTriggerR != null && trailingDistanceR != null && favorableCloseR >= trailingTriggerR) {
+        val candidate =
+            when (setup.side) {
+                Side.BUY -> close - (setup.riskPerUnit * trailingDistanceR)
+                Side.SELL -> close + (setup.riskPerUnit * trailingDistanceR)
+            }
+        next = next.tighter(candidate, VolumeFlowExitReason.TRAILING_STOP, setup.side)
+    }
+    return next
+}
+
+private fun AggressiveManagedStop.tighter(
+    candidate: Double,
+    candidateReason: VolumeFlowExitReason,
+    side: Side,
+): AggressiveManagedStop =
+    when (side) {
+        Side.BUY -> if (candidate > price) AggressiveManagedStop(candidate, candidateReason) else this
+        Side.SELL -> if (candidate < price) AggressiveManagedStop(candidate, candidateReason) else this
+    }
 
 private fun List<VolumeFlowAggressiveBacktestTrade>.toPerformanceSlices(
     keySelector: (VolumeFlowAggressiveBacktestTrade) -> String,

@@ -28,6 +28,10 @@ class VolumeFlowAggressiveBacktestRoutesTest :
                     retestLookaheadCandles = 8,
                     retestToleranceAtr = 0.2,
                     retestDirectionalCloseMin = 0.6,
+                    breakEvenTriggerR = 0.8,
+                    breakEvenLockR = 0.2,
+                    trailingTriggerR = 1.2,
+                    trailingDistanceR = 0.6,
                     adaptiveRulesEnabled = false,
                     sideRegimeRulesEnabled = false,
                 ).validated().toConfig()
@@ -50,6 +54,10 @@ class VolumeFlowAggressiveBacktestRoutesTest :
             config.retestLookaheadCandles shouldBe 8
             config.retestToleranceAtr shouldBe 0.2
             config.retestDirectionalCloseMin shouldBe 0.6
+            config.breakEvenTriggerR shouldBe 0.8
+            config.breakEvenLockR shouldBe 0.2
+            config.trailingTriggerR shouldBe 1.2
+            config.trailingDistanceR shouldBe 0.6
             config.adaptiveStop shouldBe null
             config.adaptiveTarget shouldBe null
             config.sideRegimeBlocks shouldBe emptyList()

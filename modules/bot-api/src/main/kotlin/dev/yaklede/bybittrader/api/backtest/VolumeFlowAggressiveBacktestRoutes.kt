@@ -77,6 +77,10 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     val retestLookaheadCandles: Int? = null,
     val retestToleranceAtr: Double? = null,
     val retestDirectionalCloseMin: Double? = null,
+    val breakEvenTriggerR: Double? = null,
+    val breakEvenLockR: Double? = null,
+    val trailingTriggerR: Double? = null,
+    val trailingDistanceR: Double? = null,
     val adaptiveRulesEnabled: Boolean = true,
     val sideRegimeRulesEnabled: Boolean = true,
     val tradeLimit: Int = 50,
@@ -150,6 +154,10 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             retestLookaheadCandles = retestLookaheadCandles ?: base.retestLookaheadCandles,
             retestToleranceAtr = retestToleranceAtr ?: base.retestToleranceAtr,
             retestDirectionalCloseMin = retestDirectionalCloseMin ?: base.retestDirectionalCloseMin,
+            breakEvenTriggerR = breakEvenTriggerR ?: base.breakEvenTriggerR,
+            breakEvenLockR = breakEvenLockR ?: base.breakEvenLockR,
+            trailingTriggerR = trailingTriggerR ?: base.trailingTriggerR,
+            trailingDistanceR = trailingDistanceR ?: base.trailingDistanceR,
         )
     }
 }

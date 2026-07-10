@@ -61,6 +61,10 @@ data class VolumeFlowAggressiveBacktestConfig(
     val retestLookaheadCandles: Int = 6,
     val retestToleranceAtr: Double = 0.15,
     val retestDirectionalCloseMin: Double = 0.55,
+    val breakEvenTriggerR: Double? = null,
+    val breakEvenLockR: Double = 0.0,
+    val trailingTriggerR: Double? = null,
+    val trailingDistanceR: Double? = null,
     val executionPathMode: AggressiveExecutionPathMode = AggressiveExecutionPathMode.M1_REQUIRED,
 ) {
     init {
@@ -109,6 +113,16 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(retestDirectionalCloseMin in 0.0..1.0) {
             "Retest directional close minimum must be between 0 and 1."
         }
+        require(breakEvenTriggerR == null || breakEvenTriggerR > 0.0) { "Break-even trigger R must be positive." }
+        require(breakEvenLockR >= 0.0) { "Break-even lock R must not be negative." }
+        require(breakEvenTriggerR == null || breakEvenLockR < breakEvenTriggerR) {
+            "Break-even lock R must be below its trigger."
+        }
+        require((trailingTriggerR == null) == (trailingDistanceR == null)) {
+            "Trailing trigger and distance R must both be set or both be omitted."
+        }
+        require(trailingTriggerR == null || trailingTriggerR > 0.0) { "Trailing trigger R must be positive." }
+        require(trailingDistanceR == null || trailingDistanceR > 0.0) { "Trailing distance R must be positive." }
     }
 }
 

@@ -298,6 +298,49 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.liquidationCount shouldBe 0
         }
 
+        "activates a break-even stop only from the next M1 candle" {
+            val entryAt = Instant.parse("2026-06-30T13:15:00Z")
+            val m5Candles = aggressiveAbsorptionCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(m5Candles))
+            val m1Candles =
+                listOf(
+                    aggressiveCandle(
+                        index = 0,
+                        open = "102",
+                        high = "104.2",
+                        low = "101.8",
+                        close = "104",
+                        volume = "10",
+                    ).copy(timeframe = Timeframe.M1, openedAt = entryAt),
+                    aggressiveCandle(
+                        index = 1,
+                        open = "104",
+                        high = "104",
+                        low = "101",
+                        close = "101.5",
+                        volume = "10",
+                    ).copy(timeframe = Timeframe.M1, openedAt = entryAt.plusSeconds(60)),
+                )
+
+            val result =
+                service.runLoadedCandles(
+                    symbol = Symbol("BTCUSDT"),
+                    candles = m5Candles,
+                    m1Candles = m1Candles,
+                    config =
+                        aggressiveTestConfig()
+                            .copy(
+                                executionPathMode = AggressiveExecutionPathMode.M1_REQUIRED,
+                                breakEvenTriggerR = 0.5,
+                                breakEvenLockR = 0.1,
+                            ),
+                )
+
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.BREAKEVEN_STOP
+            result.trades.single().closedAt shouldBe entryAt.plusSeconds(60)
+            (result.trades.single().triggerExitPrice > result.trades.single().entryPrice) shouldBe true
+        }
+
         "skips an M1 execution when the path starts with a data gap" {
             val candles = aggressiveAbsorptionCandles()
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
