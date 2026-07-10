@@ -36,10 +36,23 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.trades.single().entryPrice shouldBe 102.0204
             result.trades.single().targetR shouldBe 2.2
             (result.trades.single().exitPrice < result.trades.single().triggerExitPrice) shouldBe true
+            result.trades.single().holdingMinutes shouldBe 1L
+            (result.trades.single().mfeR > 0.0) shouldBe true
+            (result.trades.single().maeR >= 0.0) shouldBe true
             (abs(result.netPnl - (result.grossPnl - result.totalFees + result.totalFundingPnl)) < 1e-8) shouldBe true
             result.liquidationCount shouldBe 0
             (result.finalEquity > result.initialEquity) shouldBe true
             (result.compoundDailyReturnPct > 0.0) shouldBe true
+            result.performanceBySide.sumOf { it.tradeCount } shouldBe result.tradeCount
+            result.performanceByExitReason.sumOf { it.tradeCount } shouldBe result.tradeCount
+            result.performanceBySignalHourUtc.sumOf { it.tradeCount } shouldBe result.tradeCount
+            result.performanceByAbsorptionRelativeVolume.sumOf { it.tradeCount } shouldBe result.tradeCount
+            result.performanceBySide.single().key shouldBe "BUY"
+            result.performanceByExitReason.single().key shouldBe "TARGET"
+            (result.performanceBySide.single().averageCostR > 0.0) shouldBe true
+            (result.performanceBySide.single().rProfitFactor ?: 0.0) shouldBe 999.0
+            (result.trades.single().absorptionRelativeVolume >= 1.0) shouldBe true
+            (result.trades.single().clusterVolumeRatio >= 1.2) shouldBe true
         }
 
         "never fills a breakout at the signal candle open" {

@@ -275,7 +275,27 @@ data class VolumeFlowAggressiveBacktestReport(
     val losses: Int,
     val winRatePct: Double,
     val profitFactor: Double?,
+    val performanceBySide: List<VolumeFlowAggressivePerformanceSlice>,
+    val performanceByExitReason: List<VolumeFlowAggressivePerformanceSlice>,
+    val performanceBySignalHourUtc: List<VolumeFlowAggressivePerformanceSlice>,
+    val performanceByAbsorptionRelativeVolume: List<VolumeFlowAggressivePerformanceSlice>,
     val trades: List<VolumeFlowAggressiveBacktestTrade>,
+)
+
+data class VolumeFlowAggressivePerformanceSlice(
+    val key: String,
+    val tradeCount: Int,
+    val wins: Int,
+    val losses: Int,
+    val netPnl: Double,
+    val winRatePct: Double,
+    val profitFactor: Double?,
+    val rProfitFactor: Double?,
+    val averageGrossR: Double,
+    val averageNetR: Double,
+    val averageCostR: Double,
+    val averageMfeR: Double,
+    val averageMaeR: Double,
 )
 
 data class VolumeFlowAggressiveBacktestTrade(
@@ -301,6 +321,9 @@ data class VolumeFlowAggressiveBacktestTrade(
     val fees: Double,
     val fundingPnl: Double,
     val slippageCost: Double,
+    val holdingMinutes: Long,
+    val mfeR: Double,
+    val maeR: Double,
     val returnPct: Double,
     val equityAfter: Double,
     val drawdownPct: Double,
@@ -308,4 +331,13 @@ data class VolumeFlowAggressiveBacktestTrade(
     val entryRangePct: Double,
     val entryBodyRatio: Double,
     val entryCloseLocation: Double,
+    val absorptionAt: Instant,
+    val absorptionRelativeVolume: Double,
+    val clusterVolumeRatio: Double,
+    val clusterDisplacementAtr: Double,
+    val clusterRangeAtr: Double,
+    val signalRelativeVolume: Double,
+    val signalRangePct: Double,
+    val signalBodyRatio: Double,
+    val signalCloseLocation: Double,
 )

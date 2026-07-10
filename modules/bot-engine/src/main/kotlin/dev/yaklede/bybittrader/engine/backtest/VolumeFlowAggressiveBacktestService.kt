@@ -207,6 +207,11 @@ class VolumeFlowAggressiveBacktestService(
                     fees = fees,
                     fundingPnl = fundingPnl,
                     slippageCost = slippageCost,
+                    holdingMinutes =
+                        (Duration.between(setup.entry.candle.openedAt, exit.closedAt).toMinutes() + 1L)
+                            .coerceAtLeast(1L),
+                    mfeR = exit.mfeR,
+                    maeR = exit.maeR,
                     returnPct = (pnl / equityBefore) * 100.0,
                     equityAfter = equity,
                     drawdownPct = drawdownPct,
@@ -214,6 +219,15 @@ class VolumeFlowAggressiveBacktestService(
                     entryRangePct = setup.entry.rangePct,
                     entryBodyRatio = setup.entry.bodyRatio,
                     entryCloseLocation = setup.entry.closeLocation,
+                    absorptionAt = setup.absorption.candle.openedAt,
+                    absorptionRelativeVolume = setup.absorption.relativeVolume ?: 0.0,
+                    clusterVolumeRatio = setup.clusterVolumeRatio,
+                    clusterDisplacementAtr = setup.clusterDisplacementAtr,
+                    clusterRangeAtr = setup.clusterRangeAtr,
+                    signalRelativeVolume = setup.signal.relativeVolume ?: 0.0,
+                    signalRangePct = setup.signal.rangePct,
+                    signalBodyRatio = setup.signal.bodyRatio,
+                    signalCloseLocation = setup.signal.closeLocation,
                 )
             index = exit.exitM5Index + 1
         }
@@ -263,6 +277,15 @@ class VolumeFlowAggressiveBacktestService(
                     grossProfit > 0.0 -> 999.0
                     else -> null
                 },
+            performanceBySide = trades.toPerformanceSlices { it.side.name },
+            performanceByExitReason = trades.toPerformanceSlices { it.exitReason.name },
+            performanceBySignalHourUtc =
+                trades.toPerformanceSlices { trade ->
+                    val hour = trade.signalAt.atZone(ZoneOffset.UTC).hour
+                    hour.toString().padStart(2, '0')
+                },
+            performanceByAbsorptionRelativeVolume =
+                trades.toPerformanceSlices { it.absorptionRelativeVolume.relativeVolumeBand() },
             trades = trades,
         )
     }
@@ -317,10 +340,30 @@ class VolumeFlowAggressiveBacktestService(
             val signal = candles[signalIndex]
             if (!config.sessionHoursUtc.contains(signal.hourUtc)) continue
             if (config.sideMode != VolumeFlowSideMode.SHORT_ONLY && signal.candle.close.toDouble() > cluster.high) {
-                return buildSetup(candles, Side.BUY, signalIndex, cluster, config)
+                return buildSetup(
+                    candles,
+                    Side.BUY,
+                    signalIndex,
+                    candle,
+                    cluster,
+                    clusterVolumeRatio,
+                    displacementAtr,
+                    rangeAtr,
+                    config,
+                )
             }
             if (config.sideMode != VolumeFlowSideMode.LONG_ONLY && signal.candle.close.toDouble() < cluster.low) {
-                return buildSetup(candles, Side.SELL, signalIndex, cluster, config)
+                return buildSetup(
+                    candles,
+                    Side.SELL,
+                    signalIndex,
+                    candle,
+                    cluster,
+                    clusterVolumeRatio,
+                    displacementAtr,
+                    rangeAtr,
+                    config,
+                )
             }
         }
         return null
@@ -330,7 +373,11 @@ class VolumeFlowAggressiveBacktestService(
         candles: List<AggressiveCandle>,
         side: Side,
         signalIndex: Int,
+        absorption: AggressiveCandle,
         cluster: AggressiveCluster,
+        clusterVolumeRatio: Double,
+        clusterDisplacementAtr: Double,
+        clusterRangeAtr: Double,
         config: VolumeFlowAggressiveBacktestConfig,
     ): AggressiveSetup? {
         if (!sideAllowedForRegime(candles, side, signalIndex, config)) return null
@@ -388,6 +435,7 @@ class VolumeFlowAggressiveBacktestService(
         if (targetStopRejection != null) return null
         return AggressiveSetup(
             side = side,
+            absorption = absorption,
             signal = signal,
             entryIndex = entryIndex,
             entry = entry,
@@ -399,6 +447,9 @@ class VolumeFlowAggressiveBacktestService(
             riskPerUnit = riskPerUnit,
             stopAtr = stopAtr,
             targetR = targetR,
+            clusterVolumeRatio = clusterVolumeRatio,
+            clusterDisplacementAtr = clusterDisplacementAtr,
+            clusterRangeAtr = clusterRangeAtr,
         )
     }
 
@@ -463,31 +514,43 @@ class VolumeFlowAggressiveBacktestService(
     ): AggressiveExit {
         val end = minOf(setup.entryIndex + config.maxHoldCandles - 1, replayEndIndex - 1)
         val liquidationPrice = approximateLiquidationPrice(setup, config)
+        var mfeR = 0.0
+        var maeR = 0.0
         for (index in setup.entryIndex..end) {
             val candle = candles[index].candle
+            val excursion = candle.excursionR(setup)
+            mfeR = maxOf(mfeR, excursion.first)
+            maeR = maxOf(maeR, excursion.second)
             if (setup.side == Side.BUY) {
                 if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
-                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION, mfeR, maeR)
                 }
                 if (candle.low.toDouble() <= setup.stopPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
+                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
                 }
                 if (candle.high.toDouble() >= setup.targetPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             } else {
                 if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
-                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                    return AggressiveExit(index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION, mfeR, maeR)
                 }
                 if (candle.high.toDouble() >= setup.stopPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
+                    return AggressiveExit(index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
                 }
                 if (candle.low.toDouble() <= setup.targetPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             }
         }
-        return AggressiveExit(end, candles[end].candle.openedAt, candles[end].candle.close.toDouble(), VolumeFlowExitReason.TIME)
+        return AggressiveExit(
+            end,
+            candles[end].candle.openedAt,
+            candles[end].candle.close.toDouble(),
+            VolumeFlowExitReason.TIME,
+            mfeR,
+            maeR,
+        )
     }
 
     private fun simulateM1Exit(
@@ -501,31 +564,50 @@ class VolumeFlowAggressiveBacktestService(
         val liquidationPrice = approximateLiquidationPrice(setup, config)
         val pathMinutes = config.maxHoldCandles * 5
         var lastCandle: Candle? = null
+        var mfeR = 0.0
+        var maeR = 0.0
         repeat(pathMinutes) { minuteOffset ->
             val candle = candles.getOrNull(startIndex + minuteOffset) ?: return null
             val expectedAt = entryAt.plusSeconds(minuteOffset * 60L)
             if (candle.timeframe != Timeframe.M1 || candle.openedAt != expectedAt) return null
             lastCandle = candle
+            val excursion = candle.excursionR(setup)
+            mfeR = maxOf(mfeR, excursion.first)
+            maeR = maxOf(maeR, excursion.second)
             val exitM5Index = setup.entryIndex + (minuteOffset / 5)
             if (setup.side == Side.BUY) {
                 if (liquidationPrice != null && candle.low.toDouble() <= liquidationPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                    return AggressiveExit(
+                        exitM5Index,
+                        candle.openedAt,
+                        liquidationPrice,
+                        VolumeFlowExitReason.LIQUIDATION,
+                        mfeR,
+                        maeR,
+                    )
                 }
                 if (candle.low.toDouble() <= setup.stopPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
                 }
                 if (candle.high.toDouble() >= setup.targetPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             } else {
                 if (liquidationPrice != null && candle.high.toDouble() >= liquidationPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, liquidationPrice, VolumeFlowExitReason.LIQUIDATION)
+                    return AggressiveExit(
+                        exitM5Index,
+                        candle.openedAt,
+                        liquidationPrice,
+                        VolumeFlowExitReason.LIQUIDATION,
+                        mfeR,
+                        maeR,
+                    )
                 }
                 if (candle.high.toDouble() >= setup.stopPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP)
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.stopPrice, VolumeFlowExitReason.STOP, mfeR, maeR)
                 }
                 if (candle.low.toDouble() <= setup.targetPrice) {
-                    return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET)
+                    return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
             }
         }
@@ -535,6 +617,8 @@ class VolumeFlowAggressiveBacktestService(
             closedAt = timeExit.openedAt,
             exitPrice = timeExit.close.toDouble(),
             reason = VolumeFlowExitReason.TIME,
+            mfeR = mfeR,
+            maeR = maeR,
         )
     }
 
@@ -688,6 +772,7 @@ private data class AggressiveCluster(
 
 private data class AggressiveSetup(
     val side: Side,
+    val absorption: AggressiveCandle,
     val signal: AggressiveCandle,
     val entryIndex: Int,
     val entry: AggressiveCandle,
@@ -699,6 +784,9 @@ private data class AggressiveSetup(
     val riskPerUnit: Double,
     val stopAtr: Double,
     val targetR: Double,
+    val clusterVolumeRatio: Double,
+    val clusterDisplacementAtr: Double,
+    val clusterRangeAtr: Double,
 )
 
 private data class AggressiveExit(
@@ -706,6 +794,8 @@ private data class AggressiveExit(
     val closedAt: Instant,
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
+    val mfeR: Double = 0.0,
+    val maeR: Double = 0.0,
 )
 
 private data class AggressivePriorStats(
@@ -738,3 +828,63 @@ private fun fundingPnl(
         Side.SELL -> fundingMagnitude
     }
 }
+
+private fun Candle.excursionR(setup: AggressiveSetup): Pair<Double, Double> {
+    if (setup.riskPerUnit <= 0.0) return 0.0 to 0.0
+    val candleHigh = high.toDouble()
+    val candleLow = low.toDouble()
+    return when (setup.side) {
+        Side.BUY ->
+            maxOf(0.0, (candleHigh - setup.entryPrice) / setup.riskPerUnit) to
+                maxOf(0.0, (setup.entryPrice - candleLow) / setup.riskPerUnit)
+        Side.SELL ->
+            maxOf(0.0, (setup.entryPrice - candleLow) / setup.riskPerUnit) to
+                maxOf(0.0, (candleHigh - setup.entryPrice) / setup.riskPerUnit)
+    }
+}
+
+private fun List<VolumeFlowAggressiveBacktestTrade>.toPerformanceSlices(
+    keySelector: (VolumeFlowAggressiveBacktestTrade) -> String,
+): List<VolumeFlowAggressivePerformanceSlice> =
+    groupBy(keySelector)
+        .toSortedMap()
+        .map { (key, trades) ->
+            val wins = trades.count { it.pnl > 0.0 }
+            val grossProfit = trades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
+            val grossLoss = abs(trades.filter { it.pnl <= 0.0 }.sumOf { it.pnl })
+            val positiveR = trades.filter { it.rMultipleNet > 0.0 }.sumOf { it.rMultipleNet }
+            val negativeR = abs(trades.filter { it.rMultipleNet <= 0.0 }.sumOf { it.rMultipleNet })
+            VolumeFlowAggressivePerformanceSlice(
+                key = key,
+                tradeCount = trades.size,
+                wins = wins,
+                losses = trades.size - wins,
+                netPnl = trades.sumOf { it.pnl },
+                winRatePct = if (trades.isEmpty()) 0.0 else wins.toDouble() / trades.size * 100.0,
+                profitFactor =
+                    when {
+                        grossLoss > 0.0 -> grossProfit / grossLoss
+                        grossProfit > 0.0 -> 999.0
+                        else -> null
+                    },
+                rProfitFactor =
+                    when {
+                        negativeR > 0.0 -> positiveR / negativeR
+                        positiveR > 0.0 -> 999.0
+                        else -> null
+                    },
+                averageGrossR = trades.map { it.rMultipleGross }.average(),
+                averageNetR = trades.map { it.rMultipleNet }.average(),
+                averageCostR = trades.map { it.rMultipleGross - it.rMultipleNet }.average(),
+                averageMfeR = trades.map { it.mfeR }.average(),
+                averageMaeR = trades.map { it.maeR }.average(),
+            )
+        }
+
+private fun Double.relativeVolumeBand(): String =
+    when {
+        this < 1.2 -> "1.0-1.2"
+        this < 1.5 -> "1.2-1.5"
+        this < 2.0 -> "1.5-2.0"
+        else -> "2.0+"
+    }

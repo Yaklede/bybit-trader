@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestConfi
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestReport
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestTrade
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressivePerformanceSlice
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
@@ -143,7 +144,28 @@ data class VolumeFlowAggressiveBacktestResponse(
     val losses: Int,
     val winRatePct: Double,
     val profitFactor: Double?,
+    val performanceBySide: List<VolumeFlowAggressivePerformanceSliceResponse>,
+    val performanceByExitReason: List<VolumeFlowAggressivePerformanceSliceResponse>,
+    val performanceBySignalHourUtc: List<VolumeFlowAggressivePerformanceSliceResponse>,
+    val performanceByAbsorptionRelativeVolume: List<VolumeFlowAggressivePerformanceSliceResponse>,
     val trades: List<VolumeFlowAggressiveTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowAggressivePerformanceSliceResponse(
+    val key: String,
+    val tradeCount: Int,
+    val wins: Int,
+    val losses: Int,
+    val netPnl: Double,
+    val winRatePct: Double,
+    val profitFactor: Double?,
+    val rProfitFactor: Double?,
+    val averageGrossR: Double,
+    val averageNetR: Double,
+    val averageCostR: Double,
+    val averageMfeR: Double,
+    val averageMaeR: Double,
 )
 
 @Serializable
@@ -170,6 +192,9 @@ data class VolumeFlowAggressiveTradeResponse(
     val fees: Double,
     val fundingPnl: Double,
     val slippageCost: Double,
+    val holdingMinutes: Long,
+    val mfeR: Double,
+    val maeR: Double,
     val returnPct: Double,
     val equityAfter: Double,
     val drawdownPct: Double,
@@ -177,6 +202,15 @@ data class VolumeFlowAggressiveTradeResponse(
     val entryRangePct: Double,
     val entryBodyRatio: Double,
     val entryCloseLocation: Double,
+    val absorptionAt: String,
+    val absorptionRelativeVolume: Double,
+    val clusterVolumeRatio: Double,
+    val clusterDisplacementAtr: Double,
+    val clusterRangeAtr: Double,
+    val signalRelativeVolume: Double,
+    val signalRangePct: Double,
+    val signalBodyRatio: Double,
+    val signalCloseLocation: Double,
 )
 
 private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): VolumeFlowAggressiveBacktestResponse =
@@ -214,7 +248,29 @@ private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): Volu
         losses = losses,
         winRatePct = winRatePct,
         profitFactor = profitFactor,
+        performanceBySide = performanceBySide.map(VolumeFlowAggressivePerformanceSlice::toResponse),
+        performanceByExitReason = performanceByExitReason.map(VolumeFlowAggressivePerformanceSlice::toResponse),
+        performanceBySignalHourUtc = performanceBySignalHourUtc.map(VolumeFlowAggressivePerformanceSlice::toResponse),
+        performanceByAbsorptionRelativeVolume =
+            performanceByAbsorptionRelativeVolume.map(VolumeFlowAggressivePerformanceSlice::toResponse),
         trades = trades.takeLast(tradeLimit).map(VolumeFlowAggressiveBacktestTrade::toResponse),
+    )
+
+private fun VolumeFlowAggressivePerformanceSlice.toResponse(): VolumeFlowAggressivePerformanceSliceResponse =
+    VolumeFlowAggressivePerformanceSliceResponse(
+        key = key,
+        tradeCount = tradeCount,
+        wins = wins,
+        losses = losses,
+        netPnl = netPnl,
+        winRatePct = winRatePct,
+        profitFactor = profitFactor,
+        rProfitFactor = rProfitFactor,
+        averageGrossR = averageGrossR,
+        averageNetR = averageNetR,
+        averageCostR = averageCostR,
+        averageMfeR = averageMfeR,
+        averageMaeR = averageMaeR,
     )
 
 private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressiveTradeResponse =
@@ -241,6 +297,9 @@ private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressive
         fees = fees,
         fundingPnl = fundingPnl,
         slippageCost = slippageCost,
+        holdingMinutes = holdingMinutes,
+        mfeR = mfeR,
+        maeR = maeR,
         returnPct = returnPct,
         equityAfter = equityAfter,
         drawdownPct = drawdownPct,
@@ -248,4 +307,13 @@ private fun VolumeFlowAggressiveBacktestTrade.toResponse(): VolumeFlowAggressive
         entryRangePct = entryRangePct,
         entryBodyRatio = entryBodyRatio,
         entryCloseLocation = entryCloseLocation,
+        absorptionAt = absorptionAt.toString(),
+        absorptionRelativeVolume = absorptionRelativeVolume,
+        clusterVolumeRatio = clusterVolumeRatio,
+        clusterDisplacementAtr = clusterDisplacementAtr,
+        clusterRangeAtr = clusterRangeAtr,
+        signalRelativeVolume = signalRelativeVolume,
+        signalRangePct = signalRangePct,
+        signalBodyRatio = signalBodyRatio,
+        signalCloseLocation = signalCloseLocation,
     )
