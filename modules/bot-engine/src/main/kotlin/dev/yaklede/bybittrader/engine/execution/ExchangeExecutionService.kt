@@ -194,7 +194,14 @@ class ExchangeExecutionService(
         val riskPerUnit = entryPrice.subtract(signal.invalidationPrice.value).abs()
         val accountEquity = executionAccountEquity()
         val intendedRisk = accountEquity.multiply(config.riskFraction, MathContext.DECIMAL64)
-        val sizing = calculateSizing(entryPrice, riskPerUnit, intendedRisk, accountEquity)
+        val sizing =
+            ExecutionTradePlanCalculator.calculateSizing(
+                entryPrice = entryPrice,
+                riskPerUnit = riskPerUnit,
+                intendedRisk = intendedRisk,
+                accountEquity = accountEquity,
+                constraints = config.sizingConstraints(),
+            )
         if (sizing == null) {
             val rejectedSignalId =
                 tradingStore.recordSignal(
@@ -227,8 +234,22 @@ class ExchangeExecutionService(
             return result
         }
 
-        val takeProfit = calculateTakeProfit(signal, entryPrice, riskPerUnit)
-        val targetStopRejection = targetStopRejection(signal.side, entryPrice, takeProfit, signal.invalidationPrice.value)
+        val takeProfit =
+            ExecutionTradePlanCalculator.calculateTakeProfit(
+                side = signal.side,
+                entryPrice = entryPrice,
+                riskPerUnit = riskPerUnit,
+                expectedR = signal.expectedR,
+            )
+        val targetStopRejection =
+            ExecutionTradePlanCalculator.targetStopRejection(
+                side = signal.side,
+                entryPrice = entryPrice,
+                takeProfit = takeProfit,
+                stopLoss = signal.invalidationPrice.value,
+                feeRate = config.feeRate,
+                slippageBufferRate = config.slippageBufferRate,
+            )
         if (targetStopRejection != null) {
             val rejectedSignalId =
                 tradingStore.recordSignal(
@@ -695,29 +716,6 @@ class ExchangeExecutionService(
             }
     }
 
-    private fun calculateSizing(
-        entryPrice: BigDecimal,
-        riskPerUnit: BigDecimal,
-        intendedRisk: BigDecimal,
-        accountEquity: BigDecimal,
-    ): Sizing? {
-        if (riskPerUnit <= BigDecimal.ZERO) return null
-        var quantity = intendedRisk.divide(riskPerUnit, MathContext.DECIMAL64).floorToStep(config.quantityStep)
-        config.maxQuantity?.let { maxQuantity ->
-            if (quantity > maxQuantity) quantity = maxQuantity.floorToStep(config.quantityStep)
-        }
-        config.leverage?.let { leverage ->
-            val maxNotionalByLeverage = accountEquity.multiply(leverage, MathContext.DECIMAL64)
-            val maxQuantityByLeverage = maxNotionalByLeverage.divide(entryPrice, MathContext.DECIMAL64).floorToStep(config.quantityStep)
-            if (quantity > maxQuantityByLeverage) quantity = maxQuantityByLeverage
-        }
-        config.maxNotional?.let { maxNotional ->
-            val maxQuantityByNotional = maxNotional.divide(entryPrice, MathContext.DECIMAL64).floorToStep(config.quantityStep)
-            if (quantity > maxQuantityByNotional) quantity = maxQuantityByNotional
-        }
-        return if (quantity >= config.minQuantity) Sizing(quantity = quantity) else null
-    }
-
     private suspend fun executionAccountEquity(): BigDecimal {
         if (!config.useLiveAccountEquity) return config.accountEquity
         val balance = gateway.accountBalance("USDT")
@@ -732,38 +730,6 @@ class ExchangeExecutionService(
             config.accountEquity.toPlainString(),
         )
         return config.accountEquity
-    }
-
-    private fun calculateTakeProfit(
-        signal: SignalIntent,
-        entryPrice: BigDecimal,
-        riskPerUnit: BigDecimal,
-    ): BigDecimal =
-        when (signal.side) {
-            Side.BUY -> entryPrice.add(riskPerUnit.multiply(signal.expectedR, MathContext.DECIMAL64))
-            Side.SELL -> entryPrice.subtract(riskPerUnit.multiply(signal.expectedR, MathContext.DECIMAL64))
-        }
-
-    private fun targetStopRejection(
-        side: Side,
-        entryPrice: BigDecimal,
-        takeProfit: BigDecimal,
-        stopLoss: BigDecimal,
-    ): String? {
-        val grossTargetMove =
-            when (side) {
-                Side.BUY -> takeProfit.subtract(entryPrice)
-                Side.SELL -> entryPrice.subtract(takeProfit)
-            }
-        val stopMove =
-            when (side) {
-                Side.BUY -> entryPrice.subtract(stopLoss)
-                Side.SELL -> stopLoss.subtract(entryPrice)
-            }
-        if (grossTargetMove <= BigDecimal.ZERO || stopMove <= BigDecimal.ZERO) return "INVALID_TARGET_STOP_GEOMETRY"
-        val roundTripCostRate = config.feeRate.multiply(BigDecimal("2")).add(config.slippageBufferRate)
-        val roundTripCostMove = entryPrice.multiply(roundTripCostRate, MathContext.DECIMAL64)
-        return if (grossTargetMove <= roundTripCostMove) "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES" else null
     }
 
     suspend fun closedTrades(
@@ -809,10 +775,6 @@ data class ExchangeTradingLoopConfig(
         require(intervalSeconds in 10..86_400) { "Execution loop interval seconds must be between 10 and 86400." }
     }
 }
-
-private data class Sizing(
-    val quantity: BigDecimal,
-)
 
 private fun BotMode.blocksNewEntries(): Boolean = this != BotMode.RUNNING
 
@@ -870,11 +832,6 @@ private fun Int.toGrade(): String =
         this >= 75 -> "B"
         else -> "C"
     }
-
-private fun BigDecimal.floorToStep(step: BigDecimal): BigDecimal {
-    val units = divide(step, 0, RoundingMode.DOWN)
-    return units.multiply(step).stripTrailingZeros()
-}
 
 private fun clientOrderId(
     symbol: Symbol,

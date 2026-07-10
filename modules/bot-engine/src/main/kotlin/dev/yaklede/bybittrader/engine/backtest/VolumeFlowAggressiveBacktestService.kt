@@ -5,13 +5,15 @@ import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
 import dev.yaklede.bybittrader.strategy.volume.VolumeFlowIndicators
+import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -247,23 +249,22 @@ class VolumeFlowAggressiveBacktestService(
         setup: AggressiveSetup,
         config: VolumeFlowAggressiveBacktestConfig,
     ): Double? {
-        if (setup.riskPerUnit <= 0.0) return null
-        var quantity = (equity * config.riskFraction) / setup.riskPerUnit
-        config.maxQuantity?.let { maxQuantity ->
-            quantity = minOf(quantity, maxQuantity)
-        }
-        val leverageMaxNotional = config.leverage?.let { equity * it }
-        val effectiveMaxNotional =
-            listOfNotNull(config.maxNotional, leverageMaxNotional)
-                .minOrNull()
-        effectiveMaxNotional?.let { maxNotional ->
-            quantity = minOf(quantity, maxNotional / setup.entryPrice)
-        }
-        config.quantityStep?.let { quantityStep ->
-            quantity = quantity.floorToStep(quantityStep)
-        }
-        val minQuantity = config.minQuantity
-        return if (minQuantity == null || quantity >= minQuantity) quantity else null
+        val sizing =
+            ExecutionTradePlanCalculator.calculateSizing(
+                entryPrice = BigDecimal.valueOf(setup.plannedEntryPrice),
+                riskPerUnit = BigDecimal.valueOf(setup.riskPerUnit),
+                intendedRisk = BigDecimal.valueOf(equity * config.riskFraction),
+                accountEquity = BigDecimal.valueOf(equity),
+                constraints =
+                    ExecutionSizingConstraints(
+                        quantityStep = config.quantityStep?.let(BigDecimal::valueOf),
+                        minQuantity = config.minQuantity?.let(BigDecimal::valueOf),
+                        maxQuantity = config.maxQuantity?.let(BigDecimal::valueOf),
+                        maxNotional = config.maxNotional?.let(BigDecimal::valueOf),
+                        leverage = config.leverage?.let(BigDecimal::valueOf),
+                    ),
+            ) ?: return null
+        return sizing.quantity.toDouble()
     }
 
     private fun findSetup(
@@ -339,24 +340,35 @@ class VolumeFlowAggressiveBacktestService(
         if (riskPerUnit <= 0.0 || entryRiskPct < MIN_ENTRY_RISK_PCT || entryRiskPct > MAX_ENTRY_RISK_PCT) return null
         val targetR = targetRFor(candles, signalIndex, config)
         val targetPrice =
-            when (side) {
-                Side.BUY -> signalReference + (riskPerUnit * targetR)
-                Side.SELL -> signalReference - (riskPerUnit * targetR)
-            }
+            ExecutionTradePlanCalculator
+                .calculateTakeProfit(
+                    side = side,
+                    entryPrice = BigDecimal.valueOf(signalReference),
+                    riskPerUnit = BigDecimal.valueOf(riskPerUnit),
+                    expectedR = BigDecimal.valueOf(targetR),
+                ).toDouble()
         val validFillGeometry =
             when (side) {
                 Side.BUY -> stopPrice < entryPrice && entryPrice < targetPrice
                 Side.SELL -> targetPrice < entryPrice && entryPrice < stopPrice
             }
         if (!validFillGeometry) return null
-        val grossTargetMove = abs(targetPrice - entryPrice)
-        val roundTripFeeAndSlip = entryPrice * ((config.feeRate * 2.0) + config.slippageRate)
-        if (grossTargetMove <= roundTripFeeAndSlip) return null
+        val targetStopRejection =
+            ExecutionTradePlanCalculator.targetStopRejection(
+                side = side,
+                entryPrice = BigDecimal.valueOf(signalReference),
+                takeProfit = BigDecimal.valueOf(targetPrice),
+                stopLoss = BigDecimal.valueOf(stopPrice),
+                feeRate = BigDecimal.valueOf(config.feeRate),
+                slippageBufferRate = BigDecimal.valueOf(config.slippageRate),
+            )
+        if (targetStopRejection != null) return null
         return AggressiveSetup(
             side = side,
             signal = signal,
             entryIndex = entryIndex,
             entry = entry,
+            plannedEntryPrice = signalReference,
             entryPrice = entryPrice,
             stopPrice = stopPrice,
             targetPrice = targetPrice,
@@ -655,6 +667,7 @@ private data class AggressiveSetup(
     val signal: AggressiveCandle,
     val entryIndex: Int,
     val entry: AggressiveCandle,
+    val plannedEntryPrice: Double,
     val entryPrice: Double,
     val stopPrice: Double,
     val targetPrice: Double,
@@ -669,11 +682,6 @@ private data class AggressiveExit(
     val exitPrice: Double,
     val reason: VolumeFlowExitReason,
 )
-
-private fun Double.floorToStep(step: Double): Double {
-    if (step <= 0.0) return this
-    return floor((this / step) + 1e-12) * step
-}
 
 private data class AggressivePriorStats(
     val returnPct: Double,
