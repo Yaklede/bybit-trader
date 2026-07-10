@@ -20,6 +20,7 @@ class VolumeFlowAggressiveBacktestRoutesTest :
                     maxHoldCandles = 72,
                     maxTradesPerDay = 2,
                     sideMode = "long_only",
+                    entrySignalHoursUtc = setOf(14, 15),
                     entryMode = "breakout_retest",
                     breakoutRelativeVolumeMin = 1.2,
                     breakoutBodyRatioMin = 0.5,
@@ -46,6 +47,7 @@ class VolumeFlowAggressiveBacktestRoutesTest :
             config.maxHoldCandles shouldBe 72
             config.maxTradesPerDay shouldBe 2
             config.sideMode shouldBe VolumeFlowSideMode.LONG_ONLY
+            config.entrySignalHoursUtc shouldBe setOf(14, 15)
             config.entryMode shouldBe VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST
             config.breakoutRelativeVolumeMin shouldBe 1.2
             config.breakoutBodyRatioMin shouldBe 0.5

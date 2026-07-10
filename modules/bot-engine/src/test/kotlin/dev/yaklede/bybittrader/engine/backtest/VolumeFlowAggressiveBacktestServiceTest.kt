@@ -174,6 +174,19 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.finalEquity shouldBe result.initialEquity
         }
 
+        "filters only the final entry signal hour without narrowing absorption hours" {
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config = aggressiveTestConfig().copy(entrySignalHoursUtc = setOf(14)),
+                )
+
+            result.tradeCount shouldBe 0
+        }
+
         "loads warmup before a bounded replay without trading in the warmup range" {
             val candles = aggressiveAbsorptionCandles()
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))

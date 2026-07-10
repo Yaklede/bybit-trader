@@ -443,12 +443,15 @@ class VolumeFlowAggressiveBacktestService(
         replayEndIndex: Int,
         config: VolumeFlowAggressiveBacktestConfig,
     ): Int? {
-        if (config.entryMode == VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN) return breakoutIndex
+        if (config.entryMode == VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN) {
+            return breakoutIndex.takeIf { config.entrySignalHoursUtc?.contains(candles[it].hourUtc) != false }
+        }
         val lastRetestIndex = minOf(breakoutIndex + config.retestLookaheadCandles, replayEndIndex - 2)
         if (breakoutIndex + 1 > lastRetestIndex) return null
         for (index in breakoutIndex + 1..lastRetestIndex) {
             val candidate = candles[index]
             if (!config.sessionHoursUtc.contains(candidate.hourUtc)) continue
+            if (config.entrySignalHoursUtc?.contains(candidate.hourUtc) == false) continue
             if (
                 aggressiveRetestConfirmed(
                     side = side,

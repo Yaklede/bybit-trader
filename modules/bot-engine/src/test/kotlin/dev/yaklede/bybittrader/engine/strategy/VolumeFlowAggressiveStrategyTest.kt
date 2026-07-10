@@ -45,6 +45,17 @@ class VolumeFlowAggressiveStrategyTest :
             decision.reasonCodes shouldBe listOf("INSUFFICIENT_AGGRESSIVE_HISTORY")
         }
 
+        "can filter the final entry signal hour independently" {
+            val strategy =
+                VolumeFlowAggressiveStrategy(
+                    VolumeFlowAggressiveProfiles.finalUsV1().copy(entrySignalHoursUtc = setOf(15)),
+                )
+
+            val decision = strategy.evaluate(aggressiveBreakoutCandles())
+
+            decision.intent shouldBe null
+        }
+
         "emits a retest signal only after the latest confirmation candle closes" {
             val config =
                 VolumeFlowAggressiveProfiles

@@ -56,6 +56,7 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     val leverage: Double? = null,
     val liquidationBufferPct: Double? = null,
     val sessionHoursUtc: Set<Int>? = null,
+    val entrySignalHoursUtc: Set<Int>? = null,
     val volumeLookback: Int? = null,
     val atrLookback: Int? = null,
     val relativeVolumeMin: Double? = null,
@@ -106,6 +107,12 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
         require(sessionHoursUtc == null || sessionHoursUtc.all { it in 0..23 }) {
             "Session hours must be between 0 and 23."
         }
+        require(entrySignalHoursUtc == null || entrySignalHoursUtc.isNotEmpty()) {
+            "Entry signal hours must not be empty."
+        }
+        require(entrySignalHoursUtc == null || entrySignalHoursUtc.all { it in 0..23 }) {
+            "Entry signal hours must be between 0 and 23."
+        }
         toConfig()
         return this
     }
@@ -130,6 +137,7 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             leverage = leverage ?: base.leverage,
             liquidationBufferPct = liquidationBufferPct ?: base.liquidationBufferPct,
             sessionHoursUtc = sessionHoursUtc ?: base.sessionHoursUtc,
+            entrySignalHoursUtc = entrySignalHoursUtc ?: base.entrySignalHoursUtc,
             volumeLookback = volumeLookback ?: base.volumeLookback,
             atrLookback = atrLookback ?: base.atrLookback,
             relativeVolumeMin = relativeVolumeMin ?: base.relativeVolumeMin,

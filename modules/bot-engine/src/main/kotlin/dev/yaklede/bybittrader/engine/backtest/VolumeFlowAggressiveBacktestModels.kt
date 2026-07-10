@@ -37,6 +37,7 @@ data class VolumeFlowAggressiveBacktestConfig(
     val leverage: Double? = null,
     val liquidationBufferPct: Double = 0.6,
     val sessionHoursUtc: Set<Int> = setOf(13, 14, 15, 16, 17, 18, 19, 20, 21),
+    val entrySignalHoursUtc: Set<Int>? = null,
     val volumeLookback: Int = 20,
     val atrLookback: Int = 20,
     val relativeVolumeMin: Double = 1.0,
@@ -88,6 +89,12 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(liquidationBufferPct in 0.0..10.0) { "Liquidation buffer must be between 0 and 10 percent." }
         require(sessionHoursUtc.isNotEmpty()) { "Session hours must not be empty." }
         require(sessionHoursUtc.all { it in 0..23 }) { "Session hours must be between 0 and 23." }
+        require(entrySignalHoursUtc == null || entrySignalHoursUtc.isNotEmpty()) {
+            "Entry signal hours must be omitted or non-empty."
+        }
+        require(entrySignalHoursUtc == null || entrySignalHoursUtc.all { it in 0..23 }) {
+            "Entry signal hours must be between 0 and 23."
+        }
         require(volumeLookback > 1) { "Volume lookback must be greater than 1." }
         require(atrLookback > 1) { "ATR lookback must be greater than 1." }
         require(relativeVolumeMin >= 1.0) { "Relative volume minimum must be at least 1." }
