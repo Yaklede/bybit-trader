@@ -125,9 +125,9 @@ node scripts/bybit-orderbook-coverage-audit.mjs \
 
 The report emits only ranges whose manifest and stored bars both contain every
 UTC minute. Every other requested day is returned in `gapRanges`, with
-`missing-manifest` or `stored-bars-invalid`; a backtest protocol must reject a
-range that overlaps either status. This makes source gaps visible instead of
-silently shortening an evaluation window.
+`missing-manifest`, `invalid-manifest`, or `stored-bars-invalid`; a backtest
+protocol must reject a range that overlaps any status. This makes source gaps
+visible instead of silently shortening an evaluation window.
 
 ### Observed Source Gap
 

@@ -32,6 +32,20 @@ test("coverage audit reports only stored, continuous complete days as valid rang
   db.close();
 });
 
+test("coverage audit rejects an invalid provenance manifest before reading bars", () => {
+  const db = new DatabaseSync(":memory:");
+  createSchema(db);
+  insertManifest(db, "2025-01-01", 1_440, "not-a-sha256");
+
+  const report = auditArchiveCoverage({ symbol: "BTCUSDT", start: "2025-01-01", end: "2025-01-01" }, { db });
+
+  assert.equal(report.completeDays, 0);
+  assert.deepEqual(report.gapRanges, [
+    { start: "2025-01-01", end: "2025-01-01", days: 1, reasons: ["invalid-manifest"] },
+  ]);
+  db.close();
+});
+
 function createSchema(db) {
   db.exec(`
     CREATE TABLE historicalOrderBookImports (
@@ -56,9 +70,9 @@ function insertIncompleteDay(db, date) {
     .run("BTCUSDT", `${date}T00:00:00Z`);
 }
 
-function insertManifest(db, date, minuteBarCount) {
+function insertManifest(db, date, minuteBarCount, archiveSha256 = "a".repeat(64)) {
   db.prepare(`
     INSERT INTO historicalOrderBookImports(provider, dataset, symbol, source_date, minute_bar_count, archive_sha256)
-    VALUES ('bybit', 'orderbook', 'BTCUSDT', ?, ?, 'fixture-hash')
-  `).run(date, minuteBarCount);
+    VALUES ('bybit', 'orderbook', 'BTCUSDT', ?, ?, ?)
+  `).run(date, minuteBarCount, archiveSha256);
 }

@@ -53,12 +53,16 @@ export function auditArchiveCoverage(options, dependencies = {}) {
         days.push({ date, status: "missing-manifest" });
         continue;
       }
+      if (Number(manifest.minute_bar_count) !== MINUTES_PER_DAY || !isSha256(manifest.archive_sha256)) {
+        days.push({ date, status: "invalid-manifest" });
+        continue;
+      }
       const bars = db.prepare(`
         SELECT opened_at FROM orderBookImbalanceBars
         WHERE symbol=? AND opened_at>=? AND opened_at<?
         ORDER BY opened_at ASC
       `).all(options.symbol, `${date}T00:00:00Z`, `${nextDate(date)}T00:00:00Z`);
-      if (Number(manifest.minute_bar_count) !== MINUTES_PER_DAY || !hasContinuousMinutes(bars, date)) {
+      if (!hasContinuousMinutes(bars, date)) {
         days.push({ date, status: "stored-bars-invalid" });
         continue;
       }
@@ -135,6 +139,10 @@ function instantString(epochMillis) {
 function isDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
     && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+
+function isSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
