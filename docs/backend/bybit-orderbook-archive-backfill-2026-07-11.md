@@ -97,11 +97,13 @@ node scripts/bybit-orderbook-backfill.mjs \
   --end=2023-01-19
 ```
 
-`funzip` from the Info-ZIP package must be available on the research machine.
-The production container is deliberately not a target for this operation.
+`funzip` and `unzip` from the Info-ZIP package must be available on the research
+machine. The production container is deliberately not a target for this operation.
 For a download that was separately ZIP-verified, `--archive-dir=/path/to/cache`
 uses a matching catalog filename from that directory before making a network
 request. The same catalog byte-count and SHA-256 checks still apply.
+Cached archives use `unzip -p` rather than the streaming `funzip` path because
+some large valid ZIP files are not compatible with `funzip`.
 
 Large imports may be split across non-overlapping temporary SQLite shards. The
 final merge must use `scripts/bybit-orderbook-archive-merge.mjs`, which rejects

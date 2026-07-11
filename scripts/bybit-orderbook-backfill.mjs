@@ -187,20 +187,24 @@ export async function importArchiveFile(file, options, fetchImpl = fetch) {
 }
 
 async function importArchiveFileOnce(file, options, fetchImpl) {
-  const archive = await openArchiveStream(file, options, fetchImpl);
+  const { stream: archive, localArchive } = await openArchiveStream(file, options, fetchImpl);
   const archiveHash = createHash("sha256");
   let archiveSizeBytes = 0;
+  const archiveCompletion = waitForReadableEnd(archive);
   archive.on("data", (chunk) => {
     archiveHash.update(chunk);
     archiveSizeBytes += chunk.length;
   });
 
-  const funzip = spawn(options.funzipCommand, [], { stdio: ["pipe", "pipe", "pipe"] });
+  const funzip = localArchive == null
+    ? spawn(options.funzipCommand, [], { stdio: ["pipe", "pipe", "pipe"] })
+    : spawn("unzip", ["-p", localArchive], { stdio: ["ignore", "pipe", "pipe"] });
+  const extractorName = localArchive == null ? options.funzipCommand : "unzip";
   const stderr = [];
   funzip.stderr.on("data", (chunk) => stderr.push(chunk));
-  funzip.stdin.on("error", () => {});
-  const processCompletion = waitForProcess(funzip, stderr);
-  archive.pipe(funzip.stdin);
+  if (funzip.stdin != null) funzip.stdin.on("error", () => {});
+  const processCompletion = waitForProcess(funzip, stderr, extractorName);
+  if (localArchive == null) archive.pipe(funzip.stdin);
 
   try {
     const aggregate = await aggregateArchiveLines(funzip.stdout, {
@@ -209,6 +213,7 @@ async function importArchiveFileOnce(file, options, fetchImpl) {
       depth: options.orderBookDepth,
     });
     await processCompletion;
+    await archiveCompletion;
     if (archiveSizeBytes !== Number(file.size)) {
       throw new Error(`Order-book archive size mismatch date=${file.date}: expected=${file.size} actual=${archiveSizeBytes}.`);
     }
@@ -231,7 +236,7 @@ export async function openArchiveStream(file, options, fetchImpl = fetch) {
     const localArchive = resolve(options.archiveDirectory, file.filename);
     try {
       await access(localArchive);
-      return createReadStream(localArchive);
+      return { stream: createReadStream(localArchive), localArchive };
     } catch {
       // A cache miss falls through to the official source URL.
     }
@@ -240,7 +245,7 @@ export async function openArchiveStream(file, options, fetchImpl = fetch) {
   if (!response.ok || !response.body) {
     throw new Error(`Order-book archive download failed date=${file.date} HTTP ${response.status}.`);
   }
-  return Readable.fromWeb(response.body);
+  return { stream: Readable.fromWeb(response.body), localArchive: null };
 }
 
 export async function retryArchiveOperation(operation, attempts, retryDelayMillis, sleep = defaultSleep) {
@@ -499,13 +504,21 @@ async function fetchJson(url, fetchImpl, label) {
   return response.json();
 }
 
-function waitForProcess(process, stderr) {
+function waitForProcess(process, stderr, name) {
   return new Promise((resolve, reject) => {
     process.once("error", reject);
     process.once("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`funzip exited with code=${code}: ${Buffer.concat(stderr).toString().trim()}`));
+      else reject(new Error(`${name} exited with code=${code}: ${Buffer.concat(stderr).toString().trim()}`));
     });
+  });
+}
+
+function waitForReadableEnd(stream) {
+  return new Promise((resolve, reject) => {
+    stream.once("error", reject);
+    stream.once("end", resolve);
+    stream.once("close", resolve);
   });
 }
 

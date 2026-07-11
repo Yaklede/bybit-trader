@@ -131,7 +131,7 @@ test("archive directory takes precedence over a network request for a verified f
   const directory = await mkdtemp(join(tmpdir(), "bybit-orderbook-cache-"));
   try {
     await writeFile(join(directory, "sample.zip"), "cached archive");
-    const stream = await openArchiveStream(
+    const { stream, localArchive } = await openArchiveStream(
       { filename: "sample.zip", url: "https://example.test/sample.zip", date: "2024-01-01" },
       { archiveDirectory: directory },
       async () => {
@@ -141,6 +141,7 @@ test("archive directory takes precedence over a network request for a verified f
     const chunks = [];
     for await (const chunk of stream) chunks.push(chunk);
     assert.equal(Buffer.concat(chunks).toString(), "cached archive");
+    assert.equal(localArchive, join(directory, "sample.zip"));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
