@@ -43,6 +43,20 @@ advertised channels, instrument range, and overlapping incident notices, then
 returns `RAW_DAY_AUDIT_REQUIRED`. Only a credentialed raw-day import can prove
 minute continuity for a sealed protocol.
 
+The legacy feed preflight validates the actual `orderBook_200` snapshot/delta
+and `trade` payload contract before a long import. The first day of a month can
+be exercised without a credential; other dates use `TARDIS_API_KEY` only from
+the local environment:
+
+```bash
+node scripts/tardis-bybit-legacy-feed-preflight.mjs \
+  --symbol=BTCUSDT \
+  --date=2020-06-01
+```
+
+The preflight records only counts, capture timestamps, and retained depth. It
+does not persist raw provider messages or report the credential value.
+
 ## Data Contract
 
 The integration may proceed only after the vendor metadata confirms all of the
