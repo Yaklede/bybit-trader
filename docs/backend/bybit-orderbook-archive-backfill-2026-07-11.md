@@ -110,6 +110,39 @@ final merge must use `scripts/bybit-orderbook-archive-merge.mjs`, which rejects
 an incomplete source day and any existing target day with a different archive
 SHA-256 before writing it. It never deletes or replaces prior provenance.
 
+## Coverage Audit
+
+After the shard merge, run the non-mutating coverage audit over the exact
+research interval:
+
+```bash
+node scripts/bybit-orderbook-coverage-audit.mjs \
+  --db=/private/tmp/bybit-trader-orderbook-archive-20260711.sqlite \
+  --symbol=BTCUSDT \
+  --start=2023-01-19 \
+  --end=2026-07-02
+```
+
+The report emits only ranges whose manifest and stored bars both contain every
+UTC minute. Every other requested day is returned in `gapRanges`, with
+`missing-manifest` or `stored-bars-invalid`; a backtest protocol must reject a
+range that overlaps either status. This makes source gaps visible instead of
+silently shortening an evaluation window.
+
+### Observed Source Gap
+
+On 2026-07-11, the official BTCUSDT archive for `2025-08-21` was available and
+its ZIP container passed `unzip -t`, but reconstruction produced only 1,306 of
+the required 1,440 UTC minutes. The importer rejected the day and wrote no
+manifest. The coverage audit over `2025-05-01` through `2025-08-21` reported
+112 complete days (`2025-05-01` through `2025-08-20`) and one
+`missing-manifest` day at `2025-08-21`.
+
+This is a source-coverage failure, not a license to fill the missing minutes
+from candles, trades, or later book state. Any archive-derived protocol crossing
+this date is invalid until an independent order-book source with compatible
+provenance is found and separately reviewed.
+
 ## Validation Sequence
 
 1. Run the one-day command against a disposable research database and inspect
