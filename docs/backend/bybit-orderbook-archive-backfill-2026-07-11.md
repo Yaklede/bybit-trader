@@ -97,6 +97,11 @@ node scripts/bybit-orderbook-backfill.mjs \
 `funzip` from the Info-ZIP package must be available on the research machine.
 The production container is deliberately not a target for this operation.
 
+Large imports may be split across non-overlapping temporary SQLite shards. The
+final merge must use `scripts/bybit-orderbook-archive-merge.mjs`, which rejects
+an incomplete source day and any existing target day with a different archive
+SHA-256 before writing it. It never deletes or replaces prior provenance.
+
 ## Validation Sequence
 
 1. Run the one-day command against a disposable research database and inspect
