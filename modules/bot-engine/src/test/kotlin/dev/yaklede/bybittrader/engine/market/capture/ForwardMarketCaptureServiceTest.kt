@@ -59,6 +59,22 @@ class ForwardMarketCaptureServiceTest :
             service.flushClosedBars(Instant.parse("2026-07-10T00:02:00Z")).orderBookBars shouldBe 1
         }
 
+        "records explicit zero taker flow for a completed observed order-book minute" {
+            val store = InMemoryForwardMarketCaptureStore()
+            val service = ForwardMarketCaptureService(store)
+            val symbol = Symbol("BTCUSDT")
+            service.record(orderBookSnapshot(symbol, "2026-07-10T00:01:05Z", "100", "100", "1"))
+
+            val result = service.flushClosedBars(Instant.parse("2026-07-10T00:02:00Z"))
+
+            result.orderBookBars shouldBe 1
+            result.takerFlowBars shouldBe 1
+            store.takerFlowBars.single().takerBuyBase shouldBe BigDecimal.ZERO
+            store.takerFlowBars.single().takerSellBase shouldBe BigDecimal.ZERO
+            store.takerFlowBars.single().buyTradeCount shouldBe 0
+            store.takerFlowBars.single().sellTradeCount shouldBe 0
+        }
+
         "reports a fresh order book bar separately from optional liquidation activity" {
             val store = InMemoryForwardMarketCaptureStore()
             val symbol = Symbol("BTCUSDT")

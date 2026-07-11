@@ -199,7 +199,11 @@ class ForwardMarketCaptureService(
 
         val orderBookBars = pending.orderBook.map { (key, accumulator) -> accumulator.toBar(key) }
         val liquidationBars = pending.liquidation.map { (key, accumulator) -> accumulator.toBar(key) }
-        val takerFlowBars = pending.takerFlow.map { (key, accumulator) -> accumulator.toBar(key) }
+        val takerFlowBars =
+            pending.takerFlow.map { (key, accumulator) -> accumulator.toBar(key) } +
+                pending.orderBook.keys
+                    .filterNot(pending.takerFlow::containsKey)
+                    .map(::zeroTakerFlowBar)
         if (orderBookBars.isNotEmpty()) store.upsertOrderBookImbalanceBars(orderBookBars)
         if (liquidationBars.isNotEmpty()) store.upsertLiquidationFlowBars(liquidationBars)
         if (takerFlowBars.isNotEmpty()) store.upsertTakerFlowBars(takerFlowBars)
@@ -573,6 +577,18 @@ private class TakerFlowAccumulator {
             sellTradeCount = sellTradeCount,
         )
 }
+
+private fun zeroTakerFlowBar(key: CaptureBucketKey): TakerFlowBar =
+    TakerFlowBar(
+        symbol = key.symbol,
+        openedAt = key.openedAt,
+        takerBuyBase = BigDecimal.ZERO,
+        takerBuyNotional = BigDecimal.ZERO,
+        takerSellBase = BigDecimal.ZERO,
+        takerSellNotional = BigDecimal.ZERO,
+        buyTradeCount = 0,
+        sellTradeCount = 0,
+    )
 
 private fun Instant.minuteStart(): Instant = Instant.ofEpochMilli((toEpochMilli() / ONE_MINUTE.toMillis()) * ONE_MINUTE.toMillis())
 

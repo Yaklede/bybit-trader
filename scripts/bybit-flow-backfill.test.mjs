@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import {
   applyTrade,
+  completeTradeBarsForCandles,
   coverageReport,
   ensureSchema,
   hasCompleteTakerFlowDay,
@@ -70,5 +71,39 @@ test("complete taker-flow day check rejects a partial historical repair", () => 
 
   insert.run("2024-01-01T04:00:00Z");
   assert.equal(hasCompleteTakerFlowDay(db, "BTCUSDT", "2024-01-01"), true);
+  db.close();
+});
+
+test("official zero-volume candles complete a trade archive without fabricating positive flow", () => {
+  const db = new DatabaseSync(":memory:");
+  ensureSchema(db);
+  db.exec("CREATE TABLE marketCandles(symbol TEXT, timeframe TEXT, opened_at TEXT, volume TEXT)");
+  const insertCandle = db.prepare("INSERT INTO marketCandles VALUES ('BTCUSDT', 'M1', ?, ?)");
+  const start = Date.parse("2024-01-01T00:00:00Z");
+  const bars = new Map();
+  for (let minute = 0; minute < 1_440; minute += 1) {
+    const openedAt = start + minute * 60_000;
+    insertCandle.run(new Date(openedAt).toISOString().replace(".000Z", "Z"), minute === 240 ? "0" : "1");
+    if (minute !== 240) {
+      bars.set(openedAt, { buyBase: 1, buyNotional: 100, sellBase: 0, sellNotional: 0, buyCount: 1, sellCount: 0 });
+    }
+  }
+  completeTradeBarsForCandles(db, "BTCUSDT", "2024-01-01", bars);
+  assert.equal(bars.size, 1_440);
+  assert.deepEqual(bars.get(start + 240 * 60_000), {
+    buyBase: 0,
+    buyNotional: 0,
+    sellBase: 0,
+    sellNotional: 0,
+    buyCount: 0,
+    sellCount: 0,
+  });
+
+  const positiveGap = new Map(bars);
+  positiveGap.delete(start + 241 * 60_000);
+  assert.throws(
+    () => completeTradeBarsForCandles(db, "BTCUSDT", "2024-01-01", positiveGap),
+    /misses positive-volume minute/,
+  );
   db.close();
 });

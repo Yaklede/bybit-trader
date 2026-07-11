@@ -46,7 +46,15 @@ semantics and fields used by the files. Sources: [Bybit developer page](https://
   change aligns the live collector.
 - The archive has no verified historical all-liquidation stream in this import.
   No liquidation-flow filter may be enabled for an archive backtest. Simulated
-  liquidation remains part of the existing execution model.
+  liquidation remains part of the existing execution model. The importer creates
+  the runtime-compatible `liquidationFlowBars` table but does not insert events
+  into it, so its empty state cannot be misread as historical liquidation data.
+- A no-trade minute is a valid zero-flow observation only when the official
+  trade archive has no event and the matching M1 candle volume is exactly zero.
+  A missing positive-volume minute remains an import failure. The live capture
+  service writes the same explicit zero bar only for a minute in which it
+  observed an order-book bar but no public trade, so source absence is never
+  silently converted into zero flow.
 
 ## Import Contract
 

@@ -93,7 +93,7 @@ test("research schema creates the order-book bars and immutable import manifest"
   ensureSchema(db);
   ensureSchema(db);
   const names = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((row) => row.name);
-  assert.deepEqual(names, ["historicalOrderBookImports", "orderBookImbalanceBars", "sqlite_sequence"]);
+  assert.deepEqual(names, ["historicalOrderBookImports", "liquidationFlowBars", "orderBookImbalanceBars", "sqlite_sequence"]);
   db.close();
 });
 

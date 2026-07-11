@@ -193,6 +193,7 @@ async function backfillTrades(db, options, fetchImpl, log) {
     }
     if (!response.ok || !response.body) throw new Error(`Trade archive ${date} failed with HTTP ${response.status}.`);
     const bars = await aggregateTradeArchive(response.body, options.symbol);
+    completeTradeBarsForCandles(db, options.symbol, date, bars);
     inTransaction(db, () => {
       for (const [minute, bar] of bars) {
         insert.run(
@@ -238,6 +239,48 @@ export function hasCompleteTakerFlowDay(db, symbol, date) {
     row.last_opened_at === `${date}T23:59:00Z` &&
     Number(row.gap_count) === 0
   );
+}
+
+export function completeTradeBarsForCandles(db, symbol, date, bars) {
+  const nextDate = addUtcDays(date, 1);
+  const dayStart = `${date}T00:00:00Z`;
+  const dayEnd = `${nextDate}T00:00:00Z`;
+  if (!tableExists(db, "marketCandles")) {
+    if (bars.size !== 1_440) {
+      throw new Error(`Cannot verify missing trade minutes for ${date} without M1 candle coverage.`);
+    }
+    return bars;
+  }
+  const candles = db.prepare(`
+    SELECT opened_at, volume
+    FROM marketCandles
+    WHERE symbol=? AND timeframe='M1' AND opened_at>=? AND opened_at<?
+    ORDER BY opened_at ASC
+  `).all(symbol, dayStart, dayEnd);
+  if (candles.length !== 1_440) {
+    throw new Error(`M1 candle coverage is incomplete for ${date}: expected 1440 rows, received ${candles.length}.`);
+  }
+  const dayStartMillis = Date.parse(dayStart);
+  const dayEndMillis = Date.parse(dayEnd);
+  for (let minute = 0; minute < candles.length; minute += 1) {
+    const candle = candles[minute];
+    const openedAt = Date.parse(candle.opened_at);
+    if (candle.opened_at !== instantString(dayStartMillis + minute * 60_000)) {
+      throw new Error(`M1 candle coverage is not continuous for ${date} at minute offset=${minute}.`);
+    }
+    if (!bars.has(openedAt)) {
+      if (Number(candle.volume) !== 0) {
+        throw new Error(`Trade archive misses positive-volume minute ${candle.opened_at}.`);
+      }
+      bars.set(openedAt, zeroTakerFlowBar());
+    }
+  }
+  for (const openedAt of bars.keys()) {
+    if (openedAt < dayStartMillis || openedAt >= dayEndMillis) {
+      throw new Error(`Trade archive returned a minute outside ${date}: ${instantString(openedAt)}.`);
+    }
+  }
+  return bars;
 }
 
 async function aggregateTradeArchive(webBody, expectedSymbol) {
@@ -459,6 +502,21 @@ function instantString(milliseconds) {
 function decimalString(value) {
   if (!Number.isFinite(value)) throw new Error("Cannot persist a non-finite decimal.");
   return value.toFixed(12).replace(/\.?0+$/, "");
+}
+
+function zeroTakerFlowBar() {
+  return {
+    buyBase: 0,
+    buyNotional: 0,
+    sellBase: 0,
+    sellNotional: 0,
+    buyCount: 0,
+    sellCount: 0,
+  };
+}
+
+function tableExists(db, table) {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1").get(table) != null;
 }
 
 function isDate(value) {

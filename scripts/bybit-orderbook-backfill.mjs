@@ -76,6 +76,17 @@ export function ensureSchema(db) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS orderBookImbalanceBars_symbol_openedAt_idx
       ON orderBookImbalanceBars(symbol, opened_at);
+    CREATE TABLE IF NOT EXISTS liquidationFlowBars (
+      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      long_liquidation_notional TEXT NOT NULL,
+      short_liquidation_notional TEXT NOT NULL,
+      long_liquidation_count INTEGER NOT NULL,
+      short_liquidation_count INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS liquidationFlowBars_symbol_openedAt_idx
+      ON liquidationFlowBars(symbol, opened_at);
     CREATE TABLE IF NOT EXISTS historicalOrderBookImports (
       id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
