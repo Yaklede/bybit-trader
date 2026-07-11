@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import {
   aggregateArchiveLines,
@@ -9,6 +12,7 @@ import {
   listArchiveFiles,
   parseArgs,
   retryArchiveOperation,
+  openArchiveStream,
   verifyExistingArchiveHash,
 } from "./bybit-orderbook-backfill.mjs";
 
@@ -121,6 +125,25 @@ test("archive operation retries a transient decompression failure without changi
   );
   assert.equal(result, "complete");
   assert.deepEqual(attempts, [1, 2, 3]);
+});
+
+test("archive directory takes precedence over a network request for a verified filename", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bybit-orderbook-cache-"));
+  try {
+    await writeFile(join(directory, "sample.zip"), "cached archive");
+    const stream = await openArchiveStream(
+      { filename: "sample.zip", url: "https://example.test/sample.zip", date: "2024-01-01" },
+      { archiveDirectory: directory },
+      async () => {
+        throw new Error("network must not be called");
+      },
+    );
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    assert.equal(Buffer.concat(chunks).toString(), "cached archive");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 function message(timestamp, type, bids, asks) {

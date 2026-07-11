@@ -3,6 +3,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { createReadStream } from "node:fs";
+import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
@@ -42,6 +44,7 @@ export function parseArgs(argv) {
     catalogDaysPerRequest: Number(values.get("catalog-days-per-request") ?? DEFAULT_MAX_DAYS_PER_CATALOG_REQUEST),
     archiveAttempts: Number(values.get("archive-attempts") ?? DEFAULT_ARCHIVE_ATTEMPTS),
     archiveRetryDelayMillis: Number(values.get("archive-retry-delay-millis") ?? DEFAULT_ARCHIVE_RETRY_DELAY_MILLIS),
+    archiveDirectory: values.get("archive-dir") == null ? null : resolve(values.get("archive-dir")),
     funzipCommand: values.get("funzip-command") ?? "funzip",
   };
 
@@ -184,12 +187,7 @@ export async function importArchiveFile(file, options, fetchImpl = fetch) {
 }
 
 async function importArchiveFileOnce(file, options, fetchImpl) {
-  const response = await fetchImpl(file.url);
-  if (!response.ok || !response.body) {
-    throw new Error(`Order-book archive download failed date=${file.date} HTTP ${response.status}.`);
-  }
-
-  const archive = Readable.fromWeb(response.body);
+  const archive = await openArchiveStream(file, options, fetchImpl);
   const archiveHash = createHash("sha256");
   let archiveSizeBytes = 0;
   archive.on("data", (chunk) => {
@@ -226,6 +224,23 @@ async function importArchiveFileOnce(file, options, fetchImpl) {
     funzip.kill();
     throw error;
   }
+}
+
+export async function openArchiveStream(file, options, fetchImpl = fetch) {
+  if (options.archiveDirectory != null) {
+    const localArchive = resolve(options.archiveDirectory, file.filename);
+    try {
+      await access(localArchive);
+      return createReadStream(localArchive);
+    } catch {
+      // A cache miss falls through to the official source URL.
+    }
+  }
+  const response = await fetchImpl(file.url);
+  if (!response.ok || !response.body) {
+    throw new Error(`Order-book archive download failed date=${file.date} HTTP ${response.status}.`);
+  }
+  return Readable.fromWeb(response.body);
 }
 
 export async function retryArchiveOperation(operation, attempts, retryDelayMillis, sleep = defaultSleep) {
