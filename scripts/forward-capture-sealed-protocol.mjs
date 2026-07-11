@@ -11,6 +11,9 @@ const MIN_WINDOW_MONTHS = 1;
 const MAX_WINDOW_MONTHS = 60;
 const MAX_WINDOW_ATTEMPTS = 100_000;
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
+const DEFAULT_SOURCE = "forward-order-book-and-taker-capture";
+const ARCHIVE_SOURCE = "bybit-official-orderbook-archive-and-taker-history";
+const ALLOWED_SOURCES = new Set([DEFAULT_SOURCE, ARCHIVE_SOURCE]);
 const MINUTE_MILLIS = 60_000;
 const TIMEFRAMES = [
   { name: "M1", minutes: 1 },
@@ -37,6 +40,7 @@ export function parseArgs(argv) {
     windowCount: Number(values.get("window-count") ?? DEFAULT_WINDOW_COUNT),
     minMonths: Number(values.get("min-months") ?? MIN_WINDOW_MONTHS),
     maxMonths: Number(values.get("max-months") ?? MAX_WINDOW_MONTHS),
+    source: values.get("source") ?? DEFAULT_SOURCE,
     out: values.get("out") == null ? null : path.resolve(values.get("out")),
   };
 
@@ -60,6 +64,9 @@ export function parseArgs(argv) {
   }
   if (calendarMonthDifference(options.start, options.end) < options.maxMonths) {
     throw new Error("The observation window must cover at least max-months full calendar months.");
+  }
+  if (!ALLOWED_SOURCES.has(options.source)) {
+    throw new Error(`source must be one of: ${[...ALLOWED_SOURCES].join(", ")}.`);
   }
   return options;
 }
@@ -142,7 +149,7 @@ export function buildProtocol(options, coverage) {
       symbol: options.symbol,
       earliestAt: options.start,
       latestAt: options.end,
-      source: "forward-order-book-and-taker-capture",
+      source: options.source,
       captureCoverage: coverage,
     },
     gates: {

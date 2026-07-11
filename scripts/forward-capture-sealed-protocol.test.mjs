@@ -18,6 +18,7 @@ const options = {
   windowCount: 40,
   minMonths: 1,
   maxMonths: 60,
+  source: "forward-order-book-and-taker-capture",
   out: null,
 };
 
@@ -41,6 +42,30 @@ test("forward protocol requires an explicit sixty-month month-aligned observatio
       "--end=2025-01-01T00:00:00.000Z",
     ]),
     options,
+  );
+});
+
+test("forward protocol records archive provenance only when explicitly declared", () => {
+  const archive = parseArgs([
+    "--db=/tmp/forward.sqlite",
+    "--seed=20260711",
+    "--start=2023-02-01T00:00:00.000Z",
+    "--end=2026-07-01T00:00:00.000Z",
+    "--max-months=41",
+    "--source=bybit-official-orderbook-archive-and-taker-history",
+  ]);
+  assert.equal(archive.source, "bybit-official-orderbook-archive-and-taker-history");
+  assert.equal(buildProtocol(archive, completeCoverage(archive)).sourceData.source, archive.source);
+  assert.throws(
+    () =>
+      parseArgs([
+        "--db=/tmp/forward.sqlite",
+        "--seed=20260711",
+        "--start=2020-01-01T00:00:00.000Z",
+        "--end=2025-01-01T00:00:00.000Z",
+        "--source=unverified-history",
+      ]),
+    /source must be one of/,
   );
 });
 

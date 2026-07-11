@@ -4,12 +4,15 @@
 
 현재 봉인 검증에서 OHLCV, 과거 테이커 흐름, 미결제약정, 프리미엄, 펀딩만으로는
 목표인 일복리 `0.8%`, MTM MDD `40% 이하`, 청산 `0`, 의미 있는 거래 커버리지를
-동시에 충족한 후보가 없다. 과거 시점의 호가 잔량 이력은 보유하지 않았으므로, 이를
-과거 구간으로 소급해 채우거나 기존 결과를 다시 튜닝하는 것은 허용하지 않는다.
+동시에 충족한 후보가 없다. 이후 Bybit 공식 historical-data portal에서 BTCUSDT
+contract order-book snapshot/delta archive가 `2023-01-19` 이후 연속적으로 제공되는
+것을 확인했다. 이 원본을 검증 없이 추정·합성하는 것은 허용하지 않으며, 원본 ZIP
+해시와 완결 M1 커버리지를 남기는 import만 허용한다.
 
-이 작업의 목표는 **수집이 시작된 뒤의 실제 M1 호가/테이커 데이터만** 이용해 기존
-인과 백테스트 엔진에서 재현 가능한 연구를 수행하는 것이다. 이 구현은 성과 주장이
-아니며, 실거래 전략을 활성화하거나 변경하지 않는다.
+이 작업의 목표는 **실제 순방향 수집 또는 공식 원본 아카이브에서 검증된 M1
+호가/테이커 데이터만** 이용해 기존 인과 백테스트 엔진에서 재현 가능한 연구를
+수행하는 것이다. 이 구현은 성과 주장이 아니며, 실거래 전략을 활성화하거나 변경하지
+않는다.
 
 ## 범위와 비범위
 
@@ -113,6 +116,24 @@ node scripts/forward-capture-sealed-protocol.mjs \
   --end=2031-08-01T00:00:00.000Z \
   --seed=20310801 \
   --out=config/forward-capture-sealed-windows-v1.json
+```
+
+공식 아카이브는 현재 2023년 이후만 제공하므로 1-60개월 목표를 충족하지 못한다.
+아카이브 연구는 실제로 검증된 연속 월 수를 넘지 않는 명시적 `--max-months`와 별도
+source provenance를 사용해야 하며, 이를 60개월 봉인 검증이나 실거래 승격으로
+표현하면 안 된다. 예를 들어 `2023-02-01`부터 `2026-07-01`까지 41개월이 모두
+완결된 뒤의 연구 명령은 다음과 같다.
+
+```bash
+node scripts/forward-capture-sealed-protocol.mjs \
+  --db=/path/to/bybit-trader-archive.sqlite \
+  --symbol=BTCUSDT \
+  --start=2023-02-01T00:00:00.000Z \
+  --end=2026-07-01T00:00:00.000Z \
+  --seed=20260711 \
+  --max-months=41 \
+  --source=bybit-official-orderbook-archive-and-taker-history \
+  --out=config/archive-orderbook-sealed-windows-v1.json
 ```
 
 ## 실패 처리와 검증
