@@ -14,7 +14,7 @@ const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
 const DEFAULT_SOURCE = "forward-order-book-and-taker-capture";
 const ARCHIVE_SOURCE = "bybit-official-orderbook-archive-and-taker-history";
 const TARDIS_MACHINE_SOURCE = "tardis-machine-orderbook-plus-bybit-taker-history";
-const TARDIS_MACHINE_DATASET = "machine-normalized-book-snapshot-1m-v1";
+const TARDIS_MACHINE_DATASET = "machine-normalized-book-snapshot-25-1m-v1";
 const ALLOWED_SOURCES = new Set([DEFAULT_SOURCE, ARCHIVE_SOURCE, TARDIS_MACHINE_SOURCE]);
 const MINUTE_MILLIS = 60_000;
 const TIMEFRAMES = [
@@ -195,11 +195,44 @@ export function verifyArchiveProvenance(db, options) {
 }
 
 export function verifyTardisMachineProvenance(db, options) {
-  return verifyOrderBookImportProvenance(db, options, {
+  const provenance = verifyOrderBookImportProvenance(db, options, {
     provider: "tardis",
     dataset: TARDIS_MACHINE_DATASET,
     label: "Tardis Machine",
   });
+  if (!tableExists(db, "tardisMachineOrderBookImportDiagnostics")) {
+    throw new Error("tardisMachineOrderBookImportDiagnostics table is required for a Tardis Machine source.");
+  }
+  const diagnostics = db.prepare(`
+    SELECT source_date, disconnect_count, carried_forward_minute_bars
+    FROM tardisMachineOrderBookImportDiagnostics
+    WHERE symbol=? AND source_date>=? AND source_date<?
+    ORDER BY source_date ASC
+  `).all(options.symbol, options.start.slice(0, 10), options.end.slice(0, 10));
+  const diagnosticsByDate = new Map(diagnostics.map((row) => [row.source_date, row]));
+  let totalDisconnects = 0;
+  let totalCarriedForwardMinuteBars = 0;
+  let maxCarriedForwardMinuteBars = 0;
+  for (const sourceDate of utcDatesBetween(options.start, options.end)) {
+    const diagnostic = diagnosticsByDate.get(sourceDate);
+    if (diagnostic == null) throw new Error(`Tardis Machine diagnostics are missing for ${sourceDate}.`);
+    const disconnectCount = Number(diagnostic.disconnect_count);
+    const carriedForwardMinuteBars = Number(diagnostic.carried_forward_minute_bars);
+    if (!Number.isInteger(disconnectCount) || disconnectCount < 0 || !Number.isInteger(carriedForwardMinuteBars) || carriedForwardMinuteBars < 0) {
+      throw new Error(`Tardis Machine diagnostics are invalid for ${sourceDate}.`);
+    }
+    totalDisconnects += disconnectCount;
+    totalCarriedForwardMinuteBars += carriedForwardMinuteBars;
+    maxCarriedForwardMinuteBars = Math.max(maxCarriedForwardMinuteBars, carriedForwardMinuteBars);
+  }
+  return {
+    ...provenance,
+    replayDiagnostics: {
+      totalDisconnects,
+      totalCarriedForwardMinuteBars,
+      maxCarriedForwardMinuteBars,
+    },
+  };
 }
 
 function verifyOrderBookImportProvenance(db, options, expected) {

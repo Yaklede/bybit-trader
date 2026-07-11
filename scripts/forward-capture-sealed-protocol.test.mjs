@@ -136,6 +136,10 @@ test("Tardis Machine source requires its own immutable daily replay manifests", 
       provider TEXT NOT NULL, dataset TEXT NOT NULL, symbol TEXT NOT NULL,
       source_date TEXT NOT NULL, minute_bar_count INTEGER NOT NULL, archive_sha256 TEXT NOT NULL
     );
+    CREATE TABLE tardisMachineOrderBookImportDiagnostics (
+      symbol TEXT NOT NULL, source_date TEXT NOT NULL,
+      disconnect_count INTEGER NOT NULL, carried_forward_minute_bars INTEGER NOT NULL
+    );
   `);
   const sourceOptions = {
     symbol: "BTCUSDT",
@@ -147,10 +151,15 @@ test("Tardis Machine source requires its own immutable daily replay manifests", 
   insertTardisMachineManifest(db, "2025-01-02", "b".repeat(64));
   assert.deepEqual(verifyTardisMachineProvenance(db, sourceOptions), {
     provider: "tardis",
-    dataset: "machine-normalized-book-snapshot-1m-v1",
+    dataset: "machine-normalized-book-snapshot-25-1m-v1",
     verifiedDays: 2,
     firstSourceDate: "2025-01-01",
     lastSourceDate: "2025-01-02",
+    replayDiagnostics: {
+      totalDisconnects: 3,
+      totalCarriedForwardMinuteBars: 1,
+      maxCarriedForwardMinuteBars: 1,
+    },
   });
   db.close();
 });
@@ -188,6 +197,10 @@ function insertArchiveManifest(db, date, hash) {
 function insertTardisMachineManifest(db, date, hash) {
   db.prepare(`
     INSERT INTO historicalOrderBookImports(provider, dataset, symbol, source_date, minute_bar_count, archive_sha256)
-    VALUES ('tardis', 'machine-normalized-book-snapshot-1m-v1', 'BTCUSDT', ?, 1440, ?)
+    VALUES ('tardis', 'machine-normalized-book-snapshot-25-1m-v1', 'BTCUSDT', ?, 1440, ?)
   `).run(date, hash);
+  db.prepare(`
+    INSERT INTO tardisMachineOrderBookImportDiagnostics(symbol, source_date, disconnect_count, carried_forward_minute_bars)
+    VALUES ('BTCUSDT', ?, ?, ?)
+  `).run(date, date === "2025-01-01" ? 1 : 2, date === "2025-01-01" ? 0 : 1);
 }

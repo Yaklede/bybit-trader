@@ -94,18 +94,24 @@ node scripts/tardis-machine-orderbook-backfill.mjs \
   --machine-url=http://127.0.0.1:18000
 ```
 
-The importer requests `book_snapshot_50_1m` with disconnect messages enabled.
+The importer requests `book_snapshot_25_1m` with disconnect messages enabled.
+The depth is deliberately fixed at 25 because the legacy `BTCUSDT` source
+contains only 25 valid price levels even when a deeper normalized snapshot is
+requested; using 25 keeps the legacy and v5 periods on one feature contract.
 It uses each snapshot's `localTimestamp`, requires a snapshot in the first and
-last minute of every day, rejects any disconnect or upstream error, preserves
-the source-response SHA-256, and records exactly 1,440 causal minute bars.
-Minutes with no new snapshot can only carry the last already-observed book
-state forward; the carried count is logged. This is conservative and avoids
-using a later book snapshot for an earlier candle.
+last minute of every day, rejects upstream errors and a disconnect that occurs
+before any causal snapshot for that minute, preserves the
+source-response SHA-256, and records exactly 1,440 causal minute bars.
+Recovered disconnect counts and carried-forward minutes are stored per day for
+audit. Minutes with no new snapshot can only carry the last already-observed
+book state forward; this is conservative and avoids using a later book snapshot
+for an earlier candle.
 
 After the day contract passes, run the full range with the same separate
 database. The sealing tool recognizes this source only as
 `tardis-machine-orderbook-plus-bybit-taker-history` and requires a valid
-Tardis replay manifest for every order-book day.
+Tardis replay manifest and the corresponding disconnect/carry-forward
+diagnostic record for every order-book day.
 
 ## Data Contract
 
@@ -164,6 +170,17 @@ The public metadata probe has confirmed the advertised `BTCUSDT` range and
 channel names, and the unauthenticated `2020-06-01` legacy feed preflight
 confirmed the original snapshot/delta payload shape. Neither result proves the
 paid subscription entitlement, every-day continuity, or full-period coverage.
+
+The local Tardis Machine contract importer was also run without a credential
+for two vendor-provided free first-of-month samples, using the canonical
+25-level snapshot:
+
+| UTC day | Channel era | Snapshots | Disconnects | Carried-forward minutes | Imported bars |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 2020-06-01 | legacy | 1,444 | 4 | 0 | 1,440 |
+| 2023-05-01 | v5 | 1,448 | 8 | 0 | 1,440 |
+
+Those samples prove only the importer contract on one legacy and one v5 day.
 No Tardis credential or long-range replay data has been received. Until those
 are available, the original 1-60 month target remains unproven and must not be
 represented as passed.

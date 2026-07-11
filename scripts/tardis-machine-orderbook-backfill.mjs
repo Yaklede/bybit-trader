@@ -9,8 +9,9 @@ import { Readable } from "node:stream";
 import { ensureSchema } from "./bybit-orderbook-backfill.mjs";
 
 const DEFAULT_MACHINE_URL = "http://127.0.0.1:8000";
-const DEFAULT_ORDER_BOOK_DEPTH = 50;
-const DATASET = "machine-normalized-book-snapshot-1m-v1";
+const CANONICAL_ORDER_BOOK_DEPTH = 25;
+const DEFAULT_ORDER_BOOK_DEPTH = CANONICAL_ORDER_BOOK_DEPTH;
+const DATASET = "machine-normalized-book-snapshot-25-1m-v1";
 const IMPORTER_VERSION = "tardis-machine-orderbook-backfill-v1";
 const MINUTES_PER_DAY = 24 * 60;
 const ONE_MINUTE_MILLIS = 60_000;
@@ -41,8 +42,8 @@ export function parseArgs(argv) {
   if (!isDate(options.start) || !isDate(options.end) || options.start > options.end) {
     throw new Error("Start/end must be valid YYYY-MM-DD values with start <= end.");
   }
-  if (!Number.isInteger(options.orderBookDepth) || options.orderBookDepth < 1 || options.orderBookDepth > 50) {
-    throw new Error("orderbook-depth must be an integer between 1 and 50.");
+  if (options.orderBookDepth !== CANONICAL_ORDER_BOOK_DEPTH) {
+    throw new Error(`orderbook-depth must be ${CANONICAL_ORDER_BOOK_DEPTH}; this is the cross-era canonical Bybit depth.`);
   }
   return options;
 }
@@ -89,6 +90,7 @@ export async function backfill(options, dependencies = {}) {
   const db = dependencies.db ?? new DatabaseSync(options.db);
   const ownsDatabase = dependencies.db == null;
   ensureSchema(db);
+  ensureTardisMachineSchema(db);
   try {
     let importedDays = 0;
     let skippedDays = 0;
@@ -104,7 +106,8 @@ export async function backfill(options, dependencies = {}) {
       importedDays += 1;
       log(
         `tardis machine order-book imported date=${date} snapshots=${result.eventCount} ` +
-          `carriedForwardMinutes=${result.carriedForwardMinuteBars} sha256=${result.archiveSha256}`,
+          `disconnects=${result.disconnectCount} carriedForwardMinutes=${result.carriedForwardMinuteBars} ` +
+          `sha256=${result.archiveSha256}`,
       );
     }
     return { importedDays, skippedDays, requestedDays: requestedDates.length };
@@ -156,12 +159,25 @@ export async function aggregateNormalizedSnapshots(stream, { date, symbol, depth
   let firstEventAt = null;
   let lastEventAt = null;
   let eventCount = 0;
+  let disconnectCount = 0;
+  const unrecoveredDisconnectMinutes = new Set();
 
   for await (const line of reader) {
     if (!line) continue;
     const message = JSON.parse(line);
     if (message?.type === "disconnect") {
-      throw new Error(`Tardis Machine reported a source disconnect for ${date}; the day is rejected.`);
+      const disconnectedAt = parseTimestamp(message.localTimestamp, "disconnect.localTimestamp");
+      if (previousLocalTimestamp != null && disconnectedAt < previousLocalTimestamp) {
+        throw new Error(`Tardis Machine local timestamps must be nondecreasing for ${date}.`);
+      }
+      if (disconnectedAt < dayStart || disconnectedAt >= dayEnd) {
+        throw new Error(`Tardis Machine disconnect is outside the requested UTC day ${date}.`);
+      }
+      previousLocalTimestamp = disconnectedAt;
+      const disconnectedMinute = Math.floor(disconnectedAt / ONE_MINUTE_MILLIS) * ONE_MINUTE_MILLIS;
+      if (!snapshotsByMinute.has(disconnectedMinute)) unrecoveredDisconnectMinutes.add(disconnectedMinute);
+      disconnectCount += 1;
+      continue;
     }
     if (message?.type === "error") {
       throw new Error(`Tardis Machine reported an upstream error for ${date}: ${String(message.details ?? "unknown error")}.`);
@@ -180,6 +196,7 @@ export async function aggregateNormalizedSnapshots(stream, { date, symbol, depth
     previousLocalTimestamp = localTimestamp;
     const minute = Math.floor(localTimestamp / ONE_MINUTE_MILLIS) * ONE_MINUTE_MILLIS;
     snapshotsByMinute.set(minute, snapshot);
+    unrecoveredDisconnectMinutes.delete(minute);
     firstEventAt ??= localTimestamp;
     lastEventAt = localTimestamp;
     eventCount += 1;
@@ -193,6 +210,10 @@ export async function aggregateNormalizedSnapshots(stream, { date, symbol, depth
   }
   if (!snapshotsByMinute.has(dayEnd - ONE_MINUTE_MILLIS)) {
     throw new Error(`Tardis Machine day ${date} has no final-minute order-book snapshot.`);
+  }
+  if (unrecoveredDisconnectMinutes.size > 0) {
+    const firstUnrecoveredAt = instantString(Math.min(...unrecoveredDisconnectMinutes));
+    throw new Error(`Tardis Machine day ${date} has a disconnect before any causal same-minute snapshot at ${firstUnrecoveredAt}.`);
   }
 
   const bars = [];
@@ -210,7 +231,7 @@ export async function aggregateNormalizedSnapshots(stream, { date, symbol, depth
     bars.push(snapshotToBar(currentSnapshot, symbol, depth, openedAt));
   }
   assertCompleteDay(bars, date, expectedMinutes);
-  return { bars, eventCount, firstEventAt, lastEventAt, carriedForwardMinuteBars };
+  return { bars, eventCount, firstEventAt, lastEventAt, disconnectCount, carriedForwardMinuteBars };
 }
 
 function validateSnapshot(snapshot, { symbol, depth }) {
@@ -257,7 +278,8 @@ function snapshotToBar(snapshot, symbol, depth, openedAt) {
 
 function topLevels(levels, depth, descending) {
   const prices = new Set();
-  const normalized = levels.map((level) => {
+  const normalized = levels.flatMap((level) => {
+    if (level != null && typeof level === "object" && Object.keys(level).length === 0) return [];
     const price = Number(level?.price);
     const amount = Number(level?.amount);
     if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(amount) || amount <= 0) {
@@ -265,7 +287,7 @@ function topLevels(levels, depth, descending) {
     }
     if (prices.has(price)) throw new Error("Tardis Machine snapshot side contains duplicate price levels.");
     prices.add(price);
-    return { price, amount };
+    return [{ price, amount }];
   });
   normalized.sort((left, right) => (descending ? right.price - left.price : left.price - right.price));
   return normalized.slice(0, depth);
@@ -346,7 +368,27 @@ function persistImportedDay(db, options, result) {
       new Date().toISOString(),
       IMPORTER_VERSION,
     );
+    db.prepare(`
+      INSERT INTO tardisMachineOrderBookImportDiagnostics(
+        symbol, source_date, disconnect_count, carried_forward_minute_bars
+      ) VALUES (?, ?, ?, ?)
+      ON CONFLICT(symbol, source_date) DO UPDATE SET
+        disconnect_count=excluded.disconnect_count,
+        carried_forward_minute_bars=excluded.carried_forward_minute_bars
+    `).run(options.symbol, date, result.disconnectCount, result.carriedForwardMinuteBars);
   });
+}
+
+function ensureTardisMachineSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tardisMachineOrderBookImportDiagnostics (
+      symbol TEXT NOT NULL,
+      source_date TEXT NOT NULL,
+      disconnect_count INTEGER NOT NULL,
+      carried_forward_minute_bars INTEGER NOT NULL,
+      PRIMARY KEY(symbol, source_date)
+    );
+  `);
 }
 
 function assertNoForeignSourceDay(db, options, date) {

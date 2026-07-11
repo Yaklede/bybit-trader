@@ -18,9 +18,9 @@ test("Tardis Machine importer accepts only a local research endpoint", () => {
     "--machine-url=http://localhost:18000",
   ]);
   assert.equal(options.machineUrl, "http://localhost:18000");
-  assert.equal(options.orderBookDepth, 50);
+  assert.equal(options.orderBookDepth, 25);
   assert.throws(() => normalizeMachineUrl("https://machine.example.com"), /localhost/);
-  assert.throws(() => parseArgs(["--start=2020-06-01", "--end=2020-06-01", "--orderbook-depth=51"]), /between 1 and 50/);
+  assert.throws(() => parseArgs(["--start=2020-06-01", "--end=2020-06-01", "--orderbook-depth=50"]), /cross-era canonical/);
 });
 
 test("Tardis Machine replay request pins source, range, depth, and disconnect reporting", () => {
@@ -64,15 +64,15 @@ test("normalized snapshots create causal minute bars and make carry-forward expl
   assert.notEqual(result.bars[1].meanBidNotional, result.bars[2].meanBidNotional);
 });
 
-test("normalized day rejects source disconnects and incomplete causal boundaries", async () => {
+test("normalized day rejects unrecovered disconnects and incomplete causal boundaries", async () => {
   await assert.rejects(
-    () => aggregateNormalizedSnapshots(Readable.from([`${JSON.stringify({ type: "disconnect" })}\n`]), {
+    () => aggregateNormalizedSnapshots(Readable.from([`${JSON.stringify({ type: "disconnect", localTimestamp: "2020-06-01T00:00:05.000Z" })}\n`]), {
       date: "2020-06-01",
       symbol: "BTCUSDT",
       depth: 2,
       expectedMinutes: 3,
     }),
-    /source disconnect/,
+    /no order-book snapshots/,
   );
   await assert.rejects(
     () => aggregateNormalizedSnapshots(Readable.from([`${JSON.stringify(snapshot("2020-06-01T00:01:05.000Z", 100, 101))}\n`]), {
@@ -85,17 +85,41 @@ test("normalized day rejects source disconnects and incomplete causal boundaries
   );
 });
 
+test("normalized day accepts a disconnect when that minute already has a causal snapshot", async () => {
+  const result = await aggregateNormalizedSnapshots(
+    Readable.from([
+      `${JSON.stringify(snapshot("2020-06-01T00:00:05.000Z", 100, 101))}\n`,
+      `${JSON.stringify({ type: "disconnect", localTimestamp: "2020-06-01T00:00:10.000Z" })}\n`,
+      `${JSON.stringify(snapshot("2020-06-01T00:01:20.000Z", 101, 102))}\n`,
+      `${JSON.stringify(snapshot("2020-06-01T00:02:05.000Z", 102, 103))}\n`,
+    ]),
+    { date: "2020-06-01", symbol: "BTCUSDT", depth: 2, expectedMinutes: 3 },
+  );
+  assert.equal(result.disconnectCount, 1);
+  assert.equal(result.carriedForwardMinuteBars, 0);
+  await assert.rejects(
+    () => aggregateNormalizedSnapshots(
+      Readable.from([
+        `${JSON.stringify(snapshot("2020-06-01T00:00:05.000Z", 100, 101))}\n`,
+        `${JSON.stringify({ type: "disconnect", localTimestamp: "2020-06-01T00:01:10.000Z" })}\n`,
+        `${JSON.stringify(snapshot("2020-06-01T00:02:05.000Z", 102, 103))}\n`,
+      ]),
+      { date: "2020-06-01", symbol: "BTCUSDT", depth: 2, expectedMinutes: 3 },
+    ),
+    /before any causal same-minute snapshot/,
+  );
+});
+
 test("backfill persists a complete immutable daily provenance record", async () => {
   const db = new DatabaseSync(":memory:");
   const options = parseArgs([
     "--db=/tmp/tardis.sqlite",
     "--start=2020-06-01",
     "--end=2020-06-01",
-    "--orderbook-depth=2",
   ]);
   const payload = [
-    JSON.stringify(snapshot("2020-06-01T00:00:05.000Z", 100, 101)),
-    JSON.stringify(snapshot("2020-06-01T23:59:05.000Z", 101, 102)),
+    JSON.stringify(snapshot("2020-06-01T00:00:05.000Z", 100, 101, 25)),
+    JSON.stringify(snapshot("2020-06-01T23:59:05.000Z", 101, 102, 25)),
   ].join("\n");
   const result = await backfill(options, {
     db,
@@ -106,9 +130,13 @@ test("backfill persists a complete immutable daily provenance record", async () 
   assert.equal(db.prepare("SELECT count(*) AS count FROM orderBookImbalanceBars").get().count, 1_440);
   const manifest = db.prepare("SELECT provider, dataset, minute_bar_count, archive_sha256 FROM historicalOrderBookImports").get();
   assert.equal(manifest.provider, "tardis");
-  assert.equal(manifest.dataset, "machine-normalized-book-snapshot-1m-v1");
+  assert.equal(manifest.dataset, "machine-normalized-book-snapshot-25-1m-v1");
   assert.equal(manifest.minute_bar_count, 1_440);
   assert.match(manifest.archive_sha256, /^[a-f0-9]{64}$/);
+  assert.deepEqual(
+    { ...db.prepare("SELECT disconnect_count, carried_forward_minute_bars FROM tardisMachineOrderBookImportDiagnostics").get() },
+    { disconnect_count: 0, carried_forward_minute_bars: 1438 },
+  );
   db.close();
 });
 
@@ -118,11 +146,10 @@ test("backfill repairs a corrupted persisted day instead of silently skipping it
     "--db=/tmp/tardis.sqlite",
     "--start=2020-06-01",
     "--end=2020-06-01",
-    "--orderbook-depth=2",
   ]);
   const payload = [
-    JSON.stringify(snapshot("2020-06-01T00:00:05.000Z", 100, 101)),
-    JSON.stringify(snapshot("2020-06-01T23:59:05.000Z", 101, 102)),
+    JSON.stringify(snapshot("2020-06-01T00:00:05.000Z", 100, 101, 25)),
+    JSON.stringify(snapshot("2020-06-01T23:59:05.000Z", 101, 102, 25)),
   ].join("\n");
   const dependencies = { db, log: () => {}, fetchImpl: async () => new Response(payload) };
   await backfill(options, dependencies);
@@ -149,23 +176,17 @@ test("backfill refuses to overwrite an existing source day from a different prov
   db.close();
 });
 
-function snapshot(localTimestamp, bestBid, bestAsk) {
+function snapshot(localTimestamp, bestBid, bestAsk, depth = 2) {
   return {
     type: "book_snapshot",
     exchange: "bybit",
     symbol: "BTCUSDT",
-    name: "book_snapshot_2_1m",
-    depth: 2,
+    name: `book_snapshot_${depth}_1m`,
+    depth,
     interval: 60_000,
     timestamp: localTimestamp,
     localTimestamp,
-    bids: [
-      { price: bestBid, amount: 2 },
-      { price: bestBid - 1, amount: 1 },
-    ],
-    asks: [
-      { price: bestAsk, amount: 2 },
-      { price: bestAsk + 1, amount: 1 },
-    ],
+    bids: Array.from({ length: depth }, (_, index) => ({ price: bestBid - index, amount: index === 0 ? 2 : 1 })),
+    asks: Array.from({ length: depth }, (_, index) => ({ price: bestAsk + index, amount: index === 0 ? 2 : 1 })),
   };
 }
