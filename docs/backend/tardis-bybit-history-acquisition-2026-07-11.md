@@ -28,6 +28,21 @@ The research-only credential is `TARDIS_API_KEY`. It must remain in a local
 ignored environment file or a dedicated research secret store. It must not be
 added to Git, deployment secrets, the bot runtime container, Discord, or logs.
 
+Before requesting raw replay data, the public metadata probe must be run with
+the intended 60-month range:
+
+```bash
+node scripts/tardis-bybit-coverage-probe.mjs \
+  --symbol=BTCUSDT \
+  --required-start=2020-05-28T00:00:00.000Z \
+  --required-end=2026-07-02T00:00:00.000Z
+```
+
+The probe is deliberately not a qualification result. It reports the provider's
+advertised channels, instrument range, and overlapping incident notices, then
+returns `RAW_DAY_AUDIT_REQUIRED`. Only a credentialed raw-day import can prove
+minute continuity for a sealed protocol.
+
 ## Data Contract
 
 The integration may proceed only after the vendor metadata confirms all of the
