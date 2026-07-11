@@ -9,6 +9,7 @@ import {
   parseArgs,
   verifyArchiveProvenance,
   verifyCoverageStats,
+  verifyTardisMachineProvenance,
 } from "./forward-capture-sealed-protocol.mjs";
 
 const options = {
@@ -128,6 +129,32 @@ test("archive source requires a complete manifest with a source hash for every d
   db.close();
 });
 
+test("Tardis Machine source requires its own immutable daily replay manifests", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE historicalOrderBookImports (
+      provider TEXT NOT NULL, dataset TEXT NOT NULL, symbol TEXT NOT NULL,
+      source_date TEXT NOT NULL, minute_bar_count INTEGER NOT NULL, archive_sha256 TEXT NOT NULL
+    );
+  `);
+  const sourceOptions = {
+    symbol: "BTCUSDT",
+    start: "2025-01-01T00:00:00.000Z",
+    end: "2025-01-03T00:00:00.000Z",
+  };
+  insertTardisMachineManifest(db, "2025-01-01", "a".repeat(64));
+  assert.throws(() => verifyTardisMachineProvenance(db, sourceOptions), /missing for 2025-01-02/);
+  insertTardisMachineManifest(db, "2025-01-02", "b".repeat(64));
+  assert.deepEqual(verifyTardisMachineProvenance(db, sourceOptions), {
+    provider: "tardis",
+    dataset: "machine-normalized-book-snapshot-1m-v1",
+    verifiedDays: 2,
+    firstSourceDate: "2025-01-01",
+    lastSourceDate: "2025-01-02",
+  });
+  db.close();
+});
+
 function completeCoverage(protocolOptions) {
   const expected = expectedCoverage(protocolOptions);
   return {
@@ -155,5 +182,12 @@ function insertArchiveManifest(db, date, hash) {
   db.prepare(`
     INSERT INTO historicalOrderBookImports(provider, dataset, symbol, source_date, minute_bar_count, archive_sha256)
     VALUES ('bybit', 'orderbook', 'BTCUSDT', ?, 1440, ?)
+  `).run(date, hash);
+}
+
+function insertTardisMachineManifest(db, date, hash) {
+  db.prepare(`
+    INSERT INTO historicalOrderBookImports(provider, dataset, symbol, source_date, minute_bar_count, archive_sha256)
+    VALUES ('tardis', 'machine-normalized-book-snapshot-1m-v1', 'BTCUSDT', ?, 1440, ?)
   `).run(date, hash);
 }

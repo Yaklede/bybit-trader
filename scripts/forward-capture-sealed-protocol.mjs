@@ -13,7 +13,9 @@ const MAX_WINDOW_ATTEMPTS = 100_000;
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
 const DEFAULT_SOURCE = "forward-order-book-and-taker-capture";
 const ARCHIVE_SOURCE = "bybit-official-orderbook-archive-and-taker-history";
-const ALLOWED_SOURCES = new Set([DEFAULT_SOURCE, ARCHIVE_SOURCE]);
+const TARDIS_MACHINE_SOURCE = "tardis-machine-orderbook-plus-bybit-taker-history";
+const TARDIS_MACHINE_DATASET = "machine-normalized-book-snapshot-1m-v1";
+const ALLOWED_SOURCES = new Set([DEFAULT_SOURCE, ARCHIVE_SOURCE, TARDIS_MACHINE_SOURCE]);
 const MINUTE_MILLIS = 60_000;
 const TIMEFRAMES = [
   { name: "M1", minutes: 1 },
@@ -134,7 +136,7 @@ export function generateWindows(options) {
   return windows;
 }
 
-export function buildProtocol(options, coverage, archiveProvenance = null) {
+export function buildProtocol(options, coverage, archiveProvenance = null, tardisMachineProvenance = null) {
   const windows = generateWindows(options);
   return {
     schemaVersion: 1,
@@ -152,6 +154,7 @@ export function buildProtocol(options, coverage, archiveProvenance = null) {
       source: options.source,
       captureCoverage: coverage,
       ...(archiveProvenance == null ? {} : { archiveProvenance }),
+      ...(tardisMachineProvenance == null ? {} : { tardisMachineProvenance }),
     },
     gates: {
       minCompoundDailyReturnPct: 0.8,
@@ -184,29 +187,45 @@ export function readCoverageStats(db, options) {
 }
 
 export function verifyArchiveProvenance(db, options) {
+  return verifyOrderBookImportProvenance(db, options, {
+    provider: "bybit",
+    dataset: "orderbook",
+    label: "Archive",
+  });
+}
+
+export function verifyTardisMachineProvenance(db, options) {
+  return verifyOrderBookImportProvenance(db, options, {
+    provider: "tardis",
+    dataset: TARDIS_MACHINE_DATASET,
+    label: "Tardis Machine",
+  });
+}
+
+function verifyOrderBookImportProvenance(db, options, expected) {
   if (!tableExists(db, "historicalOrderBookImports")) {
-    throw new Error("historicalOrderBookImports table is required for an archive source.");
+    throw new Error(`historicalOrderBookImports table is required for a ${expected.label} source.`);
   }
   const manifests = db.prepare(`
     SELECT source_date, minute_bar_count, archive_sha256
     FROM historicalOrderBookImports
-    WHERE provider='bybit' AND dataset='orderbook' AND symbol=?
+    WHERE provider=? AND dataset=? AND symbol=?
       AND source_date>=? AND source_date<?
     ORDER BY source_date ASC
-  `).all(options.symbol, options.start.slice(0, 10), options.end.slice(0, 10));
+  `).all(expected.provider, expected.dataset, options.symbol, options.start.slice(0, 10), options.end.slice(0, 10));
   const byDate = new Map(manifests.map((manifest) => [manifest.source_date, manifest]));
   let verifiedDays = 0;
   for (const sourceDate of utcDatesBetween(options.start, options.end)) {
     const manifest = byDate.get(sourceDate);
-    if (manifest == null) throw new Error(`Archive provenance is missing for ${sourceDate}.`);
+    if (manifest == null) throw new Error(`${expected.label} provenance is missing for ${sourceDate}.`);
     if (Number(manifest.minute_bar_count) !== 1_440 || !isSha256(manifest.archive_sha256)) {
-      throw new Error(`Archive provenance is invalid for ${sourceDate}.`);
+      throw new Error(`${expected.label} provenance is invalid for ${sourceDate}.`);
     }
     verifiedDays += 1;
   }
   return {
-    provider: "bybit",
-    dataset: "orderbook",
+    provider: expected.provider,
+    dataset: expected.dataset,
     verifiedDays,
     firstSourceDate: options.start.slice(0, 10),
     lastSourceDate: previousUtcDate(options.end),
@@ -220,7 +239,8 @@ async function main() {
   try {
     const coverage = verifyCoverageStats(options, readCoverageStats(db, options));
     const archiveProvenance = options.source === ARCHIVE_SOURCE ? verifyArchiveProvenance(db, options) : null;
-    const protocol = buildProtocol(options, coverage, archiveProvenance);
+    const tardisMachineProvenance = options.source === TARDIS_MACHINE_SOURCE ? verifyTardisMachineProvenance(db, options) : null;
+    const protocol = buildProtocol(options, coverage, archiveProvenance, tardisMachineProvenance);
     const output = `${JSON.stringify(protocol, null, 2)}\n`;
     if (options.out != null) {
       await fs.mkdir(path.dirname(options.out), { recursive: true });

@@ -60,10 +60,52 @@ does not persist raw provider messages or report the credential value.
 Tardis raw HTTP feeds require `Authorization: Bearer <key>` and
 `Accept-Encoding: gzip` for authenticated historical requests. The provider's
 current Node dataset client requires Node 24 or later, while this repository's
-research scripts run on Node 22 for SQLite support. A bulk importer must
-therefore run in a separate Node 24 research runner or use the documented raw
-HTTP/Tardis Machine transport. It must not change the bot runtime image merely
-to download research data. Sources: [HTTP API reference](https://docs.tardis.dev/api/http-api-reference), [CSV quickstart](https://docs.tardis.dev/downloadable-csv-files/overview).
+research scripts run on Node 22 for SQLite support. This repository therefore
+uses a separate, localhost-only [Tardis Machine](https://docs.tardis.dev/api/tardis-machine)
+research runner for the long replay. It must not change the bot runtime image
+merely to download research data. The Machine credentials stay in that runner;
+the importer accepts no API-key command-line argument and only connects to
+`localhost`. Sources: [HTTP API reference](https://docs.tardis.dev/api/http-api-reference), [CSV quickstart](https://docs.tardis.dev/downloadable-csv-files/overview), [Tardis Machine quickstart](https://docs.tardis.dev/tardis-machine/quickstart).
+
+## Local Replay Procedure
+
+The following is a research-only operation. Use a new SQLite database because
+the importer refuses to overwrite an order-book day from another provider.
+The Tardis key is not a bot secret and must not be added to GitHub Actions,
+the bot `.env`, or a production host.
+
+```bash
+export TM_API_KEY='provided-by-tardis'
+docker run --rm --name tardis-machine-research \
+  -p 127.0.0.1:18000:8000 \
+  -v "$PWD/build/tardis-machine-cache:/.cache" \
+  --env TM_API_KEY \
+  tardisdev/tardis-machine
+```
+
+In another terminal, import one disposable day first:
+
+```bash
+node scripts/tardis-machine-orderbook-backfill.mjs \
+  --db=/private/tmp/bybit-trader-tardis-research.sqlite \
+  --symbol=BTCUSDT \
+  --start=2020-06-01 \
+  --end=2020-06-01 \
+  --machine-url=http://127.0.0.1:18000
+```
+
+The importer requests `book_snapshot_50_1m` with disconnect messages enabled.
+It uses each snapshot's `localTimestamp`, requires a snapshot in the first and
+last minute of every day, rejects any disconnect or upstream error, preserves
+the source-response SHA-256, and records exactly 1,440 causal minute bars.
+Minutes with no new snapshot can only carry the last already-observed book
+state forward; the carried count is logged. This is conservative and avoids
+using a later book snapshot for an earlier candle.
+
+After the day contract passes, run the full range with the same separate
+database. The sealing tool recognizes this source only as
+`tardis-machine-orderbook-plus-bybit-taker-history` and requires a valid
+Tardis replay manifest for every order-book day.
 
 ## Data Contract
 
@@ -100,14 +142,15 @@ contract.
 
 ## Implementation Sequence
 
-1. Query instrument and channel coverage with the supplied key. Store the raw
-   metadata response and a normalized coverage report outside the live runtime.
+1. Record the public metadata coverage report outside the live runtime, then
+   verify the supplied key's historical entitlement before requesting the long
+   period.
 2. Replay one legacy day and one v5 day into disposable SQLite databases. Check
-   snapshot-before-delta ordering, source timestamps, local timestamps, and
+   the normalized snapshot contract, local timestamps, disconnect markers, and
    1,440 minute reconstruction before importing any long period.
-3. Implement the provider-specific importer as a research script only. It must
-   stream a day at a time and retain minute features plus provenance, not raw
-   multi-gigabyte archives.
+3. Use the provider-specific research importer to stream one day at a time and
+   retain minute features plus response provenance, not raw multi-gigabyte
+   archives.
 4. Run a complete coverage audit from the chosen 60-month start through the
    current end. Any gap rejects protocol generation.
 5. Freeze one candidate on chronological development folds. Generate a new
@@ -117,7 +160,10 @@ contract.
 
 ## Current State
 
-No Tardis credential, subscription entitlement, coverage metadata, or raw data
-has been received. No Tardis request has been sent. Until those are available,
-the original 1-60 month target remains unproven and must not be represented as
-passed.
+The public metadata probe has confirmed the advertised `BTCUSDT` range and
+channel names, and the unauthenticated `2020-06-01` legacy feed preflight
+confirmed the original snapshot/delta payload shape. Neither result proves the
+paid subscription entitlement, every-day continuity, or full-period coverage.
+No Tardis credential or long-range replay data has been received. Until those
+are available, the original 1-60 month target remains unproven and must not be
+represented as passed.
