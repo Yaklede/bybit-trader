@@ -30,6 +30,8 @@ test("probe reports metadata incidents without treating metadata as raw-data pro
 
   assert.equal(report.status, "RAW_DAY_AUDIT_REQUIRED");
   assert.equal(report.gates.advertisedRangeCoversRequest, true);
+  assert.equal(report.gates.datasetRangeCoversRequest, true);
+  assert.equal(report.gates.datasetSupportsOrderBookAndTrades, true);
   assert.equal(report.gates.requiredOrderBookAndTradeChannelsAdvertised, true);
   assert.equal(report.gates.metadataFreeOfIncidents, false);
   assert.equal(report.gates.rawDayAuditRequired, true);
@@ -44,6 +46,10 @@ test("probe rejects a requested symbol or channel contract that metadata cannot 
   const missingLegacyTrade = structuredClone(fixtureMetadata());
   missingLegacyTrade.availableChannels = missingLegacyTrade.availableChannels.filter((channel) => channel !== "trade");
   assert.equal(buildCoverageReport(missingLegacyTrade, options).status, "UNUSABLE");
+
+  const missingDatasetFlow = structuredClone(fixtureMetadata());
+  missingDatasetFlow.datasets.symbols[0].dataTypes = ["trades"];
+  assert.equal(buildCoverageReport(missingDatasetFlow, options).status, "UNUSABLE");
 });
 
 test("metadata fetch rejects failed responses and malformed payloads", async () => {
@@ -65,6 +71,15 @@ function fixtureMetadata() {
     availableSymbols: [
       { id: "BTCUSDT", type: "perpetual", availableSince: "2020-05-28T00:00:00.000Z" },
     ],
+    datasets: {
+      symbols: [
+        {
+          id: "BTCUSDT",
+          availableSince: "2020-05-28T00:00:00.000Z",
+          dataTypes: ["incremental_book_L2", "trades", "liquidations"],
+        },
+      ],
+    },
     incidentReports: [
       {
         from: "2021-03-05T14:14:00.000Z",

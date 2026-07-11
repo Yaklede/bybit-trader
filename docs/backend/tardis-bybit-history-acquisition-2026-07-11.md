@@ -39,7 +39,7 @@ node scripts/tardis-bybit-coverage-probe.mjs \
 ```
 
 The probe is deliberately not a qualification result. It reports the provider's
-advertised channels, instrument range, and overlapping incident notices, then
+advertised channels, instrument range, dataset data types, and overlapping incident notices, then
 returns `RAW_DAY_AUDIT_REQUIRED`. Only a credentialed raw-day import can prove
 minute continuity for a sealed protocol.
 
@@ -56,6 +56,14 @@ node scripts/tardis-bybit-legacy-feed-preflight.mjs \
 
 The preflight records only counts, capture timestamps, and retained depth. It
 does not persist raw provider messages or report the credential value.
+
+Tardis raw HTTP feeds require `Authorization: Bearer <key>` and
+`Accept-Encoding: gzip` for authenticated historical requests. The provider's
+current Node dataset client requires Node 24 or later, while this repository's
+research scripts run on Node 22 for SQLite support. A bulk importer must
+therefore run in a separate Node 24 research runner or use the documented raw
+HTTP/Tardis Machine transport. It must not change the bot runtime image merely
+to download research data. Sources: [HTTP API reference](https://docs.tardis.dev/api/http-api-reference), [CSV quickstart](https://docs.tardis.dev/downloadable-csv-files/overview).
 
 ## Data Contract
 

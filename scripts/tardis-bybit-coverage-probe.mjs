@@ -39,7 +39,8 @@ export async function fetchCoverageMetadata(options, fetchImpl = fetch) {
   const response = await fetchImpl(options.metadataUrl);
   if (!response.ok) throw new Error(`Tardis metadata request failed with HTTP ${response.status}.`);
   const body = await response.json();
-  if (body?.id !== "bybit" || !Array.isArray(body.availableChannels) || !Array.isArray(body.availableSymbols)) {
+  if (body?.id !== "bybit" || !Array.isArray(body.availableChannels) || !Array.isArray(body.availableSymbols) ||
+    !Array.isArray(body.datasets?.symbols)) {
     throw new Error("Tardis metadata has an unexpected Bybit schema.");
   }
   return body;
@@ -47,6 +48,7 @@ export async function fetchCoverageMetadata(options, fetchImpl = fetch) {
 
 export function buildCoverageReport(metadata, options) {
   const instrument = metadata.availableSymbols.find((candidate) => candidate.id === options.symbol) ?? null;
+  const dataset = metadata.datasets.symbols.find((candidate) => candidate.id === options.symbol) ?? null;
   const channels = new Set(metadata.availableChannels);
   const legacyRequired = options.requiredStart < LEGACY_CUTOFF;
   const v5Required = options.requiredEnd > LEGACY_CUTOFF;
@@ -60,9 +62,13 @@ export function buildCoverageReport(metadata, options) {
     }));
   const rangeAdvertised = instrument != null && instrument.availableSince <= options.requiredStart &&
     (instrument.availableTo == null || instrument.availableTo >= options.requiredEnd);
+  const datasetRangeAdvertised = dataset != null && dataset.availableSince <= options.requiredStart &&
+    (dataset.availableTo == null || dataset.availableTo >= options.requiredEnd);
+  const datasetSupportsCoreFlow = Array.isArray(dataset?.dataTypes) && ["incremental_book_L2", "trades"].every((dataType) => dataset.dataTypes.includes(dataType));
   const legacyChannelsAdvertised = !legacyRequired || (channels.has("orderBook_200") && channels.has("trade"));
   const v5ChannelsAdvertised = !v5Required || (channels.has("orderbook.50") && channels.has("publicTrade"));
-  const coreMetadataPassed = metadata.enabled === true && rangeAdvertised && legacyChannelsAdvertised && v5ChannelsAdvertised;
+  const coreMetadataPassed = metadata.enabled === true && rangeAdvertised && datasetRangeAdvertised && datasetSupportsCoreFlow &&
+    legacyChannelsAdvertised && v5ChannelsAdvertised;
   return {
     schemaVersion: 1,
     provider: "tardis",
@@ -73,6 +79,11 @@ export function buildCoverageReport(metadata, options) {
       type: instrument.type ?? null,
       availableSince: instrument.availableSince,
       availableTo: instrument.availableTo ?? null,
+    },
+    dataset: dataset == null ? null : {
+      availableSince: dataset.availableSince,
+      availableTo: dataset.availableTo ?? null,
+      dataTypes: Array.isArray(dataset.dataTypes) ? [...dataset.dataTypes].sort() : [],
     },
     channelContract: {
       legacyRequired,
@@ -89,6 +100,9 @@ export function buildCoverageReport(metadata, options) {
       exchangeEnabled: metadata.enabled === true,
       instrumentPresent: instrument != null,
       advertisedRangeCoversRequest: rangeAdvertised,
+      datasetPresent: dataset != null,
+      datasetRangeCoversRequest: datasetRangeAdvertised,
+      datasetSupportsOrderBookAndTrades: datasetSupportsCoreFlow,
       requiredOrderBookAndTradeChannelsAdvertised: legacyChannelsAdvertised && v5ChannelsAdvertised,
       metadataFreeOfIncidents: incidents.length === 0,
       rawDayAuditRequired: true,
