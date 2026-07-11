@@ -134,7 +134,7 @@ export function generateWindows(options) {
   return windows;
 }
 
-export function buildProtocol(options, coverage) {
+export function buildProtocol(options, coverage, archiveProvenance = null) {
   const windows = generateWindows(options);
   return {
     schemaVersion: 1,
@@ -151,6 +151,7 @@ export function buildProtocol(options, coverage) {
       latestAt: options.end,
       source: options.source,
       captureCoverage: coverage,
+      ...(archiveProvenance == null ? {} : { archiveProvenance }),
     },
     gates: {
       minCompoundDailyReturnPct: 0.8,
@@ -182,13 +183,44 @@ export function readCoverageStats(db, options) {
   };
 }
 
+export function verifyArchiveProvenance(db, options) {
+  if (!tableExists(db, "historicalOrderBookImports")) {
+    throw new Error("historicalOrderBookImports table is required for an archive source.");
+  }
+  const manifests = db.prepare(`
+    SELECT source_date, minute_bar_count, archive_sha256
+    FROM historicalOrderBookImports
+    WHERE provider='bybit' AND dataset='orderbook' AND symbol=?
+      AND source_date>=? AND source_date<?
+    ORDER BY source_date ASC
+  `).all(options.symbol, options.start.slice(0, 10), options.end.slice(0, 10));
+  const byDate = new Map(manifests.map((manifest) => [manifest.source_date, manifest]));
+  let verifiedDays = 0;
+  for (const sourceDate of utcDatesBetween(options.start, options.end)) {
+    const manifest = byDate.get(sourceDate);
+    if (manifest == null) throw new Error(`Archive provenance is missing for ${sourceDate}.`);
+    if (Number(manifest.minute_bar_count) !== 1_440 || !isSha256(manifest.archive_sha256)) {
+      throw new Error(`Archive provenance is invalid for ${sourceDate}.`);
+    }
+    verifiedDays += 1;
+  }
+  return {
+    provider: "bybit",
+    dataset: "orderbook",
+    verifiedDays,
+    firstSourceDate: options.start.slice(0, 10),
+    lastSourceDate: previousUtcDate(options.end),
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   await fs.access(options.db);
   const db = new DatabaseSync(options.db);
   try {
     const coverage = verifyCoverageStats(options, readCoverageStats(db, options));
-    const protocol = buildProtocol(options, coverage);
+    const archiveProvenance = options.source === ARCHIVE_SOURCE ? verifyArchiveProvenance(db, options) : null;
+    const protocol = buildProtocol(options, coverage, archiveProvenance);
     const output = `${JSON.stringify(protocol, null, 2)}\n`;
     if (options.out != null) {
       await fs.mkdir(path.dirname(options.out), { recursive: true });
@@ -273,6 +305,27 @@ function calendarMonthDifference(start, end) {
   const startDate = new Date(start);
   const endDate = new Date(end);
   return (endDate.getUTCFullYear() - startDate.getUTCFullYear()) * 12 + endDate.getUTCMonth() - startDate.getUTCMonth();
+}
+
+function* utcDatesBetween(start, end) {
+  let date = start.slice(0, 10);
+  const endDate = end.slice(0, 10);
+  while (date < endDate) {
+    yield date;
+    const value = new Date(`${date}T00:00:00Z`);
+    value.setUTCDate(value.getUTCDate() + 1);
+    date = value.toISOString().slice(0, 10);
+  }
+}
+
+function previousUtcDate(value) {
+  const date = new Date(value);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function isSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
 function randomInt(random, minimum, maximum) {

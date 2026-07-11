@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { verifyProtocol } from "./volume-flow-sealed-evaluate.mjs";
 import {
   buildProtocol,
   expectedCoverage,
   generateWindows,
   parseArgs,
+  verifyArchiveProvenance,
   verifyCoverageStats,
 } from "./forward-capture-sealed-protocol.mjs";
 
@@ -99,6 +101,33 @@ test("forward protocol rejects missing capture or candle coverage", () => {
   assert.throws(() => verifyCoverageStats(options, missingLiquidationTable), /liquidationFlowBars table is required/);
 });
 
+test("archive source requires a complete manifest with a source hash for every day", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE historicalOrderBookImports (
+      provider TEXT NOT NULL, dataset TEXT NOT NULL, symbol TEXT NOT NULL,
+      source_date TEXT NOT NULL, minute_bar_count INTEGER NOT NULL, archive_sha256 TEXT NOT NULL
+    );
+  `);
+  const archiveOptions = {
+    symbol: "BTCUSDT",
+    start: "2025-01-01T00:00:00.000Z",
+    end: "2025-01-03T00:00:00.000Z",
+  };
+  insertArchiveManifest(db, "2025-01-01", "a".repeat(64));
+  assert.throws(() => verifyArchiveProvenance(db, archiveOptions), /missing for 2025-01-02/);
+
+  insertArchiveManifest(db, "2025-01-02", "b".repeat(64));
+  assert.deepEqual(verifyArchiveProvenance(db, archiveOptions), {
+    provider: "bybit",
+    dataset: "orderbook",
+    verifiedDays: 2,
+    firstSourceDate: "2025-01-01",
+    lastSourceDate: "2025-01-02",
+  });
+  db.close();
+});
+
 function completeCoverage(protocolOptions) {
   const expected = expectedCoverage(protocolOptions);
   return {
@@ -120,4 +149,11 @@ function dataset(count, start, end, intervalMinutes) {
     lastOpenedAt: new Date(Date.parse(end) - intervalMinutes * 60_000).toISOString(),
     gapCount: 0,
   };
+}
+
+function insertArchiveManifest(db, date, hash) {
+  db.prepare(`
+    INSERT INTO historicalOrderBookImports(provider, dataset, symbol, source_date, minute_bar_count, archive_sha256)
+    VALUES ('bybit', 'orderbook', 'BTCUSDT', ?, 1440, ?)
+  `).run(date, hash);
 }
