@@ -113,6 +113,19 @@ database. The sealing tool recognizes this source only as
 Tardis replay manifest and the corresponding disconnect/carry-forward
 diagnostic record for every order-book day.
 
+Before generating a new random-window protocol, audit the complete imported
+period independently. A missing manifest, invalid SHA-256, missing diagnostics,
+invalid diagnostics, or non-contiguous minute bars leaves a source gap and
+prevents sealing:
+
+```bash
+node scripts/tardis-machine-orderbook-coverage-audit.mjs \
+  --db=/private/tmp/bybit-trader-tardis-research.sqlite \
+  --symbol=BTCUSDT \
+  --start=2020-05-28 \
+  --end=2026-07-01
+```
+
 ## Data Contract
 
 The integration may proceed only after the vendor metadata confirms all of the
