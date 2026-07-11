@@ -5,6 +5,7 @@ import {
   applyTrade,
   coverageReport,
   ensureSchema,
+  hasCompleteTakerFlowDay,
   minuteEpochMillis,
   parseArgs,
 } from "./bybit-flow-backfill.mjs";
@@ -49,5 +50,25 @@ test("ensureSchema is idempotent and coverage reports missing positive-volume mi
   });
   assert.equal(Number(report.takerFlow.count), 0);
   assert.equal(report.missingPositiveVolumeTradeMinutes, 1);
+  db.close();
+});
+
+test("complete taker-flow day check rejects a partial historical repair", () => {
+  const db = new DatabaseSync(":memory:");
+  ensureSchema(db);
+  const insert = db.prepare(`
+    INSERT INTO takerFlowBars(
+      symbol, opened_at, taker_buy_base, taker_buy_notional,
+      taker_sell_base, taker_sell_notional, buy_trade_count, sell_trade_count
+    ) VALUES ('BTCUSDT', ?, '1', '100', '0', '0', 1, 0)
+  `);
+  const start = Date.parse("2024-01-01T00:00:00Z");
+  for (let minute = 0; minute < 1_440; minute += 1) {
+    if (minute !== 240) insert.run(new Date(start + minute * 60_000).toISOString().replace(".000Z", "Z"));
+  }
+  assert.equal(hasCompleteTakerFlowDay(db, "BTCUSDT", "2024-01-01"), false);
+
+  insert.run("2024-01-01T04:00:00Z");
+  assert.equal(hasCompleteTakerFlowDay(db, "BTCUSDT", "2024-01-01"), true);
   db.close();
 });

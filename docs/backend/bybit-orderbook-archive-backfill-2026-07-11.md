@@ -97,6 +97,8 @@ The production container is deliberately not a target for this operation.
    and its archive hash is recorded.
 3. Import only the verified contiguous archive span into a separate research
    database that already contains M1/M5/M15 candles and historical taker flow.
+   The taker-flow repair must treat a day as complete only with all 1,440
+   continuous UTC minute bars; a single stored row is not sufficient evidence.
 4. Generate a new immutable protocol only within that source span. Existing
    sealed protocol V1 remains consumed and must not be reused for tuning.
 5. Freeze a candidate before any archive-period holdout scoring. A result from

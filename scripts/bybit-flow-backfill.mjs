@@ -179,13 +179,9 @@ async function backfillTrades(db, options, fetchImpl, log) {
       buy_trade_count=excluded.buy_trade_count,
       sell_trade_count=excluded.sell_trade_count
   `);
-  const hasDay = db.prepare(`
-    SELECT 1 FROM takerFlowBars WHERE symbol=? AND opened_at>=? AND opened_at<? LIMIT 1
-  `);
   let completed = 0;
   for (const date of datesBetween(options.start, options.end)) {
-    const nextDate = addUtcDays(date, 1);
-    if (!options.force && hasDay.get(options.symbol, `${date}T00:00:00Z`, `${nextDate}T00:00:00Z`)) {
+    if (!options.force && hasCompleteTakerFlowDay(db, options.symbol, date)) {
       completed += 1;
       continue;
     }
@@ -214,6 +210,34 @@ async function backfillTrades(db, options, fetchImpl, log) {
     completed += 1;
     if (completed % 30 === 0) log(`trade archives completed=${completed} latest=${date}`);
   }
+}
+
+export function hasCompleteTakerFlowDay(db, symbol, date) {
+  const nextDate = addUtcDays(date, 1);
+  const expectedFirst = `${date}T00:00:00Z`;
+  const expectedLast = `${nextDate}T00:00:00Z`;
+  const row = db.prepare(`
+    WITH ordered AS (
+      SELECT
+        opened_at,
+        strftime('%s', opened_at) AS opened_epoch,
+        LAG(strftime('%s', opened_at)) OVER (ORDER BY opened_at) AS previous_epoch
+      FROM takerFlowBars
+      WHERE symbol=? AND opened_at>=? AND opened_at<?
+    )
+    SELECT
+      count(*) AS count,
+      min(opened_at) AS first_opened_at,
+      max(opened_at) AS last_opened_at,
+      coalesce(sum(CASE WHEN previous_epoch IS NOT NULL AND opened_epoch - previous_epoch != 60 THEN 1 ELSE 0 END), 0) AS gap_count
+    FROM ordered
+  `).get(symbol, expectedFirst, expectedLast);
+  return (
+    Number(row.count) === 1_440 &&
+    row.first_opened_at === expectedFirst &&
+    row.last_opened_at === `${date}T23:59:00Z` &&
+    Number(row.gap_count) === 0
+  );
 }
 
 async function aggregateTradeArchive(webBody, expectedSymbol) {
