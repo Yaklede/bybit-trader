@@ -8,6 +8,7 @@ import {
   ensureSchema,
   listArchiveFiles,
   parseArgs,
+  retryArchiveOperation,
   verifyExistingArchiveHash,
 } from "./bybit-orderbook-backfill.mjs";
 
@@ -18,6 +19,7 @@ test("parseArgs defaults to the first complete official archive day and validate
   assert.equal(options.catalogDaysPerRequest, 6);
   assert.throws(() => parseArgs(["--orderbook-depth=501"]));
   assert.throws(() => parseArgs(["--catalog-days-per-request=7"]));
+  assert.throws(() => parseArgs(["--archive-attempts=6"]));
 });
 
 test("catalog requests are bounded to six days and validate official order-book files", async () => {
@@ -103,6 +105,22 @@ test("an existing source day rejects a changed archive hash", () => {
     () => verifyExistingArchiveHash("recorded", "changed", "2024-01-01"),
     /refusing to replace the recorded provenance/,
   );
+});
+
+test("archive operation retries a transient decompression failure without changing its inputs", async () => {
+  const attempts = [];
+  const result = await retryArchiveOperation(
+    async (attempt) => {
+      attempts.push(attempt);
+      if (attempt < 3) throw new Error("invalid compressed data");
+      return "complete";
+    },
+    3,
+    1,
+    async () => {},
+  );
+  assert.equal(result, "complete");
+  assert.deepEqual(attempts, [1, 2, 3]);
 });
 
 function message(timestamp, type, bids, asks) {

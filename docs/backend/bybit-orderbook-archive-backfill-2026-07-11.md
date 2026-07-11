@@ -73,9 +73,12 @@ For each source day it must:
 4. reject a delta before a snapshot, a non-monotonic timestamp, malformed
    price/size, an empty book side, fewer than 50 levels, or an incomplete UTC
    day;
-5. reconstruct snapshot/delta state, retain the last state in each completed
+5. retry a transient archive download or decompression failure up to three
+   times with exponential delay; no bars or manifest are written unless a full
+   retry attempt succeeds;
+6. reconstruct snapshot/delta state, retain the last state in each completed
    UTC minute, and write only that minute's `OrderBookImbalanceBar`;
-6. commit the day bars and provenance manifest together, so a failed day is
+7. commit the day bars and provenance manifest together, so a failed day is
    rerunnable and cannot masquerade as completed.
 
 The SQLite manifest table is `historicalOrderBookImports`; its uniqueness key

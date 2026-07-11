@@ -12,6 +12,8 @@ const DEFAULT_START = "2023-01-19";
 const DEFAULT_HISTORY_API_BASE_URL = "https://api2.bybit.com";
 const DEFAULT_MAX_DAYS_PER_CATALOG_REQUEST = 6;
 const DEFAULT_ORDER_BOOK_DEPTH = 50;
+const DEFAULT_ARCHIVE_ATTEMPTS = 3;
+const DEFAULT_ARCHIVE_RETRY_DELAY_MILLIS = 1_000;
 const IMPORTER_VERSION = "bybit-orderbook-archive-v1";
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
 const ONE_MINUTE_MILLIS = 60_000;
@@ -38,6 +40,8 @@ export function parseArgs(argv) {
     historyApiBaseUrl: values.get("history-api-base-url") ?? DEFAULT_HISTORY_API_BASE_URL,
     orderBookDepth: Number(values.get("orderbook-depth") ?? DEFAULT_ORDER_BOOK_DEPTH),
     catalogDaysPerRequest: Number(values.get("catalog-days-per-request") ?? DEFAULT_MAX_DAYS_PER_CATALOG_REQUEST),
+    archiveAttempts: Number(values.get("archive-attempts") ?? DEFAULT_ARCHIVE_ATTEMPTS),
+    archiveRetryDelayMillis: Number(values.get("archive-retry-delay-millis") ?? DEFAULT_ARCHIVE_RETRY_DELAY_MILLIS),
     funzipCommand: values.get("funzip-command") ?? "funzip",
   };
 
@@ -50,6 +54,12 @@ export function parseArgs(argv) {
   }
   if (!Number.isInteger(options.catalogDaysPerRequest) || options.catalogDaysPerRequest < 1 || options.catalogDaysPerRequest > 6) {
     throw new Error("catalog-days-per-request must be an integer between 1 and 6.");
+  }
+  if (!Number.isInteger(options.archiveAttempts) || options.archiveAttempts < 1 || options.archiveAttempts > 5) {
+    throw new Error("archive-attempts must be an integer between 1 and 5.");
+  }
+  if (!Number.isInteger(options.archiveRetryDelayMillis) || options.archiveRetryDelayMillis < 0 || options.archiveRetryDelayMillis > 60_000) {
+    throw new Error("archive-retry-delay-millis must be an integer between 0 and 60000.");
   }
   if (!options.historyApiBaseUrl.startsWith("https://")) {
     throw new Error("history-api-base-url must use HTTPS.");
@@ -166,6 +176,14 @@ export async function listArchiveFiles(options, fetchImpl = fetch) {
 }
 
 export async function importArchiveFile(file, options, fetchImpl = fetch) {
+  return retryArchiveOperation(
+    () => importArchiveFileOnce(file, options, fetchImpl),
+    options.archiveAttempts ?? DEFAULT_ARCHIVE_ATTEMPTS,
+    options.archiveRetryDelayMillis ?? DEFAULT_ARCHIVE_RETRY_DELAY_MILLIS,
+  );
+}
+
+async function importArchiveFileOnce(file, options, fetchImpl) {
   const response = await fetchImpl(file.url);
   if (!response.ok || !response.body) {
     throw new Error(`Order-book archive download failed date=${file.date} HTTP ${response.status}.`);
@@ -208,6 +226,19 @@ export async function importArchiveFile(file, options, fetchImpl = fetch) {
     funzip.kill();
     throw error;
   }
+}
+
+export async function retryArchiveOperation(operation, attempts, retryDelayMillis, sleep = defaultSleep) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(retryDelayMillis * 2 ** (attempt - 1));
+    }
+  }
+  throw lastError;
 }
 
 export async function aggregateArchiveLines(stream, { sourceDate, symbol, depth }) {
@@ -520,6 +551,10 @@ function toDate(milliseconds) {
 
 function isDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+
+function defaultSleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
