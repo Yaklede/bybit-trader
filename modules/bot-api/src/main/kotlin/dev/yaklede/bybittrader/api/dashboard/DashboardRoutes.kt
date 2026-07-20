@@ -308,6 +308,8 @@ data class DashboardPositionResponse(
     val markPrice: String?,
     val unrealizedPnl: String?,
     val updatedAt: String?,
+    val takeProfit: String?,
+    val stopLoss: String?,
 )
 
 @Serializable
@@ -504,6 +506,8 @@ private fun ExchangePosition.toResponse(): DashboardPositionResponse =
         markPrice = markPrice?.toPlainString(),
         unrealizedPnl = unrealizedPnl?.toPlainString(),
         updatedAt = updatedAt?.toString(),
+        takeProfit = takeProfit?.toPlainString(),
+        stopLoss = stopLoss?.toPlainString(),
     )
 
 private fun ExchangeExecutionFill.toResponse(): DashboardExecutionFillResponse =

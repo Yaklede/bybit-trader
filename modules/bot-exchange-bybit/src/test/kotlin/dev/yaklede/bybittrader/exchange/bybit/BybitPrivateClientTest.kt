@@ -193,6 +193,8 @@ class BybitPrivateClientTest :
                                         "markPrice": "69900",
                                         "unrealisedPnl": "20",
                                         "openTime": 1719748500000,
+                                        "takeProfit": "68000",
+                                        "stopLoss": "71000",
                                         "updatedTime": "1719748800000"
                                       }
                                     ]
@@ -245,6 +247,8 @@ class BybitPrivateClientTest :
             openOrders.single().side shouldBe Side.SELL
             positions.single().unrealizedPnl shouldBe BigDecimal("20")
             positions.single().openedAt shouldBe Instant.ofEpochMilli(1719748500000)
+            positions.single().takeProfit shouldBe BigDecimal("68000")
+            positions.single().stopLoss shouldBe BigDecimal("71000")
             executions.single().fee shouldBe BigDecimal("8.4")
         }
 

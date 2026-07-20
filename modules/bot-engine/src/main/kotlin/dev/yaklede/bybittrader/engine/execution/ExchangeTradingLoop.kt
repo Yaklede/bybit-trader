@@ -18,6 +18,7 @@ class ExchangeTradingLoop(
     private val clock: Clock = Clock.systemUTC(),
     private val onResult: suspend (ExchangeEvaluationResult) -> Unit = {},
     private val onClosure: suspend (ExecutionTradeClosure) -> Boolean = { false },
+    private val onLifecycleEvent: suspend (ExecutionLifecycleEvent) -> Unit = {},
     private val onFailure: suspend (Throwable) -> Unit = {},
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeTradingLoop::class.java)
@@ -25,11 +26,14 @@ class ExchangeTradingLoop(
     suspend fun runOnce(): ExchangeEvaluationResult {
         val discoveryFailure =
             try {
-                executionService.persistDiscoveredClosures(config.symbol)
+                executionService
+                    .persistExchangeState(config.symbol)
+                    .lifecycleEvent
+                    ?.let { event -> onLifecycleEvent(event) }
                 null
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                logger.warn("execution closure discovery failed symbol={}", config.symbol.value, error)
+                logger.warn("execution state reconciliation failed symbol={}", config.symbol.value, error)
                 error
             }
         deliverPendingClosureAlerts()

@@ -471,10 +471,27 @@ class ExchangeExecutionService(
 
     suspend fun persistDiscoveredClosures(symbol: Symbol): List<ExecutionTradeClosure> {
         logger.info("execution closure discovery requested symbol={}", symbol.value)
+        return persistDiscoveredClosures(symbol, gateway.closedPnls(symbol))
+    }
+
+    suspend fun persistExchangeState(symbol: Symbol): ExchangeReconciliationReport {
+        val report = fetchReconciliation(symbol)
+        val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls)
+        val lifecycleEvent = persistLifecycleObservation(report)
+        return report.copy(
+            persistedClosures = persistedClosures,
+            lifecycleEvent = lifecycleEvent,
+        )
+    }
+
+    private suspend fun persistDiscoveredClosures(
+        symbol: Symbol,
+        closedPnls: List<ExchangeClosedPnl>,
+    ): List<ExecutionTradeClosure> {
         val store = projectionStore ?: return emptyList()
         val firstBootstrap = !store.hasClosureHistory(runtimeMode, symbol)
         val persistedClosures =
-            gateway.closedPnls(symbol).mapNotNull { closedPnl ->
+            closedPnls.mapNotNull { closedPnl ->
                 val closure = closedPnl.toTradeClosure(runtimeMode)
                 val suppressedAt = sessionStartedAt.takeIf { firstBootstrap && closure.closedAt.isBefore(it) }
                 store
@@ -490,6 +507,140 @@ class ExchangeExecutionService(
             persistedClosures.size,
         )
         return persistedClosures
+    }
+
+    private suspend fun persistLifecycleObservation(report: ExchangeReconciliationReport): ExecutionLifecycleEvent? {
+        val store = lifecycleStore ?: return null
+        val latest = store.latestLifecycleEvent(runtimeMode, report.symbol)
+        val activePosition = report.positions.firstOrNull { position -> position.size > BigDecimal.ZERO }
+        val observedClosure =
+            latest
+                ?.takeIf { event -> event.state != ExecutionLifecycleState.CLOSED }
+                ?.let { event ->
+                    report.closedPnls
+                        .filter { closure -> !closure.closedAt.isBefore(event.occurredAt) }
+                        .maxByOrNull(ExchangeClosedPnl::closedAt)
+                }
+        if (latest != null && observedClosure != null) {
+            return recordObservedLifecycle(
+                latest.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.CLOSED,
+                    filledQuantity = observedClosure.quantity,
+                    fillVwap = observedClosure.entryPrice,
+                    exchangeOrderId = observedClosure.exchangeOrderId,
+                    clientOrderId = observedClosure.clientOrderId,
+                    reasonCode = observedClosure.exitReason ?: "CLOSED_PNL_OBSERVED",
+                    occurredAt = observedClosure.closedAt,
+                ),
+            )
+        }
+        val relatedOpenOrder =
+            latest?.let { event ->
+                report.openOrders.firstOrNull { order ->
+                    order.status.isActive() && order.matches(event)
+                }
+            }
+        if (
+            activePosition != null &&
+            latest?.state == ExecutionLifecycleState.EXIT_SUBMITTED &&
+            relatedOpenOrder != null
+        ) {
+            return null
+        }
+        if (activePosition != null) {
+            val base =
+                latest?.takeIf { event -> event.state != ExecutionLifecycleState.CLOSED }
+                    ?: recoveredLifecycleEvent(activePosition, report.reconciledAt)
+            val protected = activePosition.takeProfit != null && activePosition.stopLoss != null
+            return recordObservedLifecycle(
+                base.copy(
+                    id = 0,
+                    state =
+                        if (protected) {
+                            ExecutionLifecycleState.OPEN_PROTECTED
+                        } else {
+                            ExecutionLifecycleState.OPEN_UNPROTECTED
+                        },
+                    side = activePosition.side,
+                    filledQuantity = activePosition.size,
+                    fillVwap = activePosition.entryPrice,
+                    takeProfit = activePosition.takeProfit,
+                    stopLoss = activePosition.stopLoss,
+                    reasonCode =
+                        if (protected) {
+                            "PROTECTED_POSITION_OBSERVED"
+                        } else {
+                            "UNPROTECTED_POSITION_OBSERVED"
+                        },
+                    occurredAt = activePosition.updatedAt ?: report.reconciledAt,
+                ),
+            )
+        }
+        if (latest == null || latest.state == ExecutionLifecycleState.CLOSED) return null
+        if (relatedOpenOrder != null && latest.state == ExecutionLifecycleState.EXIT_SUBMITTED) {
+            return null
+        }
+        val relatedFills = report.executions.filter { fill -> fill.matches(latest) }
+        if (
+            relatedFills.isNotEmpty() &&
+            latest.state in setOf(ExecutionLifecycleState.ENTRY_SUBMITTED, ExecutionLifecycleState.PARTIALLY_FILLED)
+        ) {
+            val filledQuantity = relatedFills.fold(BigDecimal.ZERO) { total, fill -> total + fill.quantity }
+            return recordObservedLifecycle(
+                latest.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.PARTIALLY_FILLED,
+                    filledQuantity = filledQuantity,
+                    fillVwap = relatedFills.weightedVwap(),
+                    reasonCode = "ENTRY_FILL_OBSERVED_WITHOUT_POSITION",
+                    occurredAt = relatedFills.maxOf(ExchangeExecutionFill::executedAt),
+                ),
+            )
+        }
+        return null
+    }
+
+    private suspend fun recordObservedLifecycle(event: ExecutionLifecycleEvent): ExecutionLifecycleEvent? {
+        val store = lifecycleStore ?: return null
+        val latest = store.latestLifecycleEvent(event.mode, event.symbol)
+        if (latest != null && latest.lifecycleId == event.lifecycleId) {
+            require(latest.state.canTransitionTo(event.state)) {
+                "Invalid execution lifecycle transition from ${latest.state} to ${event.state}."
+            }
+        }
+        val normalizedEvent =
+            event.copy(
+                occurredAt =
+                    latest
+                        ?.occurredAt
+                        ?.takeIf { event.occurredAt.isBefore(it) }
+                        ?: event.occurredAt,
+            )
+        return store.recordLifecycleEvent(normalizedEvent)?.let { id -> normalizedEvent.copy(id = id) }
+    }
+
+    private fun recoveredLifecycleEvent(
+        position: ExchangePosition,
+        reconciledAt: Instant,
+    ): ExecutionLifecycleEvent {
+        val openedAt = position.openedAt ?: reconciledAt
+        return ExecutionLifecycleEvent(
+            mode = runtimeMode,
+            lifecycleId = "recovered-${position.symbol.value}-${openedAt.toEpochMilli()}",
+            symbol = position.symbol,
+            state = ExecutionLifecycleState.OPEN_UNPROTECTED,
+            side = position.side,
+            requestedQuantity = position.size,
+            filledQuantity = position.size,
+            fillVwap = position.entryPrice,
+            takeProfit = position.takeProfit,
+            stopLoss = position.stopLoss,
+            exchangeOrderId = null,
+            clientOrderId = null,
+            reasonCode = "POSITION_RECOVERED_FROM_EXCHANGE",
+            occurredAt = position.updatedAt ?: reconciledAt,
+        )
     }
 
     suspend fun pendingClosureAlerts(
@@ -830,9 +981,12 @@ class ExchangeExecutionService(
                     createdAt = now,
                 ),
             )
-        val latestLifecycle = lifecycleStore?.latestLifecycleEvent(runtimeMode, symbol)
+        val latestLifecycle =
+            lifecycleStore
+                ?.latestLifecycleEvent(runtimeMode, symbol)
+                ?.takeIf { event -> event.state != ExecutionLifecycleState.CLOSED }
         val lifecycleId =
-            if (reduceOnly && latestLifecycle != null && latestLifecycle.state != ExecutionLifecycleState.CLOSED) {
+            if (reduceOnly && latestLifecycle != null) {
                 latestLifecycle.lifecycleId
             } else {
                 clientOrderId
@@ -847,13 +1001,15 @@ class ExchangeExecutionService(
             lifecycleId = lifecycleId,
             symbol = symbol,
             side = if (reduceOnly) side.opposite() else side,
-            requestedQuantity = quantity,
-            takeProfit = null,
-            stopLoss = null,
+            requestedQuantity = latestLifecycle?.requestedQuantity ?: quantity,
+            takeProfit = latestLifecycle?.takeProfit,
+            stopLoss = latestLifecycle?.stopLoss,
             exchangeOrderId = orderResult.exchangeOrderId,
             clientOrderId = clientOrderId,
             reasonCode = reasonCode,
             occurredAt = now,
+            filledQuantity = latestLifecycle?.filledQuantity,
+            fillVwap = latestLifecycle?.fillVwap,
         )
         logger.warn(
             "execution manual market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={} reduceOnly={}",
@@ -889,6 +1045,8 @@ class ExchangeExecutionService(
         clientOrderId: String,
         reasonCode: String,
         occurredAt: Instant,
+        filledQuantity: BigDecimal? = null,
+        fillVwap: BigDecimal? = null,
     ) {
         val store = lifecycleStore ?: return
         val latest = store.latestLifecycleEvent(runtimeMode, symbol)
@@ -905,8 +1063,8 @@ class ExchangeExecutionService(
                 state = state,
                 side = side,
                 requestedQuantity = requestedQuantity,
-                filledQuantity = null,
-                fillVwap = null,
+                filledQuantity = filledQuantity,
+                fillVwap = fillVwap,
                 takeProfit = takeProfit,
                 stopLoss = stopLoss,
                 exchangeOrderId = exchangeOrderId,
@@ -1016,6 +1174,21 @@ private fun BotMode.blocksNewEntries(): Boolean = this != BotMode.RUNNING
 private fun BotMode.allowsPositionManagement(): Boolean = this == BotMode.RUNNING || this == BotMode.PAUSE_NEW_ENTRIES
 
 private fun OrderStatus.isActive(): Boolean = this == OrderStatus.SUBMITTED || this == OrderStatus.PARTIALLY_FILLED
+
+private fun ExchangeOpenOrder.matches(event: ExecutionLifecycleEvent): Boolean =
+    (!exchangeOrderId.isNullOrBlank() && exchangeOrderId == event.exchangeOrderId) ||
+        (!clientOrderId.isNullOrBlank() && clientOrderId == event.clientOrderId)
+
+private fun ExchangeExecutionFill.matches(event: ExecutionLifecycleEvent): Boolean =
+    (!exchangeOrderId.isNullOrBlank() && exchangeOrderId == event.exchangeOrderId) ||
+        (!clientOrderId.isNullOrBlank() && clientOrderId == event.clientOrderId)
+
+private fun List<ExchangeExecutionFill>.weightedVwap(): BigDecimal {
+    val totalQuantity = fold(BigDecimal.ZERO) { total, fill -> total + fill.quantity }
+    require(totalQuantity > BigDecimal.ZERO) { "Execution fill quantity must be positive for VWAP." }
+    val notional = fold(BigDecimal.ZERO) { total, fill -> total + fill.price.multiply(fill.quantity) }
+    return notional.divide(totalQuantity, MathContext.DECIMAL128)
+}
 
 private fun closedCandleBoundary(
     instant: Instant,

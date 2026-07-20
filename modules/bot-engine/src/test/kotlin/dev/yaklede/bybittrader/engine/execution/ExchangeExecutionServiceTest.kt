@@ -665,6 +665,192 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
+        "exchange reconciliation advances an entry to a protected open position" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(testLifecycleEvent())
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("100"),
+                                markPrice = BigDecimal("105"),
+                                unrealizedPnl = BigDecimal("5"),
+                                updatedAt = Instant.parse("2024-06-29T23:20:00Z"),
+                                takeProfit = BigDecimal("112.5"),
+                                stopLoss = BigDecimal("100"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            service.persistExchangeState(symbol)
+
+            val latest = store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)
+            latest?.state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
+            latest?.filledQuantity shouldBe BigDecimal("1")
+            latest?.fillVwap shouldBe BigDecimal("100")
+            latest?.reasonCode shouldBe "PROTECTED_POSITION_OBSERVED"
+        }
+
+        "exchange reconciliation recovers and flags an unprotected position" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.SELL,
+                                size = BigDecimal("0.5"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("100"),
+                                markPrice = BigDecimal("98"),
+                                unrealizedPnl = BigDecimal("1"),
+                                updatedAt = Instant.parse("2024-06-29T23:20:00Z"),
+                                takeProfit = BigDecimal("90"),
+                                stopLoss = null,
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_UNPROTECTED
+            report.lifecycleEvent?.lifecycleId shouldBe "recovered-BTCUSDT-1719702000000"
+            report.lifecycleEvent?.reasonCode shouldBe "UNPROTECTED_POSITION_OBSERVED"
+        }
+
+        "exchange reconciliation keeps a pending exit state while the reduce-only order is open" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(
+                    state = ExecutionLifecycleState.EXIT_SUBMITTED,
+                    occurredAt = Instant.parse("2024-06-29T23:20:00Z"),
+                ).copy(
+                    exchangeOrderId = "exchange-exit-1",
+                    clientOrderId = "time-BTCUSDT-exit-1",
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    openOrders =
+                        listOf(
+                            ExchangeOpenOrder(
+                                exchangeOrderId = "exchange-exit-1",
+                                clientOrderId = "time-BTCUSDT-exit-1",
+                                symbol = symbol,
+                                side = Side.SELL,
+                                orderType = OrderType.MARKET,
+                                status = OrderStatus.SUBMITTED,
+                                quantity = BigDecimal("1"),
+                                createdAt = Instant.parse("2024-06-29T23:20:00Z"),
+                            ),
+                        ),
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("100"),
+                                markPrice = BigDecimal("105"),
+                                unrealizedPnl = BigDecimal("5"),
+                                updatedAt = Instant.parse("2024-06-29T23:20:00Z"),
+                                takeProfit = BigDecimal("112.5"),
+                                stopLoss = BigDecimal("100"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            report.lifecycleEvent shouldBe null
+            store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)?.state shouldBe ExecutionLifecycleState.EXIT_SUBMITTED
+        }
+
+        "exchange reconciliation records partial entry fills without claiming an open position" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(testLifecycleEvent())
+            val gateway =
+                RecordingExecutionGateway(
+                    openOrders =
+                        listOf(
+                            ExchangeOpenOrder(
+                                exchangeOrderId = "exchange-entry-1",
+                                clientOrderId = "client-entry-1",
+                                symbol = symbol,
+                                side = Side.BUY,
+                                orderType = OrderType.MARKET,
+                                status = OrderStatus.PARTIALLY_FILLED,
+                                quantity = BigDecimal("1"),
+                                createdAt = Instant.parse("2024-06-29T23:10:00Z"),
+                            ),
+                        ),
+                    executions =
+                        listOf(
+                            ExchangeExecutionFill(
+                                exchangeOrderId = "exchange-entry-1",
+                                clientOrderId = "client-entry-1",
+                                symbol = symbol,
+                                side = Side.BUY,
+                                price = BigDecimal("101"),
+                                quantity = BigDecimal("0.4"),
+                                fee = BigDecimal("0.02"),
+                                executedAt = Instant.parse("2024-06-29T23:11:00Z"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            service.persistExchangeState(symbol)
+
+            val latest = store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)
+            latest?.state shouldBe ExecutionLifecycleState.PARTIALLY_FILLED
+            latest?.filledQuantity shouldBe BigDecimal("0.4")
+            latest?.fillVwap shouldBe BigDecimal("101")
+        }
+
+        "exchange reconciliation closes the active lifecycle from closed PnL" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(
+                    state = ExecutionLifecycleState.EXIT_SUBMITTED,
+                    occurredAt = Instant.parse("2024-06-29T23:20:00Z"),
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    closedPnls =
+                        listOf(
+                            testClosedPnl(
+                                exchangeOrderId = "exchange-exit-1",
+                                closedAt = Instant.parse("2024-06-29T23:30:00Z"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            service.persistExchangeState(symbol)
+
+            val latest = store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)
+            latest?.state shouldBe ExecutionLifecycleState.CLOSED
+            latest?.reasonCode shouldBe "TAKE_PROFIT"
+            latest?.exchangeOrderId shouldBe "exchange-exit-1"
+        }
+
         "live performance aggregates all stored closures across contract windows" {
             val now = Instant.parse("2024-06-30T00:00:00Z")
             val store = InMemoryTradingStore()
@@ -946,6 +1132,7 @@ private class InMemoryTradingStore :
 private class RecordingExecutionGateway(
     private val openOrders: List<ExchangeOpenOrder> = emptyList(),
     private val positions: List<ExchangePosition> = emptyList(),
+    private val executions: List<ExchangeExecutionFill> = emptyList(),
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
     private val accountBalance: ExchangeAccountBalance =
         ExchangeAccountBalance(
@@ -990,7 +1177,7 @@ private class RecordingExecutionGateway(
 
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> = positions
 
-    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = emptyList()
+    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = executions
 
     override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> = closedPnls
 
@@ -1072,6 +1259,27 @@ private fun testClosedPnl(
         fees = BigDecimal("0.12"),
         netPnl = BigDecimal("5"),
         exitReason = "TAKE_PROFIT",
+    )
+
+private fun testLifecycleEvent(
+    state: ExecutionLifecycleState = ExecutionLifecycleState.ENTRY_SUBMITTED,
+    occurredAt: Instant = Instant.parse("2024-06-29T23:10:00Z"),
+): ExecutionLifecycleEvent =
+    ExecutionLifecycleEvent(
+        mode = ExecutionRuntimeMode.TESTNET,
+        lifecycleId = "client-entry-1",
+        symbol = Symbol("BTCUSDT"),
+        state = state,
+        side = Side.BUY,
+        requestedQuantity = BigDecimal("1"),
+        filledQuantity = null,
+        fillVwap = null,
+        takeProfit = BigDecimal("112.5"),
+        stopLoss = BigDecimal("100"),
+        exchangeOrderId = "exchange-entry-1",
+        clientOrderId = "client-entry-1",
+        reasonCode = "TEST_LIFECYCLE",
+        occurredAt = occurredAt,
     )
 
 private fun testClosure(

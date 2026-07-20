@@ -98,9 +98,17 @@ The lifecycle state contract is:
 - `CLOSED`
 - `ERROR`
 
-This release persists submission states and the transition contract. Exchange
-observation projection from private order/execution/position streams remains a
-required follow-up before an automatic profile can be approved.
+The runtime reconciliation loop advances submission events from Bybit open
+orders, recent executions, positions, and closed PnL. A positive position with
+both exchange-reported TP and SL becomes `OPEN_PROTECTED`; a missing TP or SL
+becomes `OPEN_UNPROTECTED` and emits a critical Korean alert. Recent fills
+without a visible position remain `PARTIALLY_FILLED`, and a matching closed
+PnL advances the active lifecycle to `CLOSED`.
+
+This projection is currently REST polling at each closed M5 cycle. Private
+order/execution/position WebSocket ingestion is still required for lower
+latency, sequence-aware transition evidence, and robust partial-fill handling
+before an automatic profile can be approved.
 
 ## POST /execution/reconcile
 
@@ -140,6 +148,11 @@ entry evaluation. `executionTradeClosures` stores `delivered_at`,
 or callback exception increments the attempt metadata and remains pending for
 the next five-minute cycle. Each pending row is handled independently, so one
 Discord failure does not prevent later pending alerts or market evaluation.
+
+The same initial reconciliation request also projects the newest execution
+lifecycle observation. Newly observed partial fills, protected positions, and
+unprotected positions are passed to the alert layer before market sync. Closed
+trade alerts continue to use their separate durable at-least-once queue.
 
 Delivery semantics are at-least-once. A successful Discord request is marked
 delivered only after the callback returns success. If the process exits after

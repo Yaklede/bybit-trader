@@ -108,6 +108,8 @@ data class ExchangePosition(
     val markPrice: BigDecimal?,
     val unrealizedPnl: BigDecimal?,
     val updatedAt: Instant?,
+    val takeProfit: BigDecimal? = null,
+    val stopLoss: BigDecimal? = null,
 )
 
 data class ExchangeExecutionFill(
@@ -167,6 +169,7 @@ data class ExchangeReconciliationReport(
     val executions: List<ExchangeExecutionFill>,
     val closedPnls: List<ExchangeClosedPnl> = emptyList(),
     val persistedClosures: List<ExecutionTradeClosure> = emptyList(),
+    val lifecycleEvent: ExecutionLifecycleEvent? = null,
 )
 
 data class ExchangeEvaluationResult(

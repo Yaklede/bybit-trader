@@ -369,6 +369,8 @@ private fun String?.toOrderStatus(): OrderStatus =
 
 private fun String?.toBigDecimalOrNull(): BigDecimal? = this?.takeIf { it.isNotBlank() }?.let(::BigDecimal)
 
+private fun String?.toPositiveBigDecimalOrNull(): BigDecimal? = toBigDecimalOrNull()?.takeIf { value -> value > BigDecimal.ZERO }
+
 private fun String?.toInstantFromMillisOrNull(): Instant? =
     this
         ?.takeIf { it.isNotBlank() }
@@ -402,6 +404,8 @@ private fun BybitPositionItem.toExchangePosition(fallbackSymbol: Symbol): Exchan
         markPrice = markPrice.toBigDecimalOrNull(),
         unrealizedPnl = unrealisedPnl.toBigDecimalOrNull(),
         updatedAt = updatedTime.toInstantFromMillisOrNull(),
+        takeProfit = takeProfit.toPositiveBigDecimalOrNull(),
+        stopLoss = stopLoss.toPositiveBigDecimalOrNull(),
     )
 }
 
@@ -582,6 +586,8 @@ private data class BybitPositionItem(
     @SerialName("unrealisedPnl")
     val unrealisedPnl: String? = null,
     val openTime: Long? = null,
+    val takeProfit: String? = null,
+    val stopLoss: String? = null,
     val updatedTime: String? = null,
 )
 

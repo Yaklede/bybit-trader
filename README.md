@@ -74,7 +74,11 @@ Accepted private order requests are also written to the append-only
 `GET /execution/lifecycle-events` endpoint exposes submission state,
 requested quantity, intended TP/SL, and exchange/client order IDs. A
 `ENTRY_SUBMITTED` event still means only that Bybit accepted the request;
-private stream reconciliation must advance it to filled and protected states.
+the closed-M5 reconciliation loop advances it from Bybit orders, executions,
+positions, and closed PnL. Positions with both exchange-reported TP and SL are
+`OPEN_PROTECTED`; missing protection is `OPEN_UNPROTECTED` and sends a
+critical Discord alert. Private WebSocket ingestion remains a follow-up for
+lower-latency and sequence-aware state evidence.
 
 Close alerts use a SQLite-backed at-least-once queue. Failed Discord deliveries
 remain pending and retry on the next M5 cycle; successful delivery is

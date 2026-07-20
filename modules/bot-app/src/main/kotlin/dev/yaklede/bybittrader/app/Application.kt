@@ -34,6 +34,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoop
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoopConfig
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
@@ -233,6 +235,7 @@ fun main() {
                     ),
                 onResult = { result -> alertingService.sendExecutionLoopResult(result) },
                 onClosure = { closure -> alertingService.sendExecutionClosure(closure) },
+                onLifecycleEvent = { event -> alertingService.sendExecutionLifecycleEvent(event) },
                 onFailure = { error -> alertingService.sendExecutionLoopFailure(error) },
             ).start(executionLoopScope)
         } else {
@@ -547,6 +550,57 @@ private suspend fun AlertingService.sendExecutionLoopFailure(error: Throwable) {
             body = loopFailureAlertBody(loopName = "실거래", error = error),
         ),
     )
+}
+
+private suspend fun AlertingService.sendExecutionLifecycleEvent(event: ExecutionLifecycleEvent) {
+    val message =
+        when (event.state) {
+            ExecutionLifecycleState.PARTIALLY_FILLED ->
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "실거래 부분 체결 확인",
+                    body =
+                        "${event.symbol.value} ${event.side.name} 진입 주문이 부분 체결됐어요. " +
+                            "요청 수량: ${event.requestedQuantity.toPlainString()}, " +
+                            "체결 수량: ${event.filledQuantity?.toPlainString()}, " +
+                            "평균 체결가: ${event.fillVwap?.toPlainString()}",
+                )
+
+            ExecutionLifecycleState.OPEN_UNPROTECTED ->
+                AlertMessage(
+                    severity = AlertSeverity.CRITICAL,
+                    title = "실거래 보호 주문 없음",
+                    body =
+                        "${event.symbol.value} ${event.side.name} 포지션이 열렸지만 TP/SL을 모두 확인하지 못했어요. " +
+                            "수량: ${event.filledQuantity?.toPlainString()}, 진입가: ${event.fillVwap?.toPlainString()}. " +
+                            "Bybit 포지션의 보호 주문을 즉시 확인해 주세요.",
+                )
+
+            ExecutionLifecycleState.OPEN_PROTECTED ->
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "실거래 포지션 보호 확인",
+                    body =
+                        "${event.symbol.value} ${event.side.name} 포지션의 TP/SL을 확인했어요. " +
+                            "수량: ${event.filledQuantity?.toPlainString()}, " +
+                            "익절가: ${event.takeProfit?.toPlainString()}, 손절가: ${event.stopLoss?.toPlainString()}",
+                )
+
+            ExecutionLifecycleState.ERROR ->
+                AlertMessage(
+                    severity = AlertSeverity.CRITICAL,
+                    title = "실거래 상태 확인 실패",
+                    body =
+                        "${event.symbol.value} 주문 상태를 확정하지 못했어요. 사유 코드: ${event.reasonCode}. " +
+                            "신규 진입을 중지하고 거래소 주문과 포지션을 확인해 주세요.",
+                )
+
+            ExecutionLifecycleState.ENTRY_SUBMITTED,
+            ExecutionLifecycleState.EXIT_SUBMITTED,
+            ExecutionLifecycleState.CLOSED,
+            -> null
+        }
+    if (message != null) send(message)
 }
 
 private suspend fun AlertingService.sendExecutionClosure(closure: ExecutionTradeClosure): Boolean {
