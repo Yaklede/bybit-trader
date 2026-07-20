@@ -13,6 +13,12 @@ evaluated. After filtering, insufficient warmup returns `NO_TRADE` with
 `INSUFFICIENT_CLOSED_CANDLE_HISTORY`. Immediately before automatic submission,
 active exchange orders or a positive position size reject the signal with
 `EXISTING_EXCHANGE_EXPOSURE`. Manual reduce-only close orders are unaffected.
+The same automatic position policy is shared with the aggressive backtest:
+the current profile allows at most five completed entries per UTC day and a
+maximum hold of 36 M5 candles (three hours). An expired Bybit position is
+closed with a reduce-only market order and returns `EXIT_SUBMITTED`. While that
+time-exit order remains open, evaluation returns `NO_TRADE` with
+`MAX_HOLD_EXIT_PENDING` instead of submitting a duplicate exit.
 The gross target move must exceed configured round-trip fees plus
 `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`; otherwise the signal is rejected before
 any private order call.
@@ -64,8 +70,8 @@ Request:
 
 Response fields:
 
-- `status`: `DISABLED`, `SKIPPED_BY_MODE`, `NO_TRADE`, `REJECTED`, or
-  `SUBMITTED`.
+- `status`: `DISABLED`, `SKIPPED_BY_MODE`, `NO_TRADE`, `REJECTED`,
+  `SUBMITTED`, or `EXIT_SUBMITTED`.
 - `clientOrderId`: local idempotency id sent to Bybit as `orderLinkId`.
 - `exchangeOrderId`: Bybit `orderId` when Bybit accepts the order request.
 - `entryPrice`, `takeProfit`, `stopLoss`, `quantity`, `intendedRisk`: decimal
@@ -79,6 +85,8 @@ open orders, positions, and executions.
 Queries Bybit open orders, position list, recent executions, and closed-PnL
 records for a symbol without writing projections. This keeps operator and
 dashboard reads from consuming a new closure before the runtime alert path.
+Position rows include Bybit `openTime` as `openedAt`; automatic maximum-hold
+enforcement is skipped when the exchange does not provide a valid open time.
 
 Request:
 

@@ -5,6 +5,7 @@ import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.execution.AutomaticPositionPolicy
 import dev.yaklede.bybittrader.engine.execution.ExecutionSizingConstraints
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradePlanCalculator
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
@@ -104,6 +105,7 @@ class VolumeFlowAggressiveBacktestService(
         replayCandleCount: Int = candles.size,
         warmupCandleCount: Int = 0,
     ): VolumeFlowAggressiveBacktestReport {
+        val positionPolicy = config.positionPolicy()
         val enriched = candles.enriched(config)
         var equity = config.initialEquity
         var peakEquity = equity
@@ -137,7 +139,7 @@ class VolumeFlowAggressiveBacktestService(
                 continue
             }
             val dayTradeCount = tradesByDay[setup.entry.day] ?: 0
-            if (dayTradeCount >= config.maxTradesPerDay) {
+            if (dayTradeCount >= positionPolicy.maxTradesPerUtcDay) {
                 index += 1
                 continue
             }
@@ -150,8 +152,10 @@ class VolumeFlowAggressiveBacktestService(
             }
             val exit =
                 when (config.executionPathMode) {
-                    AggressiveExecutionPathMode.M1_REQUIRED -> simulateM1Exit(m1Candles, enriched, setup, config)
-                    AggressiveExecutionPathMode.M5_CONSERVATIVE -> simulateM5Exit(enriched, setup, replayEndIndex, config)
+                    AggressiveExecutionPathMode.M1_REQUIRED ->
+                        simulateM1Exit(m1Candles, enriched, setup, config, positionPolicy)
+                    AggressiveExecutionPathMode.M5_CONSERVATIVE ->
+                        simulateM5Exit(enriched, setup, replayEndIndex, config, positionPolicy)
                 }
             if (exit == null) {
                 skippedDataGapCount += 1
@@ -779,8 +783,9 @@ class VolumeFlowAggressiveBacktestService(
         setup: AggressiveSetup,
         replayEndIndex: Int,
         config: VolumeFlowAggressiveBacktestConfig,
+        positionPolicy: AutomaticPositionPolicy,
     ): AggressiveExit {
-        val end = minOf(setup.entryIndex + config.maxHoldCandles - 1, replayEndIndex - 1)
+        val end = minOf(setup.entryIndex + positionPolicy.maxHoldCandles - 1, replayEndIndex - 1)
         val liquidationPrice = approximateLiquidationPrice(setup, config)
         var mfeR = 0.0
         var maeR = 0.0
@@ -833,12 +838,13 @@ class VolumeFlowAggressiveBacktestService(
         m5Candles: List<AggressiveCandle>,
         setup: AggressiveSetup,
         config: VolumeFlowAggressiveBacktestConfig,
+        positionPolicy: AutomaticPositionPolicy,
     ): AggressiveExit? {
         val entryAt = setup.entry.candle.openedAt
         val startIndex = candles.binarySearchBy(entryAt) { it.openedAt }
         if (startIndex < 0) return null
         val liquidationPrice = approximateLiquidationPrice(setup, config)
-        val pathMinutes = minOf(config.maxHoldCandles * 5, candles.size - startIndex)
+        val pathMinutes = minOf(positionPolicy.maxHoldingDuration.toMinutes().toInt(), candles.size - startIndex)
         if (pathMinutes <= 0) return null
         var lastCandle: Candle? = null
         var mfeR = 0.0
@@ -892,7 +898,7 @@ class VolumeFlowAggressiveBacktestService(
         }
         val timeExit = lastCandle ?: return null
         return AggressiveExit(
-            exitM5Index = minOf(setup.entryIndex + config.maxHoldCandles - 1, m5Candles.lastIndex),
+            exitM5Index = minOf(setup.entryIndex + positionPolicy.maxHoldCandles - 1, m5Candles.lastIndex),
             closedAt = timeExit.openedAt,
             exitPrice = timeExit.close.toDouble(),
             reason = VolumeFlowExitReason.TIME,

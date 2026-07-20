@@ -11,6 +11,11 @@ class VolumeFlowAggressiveRuntimeProfileTest :
 
             profile.contractVersion shouldBe "aggressive-runtime-v1"
             profile.validationStatus shouldBe StrategyValidationStatus.REJECTED
+            profile.strategyConfig
+                .positionPolicy()
+                .maxHoldingDuration
+                .toHours() shouldBe 3
+            profile.strategyConfig.positionPolicy().maxTradesPerUtcDay shouldBe 5
             replay.profileId shouldBe profile.profileId
             replay.initialEquity shouldBe 100.0
             replay.executionContract() shouldBe profile.executionContract

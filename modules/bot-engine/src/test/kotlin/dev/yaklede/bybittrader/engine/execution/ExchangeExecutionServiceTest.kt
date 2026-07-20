@@ -534,6 +534,7 @@ class ExchangeExecutionServiceTest :
                     symbol = symbol,
                     side = Side.BUY,
                     size = BigDecimal("1"),
+                    openedAt = Instant.parse("2024-06-29T23:59:00Z"),
                     entryPrice = BigDecimal("100"),
                     markPrice = BigDecimal("105"),
                     unrealizedPnl = BigDecimal("5"),
@@ -552,6 +553,113 @@ class ExchangeExecutionServiceTest :
                 result.reasonCodes shouldContainExactly listOf("EXISTING_EXCHANGE_EXPOSURE")
                 gateway.placedOrders shouldBe emptyList()
             }
+        }
+
+        "position policy submits a reduce-only exit after the maximum hold duration" {
+            val symbol = Symbol("BTCUSDT")
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T20:00:00Z"),
+                                entryPrice = BigDecimal("100"),
+                                markPrice = BigDecimal("105"),
+                                unrealizedPnl = BigDecimal("5"),
+                                updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                            ),
+                        ),
+                )
+            val result =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.PAUSE_NEW_ENTRIES),
+                    gateway = gateway,
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            maxQuantity = BigDecimal("0.1"),
+                        ),
+                    positionPolicy = AutomaticPositionPolicy(Timeframe.M5, maxHoldCandles = 36, maxTradesPerUtcDay = 5),
+                ).evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.EXIT_SUBMITTED
+            result.reasonCodes shouldContainExactly listOf("MAX_HOLD_DURATION_REACHED")
+            gateway.placedOrders.single().reduceOnly shouldBe true
+            gateway.placedOrders.single().side shouldBe Side.SELL
+            gateway.placedOrders.single().quantity shouldBe BigDecimal("1")
+        }
+
+        "position policy does not duplicate a pending time exit" {
+            val symbol = Symbol("BTCUSDT")
+            val position =
+                ExchangePosition(
+                    symbol = symbol,
+                    side = Side.BUY,
+                    size = BigDecimal("1"),
+                    openedAt = Instant.parse("2024-06-29T20:00:00Z"),
+                    entryPrice = BigDecimal("100"),
+                    markPrice = BigDecimal("105"),
+                    unrealizedPnl = BigDecimal("5"),
+                    updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                )
+            val pendingExit =
+                ExchangeOpenOrder(
+                    exchangeOrderId = "time-exchange-1",
+                    clientOrderId = "time-BTCUSDT-1719705600000-S",
+                    symbol = symbol,
+                    side = Side.SELL,
+                    orderType = OrderType.MARKET,
+                    status = OrderStatus.SUBMITTED,
+                    quantity = BigDecimal("1"),
+                    createdAt = Instant.parse("2024-06-30T00:00:00Z"),
+                )
+            val gateway =
+                RecordingExecutionGateway(
+                    openOrders = listOf(pendingExit),
+                    positions = listOf(position),
+                )
+
+            val result =
+                testService(
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy = AutomaticPositionPolicy(Timeframe.M5, maxHoldCandles = 36, maxTradesPerUtcDay = 5),
+                ).evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldContainExactly listOf("MAX_HOLD_EXIT_PENDING")
+            result.exchangeOrderId shouldBe "time-exchange-1"
+            gateway.placedOrders shouldBe emptyList()
+        }
+
+        "position policy blocks entries after the UTC daily trade limit" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            repeat(5) { index ->
+                store.recordTradeClosure(
+                    testClosure(
+                        exchangeOrderId = "today-$index",
+                        closedAt = Instant.parse("2024-06-30T00:10:00Z").plusSeconds(index * 60L),
+                    ),
+                )
+            }
+            val gateway = RecordingExecutionGateway()
+
+            val result =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy = AutomaticPositionPolicy(Timeframe.M5, maxHoldCandles = 36, maxTradesPerUtcDay = 5),
+                    clock = Clock.fixed(Instant.parse("2024-06-30T01:00:00Z"), ZoneOffset.UTC),
+                ).evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldContainExactly listOf("DAILY_TRADE_LIMIT_REACHED")
+            gateway.placedOrders shouldBe emptyList()
         }
 
         "live performance aggregates all stored closures across contract windows" {
@@ -580,6 +688,7 @@ private fun testService(
     gateway: RecordingExecutionGateway = RecordingExecutionGateway(),
     config: ExchangeExecutionConfig,
     strategy: TradingStrategy = AlwaysBuyExecutionStrategy(),
+    positionPolicy: AutomaticPositionPolicy? = null,
     clock: Clock = Clock.fixed(Instant.parse("2024-06-30T00:00:00Z"), ZoneOffset.UTC),
 ): ExchangeExecutionService =
     ExchangeExecutionService(
@@ -589,6 +698,7 @@ private fun testService(
         strategy = strategy,
         gateway = gateway,
         config = config,
+        positionPolicy = positionPolicy,
         clock = clock,
     )
 

@@ -192,6 +192,7 @@ class BybitPrivateClientTest :
                                         "avgPrice": "70000",
                                         "markPrice": "69900",
                                         "unrealisedPnl": "20",
+                                        "openTime": 1719748500000,
                                         "updatedTime": "1719748800000"
                                       }
                                     ]
@@ -243,6 +244,7 @@ class BybitPrivateClientTest :
             openOrders.single().status shouldBe OrderStatus.SUBMITTED
             openOrders.single().side shouldBe Side.SELL
             positions.single().unrealizedPnl shouldBe BigDecimal("20")
+            positions.single().openedAt shouldBe Instant.ofEpochMilli(1719748500000)
             executions.single().fee shouldBe BigDecimal("8.4")
         }
 

@@ -21,6 +21,7 @@ import java.math.RoundingMode
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneOffset
 
 class ExchangeExecutionService(
     private val stateStore: BotStateStore,
@@ -31,6 +32,7 @@ class ExchangeExecutionService(
     private val config: ExchangeExecutionConfig = ExchangeExecutionConfig(),
     private val projectionStore: ExecutionProjectionStore? = tradingStore as? ExecutionProjectionStore,
     private val runtimeMode: ExecutionRuntimeMode = ExecutionRuntimeMode.TESTNET,
+    private val positionPolicy: AutomaticPositionPolicy? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeExecutionService::class.java)
@@ -78,6 +80,48 @@ class ExchangeExecutionService(
             logger.info("execution evaluate skipped symbol={} status={}", symbol.value, result.status.name)
             return result
         }
+        val activePositionPolicy = positionPolicy
+        val managedPositions =
+            if (activePositionPolicy != null && mode.allowsPositionManagement()) {
+                gateway.positions(symbol)
+            } else {
+                null
+            }
+        val expiredPosition =
+            managedPositions
+                ?.firstOrNull { position ->
+                    val openedAt = position.openedAt
+                    position.size > BigDecimal.ZERO &&
+                        openedAt != null &&
+                        activePositionPolicy?.isExpired(openedAt, now) == true
+                }
+        if (expiredPosition != null) {
+            val pendingTimeExit =
+                gateway.openOrders(symbol).firstOrNull { order ->
+                    order.status.isActive() && order.clientOrderId?.startsWith("time-${symbol.value}-") == true
+                }
+            if (pendingTimeExit != null) {
+                return ExchangeEvaluationResult(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    mode = mode.name,
+                    status = ExchangeEvaluationStatus.NO_TRADE,
+                    evaluatedAt = now,
+                    candleCount = 0,
+                    reasonCodes = listOf("MAX_HOLD_EXIT_PENDING"),
+                    signalId = null,
+                    orderId = null,
+                    exchangeOrderId = pendingTimeExit.exchangeOrderId,
+                    clientOrderId = pendingTimeExit.clientOrderId,
+                    entryPrice = expiredPosition.entryPrice,
+                    takeProfit = null,
+                    stopLoss = null,
+                    quantity = expiredPosition.size,
+                    intendedRisk = null,
+                )
+            }
+            return submitPolicyTimeExit(expiredPosition, timeframe, mode, now)
+        }
         if (mode.blocksNewEntries()) {
             val result =
                 ExchangeEvaluationResult(
@@ -105,6 +149,29 @@ class ExchangeExecutionService(
                 mode.name,
             )
             return result
+        }
+        if (activePositionPolicy != null) {
+            val completedTradesToday = completedTradeCountForUtcDay(symbol, now)
+            if (completedTradesToday >= activePositionPolicy.maxTradesPerUtcDay) {
+                return ExchangeEvaluationResult(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    mode = mode.name,
+                    status = ExchangeEvaluationStatus.NO_TRADE,
+                    evaluatedAt = now,
+                    candleCount = 0,
+                    reasonCodes = listOf("DAILY_TRADE_LIMIT_REACHED"),
+                    signalId = null,
+                    orderId = null,
+                    exchangeOrderId = null,
+                    clientOrderId = null,
+                    entryPrice = null,
+                    takeProfit = null,
+                    stopLoss = null,
+                    quantity = null,
+                    intendedRisk = null,
+                )
+            }
         }
 
         val closedBefore = closedCandleBoundary(now, timeframe)
@@ -288,7 +355,8 @@ class ExchangeExecutionService(
             gateway.openOrders(symbol).any { order ->
                 order.status == OrderStatus.SUBMITTED || order.status == OrderStatus.PARTIALLY_FILLED
             }
-        val hasOpenPosition = gateway.positions(symbol).any { position -> position.size > BigDecimal.ZERO }
+        val hasOpenPosition =
+            (managedPositions ?: gateway.positions(symbol)).any { position -> position.size > BigDecimal.ZERO }
         if (hasActiveOpenOrder || hasOpenPosition) {
             val rejectionReason = "EXISTING_EXCHANGE_EXPOSURE"
             val rejectedSignalId =
@@ -462,6 +530,24 @@ class ExchangeExecutionService(
         }
     }
 
+    private suspend fun completedTradeCountForUtcDay(
+        symbol: Symbol,
+        evaluatedAt: Instant,
+    ): Int {
+        val dayStart =
+            evaluatedAt
+                .atZone(ZoneOffset.UTC)
+                .toLocalDate()
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+        val closures =
+            projectionStore?.performanceClosures(runtimeMode, dayStart)
+                ?: gateway.closedPnls(symbol).map { closedPnl -> closedPnl.toTradeClosure(runtimeMode) }
+        return closures.count { closure ->
+            closure.symbol == symbol && !closure.openedAt.isBefore(dayStart)
+        }
+    }
+
     suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance {
         logger.info("execution account balance requested coin={}", coin ?: "all")
         val balance = gateway.accountBalance(coin)
@@ -597,6 +683,49 @@ class ExchangeExecutionService(
             clientOrderPrefix = "close",
         )
 
+    private suspend fun submitPolicyTimeExit(
+        position: ExchangePosition,
+        timeframe: Timeframe,
+        mode: BotMode,
+        evaluatedAt: Instant,
+    ): ExchangeEvaluationResult {
+        val exitOrder =
+            submitManualOrder(
+                symbol = position.symbol,
+                side = position.side.opposite(),
+                quantity = position.size,
+                reduceOnly = true,
+                strategyName = "automatic-position-policy",
+                reasonCode = "MAX_HOLD_DURATION_REACHED",
+                clientOrderPrefix = "time",
+            )
+        logger.warn(
+            "execution time exit submitted symbol={} openedAt={} qty={} exchangeOrderId={}",
+            position.symbol.value,
+            position.openedAt,
+            position.size.toPlainString(),
+            exitOrder.exchangeOrderId,
+        )
+        return ExchangeEvaluationResult(
+            symbol = position.symbol,
+            timeframe = timeframe,
+            mode = mode.name,
+            status = ExchangeEvaluationStatus.EXIT_SUBMITTED,
+            evaluatedAt = evaluatedAt,
+            candleCount = 0,
+            reasonCodes = listOf("MAX_HOLD_DURATION_REACHED"),
+            signalId = null,
+            orderId = exitOrder.orderId,
+            exchangeOrderId = exitOrder.exchangeOrderId,
+            clientOrderId = exitOrder.clientOrderId,
+            entryPrice = position.entryPrice,
+            takeProfit = null,
+            stopLoss = null,
+            quantity = position.size,
+            intendedRisk = null,
+        )
+    }
+
     private suspend fun submitManualOrder(
         symbol: Symbol,
         side: Side,
@@ -610,9 +739,11 @@ class ExchangeExecutionService(
         require(quantity >= config.minQuantity) {
             "Manual order quantity must be greater than or equal to ${config.minQuantity.toPlainString()}."
         }
-        config.maxQuantity?.let { maxQuantity ->
-            require(quantity <= maxQuantity) {
-                "Manual order quantity must be less than or equal to ${maxQuantity.toPlainString()}."
+        if (!reduceOnly) {
+            config.maxQuantity?.let { maxQuantity ->
+                require(quantity <= maxQuantity) {
+                    "Manual order quantity must be less than or equal to ${maxQuantity.toPlainString()}."
+                }
             }
         }
         val normalizedQuantity = quantity.floorToStep(config.quantityStep)
@@ -783,6 +914,10 @@ data class ExchangeTradingLoopConfig(
 }
 
 private fun BotMode.blocksNewEntries(): Boolean = this != BotMode.RUNNING
+
+private fun BotMode.allowsPositionManagement(): Boolean = this == BotMode.RUNNING || this == BotMode.PAUSE_NEW_ENTRIES
+
+private fun OrderStatus.isActive(): Boolean = this == OrderStatus.SUBMITTED || this == OrderStatus.PARTIALLY_FILLED
 
 private fun closedCandleBoundary(
     instant: Instant,

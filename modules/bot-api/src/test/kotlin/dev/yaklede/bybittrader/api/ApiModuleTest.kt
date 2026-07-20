@@ -1095,6 +1095,7 @@ class ApiModuleTest :
                                     symbol = Symbol("BTCUSDT"),
                                     side = Side.BUY,
                                     size = BigDecimal("0.01"),
+                                    openedAt = Instant.parse("2026-06-29T23:30:00Z"),
                                     entryPrice = BigDecimal("60000"),
                                     markPrice = BigDecimal("61000"),
                                     unrealizedPnl = BigDecimal("10"),
@@ -1136,6 +1137,7 @@ class ApiModuleTest :
                 body shouldContain """"market":{"symbol":"BTCUSDT","lastPrice":"61234.5""""
                 body shouldContain """"totalEquity":"1200.5""""
                 body shouldContain """"positions":[{"""
+                body shouldContain """"openedAt":"2026-06-29T23:30:00Z""""
                 body shouldContain """"unrealizedPnl":"10""""
                 body shouldContain "\"forwardMarketCapture\":{\"enabled\":false,\"orderBookFresh\":false"
             }

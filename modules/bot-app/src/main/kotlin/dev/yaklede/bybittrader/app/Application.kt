@@ -23,6 +23,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
+import dev.yaklede.bybittrader.engine.backtest.positionPolicy
 import dev.yaklede.bybittrader.engine.control.BotControlService
 import dev.yaklede.bybittrader.engine.control.BotResumeReadinessService
 import dev.yaklede.bybittrader.engine.control.ControlResult
@@ -186,6 +187,7 @@ fun main() {
                         liquidationBufferPct = config.execution.liquidationBufferPct,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
+                positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),
             )
         } else {
             logger.info("private exchange client not configured")
@@ -505,6 +507,17 @@ private suspend fun AlertingService.sendExecutionLoopResult(result: ExchangeEval
                         "${result.symbol.value} ${result.timeframe.name} 실거래 주문을 제출했어요. " +
                             "수량: ${result.quantity?.toPlainString()}, 거래소 주문 ID: ${result.exchangeOrderId}, " +
                             "내부 주문 ID: ${result.orderId}",
+                ),
+            )
+
+        ExchangeEvaluationStatus.EXIT_SUBMITTED ->
+            send(
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "보유 시간 종료 주문 제출",
+                    body =
+                        "${result.symbol.value} ${result.timeframe.name} 포지션이 최대 보유 시간에 도달해 종료 주문을 제출했어요. " +
+                            "수량: ${result.quantity?.toPlainString()}, 거래소 주문 ID: ${result.exchangeOrderId}",
                 ),
             )
 

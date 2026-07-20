@@ -14,7 +14,7 @@ feature-discovery profile `absorption-adaptive-regime-final`
 
 ## Current Decision
 
-- Validation status: `UNVERIFIED`.
+- Validation status: `REJECTED`.
 - Profitability reports produced before `causal-m1-path-v2` are invalid for
   live-readiness decisions because they selected a breakout from a candle close
   and filled the trade at the same candle open.
@@ -46,6 +46,7 @@ feature-discovery profile `absorption-adaptive-regime-final`
 | R6 | On-prem deployment is protected by Twingate, but local API compromise remains possible inside the private network. | Any exposed control endpoint could pause, resume, or eventually place orders if token handling is weak. | Keep API bound to private interfaces, require `BOT_CONTROL_TOKEN`, restrict Twingate resource membership, and log all control actions. |
 | R7 | Private Bybit execution is implemented, but credentialed testnet smoke evidence is not recorded yet. | Code-level tests can pass while exchange permissions, account mode, quantity step, or symbol limits still reject real orders. | Run testnet order create/cancel/reconcile with real Bybit testnet credentials before any live capital. |
 | R8 | Emergency stop currently changes bot mode but does not automatically cancel Bybit open orders or close/reduce positions. | A private order may remain live after an operator emergency action. | Add emergency-stop execution policy: cancel open orders first, then apply configured reduce/hold/close position behavior. |
+| R9 | The shared automatic policy now enforces the backtest's three-hour maximum hold and five completed entries per UTC day, but order fills are still reconciled by polling. | A process or network failure between order submission and the next reconciliation can leave local state behind the exchange. | Add private order/execution WebSocket ingestion, an explicit position state machine, and restart reconciliation before promoting a replacement strategy. |
 
 ## Revisit Triggers
 

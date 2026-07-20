@@ -2,6 +2,8 @@ package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.execution.AutomaticPositionPolicy
 import java.security.MessageDigest
 import java.time.Instant
 
@@ -228,6 +230,13 @@ fun VolumeFlowAggressiveBacktestConfig.requiredWarmupCandles(): Int {
         signalWarmup,
     )
 }
+
+fun VolumeFlowAggressiveBacktestConfig.positionPolicy(): AutomaticPositionPolicy =
+    AutomaticPositionPolicy(
+        timeframe = Timeframe.M5,
+        maxHoldCandles = maxHoldCandles,
+        maxTradesPerUtcDay = maxTradesPerDay,
+    )
 
 data class VolumeFlowAggressiveAdaptiveStop(
     val stopAtr: Double,

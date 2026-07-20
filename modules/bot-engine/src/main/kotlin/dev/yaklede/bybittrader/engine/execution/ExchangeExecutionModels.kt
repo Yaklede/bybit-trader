@@ -103,6 +103,7 @@ data class ExchangePosition(
     val symbol: Symbol,
     val side: Side,
     val size: BigDecimal,
+    val openedAt: Instant?,
     val entryPrice: BigDecimal?,
     val markPrice: BigDecimal?,
     val unrealizedPnl: BigDecimal?,
@@ -216,6 +217,7 @@ enum class ExchangeEvaluationStatus {
     NO_TRADE,
     REJECTED,
     SUBMITTED,
+    EXIT_SUBMITTED,
 }
 
 interface ExchangeExecutionGateway {

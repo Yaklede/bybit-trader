@@ -397,6 +397,7 @@ private fun BybitPositionItem.toExchangePosition(fallbackSymbol: Symbol): Exchan
         symbol = symbol?.let(::Symbol) ?: fallbackSymbol,
         side = side,
         size = size,
+        openedAt = openTime?.takeIf { it > 0L }?.let(Instant::ofEpochMilli),
         entryPrice = avgPrice.toBigDecimalOrNull(),
         markPrice = markPrice.toBigDecimalOrNull(),
         unrealizedPnl = unrealisedPnl.toBigDecimalOrNull(),
@@ -580,6 +581,7 @@ private data class BybitPositionItem(
     val markPrice: String? = null,
     @SerialName("unrealisedPnl")
     val unrealisedPnl: String? = null,
+    val openTime: Long? = null,
     val updatedTime: String? = null,
 )
 

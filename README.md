@@ -62,6 +62,13 @@ is the sole closed-trade writer: it persists and alerts new closed PnL before
 closed-candle sync and entry evaluation. Automatic entries are rejected while
 Bybit reports an active order or positive position size.
 
+Automatic execution and the aggressive backtest now use one position-policy
+contract. The current contract caps completed entries at five per UTC day and
+closes positions after 36 M5 candles (three hours) with a reduce-only market
+order. Reconciliation and dashboard position rows expose Bybit `openTime` as
+`openedAt`. This execution parity does not make the rejected strategy eligible
+for automatic trading.
+
 Close alerts use a SQLite-backed at-least-once queue. Failed Discord deliveries
 remain pending and retry on the next M5 cycle; successful delivery is
 acknowledged in the closure row. A crash between Discord acceptance and the DB
