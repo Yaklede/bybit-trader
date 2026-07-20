@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "status": "DEVELOPMENT",
+  "sourceData": {
+    "symbol": "BTCUSDT",
+    "depthSymbol": "BTCUSD_PERP",
+    "startAt": "2023-01-01T00:00:00Z",
+    "endAt": "2024-01-01T00:00:00Z",
+    "missingDays": ["2023-09-25"]
+  },
+  "selectionPolicy": {
+    "parameterSelectionAllowed": true,
+    "promotionAllowed": false
+  },
+  "gates": {
+    "minCompoundDailyReturnPct": 0.2,
+    "maxDrawdownPct": 40,
+    "minTradeCount": 3,
+    "minActiveDayCoveragePct": 2
+  },
+  "folds": [
+    {"id":"Q1","replayStartAt":"2023-01-01T00:00:00Z","replayEndAt":"2023-04-01T00:00:00Z"},
+    {"id":"Q2","replayStartAt":"2023-04-01T00:00:00Z","replayEndAt":"2023-07-01T00:00:00Z"},
+    {"id":"Q3","replayStartAt":"2023-07-01T00:00:00Z","replayEndAt":"2023-10-01T00:00:00Z"},
+    {"id":"Q4","replayStartAt":"2023-10-01T00:00:00Z","replayEndAt":"2024-01-01T00:00:00Z"}
+  ]
+}

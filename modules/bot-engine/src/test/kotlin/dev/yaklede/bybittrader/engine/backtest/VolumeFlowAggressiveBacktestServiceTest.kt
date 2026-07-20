@@ -23,7 +23,9 @@ class VolumeFlowAggressiveBacktestServiceTest :
                     config = aggressiveTestConfig(),
                 )
 
-            result.profileId shouldBe "absa_final_us_v1"
+            result.profileId shouldBe "absa_final_us_v1-research-override"
+            result.runtimeSignalProfileMatched shouldBe false
+            result.strategyContractVersion shouldBe "aggressive-runtime-v1"
             result.tradeCount shouldBe 1
             result.wins shouldBe 1
             result.losses shouldBe 0
@@ -397,6 +399,34 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.tradeCount shouldBe 0
             (result.skippedDataGapCount > 0) shouldBe true
         }
+
+        "closes a macro Donchian trade at a replay boundary shorter than max hold" {
+            val candles = macroDonchianTrendCandles()
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(candles))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = candles.size,
+                    config =
+                        aggressiveTestConfig()
+                            .copy(
+                                sessionHoursUtc = (0..23).toSet(),
+                                signalMode = VolumeFlowAggressiveSignalMode.MACRO_DONCHIAN,
+                                donchianLookbackCandles = 288,
+                                stopReferenceCandles = 12,
+                                stopAtr = 8.0,
+                                trailingAtrMultiple = 1_000.0,
+                                targetR = 12.0,
+                                maxHoldCandles = 17_280,
+                            ),
+                )
+
+            result.tradeCount shouldBe 1
+            result.trades.single().exitReason shouldBe VolumeFlowExitReason.TIME
+            result.trades.single().closedAt shouldBe candles.last().openedAt
+            result.skippedDataGapCount shouldBe 0
+        }
     })
 
 private fun aggressiveTestConfig(): VolumeFlowAggressiveBacktestConfig =
@@ -527,6 +557,19 @@ private fun aggressiveFailedBreakCandles(): List<Candle> =
                 )
             else -> candle
         }
+    }
+
+private fun macroDonchianTrendCandles(): List<Candle> =
+    (0 until 1_300).map { index ->
+        val open = BigDecimal("100").add(BigDecimal("0.2").multiply(BigDecimal(index)))
+        aggressiveCandle(
+            index = index,
+            open = open.toPlainString(),
+            high = open.add(BigDecimal("0.3")).toPlainString(),
+            low = open.subtract(BigDecimal("0.1")).toPlainString(),
+            close = open.add(BigDecimal("0.2")).toPlainString(),
+            volume = "10",
+        )
     }
 
 private fun aggressiveCandle(

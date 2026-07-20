@@ -46,7 +46,9 @@ Milestone 1 is the operational backend shell:
   `drawdownEvents` list for balance-curve and mark-to-market breach analysis.
 - Aggressive M5 absorption profile backtest endpoint for the current
   `absa_final_us_v1` research profile:
-  `POST /backtests/volume-flow/aggressive/current/run`.
+  `POST /backtests/volume-flow/aggressive/current/run`. Its default request and
+  automatic execution share the versioned `aggressive-runtime-v1` contract;
+  responses expose signal-profile parity and the execution-contract fingerprint.
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 

@@ -247,6 +247,8 @@ class ApiModuleTest :
                 response.bodyAsText() shouldContain """"name":"공격형""""
                 response.bodyAsText() shouldContain """"validationStatus":"UNVERIFIED""""
                 response.bodyAsText() shouldContain """"liveExpansionAllowed":false"""
+                response.bodyAsText() shouldContain """"strategyContractVersion":"aggressive-runtime-v1"""
+                response.bodyAsText() shouldContain """"executionContractMatched":true"""
             }
         }
 

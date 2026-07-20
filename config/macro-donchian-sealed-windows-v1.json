@@ -1,0 +1,269 @@
+{
+  "schemaVersion": 1,
+  "status": "SEALED",
+  "sourceData": {
+    "symbol": "BTCUSDT",
+    "earliestAt": "2024-01-01T00:00:00.000Z",
+    "latestAt": "2026-07-02T00:00:00.000Z"
+  },
+  "generation": {
+    "algorithm": "mulberry32-v1-fixed-duration-strata",
+    "seed": 20260713,
+    "selectedAt": "2026-07-13T00:00:00Z",
+    "caseCount": 40,
+    "durationMonths": "1-30",
+    "tuningAllowed": false,
+    "candidateContract": "config/aggressive-macro-donchian-candidate-v1.json"
+  },
+  "gates": {
+    "minCompoundDailyReturnPct": 0.2,
+    "maxMarkToMarketDrawdownPct": 40,
+    "maxLiquidationCount": 0,
+    "minTradeCount": 3,
+    "minActiveDayCoveragePct": 2,
+    "requiredFillModelVersion": "causal-m1-path-v2"
+  },
+  "windowsSha256": "efd913efa476d5d8cedbc0208cbb767b512a0e52e06db9716c17f295d66df516",
+  "windows": [
+    {
+      "id": "S01",
+      "durationMonths": 30,
+      "replayStartAt": "2024-01-01T00:00:00.000Z",
+      "replayEndAt": "2026-07-01T00:00:00.000Z"
+    },
+    {
+      "id": "S14",
+      "durationMonths": 4,
+      "replayStartAt": "2024-01-07T00:00:00.000Z",
+      "replayEndAt": "2024-05-07T00:00:00.000Z"
+    },
+    {
+      "id": "S06",
+      "durationMonths": 6,
+      "replayStartAt": "2024-01-08T00:00:00.000Z",
+      "replayEndAt": "2024-07-08T00:00:00.000Z"
+    },
+    {
+      "id": "S38",
+      "durationMonths": 1,
+      "replayStartAt": "2024-01-27T00:00:00.000Z",
+      "replayEndAt": "2024-02-27T00:00:00.000Z"
+    },
+    {
+      "id": "S09",
+      "durationMonths": 18,
+      "replayStartAt": "2024-01-28T00:00:00.000Z",
+      "replayEndAt": "2025-07-28T00:00:00.000Z"
+    },
+    {
+      "id": "S25",
+      "durationMonths": 9,
+      "replayStartAt": "2024-02-09T00:00:00.000Z",
+      "replayEndAt": "2024-11-09T00:00:00.000Z"
+    },
+    {
+      "id": "S16",
+      "durationMonths": 9,
+      "replayStartAt": "2024-02-14T00:00:00.000Z",
+      "replayEndAt": "2024-11-14T00:00:00.000Z"
+    },
+    {
+      "id": "S12",
+      "durationMonths": 2,
+      "replayStartAt": "2024-03-08T00:00:00.000Z",
+      "replayEndAt": "2024-05-08T00:00:00.000Z"
+    },
+    {
+      "id": "S37",
+      "durationMonths": 24,
+      "replayStartAt": "2024-03-18T00:00:00.000Z",
+      "replayEndAt": "2026-03-18T00:00:00.000Z"
+    },
+    {
+      "id": "S13",
+      "durationMonths": 3,
+      "replayStartAt": "2024-04-01T00:00:00.000Z",
+      "replayEndAt": "2024-07-01T00:00:00.000Z"
+    },
+    {
+      "id": "S19",
+      "durationMonths": 24,
+      "replayStartAt": "2024-04-06T00:00:00.000Z",
+      "replayEndAt": "2026-04-06T00:00:00.000Z"
+    },
+    {
+      "id": "S02",
+      "durationMonths": 1,
+      "replayStartAt": "2024-05-09T00:00:00.000Z",
+      "replayEndAt": "2024-06-09T00:00:00.000Z"
+    },
+    {
+      "id": "S28",
+      "durationMonths": 24,
+      "replayStartAt": "2024-05-16T00:00:00.000Z",
+      "replayEndAt": "2026-05-16T00:00:00.000Z"
+    },
+    {
+      "id": "S31",
+      "durationMonths": 3,
+      "replayStartAt": "2024-05-27T00:00:00.000Z",
+      "replayEndAt": "2024-08-27T00:00:00.000Z"
+    },
+    {
+      "id": "S10",
+      "durationMonths": 24,
+      "replayStartAt": "2024-05-31T00:00:00.000Z",
+      "replayEndAt": "2026-05-31T00:00:00.000Z"
+    },
+    {
+      "id": "S36",
+      "durationMonths": 18,
+      "replayStartAt": "2024-07-01T00:00:00.000Z",
+      "replayEndAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "S07",
+      "durationMonths": 9,
+      "replayStartAt": "2024-07-28T00:00:00.000Z",
+      "replayEndAt": "2025-04-28T00:00:00.000Z"
+    },
+    {
+      "id": "S30",
+      "durationMonths": 2,
+      "replayStartAt": "2024-07-29T00:00:00.000Z",
+      "replayEndAt": "2024-09-29T00:00:00.000Z"
+    },
+    {
+      "id": "S21",
+      "durationMonths": 2,
+      "replayStartAt": "2024-11-04T00:00:00.000Z",
+      "replayEndAt": "2025-01-04T00:00:00.000Z"
+    },
+    {
+      "id": "S27",
+      "durationMonths": 18,
+      "replayStartAt": "2024-11-13T00:00:00.000Z",
+      "replayEndAt": "2026-05-13T00:00:00.000Z"
+    },
+    {
+      "id": "S18",
+      "durationMonths": 18,
+      "replayStartAt": "2024-11-27T00:00:00.000Z",
+      "replayEndAt": "2026-05-27T00:00:00.000Z"
+    },
+    {
+      "id": "S34",
+      "durationMonths": 9,
+      "replayStartAt": "2024-11-29T00:00:00.000Z",
+      "replayEndAt": "2025-08-29T00:00:00.000Z"
+    },
+    {
+      "id": "S26",
+      "durationMonths": 12,
+      "replayStartAt": "2024-12-24T00:00:00.000Z",
+      "replayEndAt": "2025-12-24T00:00:00.000Z"
+    },
+    {
+      "id": "S33",
+      "durationMonths": 6,
+      "replayStartAt": "2024-12-28T00:00:00.000Z",
+      "replayEndAt": "2025-06-28T00:00:00.000Z"
+    },
+    {
+      "id": "S35",
+      "durationMonths": 12,
+      "replayStartAt": "2025-01-11T00:00:00.000Z",
+      "replayEndAt": "2026-01-11T00:00:00.000Z"
+    },
+    {
+      "id": "S32",
+      "durationMonths": 4,
+      "replayStartAt": "2025-02-22T00:00:00.000Z",
+      "replayEndAt": "2025-06-22T00:00:00.000Z"
+    },
+    {
+      "id": "S08",
+      "durationMonths": 12,
+      "replayStartAt": "2025-03-11T00:00:00.000Z",
+      "replayEndAt": "2026-03-11T00:00:00.000Z"
+    },
+    {
+      "id": "S05",
+      "durationMonths": 4,
+      "replayStartAt": "2025-03-16T00:00:00.000Z",
+      "replayEndAt": "2025-07-16T00:00:00.000Z"
+    },
+    {
+      "id": "S17",
+      "durationMonths": 12,
+      "replayStartAt": "2025-03-20T00:00:00.000Z",
+      "replayEndAt": "2026-03-20T00:00:00.000Z"
+    },
+    {
+      "id": "S15",
+      "durationMonths": 6,
+      "replayStartAt": "2025-07-23T00:00:00.000Z",
+      "replayEndAt": "2026-01-23T00:00:00.000Z"
+    },
+    {
+      "id": "S11",
+      "durationMonths": 1,
+      "replayStartAt": "2025-10-05T00:00:00.000Z",
+      "replayEndAt": "2025-11-05T00:00:00.000Z"
+    },
+    {
+      "id": "S39",
+      "durationMonths": 2,
+      "replayStartAt": "2025-10-23T00:00:00.000Z",
+      "replayEndAt": "2025-12-23T00:00:00.000Z"
+    },
+    {
+      "id": "S24",
+      "durationMonths": 6,
+      "replayStartAt": "2025-11-15T00:00:00.000Z",
+      "replayEndAt": "2026-05-15T00:00:00.000Z"
+    },
+    {
+      "id": "S40",
+      "durationMonths": 3,
+      "replayStartAt": "2025-11-26T00:00:00.000Z",
+      "replayEndAt": "2026-02-26T00:00:00.000Z"
+    },
+    {
+      "id": "S20",
+      "durationMonths": 1,
+      "replayStartAt": "2025-12-12T00:00:00.000Z",
+      "replayEndAt": "2026-01-12T00:00:00.000Z"
+    },
+    {
+      "id": "S04",
+      "durationMonths": 3,
+      "replayStartAt": "2026-01-04T00:00:00.000Z",
+      "replayEndAt": "2026-04-04T00:00:00.000Z"
+    },
+    {
+      "id": "S23",
+      "durationMonths": 4,
+      "replayStartAt": "2026-01-05T00:00:00.000Z",
+      "replayEndAt": "2026-05-05T00:00:00.000Z"
+    },
+    {
+      "id": "S03",
+      "durationMonths": 2,
+      "replayStartAt": "2026-02-06T00:00:00.000Z",
+      "replayEndAt": "2026-04-06T00:00:00.000Z"
+    },
+    {
+      "id": "S22",
+      "durationMonths": 3,
+      "replayStartAt": "2026-03-17T00:00:00.000Z",
+      "replayEndAt": "2026-06-17T00:00:00.000Z"
+    },
+    {
+      "id": "S29",
+      "durationMonths": 1,
+      "replayStartAt": "2026-05-27T00:00:00.000Z",
+      "replayEndAt": "2026-06-27T00:00:00.000Z"
+    }
+  ]
+}

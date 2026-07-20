@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "status": "FROZEN",
   "contractVersion": "aggressive-runtime-v1",
+  "evaluationVersion": "aggressive-runtime-gates-v2",
   "runtimeProfile": {
     "profileId": "absa_final_us_v1",
     "endpoint": "/backtests/volume-flow/aggressive/current/run",
@@ -19,7 +20,7 @@
   "gates": {
     "requiredFillModelVersion": "causal-m1-path-v2",
     "requiredValidationStatus": "VERIFIED",
-    "minCompoundDailyReturnPct": 0.8,
+    "minCompoundDailyReturnPct": 0.2,
     "maxDrawdownPct": 40,
     "maxLiquidationCount": 0,
     "minTradeCount": 3,

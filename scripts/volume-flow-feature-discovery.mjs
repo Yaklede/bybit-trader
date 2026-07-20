@@ -3,6 +3,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import {
+  attachBinanceFlow,
+  loadBinanceUmKlines,
+} from "./lib/binance-um-kline-archive.mjs";
+import {
+  attachBinanceDepth,
+  loadBinanceCmBookDepth5m,
+} from "./lib/binance-cm-book-depth-archive.mjs";
+import {
+  attachBinanceMetrics,
+  loadBinanceUmMetrics,
+} from "./lib/binance-um-metrics-archive.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const dbPath = args.db ?? "build/runtime-test/bybit-trader-full-history.sqlite";
@@ -22,12 +34,47 @@ const candidateId = args.candidateId;
 const traceCandidateId = args.traceCandidateId;
 const traceWindowId = args.traceWindowId;
 const traceOut = args.traceOut ?? path.join(outDir, "trace.json");
+const binanceDir = args.binanceDir;
+const binanceDepthDir = args.binanceDepthDir;
+const binanceMetricsDir = args.binanceMetricsDir;
 
 await fs.mkdir(outDir, { recursive: true });
 
-const windows = JSON.parse(await fs.readFile(windowsPath, "utf8"));
+const windowsPayload = JSON.parse(await fs.readFile(windowsPath, "utf8"));
+const windows = Array.isArray(windowsPayload) ? windowsPayload : windowsPayload.folds;
+if (!Array.isArray(windows)) throw new Error(`Window file must be an array or contain folds: ${windowsPath}`);
 const candles = loadCandles({ dbPath, timeframe });
 attachIndicators(candles);
+attachDonchianChannels(candles, [864, 1_440, 2_016, 4_032, 8_640]);
+let binanceCoverage = null;
+if (binanceDir != null) {
+  const binanceRows = await loadBinanceUmKlines({ directory: binanceDir, interval: "5m" });
+  binanceCoverage = attachBinanceFlow(candles, binanceRows);
+}
+if (profile.startsWith("cross-venue-") && binanceCoverage == null) {
+  if (!profile.startsWith("cross-venue-depth") && !profile.startsWith("cross-venue-oi")) {
+    throw new Error(`Profile ${profile} requires --binanceDir`);
+  }
+}
+if (profile.startsWith("cross-venue-oi-kline") && binanceCoverage == null) {
+  throw new Error(`Profile ${profile} requires --binanceDir`);
+}
+let binanceDepthCoverage = null;
+if (binanceDepthDir != null) {
+  const depthRows = await loadBinanceCmBookDepth5m({ directory: binanceDepthDir });
+  binanceDepthCoverage = attachBinanceDepth(candles, depthRows);
+}
+if (profile.startsWith("cross-venue-depth") && binanceDepthCoverage == null) {
+  throw new Error(`Profile ${profile} requires --binanceDepthDir`);
+}
+let binanceMetricsCoverage = null;
+if (binanceMetricsDir != null) {
+  const metricRows = await loadBinanceUmMetrics({ directory: binanceMetricsDir });
+  binanceMetricsCoverage = attachBinanceMetrics(candles, metricRows);
+}
+if (profile.startsWith("cross-venue-oi") && binanceMetricsCoverage == null) {
+  throw new Error(`Profile ${profile} requires --binanceMetricsDir`);
+}
 
 const allCandidates = buildCandidates()
   .filter((candidate) => familyFilter.length === 0 || familyFilter.includes(candidate.family));
@@ -47,6 +94,9 @@ console.log(
     `family=${familyFilter.length === 0 ? "all" : familyFilter.join(",")}`,
     `profile=${profile}`,
     `targetCdrPct=${targetCdrPct}`,
+    `binanceCoverage=${binanceCoverage == null ? "disabled" : fmt(binanceCoverage.coveragePct)}`,
+    `binanceDepthCoverage=${binanceDepthCoverage == null ? "disabled" : fmt(binanceDepthCoverage.coveragePct)}`,
+    `binanceMetricsCoverage=${binanceMetricsCoverage == null ? "disabled" : fmt(binanceMetricsCoverage.coveragePct)}`,
   ].join(" "),
 );
 
@@ -153,6 +203,12 @@ function attachIndicators(items) {
   let trSum = 0.0;
   let cumulativeVolume = 0.0;
   let cumulativeRangePct = 0.0;
+  let cumulativeAbsoluteCloseChange = 0.0;
+  let ema20 = null;
+  let ema50 = null;
+  let ema200 = null;
+  let ema288 = null;
+  let ema1152 = null;
   for (let index = 0; index < items.length; index += 1) {
     const candle = items[index];
     const prevClose = index > 0 ? items[index - 1].close : candle.close;
@@ -176,10 +232,23 @@ function attachIndicators(items) {
     candle.side = candle.close > candle.open ? "BUY" : candle.close < candle.open ? "SELL" : null;
     candle.rangePct = candle.close > 0.0 ? ((candle.high - candle.low) / candle.close) * 100.0 : 0.0;
 
+    ema20 = nextEma(ema20, candle.close, 20);
+    ema50 = nextEma(ema50, candle.close, 50);
+    ema200 = nextEma(ema200, candle.close, 200);
+    ema288 = nextEma(ema288, candle.close, 288);
+    ema1152 = nextEma(ema1152, candle.close, 1_152);
+    candle.ema20 = index >= 19 ? ema20 : null;
+    candle.ema50 = index >= 49 ? ema50 : null;
+    candle.ema200 = index >= 199 ? ema200 : null;
+    candle.ema288 = index >= 287 ? ema288 : null;
+    candle.ema1152 = index >= 1_151 ? ema1152 : null;
+
     cumulativeVolume += candle.volume;
     cumulativeRangePct += candle.rangePct;
+    cumulativeAbsoluteCloseChange += Math.abs(candle.close - prevClose);
     candle.cumulativeVolume = cumulativeVolume;
     candle.cumulativeRangePct = cumulativeRangePct;
+    candle.cumulativeAbsoluteCloseChange = cumulativeAbsoluteCloseChange;
 
     volumeQueue.push(candle.volume);
     volumeSum += candle.volume;
@@ -188,6 +257,33 @@ function attachIndicators(items) {
     trQueue.push(trueRange);
     trSum += trueRange;
     if (trQueue.length > 20) trSum -= trQueue.shift();
+  }
+}
+
+function nextEma(previous, value, period) {
+  if (previous == null) return value;
+  const multiplier = 2.0 / (period + 1.0);
+  return previous + ((value - previous) * multiplier);
+}
+
+function attachDonchianChannels(items, periods) {
+  for (const period of periods) {
+    const highDeque = [];
+    const lowDeque = [];
+    for (let index = 0; index < items.length; index += 1) {
+      const oldestAllowed = index - period;
+      while (highDeque.length > 0 && highDeque[0] < oldestAllowed) highDeque.shift();
+      while (lowDeque.length > 0 && lowDeque[0] < oldestAllowed) lowDeque.shift();
+
+      const candle = items[index];
+      candle[`donchianHigh${period}`] = index >= period ? items[highDeque[0]].high : null;
+      candle[`donchianLow${period}`] = index >= period ? items[lowDeque[0]].low : null;
+
+      while (highDeque.length > 0 && items[highDeque.at(-1)].high <= candle.high) highDeque.pop();
+      while (lowDeque.length > 0 && items[lowDeque.at(-1)].low >= candle.low) lowDeque.pop();
+      highDeque.push(index);
+      lowDeque.push(index);
+    }
   }
 }
 
@@ -200,6 +296,29 @@ function buildCandidates() {
   if (profile === "absorption-adaptive-regime-side") return buildSideRegimeAbsorptionCandidates();
   if (profile === "absorption-adaptive-regime-final") return [buildFinalSideRegimeAbsorptionCandidate()];
   if (profile === "trend-trail") return buildTrendTrailCandidates();
+  if (profile === "trend-pullback-acceptance") return buildTrendPullbackAcceptanceCandidates();
+  if (profile === "trend-pullback-acceptance-focused") return buildFocusedTrendPullbackAcceptanceCandidates();
+  if (profile === "macro-trend-breakout") return buildMacroTrendBreakoutCandidates();
+  if (profile === "macro-donchian-trend") return buildMacroDonchianTrendCandidates();
+  if (profile === "macro-donchian-aggressive") return buildAggressiveMacroDonchianCandidates();
+  if (profile === "macro-donchian-stop-focused") return buildStopFocusedMacroDonchianCandidates();
+  if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
+  if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
+  if (profile === "cross-venue-flow-absorption") return buildCrossVenueFlowAbsorptionCandidates();
+  if (profile === "cross-venue-depth-continuation") return buildCrossVenueDepthContinuationCandidates();
+  if (profile === "cross-venue-depth-failure") return buildCrossVenueDepthFailureCandidates();
+  if (profile === "cross-venue-depth-shift") return buildCrossVenueDepthShiftCandidates();
+  if (profile === "cross-venue-oi-flow") return buildCrossVenueOiFlowCandidates();
+  if (profile === "cross-venue-oi-kline-flow") {
+    return buildCrossVenueOiFlowCandidates({ flowSource: "KLINE", directionModes: ["CONTINUE", "FADE"] });
+  }
+  if (profile === "cross-venue-oi-kline-unwind") {
+    return buildCrossVenueOiFlowCandidates({
+      flowSource: "KLINE",
+      directionModes: ["CONTINUE", "FADE"],
+      oiMode: "UNWIND",
+    });
+  }
   if (profile === "rejection-probe") return buildRejectionProbeCandidates();
 
   const candidates = [];
@@ -1010,6 +1129,526 @@ function buildTrendTrailCandidates() {
   return candidates;
 }
 
+function buildTrendPullbackAcceptanceCandidates() {
+  const candidates = [];
+  const sessions = [
+    { id: "all", hours: null },
+    { id: "us", hours: new Set([13, 14, 15, 16, 17, 18, 19, 20, 21]) },
+  ];
+
+  for (const session of sessions) {
+    for (const trendLookback of [48, 96]) {
+      for (const minTrendEfficiency of [0.10, 0.20]) {
+        for (const pullbackCandles of [3, 6]) {
+          for (const relativeVolumeMin of [0.8, 1.0]) {
+            for (const stopAtr of [1.0, 1.5]) {
+              for (const targetR of [2.0, 3.0]) {
+                candidates.push({
+                  id:
+                    `trend_pullback_${session.id}` +
+                    `_l${trendLookback}` +
+                    `_e${minTrendEfficiency}` +
+                    `_p${pullbackCandles}` +
+                    `_rv${relativeVolumeMin}` +
+                    `_s${stopAtr}` +
+                    `_t${targetR}`,
+                  family: "TREND_PULLBACK_ACCEPTANCE",
+                  session,
+                  riskFraction: 0.01,
+                  relativeVolumeMin,
+                  trendLookback,
+                  minTrendEfficiency,
+                  minTrendMoveAtr: 1.0,
+                  pullbackCandles,
+                  pullbackVolumeMax: 1.5,
+                  pullbackToleranceAtr: 1.5,
+                  maxConfirmationDistanceAtr: 2.5,
+                  minConfirmationBodyRatio: 0.30,
+                  minConfirmationCloseLocation: 0.60,
+                  stopAtr,
+                  targetR,
+                  maxHoldCandles: 72,
+                  maxTradesPerDay: 2,
+                  sideMode: "BOTH",
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildFocusedTrendPullbackAcceptanceCandidates() {
+  const session = { id: "us", hours: new Set([13, 14, 15, 16, 17, 18, 19, 20, 21]) };
+  const candidates = [];
+  for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+    for (const stopAtr of [1.0, 1.5, 2.0]) {
+      for (const targetR of [3.0, 4.0, 5.0]) {
+        for (const maxHoldCandles of [72, 144, 288]) {
+          candidates.push({
+            ...focusedTrendPullbackBase(session, sideMode, stopAtr, maxHoldCandles),
+            id: `trend_pullback_focus_${sideMode}_s${stopAtr}_t${targetR}_h${maxHoldCandles}`,
+            targetR,
+          });
+        }
+      }
+      for (const trailAtr of [1.5, 2.0, 2.5, 3.0]) {
+        for (const maxHoldCandles of [144, 288]) {
+          candidates.push({
+            ...focusedTrendPullbackBase(session, sideMode, stopAtr, maxHoldCandles),
+            id: `trend_pullback_focus_${sideMode}_s${stopAtr}_trail${trailAtr}_h${maxHoldCandles}`,
+            targetR: 5.0,
+            trailAtr,
+          });
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function focusedTrendPullbackBase(session, sideMode, stopAtr, maxHoldCandles) {
+  return {
+    family: "TREND_PULLBACK_ACCEPTANCE",
+    session,
+    riskFraction: 0.01,
+    relativeVolumeMin: 1.0,
+    trendLookback: 96,
+    minTrendEfficiency: 0.20,
+    minTrendMoveAtr: 1.0,
+    pullbackCandles: 6,
+    pullbackVolumeMax: 1.5,
+    pullbackToleranceAtr: 1.5,
+    maxConfirmationDistanceAtr: 2.5,
+    minConfirmationBodyRatio: 0.30,
+    minConfirmationCloseLocation: 0.60,
+    stopAtr,
+    maxHoldCandles,
+    maxTradesPerDay: 2,
+    sideMode,
+  };
+}
+
+function buildMacroTrendBreakoutCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+    for (const lookback of [144, 288, 576]) {
+      for (const relativeVolumeMin of [0.8, 1.0]) {
+        for (const minBreakAtr of [0.0, 0.25]) {
+          for (const stopAtr of [2.0, 3.0, 4.0]) {
+            for (const trailAtr of [3.0, 5.0, 8.0]) {
+              for (const maxHoldCandles of [2_016, 4_032]) {
+                candidates.push({
+                  id:
+                    `macro_break_${sideMode}` +
+                    `_l${lookback}` +
+                    `_rv${relativeVolumeMin}` +
+                    `_b${minBreakAtr}` +
+                    `_s${stopAtr}` +
+                    `_tr${trailAtr}` +
+                    `_h${maxHoldCandles}`,
+                  family: "MACRO_TREND_BREAKOUT",
+                  session,
+                  riskFraction: 0.01,
+                  relativeVolumeMin,
+                  lookback,
+                  minBreakAtr,
+                  stopAtr,
+                  trailAtr,
+                  targetR: 8.0,
+                  maxHoldCandles,
+                  maxTradesPerDay: 1,
+                  sideMode,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildMacroDonchianTrendCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+    for (const lookback of [2_016, 4_032, 8_640]) {
+      for (const relativeVolumeMin of [1.0, 1.5]) {
+        for (const stopAtr of [8.0, 16.0]) {
+          for (const trailAtr of [12.0, 24.0, 48.0]) {
+            candidates.push({
+              id:
+                `macro_donchian_${sideMode}` +
+                `_l${lookback}` +
+                `_rv${relativeVolumeMin}` +
+                `_s${stopAtr}` +
+                `_tr${trailAtr}`,
+              family: "MACRO_DONCHIAN_TREND",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin,
+              lookback,
+              stopAtr,
+              trailAtr,
+              targetR: 12.0,
+              maxHoldCandles: 17_280,
+              maxTradesPerDay: 1,
+              sideMode,
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildAggressiveMacroDonchianCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const lookback of [864, 1_440, 2_016]) {
+    for (const riskFraction of [0.03, 0.055, 0.08]) {
+      for (const stopAtr of [8.0, 16.0]) {
+        for (const trailAtr of [36.0, 48.0, 72.0]) {
+          candidates.push({
+            id:
+              `macro_donchian_aggressive_l${lookback}` +
+              `_r${riskFraction}` +
+              `_s${stopAtr}` +
+              `_tr${trailAtr}`,
+            family: "MACRO_DONCHIAN_TREND",
+            session,
+            riskFraction,
+            relativeVolumeMin: 1.0,
+            lookback,
+            stopAtr,
+            trailAtr,
+            targetR: 12.0,
+            maxHoldCandles: 17_280,
+            maxTradesPerDay: 1,
+            sideMode: "BOTH",
+          });
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildStopFocusedMacroDonchianCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const riskFraction of [0.055, 0.08]) {
+    for (const stopReferenceCandles of [72, 144, 288]) {
+      for (const stopAtr of [8.0, 16.0]) {
+        for (const trailAtr of [36.0, 48.0, 72.0]) {
+          candidates.push({
+            id:
+              `macro_donchian_stop_focus_r${riskFraction}` +
+              `_sr${stopReferenceCandles}` +
+              `_s${stopAtr}` +
+              `_tr${trailAtr}`,
+            family: "MACRO_DONCHIAN_TREND",
+            session,
+            riskFraction,
+            relativeVolumeMin: 1.0,
+            lookback: 1_440,
+            stopReferenceCandles,
+            stopAtr,
+            trailAtr,
+            targetR: 12.0,
+            maxHoldCandles: 17_280,
+            maxTradesPerDay: 1,
+            sideMode: "BOTH",
+          });
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildCrossVenueFlowTrendCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const flowWindow of [3, 6, 12]) {
+    for (const flowThreshold of [0.03, 0.08, 0.15]) {
+      for (const binanceRelativeVolumeMin of [1.0, 1.5]) {
+        for (const stopAtr of [1.5, 2.5]) {
+          for (const trailAtr of [2.5, 4.0]) {
+            candidates.push({
+              id:
+                `cross_flow_trend_w${flowWindow}` +
+                `_f${flowThreshold}` +
+                `_rv${binanceRelativeVolumeMin}` +
+                `_s${stopAtr}` +
+                `_tr${trailAtr}`,
+              family: "CROSS_VENUE_FLOW_TREND",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 0.8,
+              flowWindow,
+              flowThreshold,
+              binanceRelativeVolumeMin,
+              stopAtr,
+              trailAtr,
+              targetR: 8.0,
+              maxHoldCandles: 288,
+              maxTradesPerDay: 3,
+              sideMode: "BOTH",
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildCrossVenueFlowAbsorptionCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const flowThreshold of [0.15, 0.25, 0.35]) {
+    for (const binanceRelativeVolumeMin of [1.5, 2.5, 4.0]) {
+      for (const closeLocationExtreme of [0.60, 0.72]) {
+        for (const stopAtr of [1.5, 2.5]) {
+          for (const targetR of [1.5, 2.5, 4.0]) {
+            candidates.push({
+              id:
+                `cross_flow_absorb_f${flowThreshold}` +
+                `_rv${binanceRelativeVolumeMin}` +
+                `_cl${closeLocationExtreme}` +
+                `_s${stopAtr}` +
+                `_t${targetR}`,
+              family: "CROSS_VENUE_FLOW_ABSORPTION",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 0.8,
+              flowThreshold,
+              binanceRelativeVolumeMin,
+              closeLocationExtreme,
+              stopAtr,
+              targetR,
+              maxHoldCandles: 72,
+              maxTradesPerDay: 2,
+              sideMode: "BOTH",
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildFocusedCrossVenueFlowTrendCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const sideMode of ["LONG_ONLY", "SHORT_ONLY"]) {
+    for (const flowWindow of [12, 24, 36]) {
+      for (const flowThreshold of [0.12, 0.18, 0.24]) {
+        for (const binanceRelativeVolumeMin of [1.5, 2.0]) {
+          for (const stopAtr of [2.5, 4.0]) {
+            for (const trailAtr of [4.0, 6.0]) {
+              candidates.push({
+                id:
+                  `cross_flow_focus_${sideMode}` +
+                  `_w${flowWindow}` +
+                  `_f${flowThreshold}` +
+                  `_rv${binanceRelativeVolumeMin}` +
+                  `_s${stopAtr}` +
+                  `_tr${trailAtr}`,
+                family: "CROSS_VENUE_FLOW_TREND",
+                session,
+                riskFraction: 0.01,
+                relativeVolumeMin: 0.8,
+                flowWindow,
+                flowThreshold,
+                binanceRelativeVolumeMin,
+                stopAtr,
+                trailAtr,
+                targetR: 8.0,
+                maxHoldCandles: 576,
+                maxTradesPerDay: 1,
+                sideMode,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildCrossVenueDepthContinuationCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const depthLevel of [1, 2, 5]) {
+    for (const imbalanceThreshold of [0.10, 0.20, 0.30]) {
+      for (const trendAligned of [false, true]) {
+        for (const stopAtr of [1.5, 2.5]) {
+          for (const targetR of [2.5, 4.0]) {
+            candidates.push({
+              id:
+                `cross_depth_continue_l${depthLevel}` +
+                `_i${imbalanceThreshold}` +
+                `_trend${trendAligned}` +
+                `_s${stopAtr}` +
+                `_t${targetR}`,
+              family: "CROSS_VENUE_DEPTH_CONTINUATION",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 1.0,
+              depthLevel,
+              imbalanceThreshold,
+              trendAligned,
+              stopAtr,
+              targetR,
+              maxHoldCandles: 72,
+              maxTradesPerDay: 3,
+              sideMode: "BOTH",
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildCrossVenueDepthFailureCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const depthLevel of [1, 2, 5]) {
+    for (const imbalanceThreshold of [0.10, 0.20, 0.30]) {
+      for (const closeLocationExtreme of [0.60, 0.70]) {
+        for (const stopAtr of [1.5, 2.5]) {
+          for (const targetR of [2.5, 4.0]) {
+            candidates.push({
+              id:
+                `cross_depth_failure_l${depthLevel}` +
+                `_i${imbalanceThreshold}` +
+                `_cl${closeLocationExtreme}` +
+                `_s${stopAtr}` +
+                `_t${targetR}`,
+              family: "CROSS_VENUE_DEPTH_FAILURE",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 1.0,
+              depthLevel,
+              imbalanceThreshold,
+              closeLocationExtreme,
+              stopAtr,
+              targetR,
+              maxHoldCandles: 72,
+              maxTradesPerDay: 3,
+              sideMode: "BOTH",
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildCrossVenueDepthShiftCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const depthLevel of [1, 2, 5]) {
+    for (const changeThreshold of [0.05, 0.10, 0.20]) {
+      for (const directionMode of ["CONTINUE", "FADE"]) {
+        for (const stopAtr of [1.5, 2.5]) {
+          for (const targetR of [2.5, 4.0]) {
+            candidates.push({
+              id:
+                `cross_depth_shift_l${depthLevel}` +
+                `_d${changeThreshold}` +
+                `_${directionMode.toLowerCase()}` +
+                `_s${stopAtr}` +
+                `_t${targetR}`,
+              family: "CROSS_VENUE_DEPTH_SHIFT",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 1.0,
+              depthLevel,
+              changeThreshold,
+              directionMode,
+              stopAtr,
+              targetR,
+              maxHoldCandles: 72,
+              maxTradesPerDay: 3,
+              sideMode: "BOTH",
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+function buildCrossVenueOiFlowCandidates({
+  flowSource = "METRICS",
+  directionModes = ["CONTINUE"],
+  oiMode = "BUILD",
+} = {}) {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  const idPrefix = flowSource === "KLINE"
+    ? oiMode === "UNWIND" ? "cross_oi_kline_unwind" : "cross_oi_kline_flow"
+    : "cross_oi_flow";
+  const oiThresholds = new Map([
+    [3, [0.32, 0.62]],
+    [12, [0.80, 1.47]],
+    [36, [1.65, 2.88]],
+  ]);
+  for (const [oiWindow, thresholds] of oiThresholds) {
+    for (const oiChangeThreshold of thresholds) {
+      for (const flowThreshold of [0.14, 0.24, 0.34]) {
+        for (const directionMode of directionModes) {
+          for (const stopAtr of [1.5, 2.5]) {
+            for (const targetR of [2.5, 4.0]) {
+              candidates.push({
+                id:
+                  `${idPrefix}_w${oiWindow}` +
+                  `_oi${oiChangeThreshold}` +
+                  `_f${flowThreshold}` +
+                  `_${directionMode.toLowerCase()}` +
+                  `_s${stopAtr}` +
+                  `_t${targetR}`,
+                family: "CROSS_VENUE_OI_FLOW",
+                session,
+                riskFraction: 0.01,
+                relativeVolumeMin: 1.0,
+                oiWindow,
+                oiChangeThreshold,
+                flowThreshold,
+                flowSource,
+                directionMode,
+                oiMode,
+                stopAtr,
+                targetR,
+                maxHoldCandles: 72,
+                maxTradesPerDay: 3,
+                sideMode: "BOTH",
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildRejectionProbeCandidates() {
   const candidates = [];
   const sessions = [
@@ -1199,6 +1838,24 @@ function switchFamily(candidate, index, endIndex) {
       return absorptionBreakoutSetup(candidate, index, endIndex);
     case "TREND_TRAIL_BREAKOUT":
       return trendTrailBreakoutSetup(candidate, index);
+    case "TREND_PULLBACK_ACCEPTANCE":
+      return trendPullbackAcceptanceSetup(candidate, index);
+    case "MACRO_TREND_BREAKOUT":
+      return macroTrendBreakoutSetup(candidate, index);
+    case "MACRO_DONCHIAN_TREND":
+      return macroDonchianTrendSetup(candidate, index);
+    case "CROSS_VENUE_FLOW_TREND":
+      return crossVenueFlowTrendSetup(candidate, index);
+    case "CROSS_VENUE_FLOW_ABSORPTION":
+      return crossVenueFlowAbsorptionSetup(candidate, index);
+    case "CROSS_VENUE_DEPTH_CONTINUATION":
+      return crossVenueDepthContinuationSetup(candidate, index);
+    case "CROSS_VENUE_DEPTH_FAILURE":
+      return crossVenueDepthFailureSetup(candidate, index);
+    case "CROSS_VENUE_DEPTH_SHIFT":
+      return crossVenueDepthShiftSetup(candidate, index);
+    case "CROSS_VENUE_OI_FLOW":
+      return crossVenueOiFlowSetup(candidate, index);
     case "RANGE_REJECTION":
       return rangeRejectionSetup(candidate, index);
     case "EXHAUSTION_REVERSAL":
@@ -1206,6 +1863,315 @@ function switchFamily(candidate, index, endIndex) {
     default:
       return null;
   }
+}
+
+function macroDonchianTrendSetup(candidate, index) {
+  const candle = candles[index];
+  if (candle.ema288 == null || candle.ema1152 == null) return null;
+  const channelHigh = candle[`donchianHigh${candidate.lookback}`];
+  const channelLow = candle[`donchianLow${candidate.lookback}`];
+  const slopeReference = candles[index - 288]?.ema288;
+  if (channelHigh == null || channelLow == null || slopeReference == null) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+
+  const longBreakout =
+    candidate.sideMode !== "SHORT_ONLY" &&
+    candle.ema288 > candle.ema1152 &&
+    candle.ema288 > slopeReference &&
+    candle.close > channelHigh;
+  const shortBreakout =
+    candidate.sideMode !== "LONG_ONLY" &&
+    candle.ema288 < candle.ema1152 &&
+    candle.ema288 < slopeReference &&
+    candle.close < channelLow;
+  if (!longBreakout && !shortBreakout) return null;
+
+  const stopReferenceCandles = candidate.stopReferenceCandles ?? 288;
+  const stopReference = rangeFor(index - stopReferenceCandles, index + 1);
+  if (stopReference == null) return null;
+  return buildSetup(candidate, {
+    side: longBreakout ? "BUY" : "SELL",
+    entryIndex,
+    entry,
+    stopReference,
+  });
+}
+
+function crossVenueFlowTrendSetup(candidate, index) {
+  const candle = candles[index];
+  if (
+    candle.ema20 == null ||
+    candle.ema50 == null ||
+    candle.ema200 == null ||
+    candle.binanceRelativeQuoteVolume == null
+  ) return null;
+  const flow = candle[`binanceFlow${candidate.flowWindow}`];
+  if (flow == null || candle.binanceRelativeQuoteVolume < candidate.binanceRelativeVolumeMin) return null;
+  const slopeReference = candles[index - 12]?.ema50;
+  const stopReference = rangeFor(index - 6, index + 1);
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (slopeReference == null || stopReference == null || entry == null) return null;
+
+  const longTrend =
+    candle.ema20 > candle.ema50 &&
+    candle.ema50 > candle.ema200 &&
+    candle.ema50 > slopeReference &&
+    candle.close > candle.ema20;
+  const longFlow =
+    flow >= candidate.flowThreshold &&
+    candle.binanceTakerImbalance > 0 &&
+    candle.binanceReturnPct > 0;
+  if (candidate.sideMode !== "SHORT_ONLY" && longTrend && longFlow) {
+    return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference });
+  }
+
+  const shortTrend =
+    candle.ema20 < candle.ema50 &&
+    candle.ema50 < candle.ema200 &&
+    candle.ema50 < slopeReference &&
+    candle.close < candle.ema20;
+  const shortFlow =
+    flow <= -candidate.flowThreshold &&
+    candle.binanceTakerImbalance < 0 &&
+    candle.binanceReturnPct < 0;
+  if (candidate.sideMode !== "LONG_ONLY" && shortTrend && shortFlow) {
+    return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference });
+  }
+  return null;
+}
+
+function crossVenueFlowAbsorptionSetup(candidate, index) {
+  const candle = candles[index];
+  if (
+    candle.binanceRelativeQuoteVolume == null ||
+    candle.binanceRelativeQuoteVolume < candidate.binanceRelativeVolumeMin ||
+    candle.binanceTakerImbalance == null
+  ) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  const stopReference = { high: candle.high, low: candle.low };
+
+  const sellFlowAbsorbed =
+    candle.binanceTakerImbalance <= -candidate.flowThreshold &&
+    candle.closeLocation >= candidate.closeLocationExtreme &&
+    candle.close > candle.open;
+  if (sellFlowAbsorbed) {
+    return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference });
+  }
+
+  const buyFlowAbsorbed =
+    candle.binanceTakerImbalance >= candidate.flowThreshold &&
+    candle.closeLocation <= 1.0 - candidate.closeLocationExtreme &&
+    candle.close < candle.open;
+  if (buyFlowAbsorbed) {
+    return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference });
+  }
+  return null;
+}
+
+function crossVenueDepthContinuationSetup(candidate, index) {
+  const candle = candles[index];
+  const imbalance = candle[`binanceDepthImbalance${candidate.depthLevel}`];
+  if (imbalance == null) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  const stopReference = rangeFor(index - 6, index + 1);
+  if (entry == null || stopReference == null) return null;
+
+  const longTrend =
+    !candidate.trendAligned ||
+    (candle.ema20 != null && candle.ema50 != null && candle.ema20 > candle.ema50 && candle.close > candle.ema20);
+  if (imbalance >= candidate.imbalanceThreshold && longTrend) {
+    return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference });
+  }
+
+  const shortTrend =
+    !candidate.trendAligned ||
+    (candle.ema20 != null && candle.ema50 != null && candle.ema20 < candle.ema50 && candle.close < candle.ema20);
+  if (imbalance <= -candidate.imbalanceThreshold && shortTrend) {
+    return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference });
+  }
+  return null;
+}
+
+function crossVenueDepthFailureSetup(candidate, index) {
+  const candle = candles[index];
+  const imbalance = candle[`binanceDepthImbalance${candidate.depthLevel}`];
+  if (imbalance == null) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  const stopReference = { high: candle.high, low: candle.low };
+
+  const bidSupportFailed =
+    imbalance >= candidate.imbalanceThreshold &&
+    candle.side === "SELL" &&
+    candle.closeLocation <= 1.0 - candidate.closeLocationExtreme;
+  if (bidSupportFailed) {
+    return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference });
+  }
+
+  const askResistanceFailed =
+    imbalance <= -candidate.imbalanceThreshold &&
+    candle.side === "BUY" &&
+    candle.closeLocation >= candidate.closeLocationExtreme;
+  if (askResistanceFailed) {
+    return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference });
+  }
+  return null;
+}
+
+function crossVenueDepthShiftSetup(candidate, index) {
+  const candle = candles[index];
+  const change = candle[`binanceDepthImbalanceChange${candidate.depthLevel}`];
+  if (change == null || Math.abs(change) < candidate.changeThreshold) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  const stopReference = { high: candle.high, low: candle.low };
+  const changeSide = change > 0 ? "BUY" : "SELL";
+  const side = candidate.directionMode === "CONTINUE"
+    ? changeSide
+    : changeSide === "BUY" ? "SELL" : "BUY";
+  return buildSetup(candidate, { side, entryIndex, entry, stopReference });
+}
+
+function crossVenueOiFlowSetup(candidate, index) {
+  const candle = candles[index];
+  const oiChange = candle[`binanceOpenInterestChange${candidate.oiWindow}Pct`];
+  const flow = candidate.flowSource === "KLINE"
+    ? candle.binanceTakerImbalance
+    : candle.binanceMetricsTakerImbalance;
+  const oiTriggered = candidate.oiMode === "UNWIND"
+    ? oiChange != null && oiChange <= -candidate.oiChangeThreshold
+    : oiChange != null && oiChange >= candidate.oiChangeThreshold;
+  if (!oiTriggered || flow == null) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  const stopReference = { high: candle.high, low: candle.low };
+  const sideForFlow = (side) => candidate.directionMode === "FADE"
+    ? side === "BUY" ? "SELL" : "BUY"
+    : side;
+  if (flow >= candidate.flowThreshold) {
+    return buildSetup(candidate, { side: sideForFlow("BUY"), entryIndex, entry, stopReference });
+  }
+  if (flow <= -candidate.flowThreshold) {
+    return buildSetup(candidate, { side: sideForFlow("SELL"), entryIndex, entry, stopReference });
+  }
+  return null;
+}
+
+function macroTrendBreakoutSetup(candidate, index) {
+  const candle = candles[index];
+  if (candle.ema288 == null || candle.ema1152 == null) return null;
+  const slopeReference = candles[index - 144]?.ema288;
+  if (slopeReference == null) return null;
+  const channel = rangeFor(index - candidate.lookback, index);
+  const stopReference = rangeFor(index - 12, index + 1);
+  if (channel == null || stopReference == null) return null;
+  const breakBuffer = candle.atr20 * candidate.minBreakAtr;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+
+  if (
+    candidate.sideMode !== "SHORT_ONLY" &&
+    candle.ema288 > candle.ema1152 &&
+    candle.ema288 > slopeReference &&
+    candle.close > channel.high + breakBuffer &&
+    candle.close > candle.open &&
+    candle.closeLocation >= 0.60
+  ) {
+    return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference });
+  }
+  if (
+    candidate.sideMode !== "LONG_ONLY" &&
+    candle.ema288 < candle.ema1152 &&
+    candle.ema288 < slopeReference &&
+    candle.close < channel.low - breakBuffer &&
+    candle.close < candle.open &&
+    candle.closeLocation <= 0.40
+  ) {
+    return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference });
+  }
+  return null;
+}
+
+function trendPullbackAcceptanceSetup(candidate, index) {
+  const confirmation = candles[index];
+  const trendStartIndex = index - candidate.trendLookback;
+  const pullbackStartIndex = index - candidate.pullbackCandles;
+  if (trendStartIndex < 0 || pullbackStartIndex < 0) return null;
+  if (confirmation.ema20 == null || confirmation.ema50 == null || confirmation.ema200 == null) return null;
+
+  const trendStart = candles[trendStartIndex];
+  const pullbackCandles = candles.slice(pullbackStartIndex, index);
+  if (pullbackCandles.length !== candidate.pullbackCandles) return null;
+  const pullback = rangeFor(pullbackStartIndex, index);
+  if (pullback == null) return null;
+  const efficiency = trendEfficiency(index, candidate.trendLookback);
+  if (efficiency == null || efficiency < candidate.minTrendEfficiency) return null;
+  const atr = confirmation.atr20;
+  const trendMoveAtr = Math.abs(confirmation.close - trendStart.close) / atr;
+  if (trendMoveAtr < candidate.minTrendMoveAtr) return null;
+
+  const averagePullbackRelativeVolume = average(
+    pullbackCandles.map((candle) => candle.relativeVolume ?? Number.POSITIVE_INFINITY),
+  );
+  if (averagePullbackRelativeVolume > candidate.pullbackVolumeMax) return null;
+  if (confirmation.bodyRatio < candidate.minConfirmationBodyRatio) return null;
+
+  const prior = pullbackCandles[pullbackCandles.length - 1];
+  const emaSlopeReference = candles[Math.max(0, index - 12)].ema50;
+  if (emaSlopeReference == null) return null;
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+
+  const longAligned =
+    confirmation.ema20 > confirmation.ema50 &&
+    confirmation.ema50 > confirmation.ema200 &&
+    confirmation.ema50 > emaSlopeReference &&
+    confirmation.close > confirmation.ema20;
+  const longPullbackAccepted =
+    pullback.low <= confirmation.ema20 + (atr * candidate.pullbackToleranceAtr) &&
+    pullback.low >= confirmation.ema50 - (atr * candidate.pullbackToleranceAtr) &&
+    confirmation.close > prior.high &&
+    confirmation.closeLocation >= candidate.minConfirmationCloseLocation &&
+    (confirmation.close - confirmation.ema20) / atr <= candidate.maxConfirmationDistanceAtr;
+  if (candidate.sideMode !== "SHORT_ONLY" && longAligned && longPullbackAccepted) {
+    return buildSetup(candidate, { side: "BUY", entryIndex, entry, stopReference: pullback });
+  }
+
+  const shortAligned =
+    confirmation.ema20 < confirmation.ema50 &&
+    confirmation.ema50 < confirmation.ema200 &&
+    confirmation.ema50 < emaSlopeReference &&
+    confirmation.close < confirmation.ema20;
+  const shortPullbackAccepted =
+    pullback.high >= confirmation.ema20 - (atr * candidate.pullbackToleranceAtr) &&
+    pullback.high <= confirmation.ema50 + (atr * candidate.pullbackToleranceAtr) &&
+    confirmation.close < prior.low &&
+    confirmation.closeLocation <= 1.0 - candidate.minConfirmationCloseLocation &&
+    (confirmation.ema20 - confirmation.close) / atr <= candidate.maxConfirmationDistanceAtr;
+  if (candidate.sideMode !== "LONG_ONLY" && shortAligned && shortPullbackAccepted) {
+    return buildSetup(candidate, { side: "SELL", entryIndex, entry, stopReference: pullback });
+  }
+  return null;
+}
+
+function trendEfficiency(index, lookback) {
+  const startIndex = index - lookback;
+  if (startIndex < 0) return null;
+  const previous = startIndex > 0 ? candles[startIndex].cumulativeAbsoluteCloseChange : 0.0;
+  const travelled = candles[index].cumulativeAbsoluteCloseChange - previous;
+  if (travelled <= 0.0) return 0.0;
+  return Math.abs(candles[index].close - candles[startIndex].close) / travelled;
 }
 
 function clusterBreakoutSetup(candidate, index) {

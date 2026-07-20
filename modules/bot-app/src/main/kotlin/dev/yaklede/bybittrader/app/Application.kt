@@ -19,6 +19,7 @@ import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowCompositeBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSweepService
@@ -123,9 +124,11 @@ fun main() {
     val volumeFlowAggressiveBacktestService = VolumeFlowAggressiveBacktestService(candleStore = ledger)
     val volumeFlowCompositeBacktestService = VolumeFlowCompositeBacktestService(candleStore = ledger)
     val volumeFlowSweepService = VolumeFlowSweepService(candleStore = ledger)
+    val aggressiveRuntimeProfile = VolumeFlowAggressiveProfiles.current()
     val strategyProfileService =
         StrategyProfileService(
             statePath = Path.of(config.strategyProfiles.statePath),
+            runtimeExecutionContract = config.execution.toAggressiveExecutionContract(),
         )
     val paperTradingService =
         PaperTradingService(
@@ -152,7 +155,7 @@ fun main() {
                 stateStore = ledger,
                 candleStore = ledger,
                 tradingStore = ledger,
-                strategy = VolumeFlowAggressiveStrategy(),
+                strategy = VolumeFlowAggressiveStrategy(aggressiveRuntimeProfile.strategyConfig),
                 gateway =
                     BybitPrivateClient(
                         httpClient = httpClient,

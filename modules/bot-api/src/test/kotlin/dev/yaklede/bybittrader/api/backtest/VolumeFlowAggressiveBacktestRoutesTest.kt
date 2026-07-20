@@ -1,7 +1,10 @@
 package dev.yaklede.bybittrader.api.backtest
 
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveSignalMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
+import dev.yaklede.bybittrader.engine.backtest.executionContract
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -20,6 +23,10 @@ class VolumeFlowAggressiveBacktestRoutesTest :
                     maxHoldCandles = 72,
                     maxTradesPerDay = 2,
                     sideMode = "long_only",
+                    signalMode = "macro_donchian",
+                    donchianLookbackCandles = 1_440,
+                    stopReferenceCandles = 288,
+                    trailingAtrMultiple = 48.0,
                     entrySignalHoursUtc = setOf(14, 15),
                     entryMode = "breakout_retest",
                     breakoutRelativeVolumeMin = 1.2,
@@ -38,6 +45,11 @@ class VolumeFlowAggressiveBacktestRoutesTest :
                 ).validated().toConfig()
 
             config.profileId shouldBe "absa_final_us_v1"
+            config.initialEquity shouldBe 100.0
+            config.quantityStep shouldBe 0.001
+            config.minQuantity shouldBe 0.001
+            config.maxNotional shouldBe 100.0
+            config.leverage shouldBe 15.0
             config.relativeVolumeMin shouldBe 1.5
             config.clusterCandles shouldBe 3
             config.clusterVolumeMin shouldBe 1.8
@@ -47,6 +59,10 @@ class VolumeFlowAggressiveBacktestRoutesTest :
             config.maxHoldCandles shouldBe 72
             config.maxTradesPerDay shouldBe 2
             config.sideMode shouldBe VolumeFlowSideMode.LONG_ONLY
+            config.signalMode shouldBe VolumeFlowAggressiveSignalMode.MACRO_DONCHIAN
+            config.donchianLookbackCandles shouldBe 1_440
+            config.stopReferenceCandles shouldBe 288
+            config.trailingAtrMultiple shouldBe 48.0
             config.entrySignalHoursUtc shouldBe setOf(14, 15)
             config.entryMode shouldBe VolumeFlowAggressiveEntryMode.BREAKOUT_RETEST
             config.breakoutRelativeVolumeMin shouldBe 1.2
@@ -63,11 +79,27 @@ class VolumeFlowAggressiveBacktestRoutesTest :
             config.adaptiveStop shouldBe null
             config.adaptiveTarget shouldBe null
             config.sideRegimeBlocks shouldBe emptyList()
+            VolumeFlowAggressiveProfiles.matchesCurrentSignalDefinition(config) shouldBe false
+        }
+
+        "empty aggressive request uses the frozen runtime replay contract" {
+            val config = VolumeFlowAggressiveCurrentBacktestRequest().validated().toConfig()
+            val profile = VolumeFlowAggressiveProfiles.current()
+
+            config.initialEquity shouldBe 100.0
+            config.executionContract() shouldBe profile.executionContract
+            VolumeFlowAggressiveProfiles.matchesCurrentSignalDefinition(config) shouldBe true
         }
 
         "rejects an unknown aggressive side mode" {
             shouldThrow<IllegalArgumentException> {
                 VolumeFlowAggressiveCurrentBacktestRequest(sideMode = "unknown").validated()
+            }
+        }
+
+        "rejects an unknown aggressive signal mode" {
+            shouldThrow<IllegalArgumentException> {
+                VolumeFlowAggressiveCurrentBacktestRequest(signalMode = "unknown").validated()
             }
         }
     })

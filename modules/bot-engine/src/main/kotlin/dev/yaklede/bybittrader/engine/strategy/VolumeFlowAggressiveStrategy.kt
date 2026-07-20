@@ -23,7 +23,7 @@ private const val MIN_ENTRY_RISK_PCT = 0.002
 private const val MAX_ENTRY_RISK_PCT = 0.035
 
 class VolumeFlowAggressiveStrategy(
-    private val config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
+    private val config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.current().strategyConfig,
 ) : TradingStrategy {
     override val name: String = "volume-flow-aggressive-${config.profileId}"
     override val warmupCandles: Int = config.requiredWarmupCandles()

@@ -33,7 +33,7 @@ class VolumeFlowAggressiveBacktestService(
     suspend fun run(
         symbol: Symbol,
         m5Limit: Int,
-        config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
+        config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.currentReplayConfig(),
         m1Limit: Int = ResearchCandleLimits.MAX_M1_REPLAY_CANDLES,
         replayStartAt: Instant? = null,
         replayEndAt: Instant? = null,
@@ -63,8 +63,8 @@ class VolumeFlowAggressiveBacktestService(
                 val recent = candleStore.recentCandles(symbol, Timeframe.M5, m5Limit).sortedBy { it.openedAt }
                 LoadedAggressiveCandles(recent, recent.size, 0)
             }
-        require(loaded.candles.size >= config.requiredWarmupCandles() + config.maxHoldCandles + 2) {
-            "Not enough M5 candles for aggressive absorption replay."
+        require(loaded.candles.size >= config.requiredWarmupCandles() + 3) {
+            "Not enough M5 candles for aggressive replay."
         }
         val m1Candles =
             if (config.executionPathMode == AggressiveExecutionPathMode.M1_REQUIRED) {
@@ -98,7 +98,7 @@ class VolumeFlowAggressiveBacktestService(
         symbol: Symbol,
         candles: List<Candle>,
         m1Candles: List<Candle> = emptyList(),
-        config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.finalUsV1(),
+        config: VolumeFlowAggressiveBacktestConfig = VolumeFlowAggressiveProfiles.currentReplayConfig(),
         replayStartAt: Instant? = null,
         replayEndAt: Instant? = null,
         replayCandleCount: Int = candles.size,
@@ -130,7 +130,7 @@ class VolumeFlowAggressiveBacktestService(
                 ?: config.requiredWarmupCandles()
         var index = maxOf(config.requiredWarmupCandles(), firstReplayIndex)
         val replayEndIndex = enriched.size
-        while (index < replayEndIndex - config.maxHoldCandles - 2) {
+        while (index < replayEndIndex - 2) {
             val setup = findSetup(enriched, index, replayEndIndex, config)
             if (setup == null) {
                 index += 1
@@ -150,7 +150,7 @@ class VolumeFlowAggressiveBacktestService(
             }
             val exit =
                 when (config.executionPathMode) {
-                    AggressiveExecutionPathMode.M1_REQUIRED -> simulateM1Exit(m1Candles, setup, config)
+                    AggressiveExecutionPathMode.M1_REQUIRED -> simulateM1Exit(m1Candles, enriched, setup, config)
                     AggressiveExecutionPathMode.M5_CONSERVATIVE -> simulateM5Exit(enriched, setup, replayEndIndex, config)
                 }
             if (exit == null) {
@@ -255,9 +255,25 @@ class VolumeFlowAggressiveBacktestService(
             } else {
                 -100.0
             }
+        val runtimeProfile = VolumeFlowAggressiveProfiles.current()
+        val runtimeSignalProfileMatched = VolumeFlowAggressiveProfiles.matchesCurrentSignalDefinition(config)
         return VolumeFlowAggressiveBacktestReport(
+            validationStatus =
+                if (runtimeSignalProfileMatched) {
+                    runtimeProfile.validationStatus
+                } else {
+                    StrategyValidationStatus.UNVERIFIED
+                },
+            strategyContractVersion = runtimeProfile.contractVersion,
+            runtimeSignalProfileMatched = runtimeSignalProfileMatched,
+            executionContract = config.executionContract(),
             symbol = symbol,
-            profileId = config.profileId,
+            profileId =
+                if (runtimeSignalProfileMatched) {
+                    runtimeProfile.profileId
+                } else {
+                    "${runtimeProfile.profileId}-research-override"
+                },
             m5CandleCount = replayCandleCount,
             m1CandleCount = m1Candles.size,
             warmupCandleCount = warmupCandleCount,
@@ -341,6 +357,9 @@ class VolumeFlowAggressiveBacktestService(
         replayEndIndex: Int,
         config: VolumeFlowAggressiveBacktestConfig,
     ): AggressiveSetup? {
+        if (config.signalMode == VolumeFlowAggressiveSignalMode.MACRO_DONCHIAN) {
+            return findMacroDonchianSetup(candles, index, config)
+        }
         val candle = candles[index]
         if (!config.sessionHoursUtc.contains(candle.hourUtc)) return null
         val atr = candle.atr ?: return null
@@ -441,6 +460,97 @@ class VolumeFlowAggressiveBacktestService(
             }
         }
         return null
+    }
+
+    private fun findMacroDonchianSetup(
+        candles: List<AggressiveCandle>,
+        index: Int,
+        config: VolumeFlowAggressiveBacktestConfig,
+    ): AggressiveSetup? {
+        val signal = candles[index]
+        if (!config.sessionHoursUtc.contains(signal.hourUtc)) return null
+        val atr = signal.atr?.takeIf { it > 0.0 } ?: return null
+        val relativeVolume = signal.relativeVolume ?: return null
+        if (relativeVolume < config.relativeVolumeMin) return null
+        val ema288 = signal.ema288 ?: return null
+        val ema1152 = signal.ema1152 ?: return null
+        val slopeReference = candles.getOrNull(index - 288)?.ema288 ?: return null
+        val channelHigh = signal.donchianHigh ?: return null
+        val channelLow = signal.donchianLow ?: return null
+        val close = signal.candle.close.toDouble()
+        val side =
+            when {
+                config.sideMode != VolumeFlowSideMode.SHORT_ONLY &&
+                    ema288 > ema1152 &&
+                    ema288 > slopeReference &&
+                    close > channelHigh -> Side.BUY
+                config.sideMode != VolumeFlowSideMode.LONG_ONLY &&
+                    ema288 < ema1152 &&
+                    ema288 < slopeReference &&
+                    close < channelLow -> Side.SELL
+                else -> return null
+            }
+        val entryIndex = index + 1
+        val entry = candles.getOrNull(entryIndex) ?: return null
+        if (entry.candle.openedAt != signal.candle.openedAt.plusSeconds(M5_CANDLE_SECONDS)) return null
+        val stopRange = clusterRange(candles, index - config.stopReferenceCandles, index + 1) ?: return null
+        val entryOpen = entry.candle.open.toDouble()
+        val entryPrice =
+            when (side) {
+                Side.BUY -> entryOpen * (1.0 + config.slippageRate)
+                Side.SELL -> entryOpen * (1.0 - config.slippageRate)
+            }
+        val atrStop = atr * config.stopAtr
+        val stopPrice =
+            when (side) {
+                Side.BUY -> minOf(stopRange.low, close - atrStop)
+                Side.SELL -> maxOf(stopRange.high, close + atrStop)
+            }
+        val riskPerUnit = abs(close - stopPrice)
+        val entryRiskPct = riskPerUnit / close
+        if (riskPerUnit <= 0.0 || entryRiskPct < MIN_ENTRY_RISK_PCT || entryRiskPct > MAX_ENTRY_RISK_PCT) return null
+        val targetPrice =
+            ExecutionTradePlanCalculator
+                .calculateTakeProfit(
+                    side = side,
+                    entryPrice = BigDecimal.valueOf(close),
+                    riskPerUnit = BigDecimal.valueOf(riskPerUnit),
+                    expectedR = BigDecimal.valueOf(config.targetR),
+                ).toDouble()
+        val leverageStopRejection =
+            ExecutionTradePlanCalculator.leverageStopRejection(
+                side = side,
+                entryPrice = BigDecimal.valueOf(entryPrice),
+                stopLoss = BigDecimal.valueOf(stopPrice),
+                leverage = config.leverage?.let(BigDecimal::valueOf),
+                liquidationBufferPct = BigDecimal.valueOf(config.liquidationBufferPct),
+            )
+        if (leverageStopRejection != null) return null
+        return AggressiveSetup(
+            side = side,
+            absorption = signal,
+            breakoutSide = side,
+            breakout = signal,
+            signal = signal,
+            entryIndex = entryIndex,
+            entry = entry,
+            plannedEntryPrice = close,
+            rawEntryPrice = entryOpen,
+            entryPrice = entryPrice,
+            stopPrice = stopPrice,
+            targetPrice = targetPrice,
+            riskPerUnit = riskPerUnit,
+            stopAtr = config.stopAtr,
+            targetR = config.targetR,
+            clusterVolumeRatio = relativeVolume,
+            clusterDisplacementAtr = 0.0,
+            clusterRangeAtr = (stopRange.high - stopRange.low) / atr,
+            breakoutDistanceAtr =
+                when (side) {
+                    Side.BUY -> (close - channelHigh) / atr
+                    Side.SELL -> (channelLow - close) / atr
+                },
+        )
     }
 
     private fun confirmationIndex(
@@ -675,6 +785,8 @@ class VolumeFlowAggressiveBacktestService(
         var mfeR = 0.0
         var maeR = 0.0
         var activeStop = AggressiveManagedStop(setup.stopPrice, VolumeFlowExitReason.STOP)
+        var bestHigh = setup.entryPrice
+        var bestLow = setup.entryPrice
         for (index in setup.entryIndex..end) {
             val candle = candles[index].candle
             val excursion = candle.excursionR(setup)
@@ -684,16 +796,27 @@ class VolumeFlowAggressiveBacktestService(
             if (protectiveExit != null) {
                 return AggressiveExit(index, candle.openedAt, protectiveExit.price, protectiveExit.reason, mfeR, maeR)
             }
-            if (setup.side == Side.BUY) {
-                if (candle.high.toDouble() >= setup.targetPrice) {
+            if (config.trailingAtrMultiple == null) {
+                if (setup.side == Side.BUY && candle.high.toDouble() >= setup.targetPrice) {
                     return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
+                if (setup.side == Side.SELL && candle.low.toDouble() <= setup.targetPrice) {
+                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
+                }
+                activeStop = managedStopAfterClose(candle, setup, config, activeStop)
             } else {
-                if (candle.low.toDouble() <= setup.targetPrice) {
-                    return AggressiveExit(index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
-                }
+                bestHigh = maxOf(bestHigh, candle.high.toDouble())
+                bestLow = minOf(bestLow, candle.low.toDouble())
+                val trailingAtr = candles[index].atr ?: setup.signal.atr ?: continue
+                activeStop =
+                    activeStop.withAtrTrail(
+                        side = setup.side,
+                        bestHigh = bestHigh,
+                        bestLow = bestLow,
+                        atr = trailingAtr,
+                        multiple = config.trailingAtrMultiple,
+                    )
             }
-            activeStop = managedStopAfterClose(candle, setup, config, activeStop)
         }
         return AggressiveExit(
             end,
@@ -707,6 +830,7 @@ class VolumeFlowAggressiveBacktestService(
 
     private fun simulateM1Exit(
         candles: List<Candle>,
+        m5Candles: List<AggressiveCandle>,
         setup: AggressiveSetup,
         config: VolumeFlowAggressiveBacktestConfig,
     ): AggressiveExit? {
@@ -714,11 +838,14 @@ class VolumeFlowAggressiveBacktestService(
         val startIndex = candles.binarySearchBy(entryAt) { it.openedAt }
         if (startIndex < 0) return null
         val liquidationPrice = approximateLiquidationPrice(setup, config)
-        val pathMinutes = config.maxHoldCandles * 5
+        val pathMinutes = minOf(config.maxHoldCandles * 5, candles.size - startIndex)
+        if (pathMinutes <= 0) return null
         var lastCandle: Candle? = null
         var mfeR = 0.0
         var maeR = 0.0
         var activeStop = AggressiveManagedStop(setup.stopPrice, VolumeFlowExitReason.STOP)
+        var bestHigh = setup.entryPrice
+        var bestLow = setup.entryPrice
         repeat(pathMinutes) { minuteOffset ->
             val candle = candles.getOrNull(startIndex + minuteOffset) ?: return null
             val expectedAt = entryAt.plusSeconds(minuteOffset * 60L)
@@ -739,20 +866,33 @@ class VolumeFlowAggressiveBacktestService(
                     maeR,
                 )
             }
-            if (setup.side == Side.BUY) {
-                if (candle.high.toDouble() >= setup.targetPrice) {
+            if (config.trailingAtrMultiple == null) {
+                if (setup.side == Side.BUY && candle.high.toDouble() >= setup.targetPrice) {
                     return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
                 }
-            } else {
-                if (candle.low.toDouble() <= setup.targetPrice) {
+                if (setup.side == Side.SELL && candle.low.toDouble() <= setup.targetPrice) {
                     return AggressiveExit(exitM5Index, candle.openedAt, setup.targetPrice, VolumeFlowExitReason.TARGET, mfeR, maeR)
+                }
+                activeStop = managedStopAfterClose(candle, setup, config, activeStop)
+            } else {
+                bestHigh = maxOf(bestHigh, candle.high.toDouble())
+                bestLow = minOf(bestLow, candle.low.toDouble())
+                if (minuteOffset % 5 == 4) {
+                    val trailingAtr = m5Candles.getOrNull(exitM5Index)?.atr ?: setup.signal.atr ?: return null
+                    activeStop =
+                        activeStop.withAtrTrail(
+                            side = setup.side,
+                            bestHigh = bestHigh,
+                            bestLow = bestLow,
+                            atr = trailingAtr,
+                            multiple = config.trailingAtrMultiple,
+                        )
                 }
             }
-            activeStop = managedStopAfterClose(candle, setup, config, activeStop)
         }
         val timeExit = lastCandle ?: return null
         return AggressiveExit(
-            exitM5Index = setup.entryIndex + config.maxHoldCandles - 1,
+            exitM5Index = minOf(setup.entryIndex + config.maxHoldCandles - 1, m5Candles.lastIndex),
             closedAt = timeExit.openedAt,
             exitPrice = timeExit.close.toDouble(),
             reason = VolumeFlowExitReason.TIME,
@@ -790,6 +930,10 @@ private fun List<Candle>.enriched(config: VolumeFlowAggressiveBacktestConfig): L
     var trueRangeSum = 0.0
     var cumulativeVolume = 0.0
     var cumulativeRangePct = 0.0
+    var ema288: Double? = null
+    var ema1152: Double? = null
+    val donchianHighDeque = ArrayDeque<Int>()
+    val donchianLowDeque = ArrayDeque<Int>()
     forEachIndexed { index, candle ->
         val previousClose = if (index > 0) this[index - 1].close.toDouble() else candle.close.toDouble()
         val trueRange =
@@ -803,6 +947,19 @@ private fun List<Candle>.enriched(config: VolumeFlowAggressiveBacktestConfig): L
         val range = candle.high.toDouble() - candle.low.toDouble()
         val close = candle.close.toDouble()
         val rangePct = if (close > 0.0) (range / close) * 100.0 else 0.0
+        ema288 = nextEma(ema288, close, 288)
+        ema1152 = nextEma(ema1152, close, 1_152)
+        val oldestDonchianIndex = index - config.donchianLookbackCandles
+        while (donchianHighDeque.isNotEmpty() && donchianHighDeque.first() < oldestDonchianIndex) {
+            donchianHighDeque.removeFirst()
+        }
+        while (donchianLowDeque.isNotEmpty() && donchianLowDeque.first() < oldestDonchianIndex) {
+            donchianLowDeque.removeFirst()
+        }
+        val donchianHigh =
+            if (index >= config.donchianLookbackCandles) this[donchianHighDeque.first()].high.toDouble() else null
+        val donchianLow =
+            if (index >= config.donchianLookbackCandles) this[donchianLowDeque.first()].low.toDouble() else null
         cumulativeVolume += candle.volume.toDouble()
         cumulativeRangePct += rangePct
         val shape = VolumeFlowIndicators.candleShape(candle)
@@ -825,7 +982,19 @@ private fun List<Candle>.enriched(config: VolumeFlowAggressiveBacktestConfig): L
                 rangePct = rangePct,
                 cumulativeVolume = cumulativeVolume,
                 cumulativeRangePct = cumulativeRangePct,
+                ema288 = ema288.takeIf { index >= 287 },
+                ema1152 = ema1152.takeIf { index >= 1_151 },
+                donchianHigh = donchianHigh,
+                donchianLow = donchianLow,
             )
+        while (donchianHighDeque.isNotEmpty() && this[donchianHighDeque.last()].high <= candle.high) {
+            donchianHighDeque.removeLast()
+        }
+        while (donchianLowDeque.isNotEmpty() && this[donchianLowDeque.last()].low >= candle.low) {
+            donchianLowDeque.removeLast()
+        }
+        donchianHighDeque.addLast(index)
+        donchianLowDeque.addLast(index)
         volumeQueue += candle.volume.toDouble()
         volumeSum += candle.volume.toDouble()
         if (volumeQueue.size > config.volumeLookback) {
@@ -839,6 +1008,12 @@ private fun List<Candle>.enriched(config: VolumeFlowAggressiveBacktestConfig): L
     }
     return result
 }
+
+private fun nextEma(
+    previous: Double?,
+    value: Double,
+    period: Int,
+): Double = previous?.let { it + ((value - it) * (2.0 / (period + 1.0))) } ?: value
 
 private fun clusterRange(
     candles: List<AggressiveCandle>,
@@ -901,6 +1076,10 @@ private data class AggressiveCandle(
     val rangePct: Double,
     val cumulativeVolume: Double,
     val cumulativeRangePct: Double,
+    val ema288: Double?,
+    val ema1152: Double?,
+    val donchianHigh: Double?,
+    val donchianLow: Double?,
 )
 
 private data class AggressiveCluster(
@@ -1078,6 +1257,21 @@ private fun AggressiveManagedStop.tighter(
         Side.BUY -> if (candidate > price) AggressiveManagedStop(candidate, candidateReason) else this
         Side.SELL -> if (candidate < price) AggressiveManagedStop(candidate, candidateReason) else this
     }
+
+private fun AggressiveManagedStop.withAtrTrail(
+    side: Side,
+    bestHigh: Double,
+    bestLow: Double,
+    atr: Double,
+    multiple: Double,
+): AggressiveManagedStop {
+    val candidate =
+        when (side) {
+            Side.BUY -> bestHigh - (atr * multiple)
+            Side.SELL -> bestLow + (atr * multiple)
+        }
+    return tighter(candidate, VolumeFlowExitReason.TRAILING_STOP, side)
+}
 
 private fun List<VolumeFlowAggressiveBacktestTrade>.toPerformanceSlices(
     keySelector: (VolumeFlowAggressiveBacktestTrade) -> String,

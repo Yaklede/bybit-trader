@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs as parseSealedArgs, verifyProtocol } from "./volume-flow-sealed-evaluate.mjs";
 
 const DEFAULT_PROTOCOL_PATH = "config/volume-flow-sealed-windows-v1.json";
-const DEFAULT_CONTRACT_PATH = "config/aggressive-runtime-replay-contract-v1.json";
+const DEFAULT_CONTRACT_PATH = "config/aggressive-runtime-replay-contract-v2.json";
 const MAX_REPLAY_LIMITS = { m1Limit: 6_000_000, m5Limit: 1_200_000 };
 const COVERAGE_TOLERANCE_MILLIS = 15 * 60_000;
 
@@ -24,8 +25,8 @@ export function parseArgs(argv) {
 }
 
 export function verifyContract(contract) {
-  if (contract?.schemaVersion !== 1 || contract?.status !== "FROZEN") {
-    throw new Error("Runtime replay contract must be schemaVersion=1 and status=FROZEN.");
+  if (contract?.schemaVersion !== 1 || contract?.status !== "FROZEN" || !contract?.contractVersion) {
+    throw new Error("Runtime replay contract must be schemaVersion=1, status=FROZEN, and declare contractVersion.");
   }
   const runtime = contract.runtimeProfile;
   if (
@@ -54,6 +55,12 @@ export function verifyContract(contract) {
   ) {
     throw new Error("Runtime replay contract gates are incomplete.");
   }
+  if (
+    gates.requiredRuntimeSignalProfileMatched != null &&
+    typeof gates.requiredRuntimeSignalProfileMatched !== "boolean"
+  ) {
+    throw new Error("requiredRuntimeSignalProfileMatched must be a boolean when provided.");
+  }
   return contract;
 }
 
@@ -69,7 +76,24 @@ export function buildRuntimeRequest(contract, window) {
   };
 }
 
-export function evaluateRuntimeWindow(window, result, gates, profileId) {
+export function executionContractFingerprint(runtime) {
+  const canonical = [
+    ["riskFraction", runtime.riskFraction],
+    ["feeRate", runtime.feeRate],
+    ["entrySlippageRate", runtime.slippageRate],
+    ["exitSlippageRate", runtime.exitSlippageRate],
+    ["fundingRatePer8h", runtime.fundingRatePer8h ?? 0],
+    ["quantityStep", runtime.quantityStep],
+    ["minQuantity", runtime.minQuantity],
+    ["maxQuantity", runtime.maxQuantity ?? null],
+    ["maxNotional", runtime.maxNotional],
+    ["leverage", runtime.leverage],
+    ["liquidationBufferPct", runtime.liquidationBufferPct],
+  ].map(([key, value]) => `${key}=${canonicalNumber(value)}`).join("|");
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+export function evaluateRuntimeWindow(window, result, gates, profileId, contractVersion, expectedExecutionFingerprint) {
   const reasons = [];
   if (!result.ok) {
     reasons.push(result.reason ?? "REQUEST_FAILED");
@@ -78,6 +102,12 @@ export function evaluateRuntimeWindow(window, result, gates, profileId) {
 
   const response = result.response;
   if (response.profileId !== profileId) reasons.push("PROFILE_MISMATCH");
+  if (response.strategyContractVersion !== contractVersion) reasons.push("STRATEGY_CONTRACT_MISMATCH");
+  const requiredRuntimeSignalProfileMatched = gates.requiredRuntimeSignalProfileMatched ?? true;
+  if (response.runtimeSignalProfileMatched !== requiredRuntimeSignalProfileMatched) {
+    reasons.push("RUNTIME_SIGNAL_PROFILE_MISMATCH");
+  }
+  if (response.executionContract?.fingerprint !== expectedExecutionFingerprint) reasons.push("EXECUTION_CONTRACT_MISMATCH");
   if (response.fillModelVersion !== gates.requiredFillModelVersion) reasons.push("FILL_MODEL_MISMATCH");
   if (response.validationStatus !== gates.requiredValidationStatus) reasons.push("PROFILE_UNVERIFIED");
   if (response.compoundDailyReturnPct < gates.minCompoundDailyReturnPct) reasons.push("CDR_BELOW_TARGET");
@@ -92,6 +122,9 @@ export function evaluateRuntimeWindow(window, result, gates, profileId) {
     engineVersion: response.engineVersion,
     fillModelVersion: response.fillModelVersion,
     validationStatus: response.validationStatus,
+    strategyContractVersion: response.strategyContractVersion,
+    runtimeSignalProfileMatched: response.runtimeSignalProfileMatched,
+    executionContractFingerprint: response.executionContract?.fingerprint ?? null,
     liveExpansionAllowed: response.liveExpansionAllowed,
     effectiveStartAt: response.startAt ?? null,
     effectiveEndAt: response.endAt ?? null,
@@ -106,22 +139,34 @@ export function evaluateRuntimeWindow(window, result, gates, profileId) {
 }
 
 export async function evaluateRuntimeProtocol(protocol, contract, request, concurrency = 1) {
+  const expectedExecutionFingerprint = executionContractFingerprint(contract.runtimeProfile);
   const results = await mapWithConcurrency(protocol.windows, concurrency, async (window) => {
     try {
       const response = await request(buildRuntimeRequest(contract, window));
-      return evaluateRuntimeWindow(window, { ok: true, response }, contract.gates, contract.runtimeProfile.profileId);
+      return evaluateRuntimeWindow(
+        window,
+        { ok: true, response },
+        contract.gates,
+        contract.runtimeProfile.profileId,
+        contract.contractVersion,
+        expectedExecutionFingerprint,
+      );
     } catch (error) {
       return evaluateRuntimeWindow(
         window,
         { ok: false, reason: `REQUEST_FAILED:${String(error.message ?? error).slice(0, 180)}` },
         contract.gates,
         contract.runtimeProfile.profileId,
+        contract.contractVersion,
+        expectedExecutionFingerprint,
       );
     }
   });
   const failed = results.filter((result) => !result.passed);
   return {
     passed: failed.length === 0,
+    contractVersion: contract.contractVersion,
+    evaluationVersion: contract.evaluationVersion ?? null,
     windowCount: results.length,
     passedWindowCount: results.length - failed.length,
     failedWindowCount: failed.length,
@@ -130,6 +175,12 @@ export async function evaluateRuntimeProtocol(protocol, contract, request, concu
     gates: contract.gates,
     results,
   };
+}
+
+function canonicalNumber(value) {
+  if (value == null) return "null";
+  if (!Number.isFinite(Number(value))) throw new Error(`Execution contract contains a non-finite number: ${value}`);
+  return Number(value).toString();
 }
 
 async function main() {

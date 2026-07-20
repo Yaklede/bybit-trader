@@ -59,6 +59,57 @@ test("absorption breakout fills after its confirmation candle closes", async () 
   }
 });
 
+test("technical-analysis discovery profiles are explicit research candidates", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bybit-technical-discovery-"));
+  try {
+    const databasePath = path.join(directory, "candles.sqlite");
+    const windowsPath = path.join(directory, "windows.json");
+    createFixtureDatabase(databasePath);
+    await fs.writeFile(
+      windowsPath,
+      JSON.stringify([
+        {
+          id: "D1",
+          replayStartAt: "2024-01-01T14:00:00Z",
+          replayEndAt: "2024-01-02T00:45:00Z",
+        },
+      ]),
+    );
+
+    const profiles = [
+      ["trend-pullback-acceptance", "TREND_PULLBACK_ACCEPTANCE"],
+      ["macro-trend-breakout", "MACRO_TREND_BREAKOUT"],
+    ];
+    for (const [profile, family] of profiles) {
+      const outDirectory = path.join(directory, profile);
+      execFileSync(
+        process.execPath,
+        [
+          scriptPath,
+          "--db",
+          databasePath,
+          "--windows",
+          windowsPath,
+          "--out",
+          outDirectory,
+          "--profile",
+          profile,
+          "--maxCandidates",
+          "1",
+          "--quiet",
+          "true",
+        ],
+        { encoding: "utf8" },
+      );
+      const ranked = JSON.parse(await fs.readFile(path.join(outDirectory, "ranked.json"), "utf8"));
+      assert.equal(ranked.length, 1);
+      assert.equal(ranked[0].family, family);
+    }
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 function createFixtureDatabase(databasePath) {
   const database = new DatabaseSync(databasePath);
   try {

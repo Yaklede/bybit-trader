@@ -9,6 +9,7 @@ import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestTrade
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveEntryMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressivePerformanceSlice
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveSignalMode
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowSideMode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
@@ -70,6 +71,10 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     val maxHoldCandles: Int? = null,
     val maxTradesPerDay: Int? = null,
     val sideMode: String? = null,
+    val signalMode: String? = null,
+    val donchianLookbackCandles: Int? = null,
+    val stopReferenceCandles: Int? = null,
+    val trailingAtrMultiple: Double? = null,
     val entryMode: String? = null,
     val breakoutRelativeVolumeMin: Double? = null,
     val breakoutBodyRatioMin: Double? = null,
@@ -122,7 +127,7 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
     fun replayEndInstant(): Instant? = replayEndAt?.let(::parseAggressiveReplayInstant)
 
     fun toConfig(): VolumeFlowAggressiveBacktestConfig {
-        val base = VolumeFlowAggressiveProfiles.finalUsV1()
+        val base = VolumeFlowAggressiveProfiles.currentReplayConfig()
         return base.copy(
             initialEquity = initialEquity ?: base.initialEquity,
             riskFraction = riskFraction ?: base.riskFraction,
@@ -154,6 +159,10 @@ data class VolumeFlowAggressiveCurrentBacktestRequest(
             maxHoldCandles = maxHoldCandles ?: base.maxHoldCandles,
             maxTradesPerDay = maxTradesPerDay ?: base.maxTradesPerDay,
             sideMode = sideMode?.toVolumeFlowSideMode() ?: base.sideMode,
+            signalMode = signalMode?.toAggressiveSignalMode() ?: base.signalMode,
+            donchianLookbackCandles = donchianLookbackCandles ?: base.donchianLookbackCandles,
+            stopReferenceCandles = stopReferenceCandles ?: base.stopReferenceCandles,
+            trailingAtrMultiple = trailingAtrMultiple ?: base.trailingAtrMultiple,
             entryMode = entryMode?.toAggressiveEntryMode() ?: base.entryMode,
             breakoutRelativeVolumeMin = breakoutRelativeVolumeMin ?: base.breakoutRelativeVolumeMin,
             breakoutBodyRatioMin = breakoutBodyRatioMin ?: base.breakoutBodyRatioMin,
@@ -182,6 +191,12 @@ private fun String.toAggressiveEntryMode(): VolumeFlowAggressiveEntryMode =
             )
         }
 
+private fun String.toAggressiveSignalMode(): VolumeFlowAggressiveSignalMode =
+    runCatching { VolumeFlowAggressiveSignalMode.valueOf(trim().uppercase()) }
+        .getOrElse {
+            throw IllegalArgumentException("Signal mode must be ABSORPTION_BREAKOUT or MACRO_DONCHIAN.")
+        }
+
 private fun parseAggressiveReplayInstant(value: String): Instant =
     runCatching { Instant.parse(value) }
         .getOrElse { throw IllegalArgumentException("Replay timestamps must be ISO-8601 instants.") }
@@ -192,6 +207,9 @@ data class VolumeFlowAggressiveBacktestResponse(
     val fillModelVersion: String,
     val validationStatus: String,
     val liveExpansionAllowed: Boolean,
+    val strategyContractVersion: String,
+    val runtimeSignalProfileMatched: Boolean,
+    val executionContract: VolumeFlowAggressiveExecutionContractResponse,
     val symbol: String,
     val profileId: String,
     val m5CandleCount: Int,
@@ -230,6 +248,22 @@ data class VolumeFlowAggressiveBacktestResponse(
     val performanceBySignalHourUtc: List<VolumeFlowAggressivePerformanceSliceResponse>,
     val performanceByAbsorptionRelativeVolume: List<VolumeFlowAggressivePerformanceSliceResponse>,
     val trades: List<VolumeFlowAggressiveTradeResponse>,
+)
+
+@Serializable
+data class VolumeFlowAggressiveExecutionContractResponse(
+    val fingerprint: String,
+    val riskFraction: Double,
+    val feeRate: Double,
+    val entrySlippageRate: Double,
+    val exitSlippageRate: Double,
+    val fundingRatePer8h: Double,
+    val quantityStep: Double?,
+    val minQuantity: Double?,
+    val maxQuantity: Double?,
+    val maxNotional: Double?,
+    val leverage: Double?,
+    val liquidationBufferPct: Double,
 )
 
 @Serializable
@@ -306,6 +340,23 @@ private fun VolumeFlowAggressiveBacktestReport.toResponse(tradeLimit: Int): Volu
         fillModelVersion = fillModelVersion,
         validationStatus = validationStatus.name,
         liveExpansionAllowed = validationStatus == dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus.VERIFIED,
+        strategyContractVersion = strategyContractVersion,
+        runtimeSignalProfileMatched = runtimeSignalProfileMatched,
+        executionContract =
+            VolumeFlowAggressiveExecutionContractResponse(
+                fingerprint = executionContract.fingerprint,
+                riskFraction = executionContract.riskFraction,
+                feeRate = executionContract.feeRate,
+                entrySlippageRate = executionContract.entrySlippageRate,
+                exitSlippageRate = executionContract.exitSlippageRate,
+                fundingRatePer8h = executionContract.fundingRatePer8h,
+                quantityStep = executionContract.quantityStep,
+                minQuantity = executionContract.minQuantity,
+                maxQuantity = executionContract.maxQuantity,
+                maxNotional = executionContract.maxNotional,
+                leverage = executionContract.leverage,
+                liquidationBufferPct = executionContract.liquidationBufferPct,
+            ),
         symbol = symbol.value,
         profileId = profileId,
         m5CandleCount = m5CandleCount,

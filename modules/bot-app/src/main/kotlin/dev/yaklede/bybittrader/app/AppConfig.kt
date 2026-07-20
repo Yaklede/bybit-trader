@@ -3,6 +3,8 @@ package dev.yaklede.bybittrader.app
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveExecutionContract
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import java.math.BigDecimal
 
 data class AppConfig(
@@ -49,8 +51,14 @@ data class AppConfig(
             require(!executionLoop.enabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_LOOP_ENABLED=true."
             }
-            require(!executionLoop.enabled || execution.allowUnverifiedProfile) {
-                "The runtime profile absa_final_us_v1 is UNVERIFIED. " +
+            val aggressiveRuntimeProfile = VolumeFlowAggressiveProfiles.current()
+            require(
+                !executionLoop.enabled ||
+                    aggressiveRuntimeProfile.validationStatus ==
+                    dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus.VERIFIED ||
+                    execution.allowUnverifiedProfile,
+            ) {
+                "The runtime profile ${aggressiveRuntimeProfile.profileId} is ${aggressiveRuntimeProfile.validationStatus}. " +
                     "Keep BOT_EXECUTION_LOOP_ENABLED=false or explicitly set " +
                     "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true."
             }
@@ -439,6 +447,21 @@ data class ExecutionSettings(
             )
     }
 }
+
+fun ExecutionSettings.toAggressiveExecutionContract(): VolumeFlowAggressiveExecutionContract =
+    VolumeFlowAggressiveExecutionContract(
+        riskFraction = riskFraction.toDouble(),
+        feeRate = feeRate.toDouble(),
+        entrySlippageRate = slippageBufferRate.toDouble(),
+        exitSlippageRate = slippageBufferRate.toDouble(),
+        fundingRatePer8h = 0.0,
+        quantityStep = quantityStep.toDouble(),
+        minQuantity = minQuantity.toDouble(),
+        maxQuantity = maxQuantity?.toDouble(),
+        maxNotional = maxNotional?.toDouble(),
+        leverage = leverage?.toDouble(),
+        liquidationBufferPct = liquidationBufferPct.toDouble(),
+    )
 
 private fun PaperStrategyKind.defaultRiskFraction(): BigDecimal =
     when (this) {

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "status": "DEVELOPMENT",
+  "sourceData": {
+    "symbol": "BTCUSDT",
+    "earliestAt": "2020-03-25T10:36:00Z",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "selectionPolicy": {
+    "parameterSelectionAllowed": true,
+    "promotionAllowed": false,
+    "purpose": "Develop a causal runtime candidate for the 0.2 percent compound-daily target without consuming a sealed holdout."
+  },
+  "executionAssumptions": {
+    "initialEquity": 100,
+    "feeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002,
+    "quantityStep": 0.001,
+    "minQuantity": 0.001,
+    "leverage": 15,
+    "liquidationBufferPct": 0.6
+  },
+  "gates": {
+    "minCompoundDailyReturnPct": 0.2,
+    "maxDrawdownPct": 40,
+    "maxLiquidationCount": 0,
+    "minTradeCount": 3,
+    "minActiveDayCoveragePct": 2,
+    "requiredFillModelVersion": "causal-m1-path-v2"
+  },
+  "foldsSha256": "09b8d4433c24ecba3afc2b38379a369220077ea3f44beab7ce9dc0c0c2dd0496",
+  "folds": [
+    {"id":"D01","purpose":"development","replayStartAt":"2020-06-01T00:00:00Z","replayEndAt":"2021-06-01T00:00:00Z"},
+    {"id":"D02","purpose":"development","replayStartAt":"2021-06-01T00:00:00Z","replayEndAt":"2022-06-01T00:00:00Z"},
+    {"id":"D03","purpose":"development","replayStartAt":"2022-06-01T00:00:00Z","replayEndAt":"2023-06-01T00:00:00Z"},
+    {"id":"D04","purpose":"development","replayStartAt":"2023-06-01T00:00:00Z","replayEndAt":"2024-01-01T00:00:00Z"}
+  ]
+}

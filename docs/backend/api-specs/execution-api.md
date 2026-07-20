@@ -33,6 +33,22 @@ Responses expose gross PnL, fees, funding PnL, slippage cost, data-gap skips,
 and liquidation count; use these fields for cost stress checks instead of
 comparing net return alone.
 
+The current aggressive endpoint derives its empty-request defaults from the
+same `aggressive-runtime-v1` profile used by automatic execution. The response
+includes `strategyContractVersion`, `runtimeSignalProfileMatched`, and an
+`executionContract` object containing its SHA-256 `fingerprint`, risk fraction,
+fees, entry/exit slippage, quantity limits, maximum notional, leverage, and
+liquidation buffer. Changing a signal parameter marks the result as
+`runtimeSignalProfileMatched=false` and changes `profileId` to a
+`-research-override` identifier; such a result cannot be treated as runtime
+profile evidence.
+
+`GET /strategy/profiles` exposes the expected frozen execution-contract
+fingerprint and the fingerprint assembled from the current process environment.
+`executionContractMatched` must be `true` before comparing a runtime result to
+the frozen aggressive backtest contract. A matching contract does not override
+the profile's `UNVERIFIED` status.
+
 Request:
 
 ```json

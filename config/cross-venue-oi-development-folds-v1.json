@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "status": "DEVELOPMENT",
+  "sourceData": {
+    "symbol": "BTCUSDT",
+    "metricsStartAt": "2021-01-01T00:00:00Z",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "selectionPolicy": {
+    "parameterSelectionAllowed": true,
+    "promotionAllowed": false,
+    "purpose": "Screen causal open-interest and taker-flow hypotheses before consuming post-2024 data."
+  },
+  "gates": {
+    "minCompoundDailyReturnPct": 0.2,
+    "maxDrawdownPct": 40,
+    "minTradeCount": 3,
+    "minActiveDayCoveragePct": 2
+  },
+  "folds": [
+    {"id":"H01","replayStartAt":"2021-01-01T00:00:00Z","replayEndAt":"2021-07-01T00:00:00Z"},
+    {"id":"H02","replayStartAt":"2021-07-01T00:00:00Z","replayEndAt":"2022-01-01T00:00:00Z"},
+    {"id":"H03","replayStartAt":"2022-01-01T00:00:00Z","replayEndAt":"2022-07-01T00:00:00Z"},
+    {"id":"H04","replayStartAt":"2022-07-01T00:00:00Z","replayEndAt":"2023-01-01T00:00:00Z"},
+    {"id":"H05","replayStartAt":"2023-01-01T00:00:00Z","replayEndAt":"2023-07-01T00:00:00Z"},
+    {"id":"H06","replayStartAt":"2023-07-01T00:00:00Z","replayEndAt":"2024-01-01T00:00:00Z"}
+  ]
+}

@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.engine.backtest
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import java.security.MessageDigest
 import java.time.Instant
 
 const val AGGRESSIVE_BACKTEST_ENGINE_VERSION = "2.0.0"
@@ -10,6 +11,59 @@ const val AGGRESSIVE_FILL_MODEL_VERSION = "causal-m1-path-v2"
 enum class StrategyValidationStatus {
     UNVERIFIED,
     VERIFIED,
+}
+
+data class VolumeFlowAggressiveExecutionContract(
+    val riskFraction: Double,
+    val feeRate: Double,
+    val entrySlippageRate: Double,
+    val exitSlippageRate: Double,
+    val fundingRatePer8h: Double,
+    val quantityStep: Double?,
+    val minQuantity: Double?,
+    val maxQuantity: Double?,
+    val maxNotional: Double?,
+    val leverage: Double?,
+    val liquidationBufferPct: Double,
+) {
+    val fingerprint: String
+        get() =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(canonicalValue().toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> "%02x".format(byte) }
+
+    private fun canonicalValue(): String =
+        listOf(
+            "riskFraction=${riskFraction.canonicalNumber()}",
+            "feeRate=${feeRate.canonicalNumber()}",
+            "entrySlippageRate=${entrySlippageRate.canonicalNumber()}",
+            "exitSlippageRate=${exitSlippageRate.canonicalNumber()}",
+            "fundingRatePer8h=${fundingRatePer8h.canonicalNumber()}",
+            "quantityStep=${quantityStep.canonicalNumber()}",
+            "minQuantity=${minQuantity.canonicalNumber()}",
+            "maxQuantity=${maxQuantity.canonicalNumber()}",
+            "maxNotional=${maxNotional.canonicalNumber()}",
+            "leverage=${leverage.canonicalNumber()}",
+            "liquidationBufferPct=${liquidationBufferPct.canonicalNumber()}",
+        ).joinToString("|")
+}
+
+data class VolumeFlowAggressiveRuntimeProfile(
+    val contractVersion: String,
+    val strategyConfig: VolumeFlowAggressiveBacktestConfig,
+    val executionContract: VolumeFlowAggressiveExecutionContract,
+    val validationStatus: StrategyValidationStatus,
+) {
+    init {
+        require(contractVersion.isNotBlank()) { "Aggressive runtime contract version must not be blank." }
+    }
+
+    val profileId: String
+        get() = strategyConfig.profileId
+
+    val strategyName: String
+        get() = "volume-flow-aggressive-$profileId"
 }
 
 enum class AggressiveExecutionPathMode {
@@ -21,6 +75,11 @@ enum class VolumeFlowAggressiveEntryMode {
     BREAKOUT_NEXT_OPEN,
     BREAKOUT_RETEST,
     FAILED_BREAK_REVERSAL,
+}
+
+enum class VolumeFlowAggressiveSignalMode {
+    ABSORPTION_BREAKOUT,
+    MACRO_DONCHIAN,
 }
 
 data class VolumeFlowAggressiveBacktestConfig(
@@ -55,6 +114,10 @@ data class VolumeFlowAggressiveBacktestConfig(
     val maxHoldCandles: Int = 36,
     val maxTradesPerDay: Int = 5,
     val sideMode: VolumeFlowSideMode = VolumeFlowSideMode.BOTH,
+    val signalMode: VolumeFlowAggressiveSignalMode = VolumeFlowAggressiveSignalMode.ABSORPTION_BREAKOUT,
+    val donchianLookbackCandles: Int = 1_440,
+    val stopReferenceCandles: Int = 288,
+    val trailingAtrMultiple: Double? = null,
     val entryMode: VolumeFlowAggressiveEntryMode = VolumeFlowAggressiveEntryMode.BREAKOUT_NEXT_OPEN,
     val breakoutRelativeVolumeMin: Double = 0.0,
     val breakoutBodyRatioMin: Double = 0.0,
@@ -106,8 +169,15 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(stopAtr > 0.0) { "Stop ATR must be positive." }
         require(targetR > 0.0) { "Target R must be positive." }
         require(entryLookaheadCandles in 1..24) { "Entry lookahead candles must be between 1 and 24." }
-        require(maxHoldCandles in 1..288) { "Max hold candles must be between 1 and 288." }
+        require(maxHoldCandles in 1..17_280) { "Max hold candles must be between 1 and 17280." }
         require(maxTradesPerDay > 0) { "Max trades per day must be positive." }
+        require(donchianLookbackCandles in 288..17_280) {
+            "Donchian lookback candles must be between 288 and 17280."
+        }
+        require(stopReferenceCandles in 12..2_016) { "Stop reference candles must be between 12 and 2016." }
+        require(trailingAtrMultiple == null || trailingAtrMultiple > 0.0) {
+            "Trailing ATR multiple must be positive."
+        }
         require(breakoutRelativeVolumeMin >= 0.0) { "Breakout relative volume minimum must not be negative." }
         require(breakoutBodyRatioMin in 0.0..1.0) { "Breakout body ratio minimum must be between 0 and 1." }
         require(breakoutDirectionalCloseMin in 0.0..1.0) {
@@ -141,6 +211,12 @@ fun VolumeFlowAggressiveBacktestConfig.requiredWarmupCandles(): Int {
             .maxOrNull()
             ?: 0
     val adaptiveLookback = maxOf(adaptiveStop?.lookbackCandles ?: 0, adaptiveTarget?.lookbackCandles ?: 0)
+    val signalWarmup =
+        when (signalMode) {
+            VolumeFlowAggressiveSignalMode.ABSORPTION_BREAKOUT -> 0
+            VolumeFlowAggressiveSignalMode.MACRO_DONCHIAN ->
+                maxOf(donchianLookbackCandles + 1, stopReferenceCandles + 1, 1_153)
+        }
     return maxOf(
         60,
         volumeLookback + 1,
@@ -148,6 +224,7 @@ fun VolumeFlowAggressiveBacktestConfig.requiredWarmupCandles(): Int {
         sideLookback + 1,
         adaptiveLookback + 1,
         clusterCandles + entryLookaheadCandles + retestLookaheadCandles + 1,
+        signalWarmup,
     )
 }
 
@@ -217,6 +294,37 @@ data class VolumeFlowAggressiveSideRegimeBlock(
 }
 
 object VolumeFlowAggressiveProfiles {
+    fun current(): VolumeFlowAggressiveRuntimeProfile =
+        VolumeFlowAggressiveRuntimeProfile(
+            contractVersion = "aggressive-runtime-v1",
+            strategyConfig = finalUsV1(),
+            executionContract =
+                VolumeFlowAggressiveExecutionContract(
+                    riskFraction = 0.055,
+                    feeRate = 0.0006,
+                    entrySlippageRate = 0.0002,
+                    exitSlippageRate = 0.0002,
+                    fundingRatePer8h = 0.0,
+                    quantityStep = 0.001,
+                    minQuantity = 0.001,
+                    maxQuantity = null,
+                    maxNotional = 100.0,
+                    leverage = 15.0,
+                    liquidationBufferPct = 0.6,
+                ),
+            validationStatus = StrategyValidationStatus.UNVERIFIED,
+        )
+
+    fun matchesCurrentSignalDefinition(config: VolumeFlowAggressiveBacktestConfig): Boolean =
+        config.normalizedSignalDefinition() == current().strategyConfig.normalizedSignalDefinition()
+
+    fun currentReplayConfig(initialEquity: Double = 100.0): VolumeFlowAggressiveBacktestConfig {
+        val profile = current()
+        return profile.strategyConfig
+            .withExecutionContract(profile.executionContract)
+            .copy(initialEquity = initialEquity)
+    }
+
     fun finalUsV1(): VolumeFlowAggressiveBacktestConfig =
         VolumeFlowAggressiveBacktestConfig(
             sessionHoursUtc = setOf(13, 14, 15, 16, 17, 18, 19, 21),
@@ -290,10 +398,63 @@ object VolumeFlowAggressiveProfiles {
         )
 }
 
+fun VolumeFlowAggressiveBacktestConfig.executionContract(): VolumeFlowAggressiveExecutionContract =
+    VolumeFlowAggressiveExecutionContract(
+        riskFraction = riskFraction,
+        feeRate = feeRate,
+        entrySlippageRate = slippageRate,
+        exitSlippageRate = exitSlippageRate,
+        fundingRatePer8h = fundingRatePer8h,
+        quantityStep = quantityStep,
+        minQuantity = minQuantity,
+        maxQuantity = maxQuantity,
+        maxNotional = maxNotional,
+        leverage = leverage,
+        liquidationBufferPct = liquidationBufferPct,
+    )
+
+fun VolumeFlowAggressiveBacktestConfig.withExecutionContract(
+    contract: VolumeFlowAggressiveExecutionContract,
+): VolumeFlowAggressiveBacktestConfig =
+    copy(
+        riskFraction = contract.riskFraction,
+        feeRate = contract.feeRate,
+        slippageRate = contract.entrySlippageRate,
+        exitSlippageRate = contract.exitSlippageRate,
+        fundingRatePer8h = contract.fundingRatePer8h,
+        quantityStep = contract.quantityStep,
+        minQuantity = contract.minQuantity,
+        maxQuantity = contract.maxQuantity,
+        maxNotional = contract.maxNotional,
+        leverage = contract.leverage,
+        liquidationBufferPct = contract.liquidationBufferPct,
+    )
+
+private fun VolumeFlowAggressiveBacktestConfig.normalizedSignalDefinition(): VolumeFlowAggressiveBacktestConfig =
+    copy(
+        initialEquity = 1.0,
+        riskFraction = 0.01,
+        feeRate = 0.0,
+        slippageRate = 0.0,
+        exitSlippageRate = 0.0,
+        fundingRatePer8h = 0.0,
+        quantityStep = null,
+        minQuantity = null,
+        maxQuantity = null,
+        maxNotional = null,
+        leverage = null,
+        liquidationBufferPct = 0.0,
+    )
+
+private fun Double?.canonicalNumber(): String = this?.let(java.math.BigDecimal::valueOf)?.stripTrailingZeros()?.toPlainString() ?: "null"
+
 data class VolumeFlowAggressiveBacktestReport(
     val engineVersion: String = AGGRESSIVE_BACKTEST_ENGINE_VERSION,
     val fillModelVersion: String = AGGRESSIVE_FILL_MODEL_VERSION,
     val validationStatus: StrategyValidationStatus = StrategyValidationStatus.UNVERIFIED,
+    val strategyContractVersion: String,
+    val runtimeSignalProfileMatched: Boolean,
+    val executionContract: VolumeFlowAggressiveExecutionContract,
     val symbol: Symbol,
     val profileId: String,
     val m5CandleCount: Int,

@@ -1,5 +1,8 @@
 package dev.yaklede.bybittrader.api.strategy
 
+import dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveExecutionContract
+import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -29,20 +32,26 @@ fun Route.configureStrategyProfileRoutes(strategyProfileService: StrategyProfile
 
 class StrategyProfileService(
     private val statePath: Path,
+    runtimeExecutionContract: VolumeFlowAggressiveExecutionContract = VolumeFlowAggressiveProfiles.current().executionContract,
     private val clock: () -> Instant = Instant::now,
 ) {
+    private val aggressiveRuntimeProfile = VolumeFlowAggressiveProfiles.current()
     private val profiles =
         listOf(
             StrategyProfile(
                 id = AGGRESSIVE_PROFILE_ID,
                 name = "공격형",
                 kind = StrategyProfileKind.RUNTIME,
-                strategyName = "volume-flow-aggressive-absa_final_us_v1",
+                strategyName = aggressiveRuntimeProfile.strategyName,
                 description = "거래량 흡수 구간 이후 돌파를 양방향으로 추적하는 운영 기본 전략이에요.",
                 riskNote = "검증 전 전략 · 현실 체결 기준 재검증이 끝날 때까지 주문 한도를 유지해야 해요.",
                 backtestEndpoint = "/backtests/volume-flow/aggressive/current/run",
                 isDefault = true,
-                validationStatus = StrategyProfileValidationStatus.UNVERIFIED,
+                validationStatus = aggressiveRuntimeProfile.validationStatus.toApiValidationStatus(),
+                strategyContractVersion = aggressiveRuntimeProfile.contractVersion,
+                expectedExecutionContractFingerprint = aggressiveRuntimeProfile.executionContract.fingerprint,
+                runtimeExecutionContractFingerprint = runtimeExecutionContract.fingerprint,
+                executionContractMatched = runtimeExecutionContract == aggressiveRuntimeProfile.executionContract,
             ),
             StrategyProfile(
                 id = "volume-flow-composite-current",
@@ -54,6 +63,10 @@ class StrategyProfileService(
                 backtestEndpoint = "/backtests/volume-flow/composite/current/run",
                 isDefault = false,
                 validationStatus = StrategyProfileValidationStatus.BACKTEST_ONLY,
+                strategyContractVersion = null,
+                expectedExecutionContractFingerprint = null,
+                runtimeExecutionContractFingerprint = null,
+                executionContractMatched = null,
             ),
         )
 
@@ -122,6 +135,10 @@ data class StrategyProfile(
     val backtestEndpoint: String,
     val isDefault: Boolean,
     val validationStatus: StrategyProfileValidationStatus,
+    val strategyContractVersion: String?,
+    val expectedExecutionContractFingerprint: String?,
+    val runtimeExecutionContractFingerprint: String?,
+    val executionContractMatched: Boolean?,
 )
 
 enum class StrategyProfileValidationStatus {
@@ -171,6 +188,10 @@ data class StrategyProfileResponse(
     val runtimeEligible: Boolean,
     val validationStatus: String,
     val liveExpansionAllowed: Boolean,
+    val strategyContractVersion: String?,
+    val expectedExecutionContractFingerprint: String?,
+    val runtimeExecutionContractFingerprint: String?,
+    val executionContractMatched: Boolean?,
 )
 
 private fun StrategyProfileState.toResponse(): StrategyProfileStateResponse =
@@ -200,5 +221,16 @@ private fun StrategyProfile.toResponse(): StrategyProfileResponse =
         defaultProfile = isDefault,
         runtimeEligible = kind == StrategyProfileKind.RUNTIME,
         validationStatus = validationStatus.name,
-        liveExpansionAllowed = validationStatus == StrategyProfileValidationStatus.VERIFIED,
+        liveExpansionAllowed =
+            validationStatus == StrategyProfileValidationStatus.VERIFIED && executionContractMatched != false,
+        strategyContractVersion = strategyContractVersion,
+        expectedExecutionContractFingerprint = expectedExecutionContractFingerprint,
+        runtimeExecutionContractFingerprint = runtimeExecutionContractFingerprint,
+        executionContractMatched = executionContractMatched,
     )
+
+private fun StrategyValidationStatus.toApiValidationStatus(): StrategyProfileValidationStatus =
+    when (this) {
+        StrategyValidationStatus.UNVERIFIED -> StrategyProfileValidationStatus.UNVERIFIED
+        StrategyValidationStatus.VERIFIED -> StrategyProfileValidationStatus.VERIFIED
+    }
