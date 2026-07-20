@@ -31,6 +31,7 @@ class ExchangeExecutionService(
     private val gateway: ExchangeExecutionGateway,
     private val config: ExchangeExecutionConfig = ExchangeExecutionConfig(),
     private val projectionStore: ExecutionProjectionStore? = tradingStore as? ExecutionProjectionStore,
+    private val lifecycleStore: ExecutionLifecycleStore? = tradingStore as? ExecutionLifecycleStore,
     private val runtimeMode: ExecutionRuntimeMode = ExecutionRuntimeMode.TESTNET,
     private val positionPolicy: AutomaticPositionPolicy? = null,
     private val clock: Clock = Clock.systemUTC(),
@@ -421,6 +422,19 @@ class ExchangeExecutionService(
                     createdAt = now,
                 ),
             )
+        recordSubmissionLifecycle(
+            state = ExecutionLifecycleState.ENTRY_SUBMITTED,
+            lifecycleId = clientOrderId,
+            symbol = symbol,
+            side = signal.side,
+            requestedQuantity = sizing.quantity,
+            takeProfit = takeProfit,
+            stopLoss = signal.invalidationPrice.value,
+            exchangeOrderId = orderResult.exchangeOrderId,
+            clientOrderId = clientOrderId,
+            reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
+            occurredAt = now,
+        )
 
         val result =
             ExchangeEvaluationResult(
@@ -633,6 +647,19 @@ class ExchangeExecutionService(
                     createdAt = now,
                 ),
             )
+        recordSubmissionLifecycle(
+            state = ExecutionLifecycleState.ENTRY_SUBMITTED,
+            lifecycleId = clientOrderId,
+            symbol = symbol,
+            side = side,
+            requestedQuantity = quantity,
+            takeProfit = null,
+            stopLoss = null,
+            exchangeOrderId = orderResult.exchangeOrderId,
+            clientOrderId = clientOrderId,
+            reasonCode = "SMOKE_ENTRY_SUBMITTED",
+            occurredAt = now,
+        )
         logger.warn(
             "execution smoke market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={}",
             symbol.value,
@@ -803,6 +830,31 @@ class ExchangeExecutionService(
                     createdAt = now,
                 ),
             )
+        val latestLifecycle = lifecycleStore?.latestLifecycleEvent(runtimeMode, symbol)
+        val lifecycleId =
+            if (reduceOnly && latestLifecycle != null && latestLifecycle.state != ExecutionLifecycleState.CLOSED) {
+                latestLifecycle.lifecycleId
+            } else {
+                clientOrderId
+            }
+        recordSubmissionLifecycle(
+            state =
+                if (reduceOnly) {
+                    ExecutionLifecycleState.EXIT_SUBMITTED
+                } else {
+                    ExecutionLifecycleState.ENTRY_SUBMITTED
+                },
+            lifecycleId = lifecycleId,
+            symbol = symbol,
+            side = if (reduceOnly) side.opposite() else side,
+            requestedQuantity = quantity,
+            takeProfit = null,
+            stopLoss = null,
+            exchangeOrderId = orderResult.exchangeOrderId,
+            clientOrderId = clientOrderId,
+            reasonCode = reasonCode,
+            occurredAt = now,
+        )
         logger.warn(
             "execution manual market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={} reduceOnly={}",
             symbol.value,
@@ -822,6 +874,46 @@ class ExchangeExecutionService(
             orderId = orderId,
             status = orderResult.status.name,
             submittedAt = now,
+        )
+    }
+
+    private suspend fun recordSubmissionLifecycle(
+        state: ExecutionLifecycleState,
+        lifecycleId: String,
+        symbol: Symbol,
+        side: Side,
+        requestedQuantity: BigDecimal,
+        takeProfit: BigDecimal?,
+        stopLoss: BigDecimal?,
+        exchangeOrderId: String?,
+        clientOrderId: String,
+        reasonCode: String,
+        occurredAt: Instant,
+    ) {
+        val store = lifecycleStore ?: return
+        val latest = store.latestLifecycleEvent(runtimeMode, symbol)
+        if (latest != null && latest.lifecycleId == lifecycleId) {
+            require(latest.state.canTransitionTo(state)) {
+                "Invalid execution lifecycle transition from ${latest.state} to $state."
+            }
+        }
+        store.recordLifecycleEvent(
+            ExecutionLifecycleEvent(
+                mode = runtimeMode,
+                lifecycleId = lifecycleId,
+                symbol = symbol,
+                state = state,
+                side = side,
+                requestedQuantity = requestedQuantity,
+                filledQuantity = null,
+                fillVwap = null,
+                takeProfit = takeProfit,
+                stopLoss = stopLoss,
+                exchangeOrderId = exchangeOrderId,
+                clientOrderId = clientOrderId,
+                reasonCode = reasonCode,
+                occurredAt = occurredAt,
+            ),
         )
     }
 
@@ -877,6 +969,12 @@ class ExchangeExecutionService(
     ): List<ExecutionTradeClosure> =
         (projectionStore ?: EmptyExecutionProjectionStore)
             .closedTrades(symbol = symbol, mode = mode, limit = limit, cursor = cursor)
+
+    suspend fun lifecycleEvents(
+        symbol: Symbol?,
+        mode: ExecutionRuntimeMode?,
+        limit: Int,
+    ): List<ExecutionLifecycleEvent> = lifecycleStore?.lifecycleEvents(mode = mode, symbol = symbol, limit = limit).orEmpty()
 
     suspend fun livePerformanceSummary(
         mode: ExecutionRuntimeMode?,

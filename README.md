@@ -69,6 +69,13 @@ order. Reconciliation and dashboard position rows expose Bybit `openTime` as
 `openedAt`. This execution parity does not make the rejected strategy eligible
 for automatic trading.
 
+Accepted private order requests are also written to the append-only
+`executionLifecycleEvents` ledger. The authenticated
+`GET /execution/lifecycle-events` endpoint exposes submission state,
+requested quantity, intended TP/SL, and exchange/client order IDs. A
+`ENTRY_SUBMITTED` event still means only that Bybit accepted the request;
+private stream reconciliation must advance it to filled and protected states.
+
 Close alerts use a SQLite-backed at-least-once queue. Failed Discord deliveries
 remain pending and retry on the next M5 cycle; successful delivery is
 acknowledged in the closure row. A crash between Discord acceptance and the DB

@@ -211,6 +211,28 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         """.trimIndent(),
         "CREATE INDEX IF NOT EXISTS executionTradeClosures_symbol_mode_id_idx ON executionTradeClosures(symbol, mode, id DESC)",
         """
+        CREATE TABLE IF NOT EXISTS executionLifecycleEvents (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          mode TEXT NOT NULL,
+          lifecycle_id TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          state TEXT NOT NULL,
+          side TEXT NOT NULL,
+          requested_quantity TEXT NOT NULL,
+          filled_quantity TEXT,
+          fill_vwap TEXT,
+          take_profit TEXT,
+          stop_loss TEXT,
+          exchange_order_id TEXT,
+          client_order_id TEXT,
+          reason_code TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          identity_key TEXT NOT NULL
+        )
+        """.trimIndent(),
+        "CREATE UNIQUE INDEX IF NOT EXISTS executionLifecycleEvents_identity_idx ON executionLifecycleEvents(identity_key)",
+        "CREATE INDEX IF NOT EXISTS executionLifecycleEvents_mode_symbol_id_idx ON executionLifecycleEvents(mode, symbol, id DESC)",
+        """
         CREATE TABLE IF NOT EXISTS livePerformanceSnapshots (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           mode TEXT NOT NULL,

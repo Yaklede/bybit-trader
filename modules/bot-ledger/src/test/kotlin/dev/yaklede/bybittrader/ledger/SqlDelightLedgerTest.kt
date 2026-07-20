@@ -13,6 +13,8 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
@@ -495,6 +497,38 @@ class SqlDelightLedgerTest :
             freshColumns["attempt_count"] shouldBe "0"
         }
 
+        "stores append-only execution lifecycle events and deduplicates retries" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val event =
+                ExecutionLifecycleEvent(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    lifecycleId = "bt-BTCUSDT-entry-1",
+                    symbol = Symbol("BTCUSDT"),
+                    state = ExecutionLifecycleState.ENTRY_SUBMITTED,
+                    side = Side.BUY,
+                    requestedQuantity = BigDecimal("0.001"),
+                    filledQuantity = null,
+                    fillVwap = null,
+                    takeProfit = BigDecimal("65000"),
+                    stopLoss = BigDecimal("62000"),
+                    exchangeOrderId = "exchange-1",
+                    clientOrderId = "client-1",
+                    reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
+                    occurredAt = Instant.parse("2026-06-30T00:00:00Z"),
+                )
+
+            ledger.recordLifecycleEvent(event) shouldBe 1L
+            ledger.recordLifecycleEvent(event) shouldBe null
+
+            val stored = ledger.latestLifecycleEvent(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"))
+            stored?.id shouldBe 1L
+            stored?.state shouldBe ExecutionLifecycleState.ENTRY_SUBMITTED
+            stored?.takeProfit shouldBe BigDecimal("65000")
+            ledger.lifecycleEvents(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), 10).size shouldBe 1
+        }
+
         "performance closure query is not capped by API page size" {
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             LedgerDatabase.Schema.create(driver)
@@ -618,6 +652,7 @@ class SqlDelightLedgerTest :
                     "liquidationFlowBars",
                     "premiumIndexBars",
                     "fundingRates",
+                    "executionLifecycleEvents",
                 ),
             ) shouldBe true
         }

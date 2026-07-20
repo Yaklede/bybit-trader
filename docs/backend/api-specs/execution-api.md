@@ -80,6 +80,28 @@ Response fields:
 The create-order response is not treated as a fill. Use reconciliation to check
 open orders, positions, and executions.
 
+## GET /execution/lifecycle-events
+
+Returns the append-only execution lifecycle ledger. Query params are
+`symbol`, `mode=TESTNET|LIVE`, and `limit` (1-1000). Automatic, smoke,
+manual-entry, and reduce-only exit submissions are recorded as
+`ENTRY_SUBMITTED` or `EXIT_SUBMITTED`; a submission event is not proof of a
+fill.
+
+The lifecycle state contract is:
+
+- `ENTRY_SUBMITTED`
+- `PARTIALLY_FILLED`
+- `OPEN_UNPROTECTED`
+- `OPEN_PROTECTED`
+- `EXIT_SUBMITTED`
+- `CLOSED`
+- `ERROR`
+
+This release persists submission states and the transition contract. Exchange
+observation projection from private order/execution/position streams remains a
+required follow-up before an automatic profile can be approved.
+
 ## POST /execution/reconcile
 
 Queries Bybit open orders, position list, recent executions, and closed-PnL
@@ -140,6 +162,10 @@ NOT NULL `executionTradeClosures.identity_key`, backfills deterministic
 identities, removes pre-existing duplicate identities while keeping the oldest
 row, and recreates the unique index. The statements remain compatible with the
 SQLDelight `sqlite_3_18` dialect.
+
+The same additive startup migration creates `executionLifecycleEvents` and
+its identity and lookup indexes. Rollback requires stopping the new binary
+before dropping that table; older binaries ignore the additional table.
 
 The alert-state migration additively creates nullable `delivered_at`, nullable
 `suppressed_at`, `attempt_count INTEGER NOT NULL DEFAULT 0`, and nullable

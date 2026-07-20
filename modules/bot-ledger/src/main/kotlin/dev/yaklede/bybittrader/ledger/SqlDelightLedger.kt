@@ -15,6 +15,9 @@ import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.control.ControlEventRecorder
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
@@ -43,6 +46,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
+import dev.yaklede.bybittrader.ledger.db.ExecutionLifecycleEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LivePerformanceSnapshots
@@ -81,6 +85,7 @@ class SqlDelightLedger(
     FlowMarketDataStore,
     ForwardMarketCaptureStore,
     ExecutionProjectionStore,
+    ExecutionLifecycleStore,
     PaperTradingStore {
     override suspend fun current(): BotRuntimeStatus {
         val row = database.ledgerQueries.selectBotState().executeAsOneOrNull()
@@ -748,6 +753,56 @@ class SqlDelightLedger(
         }
     }
 
+    override suspend fun recordLifecycleEvent(event: ExecutionLifecycleEvent): Long? =
+        database.transactionWithResult {
+            database.ledgerQueries.insertExecutionLifecycleEvent(
+                mode = event.mode.name,
+                lifecycle_id = event.lifecycleId,
+                symbol = event.symbol.value,
+                state = event.state.name,
+                side = event.side.name,
+                requested_quantity = event.requestedQuantity.toPlainString(),
+                filled_quantity = event.filledQuantity?.toPlainString(),
+                fill_vwap = event.fillVwap?.toPlainString(),
+                take_profit = event.takeProfit?.toPlainString(),
+                stop_loss = event.stopLoss?.toPlainString(),
+                exchange_order_id = event.exchangeOrderId,
+                client_order_id = event.clientOrderId,
+                reason_code = event.reasonCode,
+                occurred_at = event.occurredAt.toString(),
+                identity_key = event.identityKey(),
+            )
+            if (database.ledgerQueries.selectChanges().executeAsOne() == 0L) {
+                null
+            } else {
+                database.ledgerQueries.lastInsertRowId().executeAsOne()
+            }
+        }
+
+    override suspend fun latestLifecycleEvent(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): ExecutionLifecycleEvent? =
+        database.ledgerQueries
+            .selectLatestExecutionLifecycleEvent(mode = mode.name, symbol = symbol.value)
+            .executeAsOneOrNull()
+            ?.toExecutionLifecycleEvent()
+
+    override suspend fun lifecycleEvents(
+        mode: ExecutionRuntimeMode?,
+        symbol: Symbol?,
+        limit: Int,
+    ): List<ExecutionLifecycleEvent> {
+        require(limit in 1..1000) { "Execution lifecycle event limit must be between 1 and 1000." }
+        return database.ledgerQueries
+            .selectExecutionLifecycleEvents(
+                mode = mode?.name,
+                symbol = symbol?.value,
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(ExecutionLifecycleEvents::toExecutionLifecycleEvent)
+    }
+
     override suspend fun recordLivePerformanceSnapshot(snapshot: LivePerformanceSnapshot): Long {
         database.ledgerQueries.insertLivePerformanceSnapshot(
             mode = snapshot.mode.name,
@@ -801,6 +856,35 @@ private fun ExecutionTradeClosure.identityKey(): String {
         }
     return "${mode.name}|${symbol.value}|$identity"
 }
+
+private fun ExecutionLifecycleEvent.identityKey(): String =
+    listOf(
+        mode.name,
+        lifecycleId,
+        state.name,
+        exchangeOrderId.orEmpty(),
+        clientOrderId.orEmpty(),
+        occurredAt.toString(),
+    ).joinToString("|")
+
+private fun ExecutionLifecycleEvents.toExecutionLifecycleEvent(): ExecutionLifecycleEvent =
+    ExecutionLifecycleEvent(
+        id = id,
+        mode = ExecutionRuntimeMode.valueOf(mode),
+        lifecycleId = lifecycle_id,
+        symbol = Symbol(symbol),
+        state = ExecutionLifecycleState.valueOf(state),
+        side = Side.valueOf(side),
+        requestedQuantity = BigDecimal(requested_quantity),
+        filledQuantity = filled_quantity?.let(::BigDecimal),
+        fillVwap = fill_vwap?.let(::BigDecimal),
+        takeProfit = take_profit?.let(::BigDecimal),
+        stopLoss = stop_loss?.let(::BigDecimal),
+        exchangeOrderId = exchange_order_id,
+        clientOrderId = client_order_id,
+        reasonCode = reason_code,
+        occurredAt = Instant.parse(occurred_at),
+    )
 
 private fun SelectRecentMarketCandles.toCandle(): Candle =
     Candle(

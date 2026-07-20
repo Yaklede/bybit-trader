@@ -229,6 +229,31 @@ ON executionTradeClosures(identity_key);
 CREATE INDEX executionTradeClosures_symbol_mode_id_idx
 ON executionTradeClosures(symbol, mode, id DESC);
 
+CREATE TABLE executionLifecycleEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL,
+  lifecycle_id TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  state TEXT NOT NULL,
+  side TEXT NOT NULL,
+  requested_quantity TEXT NOT NULL,
+  filled_quantity TEXT,
+  fill_vwap TEXT,
+  take_profit TEXT,
+  stop_loss TEXT,
+  exchange_order_id TEXT,
+  client_order_id TEXT,
+  reason_code TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  identity_key TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX executionLifecycleEvents_identity_idx
+ON executionLifecycleEvents(identity_key);
+
+CREATE INDEX executionLifecycleEvents_mode_symbol_id_idx
+ON executionLifecycleEvents(mode, symbol, id DESC);
+
 CREATE TABLE livePerformanceSnapshots (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   mode TEXT NOT NULL,
@@ -784,6 +809,44 @@ SET delivered_at = :attemptedAt,
   attempt_count = attempt_count + 1,
   last_attempt_at = :attemptedAt
 WHERE id = :closureId;
+
+insertExecutionLifecycleEvent:
+INSERT OR IGNORE INTO executionLifecycleEvents(
+  mode,
+  lifecycle_id,
+  symbol,
+  state,
+  side,
+  requested_quantity,
+  filled_quantity,
+  fill_vwap,
+  take_profit,
+  stop_loss,
+  exchange_order_id,
+  client_order_id,
+  reason_code,
+  occurred_at,
+  identity_key
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectLatestExecutionLifecycleEvent:
+SELECT id, mode, lifecycle_id, symbol, state, side, requested_quantity, filled_quantity, fill_vwap,
+  take_profit, stop_loss, exchange_order_id, client_order_id, reason_code, occurred_at, identity_key
+FROM executionLifecycleEvents
+WHERE mode = :mode
+  AND symbol = :symbol
+ORDER BY id DESC
+LIMIT 1;
+
+selectExecutionLifecycleEvents:
+SELECT id, mode, lifecycle_id, symbol, state, side, requested_quantity, filled_quantity, fill_vwap,
+  take_profit, stop_loss, exchange_order_id, client_order_id, reason_code, occurred_at, identity_key
+FROM executionLifecycleEvents
+WHERE (:mode IS NULL OR mode = :mode)
+  AND (:symbol IS NULL OR symbol = :symbol)
+ORDER BY id DESC
+LIMIT :limit;
 
 insertLivePerformanceSnapshot:
 INSERT INTO livePerformanceSnapshots(

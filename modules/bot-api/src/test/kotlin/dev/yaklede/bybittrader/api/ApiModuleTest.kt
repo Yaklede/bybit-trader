@@ -42,6 +42,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
@@ -855,6 +857,15 @@ class ApiModuleTest :
                 response.bodyAsText() shouldContain """"status":"${ExchangeEvaluationStatus.SUBMITTED.name}""""
                 gateway.placedOrders.size shouldBe 1
                 paperStore.orders.single().exchangeOrderId shouldBe "exchange-1"
+
+                val lifecycleResponse =
+                    client
+                        .get("/execution/lifecycle-events?symbol=BTCUSDT&mode=TESTNET&limit=10") {
+                            bearerAuth("test-control-credential")
+                        }
+                lifecycleResponse.status shouldBe HttpStatusCode.OK
+                lifecycleResponse.bodyAsText() shouldContain """"state":"ENTRY_SUBMITTED""""
+                lifecycleResponse.bodyAsText() shouldContain """"reasonCode":"AUTOMATIC_ENTRY_SUBMITTED""""
             }
         }
 
@@ -1522,13 +1533,15 @@ private class FailingMarketDataFeed : MarketDataFeed {
 
 private class InMemoryPaperTradingStore :
     PaperTradingStore,
-    ExecutionProjectionStore {
+    ExecutionProjectionStore,
+    ExecutionLifecycleStore {
     val signals = mutableListOf<PaperSignalRecord>()
     val orders = mutableListOf<PaperOrderRecord>()
     val fills = mutableListOf<PaperFillRecord>()
     val positions = mutableListOf<PaperPositionRecord>()
     val performanceSnapshots = mutableListOf<PaperPerformanceSnapshot>()
     val closures = mutableListOf<ExecutionTradeClosure>()
+    val lifecycleRecords = mutableListOf<ExecutionLifecycleEvent>()
     val livePerformanceSnapshots = mutableListOf<LivePerformanceSnapshot>()
     val suppressedClosureAlerts = mutableSetOf<Long>()
     val deliveredClosureAlerts = mutableSetOf<Long>()
@@ -1590,6 +1603,41 @@ private class InMemoryPaperTradingStore :
                     filledAt = fill?.filledAt,
                 )
             }
+
+    override suspend fun recordLifecycleEvent(event: ExecutionLifecycleEvent): Long? {
+        if (lifecycleRecords.any {
+                it.mode == event.mode &&
+                    it.lifecycleId == event.lifecycleId &&
+                    it.state == event.state &&
+                    it.clientOrderId == event.clientOrderId &&
+                    it.occurredAt == event.occurredAt
+            }
+        ) {
+            return null
+        }
+        val id = lifecycleRecords.size + 1L
+        lifecycleRecords += event.copy(id = id)
+        return id
+    }
+
+    override suspend fun latestLifecycleEvent(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): ExecutionLifecycleEvent? =
+        lifecycleRecords
+            .filter { event -> event.mode == mode && event.symbol == symbol }
+            .maxByOrNull(ExecutionLifecycleEvent::id)
+
+    override suspend fun lifecycleEvents(
+        mode: ExecutionRuntimeMode?,
+        symbol: Symbol?,
+        limit: Int,
+    ): List<ExecutionLifecycleEvent> =
+        lifecycleRecords
+            .filter { event ->
+                (mode == null || event.mode == mode) && (symbol == null || event.symbol == symbol)
+            }.sortedByDescending(ExecutionLifecycleEvent::id)
+            .take(limit)
 
     override suspend fun recordTradeClosure(
         closure: ExecutionTradeClosure,

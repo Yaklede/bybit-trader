@@ -13,6 +13,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeManualOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationReport
+import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
@@ -89,6 +90,26 @@ fun Route.configureExecutionRoutes(
                 ClosedTradesResponse(
                     items = items.map(ExecutionTradeClosure::toResponse),
                     nextCursor = items.lastOrNull()?.id?.toString(),
+                ),
+            )
+        }
+
+        get("/execution/lifecycle-events") {
+            val request =
+                LifecycleEventsQuery(
+                    symbol = call.request.queryParameters["symbol"],
+                    limit = call.request.queryParameters["limit"],
+                    mode = call.request.queryParameters["mode"],
+                ).validated()
+            call.respond(
+                LifecycleEventsResponse(
+                    items =
+                        executionService
+                            .lifecycleEvents(
+                                symbol = request.symbol?.let(::Symbol),
+                                mode = request.mode?.let(ExecutionRuntimeMode::valueOf),
+                                limit = request.limit,
+                            ).map(ExecutionLifecycleEvent::toResponse),
                 ),
             )
         }
@@ -258,6 +279,36 @@ private data class ClosedTradesQueryValues(
     val mode: String?,
 )
 
+private data class LifecycleEventsQuery(
+    val symbol: String?,
+    val limit: String?,
+    val mode: String?,
+) {
+    fun validated(): LifecycleEventsQueryValues {
+        val normalizedSymbol =
+            symbol
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { it.isNotBlank() }
+                ?.also { Symbol(it) }
+        val normalizedLimit = limit?.toIntOrNull() ?: 50
+        require(normalizedLimit in 1..1000) { "Limit must be between 1 and 1000." }
+        val normalizedMode =
+            mode
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { it.isNotBlank() }
+                ?.also { ExecutionRuntimeMode.valueOf(it) }
+        return LifecycleEventsQueryValues(normalizedSymbol, normalizedLimit, normalizedMode)
+    }
+}
+
+private data class LifecycleEventsQueryValues(
+    val symbol: String?,
+    val limit: Int,
+    val mode: String?,
+)
+
 private data class LivePerformanceQuery(
     val mode: String?,
     val window: String?,
@@ -366,6 +417,30 @@ data class ExecutionManualOrderResponse(
 data class ClosedTradesResponse(
     val items: List<ClosedTradeResponse>,
     val nextCursor: String?,
+)
+
+@Serializable
+data class LifecycleEventsResponse(
+    val items: List<ExecutionLifecycleEventResponse>,
+)
+
+@Serializable
+data class ExecutionLifecycleEventResponse(
+    val eventId: Long,
+    val mode: String,
+    val lifecycleId: String,
+    val symbol: String,
+    val state: String,
+    val side: String,
+    val requestedQuantity: String,
+    val filledQuantity: String?,
+    val fillVwap: String?,
+    val takeProfit: String?,
+    val stopLoss: String?,
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+    val reasonCode: String,
+    val occurredAt: String,
 )
 
 @Serializable
@@ -521,6 +596,25 @@ private fun ExecutionTradeClosure.toResponse(): ClosedTradeResponse =
         exitReason = exitReason,
         exchangeOrderId = exchangeOrderId,
         clientOrderId = clientOrderId,
+    )
+
+private fun ExecutionLifecycleEvent.toResponse(): ExecutionLifecycleEventResponse =
+    ExecutionLifecycleEventResponse(
+        eventId = id,
+        mode = mode.name,
+        lifecycleId = lifecycleId,
+        symbol = symbol.value,
+        state = state.name,
+        side = side.name,
+        requestedQuantity = requestedQuantity.toPlainString(),
+        filledQuantity = filledQuantity?.toPlainString(),
+        fillVwap = fillVwap?.toPlainString(),
+        takeProfit = takeProfit?.toPlainString(),
+        stopLoss = stopLoss?.toPlainString(),
+        exchangeOrderId = exchangeOrderId,
+        clientOrderId = clientOrderId,
+        reasonCode = reasonCode,
+        occurredAt = occurredAt.toString(),
     )
 
 private fun LivePerformanceSnapshot?.toResponse(request: LivePerformanceQueryValues): LivePerformanceSummaryResponse =

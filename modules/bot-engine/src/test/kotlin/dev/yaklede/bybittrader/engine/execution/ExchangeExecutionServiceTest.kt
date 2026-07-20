@@ -87,6 +87,9 @@ class ExchangeExecutionServiceTest :
             store.signals.single().accepted shouldBe true
             store.orders.single().orderStatus shouldBe OrderStatus.SUBMITTED
             store.orders.single().exchangeOrderId shouldBe "exchange-1"
+            store.lifecycleRecords.single().state shouldBe ExecutionLifecycleState.ENTRY_SUBMITTED
+            store.lifecycleRecords.single().takeProfit shouldBe BigDecimal("112.5")
+            store.lifecycleRecords.single().stopLoss shouldBe BigDecimal("100")
             gateway.placedOrders.map { it.clientOrderId }.shouldContainExactly(
                 listOf("bt-BTCUSDT-1719705600000-1-B"),
             )
@@ -777,10 +780,12 @@ private class PassingSyncMarketDataFeed : MarketDataFeed {
 
 private class InMemoryTradingStore :
     PaperTradingStore,
-    ExecutionProjectionStore {
+    ExecutionProjectionStore,
+    ExecutionLifecycleStore {
     val signals = mutableListOf<PaperSignalRecord>()
     val orders = mutableListOf<PaperOrderRecord>()
     val closures = mutableListOf<ExecutionTradeClosure>()
+    val lifecycleRecords = mutableListOf<ExecutionLifecycleEvent>()
     val performance = mutableListOf<LivePerformanceSnapshot>()
     val suppressedAt = mutableMapOf<Long, Instant>()
     val deliveredAt = mutableMapOf<Long, Instant>()
@@ -810,6 +815,41 @@ private class InMemoryTradingStore :
     override suspend fun recentSignals(limit: Int): List<PaperSignalRecord> = signals.asReversed().take(limit)
 
     override suspend fun recentTrades(limit: Int): List<PaperTradeRecord> = emptyList()
+
+    override suspend fun recordLifecycleEvent(event: ExecutionLifecycleEvent): Long? {
+        if (lifecycleRecords.any {
+                it.mode == event.mode &&
+                    it.lifecycleId == event.lifecycleId &&
+                    it.state == event.state &&
+                    it.clientOrderId == event.clientOrderId &&
+                    it.occurredAt == event.occurredAt
+            }
+        ) {
+            return null
+        }
+        val id = lifecycleRecords.size + 1L
+        lifecycleRecords += event.copy(id = id)
+        return id
+    }
+
+    override suspend fun latestLifecycleEvent(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): ExecutionLifecycleEvent? =
+        lifecycleRecords
+            .filter { event -> event.mode == mode && event.symbol == symbol }
+            .maxByOrNull(ExecutionLifecycleEvent::id)
+
+    override suspend fun lifecycleEvents(
+        mode: ExecutionRuntimeMode?,
+        symbol: Symbol?,
+        limit: Int,
+    ): List<ExecutionLifecycleEvent> =
+        lifecycleRecords
+            .filter { event ->
+                (mode == null || event.mode == mode) && (symbol == null || event.symbol == symbol)
+            }.sortedByDescending(ExecutionLifecycleEvent::id)
+            .take(limit)
 
     override suspend fun recordTradeClosure(
         closure: ExecutionTradeClosure,
