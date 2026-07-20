@@ -10,6 +10,7 @@ const val AGGRESSIVE_FILL_MODEL_VERSION = "causal-m1-path-v2"
 
 enum class StrategyValidationStatus {
     UNVERIFIED,
+    REJECTED,
     VERIFIED,
 }
 
@@ -312,7 +313,7 @@ object VolumeFlowAggressiveProfiles {
                     leverage = 15.0,
                     liquidationBufferPct = 0.6,
                 ),
-            validationStatus = StrategyValidationStatus.UNVERIFIED,
+            validationStatus = StrategyValidationStatus.REJECTED,
         )
 
     fun matchesCurrentSignalDefinition(config: VolumeFlowAggressiveBacktestConfig): Boolean =

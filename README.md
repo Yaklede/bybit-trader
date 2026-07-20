@@ -8,8 +8,8 @@ Initial public repository placeholder for a Bybit trading automation project.
 > reports generated before fill model `causal-m1-path-v2` used a breakout
 > candle close to select a trade while filling at that same candle's open.
 > Those reports are invalid for live-readiness decisions. The aggressive profile
-> is `UNVERIFIED`; keep `BOT_EXECUTION_MAX_NOTIONAL` set and do not expand live
-> exposure until a causal walk-forward and sealed holdout pass is recorded.
+> is `REJECTED` because its after-cost expectancy is negative under the causal
+> replay. It cannot be enabled as an automatic execution loop.
 > The raw M5 feature-discovery simulator was corrected for the same issue; its
 > previous 0.8% CDR claim no longer reproduces under causal confirmation fills.
 
@@ -53,8 +53,9 @@ Milestone 1 is the operational backend shell:
 - Paper mode starts without Bybit private credentials.
 
 For live smoke verification, keep `BOT_EXECUTION_LOOP_ENABLED=false` and use a
-small `BOT_EXECUTION_MAX_NOTIONAL`. The current aggressive profile is
-unverified and must not be enabled as an automatic loop.
+small `BOT_EXECUTION_MAX_NOTIONAL`. The current aggressive profile is rejected
+and cannot be enabled as an automatic loop. Manual exchange smoke tests and
+forward-only market capture remain available while a replacement is researched.
 
 `POST /execution/reconcile` is an exchange read only. The enabled runtime loop
 is the sole closed-trade writer: it persists and alerts new closed PnL before

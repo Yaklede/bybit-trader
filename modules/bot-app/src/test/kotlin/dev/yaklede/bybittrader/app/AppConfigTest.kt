@@ -60,8 +60,6 @@ class AppConfigTest :
                     mapOf(
                         "BOT_MODE" to "TESTNET",
                         "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
-                        "BOT_EXECUTION_LOOP_ENABLED" to "true",
-                        "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE" to "true",
                         "BYBIT_API_KEY" to "test-key",
                         "BYBIT_API_SECRET" to "test-secret",
                         "BYBIT_PRIVATE_BASE_URL" to "https://api-testnet.bybit.com",
@@ -85,8 +83,8 @@ class AppConfigTest :
             config.bybitPrivate.recvWindowMillis shouldBe 7000
             config.bybitPrivate.accountType shouldBe "UNIFIED"
             config.execution.enabled shouldBe true
-            config.execution.allowUnverifiedProfile shouldBe true
-            config.executionLoop.enabled shouldBe true
+            config.execution.allowUnverifiedProfile shouldBe false
+            config.executionLoop.enabled shouldBe false
             config.execution.accountEquity.toPlainString() shouldBe "2000000"
             config.execution.useLiveAccountEquity shouldBe true
             config.execution.riskFraction.toPlainString() shouldBe "0.03"
@@ -97,7 +95,7 @@ class AppConfigTest :
             config.execution.liquidationBufferPct.toPlainString() shouldBe "0.8"
         }
 
-        "execution loop rejects an unverified runtime profile without explicit approval" {
+        "execution loop rejects the failed runtime profile" {
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(
                     mapOf(
@@ -112,8 +110,8 @@ class AppConfigTest :
             }
         }
 
-        "live execution loop accepts an explicit notional cap" {
-            val config =
+        "rejected profile cannot be enabled with the legacy override" {
+            shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(
                     mapOf(
                         "BOT_MODE" to "LIVE",
@@ -125,8 +123,23 @@ class AppConfigTest :
                         "BYBIT_API_SECRET" to "test-secret",
                     ),
                 )
+            }
+        }
 
-            config.execution.maxNotional?.toPlainString() shouldBe "100"
+        "rejected profile cannot run automatically on testnet" {
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "TESTNET",
+                        "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
+                        "BOT_EXECUTION_LOOP_ENABLED" to "true",
+                        "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE" to "true",
+                        "BOT_EXECUTION_MAX_NOTIONAL" to "100",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                    ),
+                )
+            }
         }
 
         "enabled telegram alerts require telegram environment values" {

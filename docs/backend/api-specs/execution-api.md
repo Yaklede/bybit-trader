@@ -41,13 +41,16 @@ fees, entry/exit slippage, quantity limits, maximum notional, leverage, and
 liquidation buffer. Changing a signal parameter marks the result as
 `runtimeSignalProfileMatched=false` and changes `profileId` to a
 `-research-override` identifier; such a result cannot be treated as runtime
-profile evidence.
+profile evidence. The current `absa_final_us_v1` profile is `REJECTED` because
+its causal after-cost replay has negative expectancy.
 
 `GET /strategy/profiles` exposes the expected frozen execution-contract
 fingerprint and the fingerprint assembled from the current process environment.
 `executionContractMatched` must be `true` before comparing a runtime result to
 the frozen aggressive backtest contract. A matching contract does not override
-the profile's `UNVERIFIED` status.
+the profile's validation status. A `REJECTED` profile cannot start the
+automatic execution loop even when the legacy unverified-profile override is
+present.
 
 Request:
 

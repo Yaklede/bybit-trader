@@ -11,7 +11,8 @@ drawdown gates.
 
 ## Current Baseline
 
-- The runtime profile is `absa_final_us_v1`, marked `UNVERIFIED`.
+- The runtime baseline is `absa_final_us_v1`, marked `REJECTED` after causal
+  replay confirmed negative after-cost expectancy.
 - The 40-window runtime audit recorded 0/40 passes, a -0.38433% mean CDR, and
   31/39 replay windows above 40% MDD. See
   [derivatives-flow-research-2026-07-10.md](derivatives-flow-research-2026-07-10.md).
@@ -110,9 +111,9 @@ strategy and execution path are consistent.
 Acceptance criteria:
 
 - Live mode requires explicit `BOT_MODE=LIVE` and private credentials.
-- Automatic execution of the current unverified profile requires the separate
-  `BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true` override and is blocked by
-  default.
+- The current rejected profile cannot execute automatically in TESTNET or LIVE.
+- A future unverified candidate may use the explicit override in TESTNET only;
+  LIVE automatic execution requires a verified profile.
 - Startup sends a live-mode warning alert.
 - Reconciliation passes before trading starts.
 - Initial notional/risk caps are configured separately from research sizing.

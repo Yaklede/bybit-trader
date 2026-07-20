@@ -3,8 +3,9 @@
 ## Decision
 
 The compound-daily research target is now `0.2%`. No runtime strategy is
-promoted by this change. The current automatic execution profile remains
-`absa_final_us_v1` and remains `UNVERIFIED`.
+promoted by this change. The automatic execution baseline remains
+`absa_final_us_v1`, but it is now explicitly `REJECTED` after its causal replay
+confirmed negative after-cost expectancy.
 
 `config/aggressive-runtime-replay-contract-v2.json` is the frozen runtime audit
 contract for this target. It retains the `aggressive-runtime-v1` strategy and

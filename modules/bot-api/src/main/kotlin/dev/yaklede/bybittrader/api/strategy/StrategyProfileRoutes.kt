@@ -43,8 +43,8 @@ class StrategyProfileService(
                 name = "공격형",
                 kind = StrategyProfileKind.RUNTIME,
                 strategyName = aggressiveRuntimeProfile.strategyName,
-                description = "거래량 흡수 구간 이후 돌파를 양방향으로 추적하는 운영 기본 전략이에요.",
-                riskNote = "검증 전 전략 · 현실 체결 기준 재검증이 끝날 때까지 주문 한도를 유지해야 해요.",
+                description = "거래량 흡수 구간 이후 돌파를 양방향으로 추적했던 실패 기준 전략이에요.",
+                riskNote = "검증 탈락 · 비용 차감 후 기대값이 음수여서 자동 주문에 사용할 수 없어요.",
                 backtestEndpoint = "/backtests/volume-flow/aggressive/current/run",
                 isDefault = true,
                 validationStatus = aggressiveRuntimeProfile.validationStatus.toApiValidationStatus(),
@@ -143,6 +143,7 @@ data class StrategyProfile(
 
 enum class StrategyProfileValidationStatus {
     UNVERIFIED,
+    REJECTED,
     VERIFIED,
     BACKTEST_ONLY,
 }
@@ -232,5 +233,6 @@ private fun StrategyProfile.toResponse(): StrategyProfileResponse =
 private fun StrategyValidationStatus.toApiValidationStatus(): StrategyProfileValidationStatus =
     when (this) {
         StrategyValidationStatus.UNVERIFIED -> StrategyProfileValidationStatus.UNVERIFIED
+        StrategyValidationStatus.REJECTED -> StrategyProfileValidationStatus.REJECTED
         StrategyValidationStatus.VERIFIED -> StrategyProfileValidationStatus.VERIFIED
     }

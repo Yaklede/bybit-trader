@@ -10,6 +10,7 @@ class VolumeFlowAggressiveRuntimeProfileTest :
             val replay = VolumeFlowAggressiveProfiles.currentReplayConfig()
 
             profile.contractVersion shouldBe "aggressive-runtime-v1"
+            profile.validationStatus shouldBe StrategyValidationStatus.REJECTED
             replay.profileId shouldBe profile.profileId
             replay.initialEquity shouldBe 100.0
             replay.executionContract() shouldBe profile.executionContract

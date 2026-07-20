@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.app
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveExecutionContract
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import java.math.BigDecimal
@@ -52,18 +53,27 @@ data class AppConfig(
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_LOOP_ENABLED=true."
             }
             val aggressiveRuntimeProfile = VolumeFlowAggressiveProfiles.current()
-            require(
-                !executionLoop.enabled ||
-                    aggressiveRuntimeProfile.validationStatus ==
-                    dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus.VERIFIED ||
-                    execution.allowUnverifiedProfile,
-            ) {
-                "The runtime profile ${aggressiveRuntimeProfile.profileId} is ${aggressiveRuntimeProfile.validationStatus}. " +
-                    "Keep BOT_EXECUTION_LOOP_ENABLED=false or explicitly set " +
-                    "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true."
+            val automaticExecutionAllowed =
+                when (aggressiveRuntimeProfile.validationStatus) {
+                    StrategyValidationStatus.VERIFIED -> true
+                    StrategyValidationStatus.UNVERIFIED ->
+                        runtimeMode == RuntimeMode.TESTNET && execution.allowUnverifiedProfile
+                    StrategyValidationStatus.REJECTED -> false
+                }
+            require(!executionLoop.enabled || automaticExecutionAllowed) {
+                when (aggressiveRuntimeProfile.validationStatus) {
+                    StrategyValidationStatus.REJECTED ->
+                        "The runtime profile ${aggressiveRuntimeProfile.profileId} is REJECTED and cannot run automatically. " +
+                            "Keep BOT_EXECUTION_LOOP_ENABLED=false. Manual exchange smoke tests and forward market capture remain available."
+                    StrategyValidationStatus.UNVERIFIED ->
+                        "The runtime profile ${aggressiveRuntimeProfile.profileId} is UNVERIFIED. " +
+                            "Automatic execution is allowed only in TESTNET with " +
+                            "BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true."
+                    StrategyValidationStatus.VERIFIED -> error("Verified profiles are allowed above.")
+                }
             }
             require(runtimeMode != RuntimeMode.LIVE || !executionLoop.enabled || execution.maxNotional != null) {
-                "BOT_EXECUTION_MAX_NOTIONAL is required for the unverified live execution loop."
+                "BOT_EXECUTION_MAX_NOTIONAL is required for live automatic execution."
             }
             return AppConfig(
                 runtimeMode = runtimeMode,
