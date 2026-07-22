@@ -305,7 +305,7 @@ class ExchangeExecutionServiceTest :
             store.latestLivePerformanceSummary(ExecutionRuntimeMode.TESTNET, LivePerformanceWindow.ALL)?.tradeCount shouldBe 1
         }
 
-        "runtime reconcile reaches closure alerts before a market sync failure" {
+        "reconciliation loop persists and alerts a closure without automatic trading" {
             val store = InMemoryTradingStore()
             val gateway =
                 RecordingExecutionGateway(
@@ -323,28 +323,86 @@ class ExchangeExecutionServiceTest :
                     gateway = gateway,
                     config = ExchangeExecutionConfig(enabled = true),
                 )
-            val marketSyncService =
-                MarketDataSyncService(
-                    marketDataFeed = FailingSyncMarketDataFeed(),
-                    candleStore = InMemoryCandleStore(),
-                    clock = Clock.fixed(Instant.parse("2024-06-30T00:00:00Z"), ZoneOffset.UTC),
-                )
             val alerted = mutableListOf<ExecutionTradeClosure>()
             val loop =
-                ExchangeTradingLoop(
-                    marketDataSyncService = marketSyncService,
+                ExchangeReconciliationLoop(
                     executionService = executionService,
-                    config = ExchangeTradingLoopConfig(Symbol("BTCUSDT"), Timeframe.M5, candleLimit = 20),
+                    config = ExchangeReconciliationLoopConfig(Symbol("BTCUSDT")),
                     onClosure = { closure ->
                         alerted += closure
                         true
                     },
                 )
 
-            shouldThrow<MarketDataException> { loop.runOnce() }
+            loop.runOnce().persistedClosures.size shouldBe 1
 
             alerted.map { it.exchangeOrderId } shouldContainExactly listOf("close-before-sync")
             store.closures.size shouldBe 1
+        }
+
+        "reconciliation loop advances lifecycle while automatic execution is disabled" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(testLifecycleEvent())
+            val service =
+                testService(
+                    store = store,
+                    gateway =
+                        RecordingExecutionGateway(
+                            positions =
+                                listOf(
+                                    ExchangePosition(
+                                        symbol = symbol,
+                                        side = Side.BUY,
+                                        size = BigDecimal("1"),
+                                        openedAt = Instant.parse("2024-06-29T23:10:00Z"),
+                                        entryPrice = BigDecimal("105"),
+                                        markPrice = BigDecimal("106"),
+                                        unrealizedPnl = BigDecimal("1"),
+                                        takeProfit = BigDecimal("112.5"),
+                                        stopLoss = BigDecimal("100"),
+                                        updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                                    ),
+                                ),
+                        ),
+                    config = ExchangeExecutionConfig(enabled = false),
+                )
+            val observed = mutableListOf<ExecutionLifecycleEvent>()
+
+            ExchangeReconciliationLoop(
+                executionService = service,
+                config = ExchangeReconciliationLoopConfig(symbol),
+                onLifecycleEvent = { event -> observed += event },
+            ).runOnce()
+
+            observed.single().state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
+            store.lifecycleRecords.last().state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
+        }
+
+        "automatic trading loop does not reconcile exchange state" {
+            val gateway = RecordingExecutionGateway()
+            val loop =
+                ExchangeTradingLoop(
+                    marketDataSyncService =
+                        MarketDataSyncService(
+                            marketDataFeed = FailingSyncMarketDataFeed(),
+                            candleStore = InMemoryCandleStore(),
+                            clock = Clock.fixed(Instant.parse("2024-06-30T00:00:00Z"), ZoneOffset.UTC),
+                        ),
+                    executionService =
+                        testService(
+                            gateway = gateway,
+                            config = ExchangeExecutionConfig(enabled = true),
+                        ),
+                    config = ExchangeTradingLoopConfig(Symbol("BTCUSDT"), Timeframe.M5, candleLimit = 20),
+                )
+
+            shouldThrow<MarketDataException> { loop.runOnce() }
+
+            gateway.openOrderRequests shouldBe 0
+            gateway.positionRequests shouldBe 0
+            gateway.executionRequests shouldBe 0
+            gateway.closedPnlRequests shouldBe 0
         }
 
         "failed closure delivery stays pending retries and stops after success" {
@@ -361,41 +419,31 @@ class ExchangeExecutionServiceTest :
                         ),
                 )
             val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = false))
-            val marketSyncService =
-                MarketDataSyncService(
-                    marketDataFeed = PassingSyncMarketDataFeed(),
-                    candleStore = InMemoryCandleStore(),
-                    clock = Clock.fixed(Instant.parse("2024-06-30T00:00:00Z"), ZoneOffset.UTC),
-                )
             val deliveryResults = ArrayDeque(listOf(false, true))
             val deliveredIds = mutableListOf<Long>()
-            var evaluationCount = 0
             val loop =
-                ExchangeTradingLoop(
-                    marketDataSyncService = marketSyncService,
+                ExchangeReconciliationLoop(
                     executionService = service,
-                    config = ExchangeTradingLoopConfig(symbol, Timeframe.M5, candleLimit = 20),
+                    config = ExchangeReconciliationLoopConfig(symbol),
                     clock = Clock.fixed(Instant.parse("2024-06-30T00:00:00Z"), ZoneOffset.UTC),
                     onClosure = { closure ->
                         deliveredIds += closure.id
                         deliveryResults.removeFirst()
                     },
-                    onResult = { evaluationCount += 1 },
                 )
 
-            loop.runOnce().status shouldBe ExchangeEvaluationStatus.DISABLED
+            loop.runOnce()
             store.pendingClosureAlerts(ExecutionRuntimeMode.TESTNET, symbol, 10).single().attemptCount shouldBe 1
-            loop.runOnce().status shouldBe ExchangeEvaluationStatus.DISABLED
+            loop.runOnce()
             store.pendingClosureAlerts(ExecutionRuntimeMode.TESTNET, symbol, 10) shouldBe emptyList()
-            loop.runOnce().status shouldBe ExchangeEvaluationStatus.DISABLED
+            loop.runOnce()
 
             deliveredIds.size shouldBe 2
             store.alertAttempts.values.single() shouldBe 2
             store.deliveredAt.size shouldBe 1
-            evaluationCount shouldBe 3
         }
 
-        "one failed closure alert does not block later pending alerts or evaluation" {
+        "one failed closure alert does not block later pending alerts" {
             val symbol = Symbol("BTCUSDT")
             val store = InMemoryTradingStore()
             val service =
@@ -412,25 +460,17 @@ class ExchangeExecutionServiceTest :
                     config = ExchangeExecutionConfig(enabled = false),
                 )
             val callbackIds = mutableListOf<String?>()
-            var evaluationCount = 0
             val loop =
-                ExchangeTradingLoop(
-                    marketDataSyncService =
-                        MarketDataSyncService(
-                            marketDataFeed = PassingSyncMarketDataFeed(),
-                            candleStore = InMemoryCandleStore(),
-                            clock = Clock.fixed(Instant.parse("2024-06-30T00:00:00Z"), ZoneOffset.UTC),
-                        ),
+                ExchangeReconciliationLoop(
                     executionService = service,
-                    config = ExchangeTradingLoopConfig(symbol, Timeframe.M5, candleLimit = 20),
+                    config = ExchangeReconciliationLoopConfig(symbol),
                     onClosure = { closure ->
                         callbackIds += closure.exchangeOrderId
                         closure.exchangeOrderId == "second-succeeds"
                     },
-                    onResult = { evaluationCount += 1 },
                 )
 
-            loop.runOnce().status shouldBe ExchangeEvaluationStatus.DISABLED
+            loop.runOnce()
 
             callbackIds shouldContainExactly listOf("first-fails", "second-succeeds")
             store
@@ -438,7 +478,6 @@ class ExchangeExecutionServiceTest :
                 .single()
                 .closure.exchangeOrderId shouldBe "first-fails"
             store.deliveredAt.size shouldBe 1
-            evaluationCount shouldBe 1
         }
 
         "first bootstrap suppresses history but keeps post start closure pending" {
@@ -956,14 +995,6 @@ private class FailingSyncMarketDataFeed : MarketDataFeed {
     ): List<Candle> = throw MarketDataException("market sync failed")
 }
 
-private class PassingSyncMarketDataFeed : MarketDataFeed {
-    override suspend fun fetchRecentCandles(
-        symbol: Symbol,
-        timeframe: Timeframe,
-        limit: Int,
-    ): List<Candle> = emptyList()
-}
-
 private class InMemoryTradingStore :
     PaperTradingStore,
     ExecutionProjectionStore,
@@ -1150,6 +1181,10 @@ private class RecordingExecutionGateway(
 ) : ExchangeExecutionGateway {
     val leverageRequests = mutableListOf<Pair<Symbol, BigDecimal>>()
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
+    var openOrderRequests: Int = 0
+    var positionRequests: Int = 0
+    var executionRequests: Int = 0
+    var closedPnlRequests: Int = 0
 
     override suspend fun setLeverage(
         symbol: Symbol,
@@ -1173,13 +1208,25 @@ private class RecordingExecutionGateway(
             clientOrderId = request.clientOrderId,
         )
 
-    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = openOrders
+    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> {
+        openOrderRequests += 1
+        return openOrders
+    }
 
-    override suspend fun positions(symbol: Symbol): List<ExchangePosition> = positions
+    override suspend fun positions(symbol: Symbol): List<ExchangePosition> {
+        positionRequests += 1
+        return positions
+    }
 
-    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = executions
+    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> {
+        executionRequests += 1
+        return executions
+    }
 
-    override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> = closedPnls
+    override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> {
+        closedPnlRequests += 1
+        return closedPnls
+    }
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = accountBalance
 }

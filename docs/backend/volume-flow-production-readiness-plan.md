@@ -141,6 +141,8 @@ live credentials are provided.
 ## Next Engineering Step
 
 Run Docker preflight with real operator, alert, Twingate, SSH, and Bybit live
-tokens. Keep `BOT_EXECUTION_LOOP_ENABLED=false`, submit one manual order, and
-reconcile it. Do not enable the loop for `absa_final_us_v1`; first replace it
-with a profile that passes the runtime replay and validation gates.
+tokens. Keep `BOT_EXECUTION_LOOP_ENABLED=false`, keep the independent
+reconciliation loop enabled, submit one manual order, and verify its persisted
+lifecycle and close alert. Do not enable automatic trading for
+`absa_final_us_v1`; first replace it with a profile that passes the runtime
+replay and validation gates.

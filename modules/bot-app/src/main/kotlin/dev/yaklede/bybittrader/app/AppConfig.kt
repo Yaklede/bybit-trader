@@ -19,6 +19,7 @@ data class AppConfig(
     val paperLoop: PaperLoopSettings,
     val paperTrading: PaperTradingSettings,
     val executionLoop: ExecutionLoopSettings,
+    val executionReconciliation: ExecutionReconciliationSettings,
     val execution: ExecutionSettings,
     val volumeFlowComposite: VolumeFlowCompositeSettings,
     val strategyProfiles: StrategyProfileSettings,
@@ -46,11 +47,19 @@ data class AppConfig(
             val paperStrategy = PaperStrategyKind.fromEnvironment(environment)
             val execution = ExecutionSettings.fromEnvironment(environment)
             val executionLoop = ExecutionLoopSettings.fromEnvironment(environment, Timeframe.M5)
+            val executionReconciliation =
+                ExecutionReconciliationSettings.fromEnvironment(
+                    environment = environment,
+                    defaultEnabled = execution.enabled,
+                )
             require(!execution.enabled || runtimeMode != RuntimeMode.PAPER) {
                 "BOT_MODE=TESTNET or LIVE is required when BOT_PRIVATE_EXECUTION_ENABLED=true."
             }
             require(!executionLoop.enabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_LOOP_ENABLED=true."
+            }
+            require(!executionReconciliation.enabled || execution.enabled) {
+                "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_RECONCILIATION_ENABLED=true."
             }
             val aggressiveRuntimeProfile = VolumeFlowAggressiveProfiles.current()
             val automaticExecutionAllowed =
@@ -94,6 +103,7 @@ data class AppConfig(
                 paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first(), paperStrategy),
                 paperTrading = PaperTradingSettings.fromEnvironment(environment, paperStrategy),
                 executionLoop = executionLoop,
+                executionReconciliation = executionReconciliation,
                 execution = execution,
                 volumeFlowComposite = VolumeFlowCompositeSettings.fromEnvironment(environment),
                 strategyProfiles = StrategyProfileSettings.fromEnvironment(environment),
@@ -364,7 +374,6 @@ data class ExecutionLoopSettings(
     val timeframe: Timeframe,
     val candleLimit: Int,
     val syncLimit: Int,
-    val alertBatchLimit: Int,
     val intervalSeconds: Long,
 ) {
     init {
@@ -372,7 +381,6 @@ data class ExecutionLoopSettings(
             "Execution loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
         require(syncLimit in 1..1000) { "Execution loop sync limit must be between 1 and 1000." }
-        require(alertBatchLimit in 1..1000) { "Execution alert batch limit must be between 1 and 1000." }
         require(intervalSeconds in 10..86_400) { "Execution loop interval seconds must be between 10 and 86400." }
     }
 
@@ -391,8 +399,35 @@ data class ExecutionLoopSettings(
                         ?: defaultTimeframe,
                 candleLimit = environment["BOT_EXECUTION_CANDLE_LIMIT"]?.toIntOrNull() ?: 18_000,
                 syncLimit = environment["BOT_EXECUTION_SYNC_LIMIT"]?.toIntOrNull() ?: 1000,
-                alertBatchLimit = environment["BOT_EXECUTION_ALERT_BATCH_LIMIT"]?.toIntOrNull() ?: 100,
                 intervalSeconds = environment["BOT_EXECUTION_INTERVAL_SECONDS"]?.toLongOrNull() ?: 300,
+            )
+    }
+}
+
+data class ExecutionReconciliationSettings(
+    val enabled: Boolean,
+    val alertBatchLimit: Int,
+    val intervalSeconds: Long,
+) {
+    init {
+        require(alertBatchLimit in 1..1000) { "Execution alert batch limit must be between 1 and 1000." }
+        require(intervalSeconds in 10..86_400) {
+            "Execution reconciliation interval seconds must be between 10 and 86400."
+        }
+    }
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            defaultEnabled: Boolean,
+        ): ExecutionReconciliationSettings =
+            ExecutionReconciliationSettings(
+                enabled =
+                    environment["BOT_EXECUTION_RECONCILIATION_ENABLED"]
+                        ?.equals("true", ignoreCase = true)
+                        ?: defaultEnabled,
+                alertBatchLimit = environment["BOT_EXECUTION_ALERT_BATCH_LIMIT"]?.toIntOrNull() ?: 100,
+                intervalSeconds = environment["BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS"]?.toLongOrNull() ?: 60,
             )
     }
 }

@@ -32,6 +32,9 @@ class AppConfigTest :
             config.execution.useLiveAccountEquity shouldBe false
             config.execution.leverage shouldBe null
             config.executionLoop.enabled shouldBe false
+            config.executionReconciliation.enabled shouldBe false
+            config.executionReconciliation.alertBatchLimit shouldBe 100
+            config.executionReconciliation.intervalSeconds shouldBe 60
             config.volumeFlowComposite.currentConfigPath shouldBe "config/volume-flow-composite-current.json"
             config.strategyProfiles.statePath shouldBe "data/strategy-profile-current.txt"
         }
@@ -85,6 +88,9 @@ class AppConfigTest :
             config.execution.enabled shouldBe true
             config.execution.allowUnverifiedProfile shouldBe false
             config.executionLoop.enabled shouldBe false
+            config.executionReconciliation.enabled shouldBe true
+            config.executionReconciliation.alertBatchLimit shouldBe 100
+            config.executionReconciliation.intervalSeconds shouldBe 60
             config.execution.accountEquity.toPlainString() shouldBe "2000000"
             config.execution.useLiveAccountEquity shouldBe true
             config.execution.riskFraction.toPlainString() shouldBe "0.03"
@@ -93,6 +99,36 @@ class AppConfigTest :
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"
             config.execution.liquidationBufferPct.toPlainString() shouldBe "0.8"
+        }
+
+        "execution reconciliation settings can be configured independently of automatic entries" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "TESTNET",
+                        "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
+                        "BOT_EXECUTION_RECONCILIATION_ENABLED" to "true",
+                        "BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS" to "90",
+                        "BOT_EXECUTION_ALERT_BATCH_LIMIT" to "25",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                    ),
+                )
+
+            config.executionLoop.enabled shouldBe false
+            config.executionReconciliation.enabled shouldBe true
+            config.executionReconciliation.intervalSeconds shouldBe 90
+            config.executionReconciliation.alertBatchLimit shouldBe 25
+        }
+
+        "execution reconciliation requires private execution" {
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_EXECUTION_RECONCILIATION_ENABLED" to "true",
+                    ),
+                )
+            }
         }
 
         "execution loop rejects the failed runtime profile" {

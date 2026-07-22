@@ -52,15 +52,17 @@ Milestone 1 is the operational backend shell:
 - Telegram and Discord webhook alert sink wiring, disabled unless configured.
 - Paper mode starts without Bybit private credentials.
 
-For live smoke verification, keep `BOT_EXECUTION_LOOP_ENABLED=false` and use a
-small `BOT_EXECUTION_MAX_NOTIONAL`. The current aggressive profile is rejected
-and cannot be enabled as an automatic loop. Manual exchange smoke tests and
-forward-only market capture remain available while a replacement is researched.
+For live smoke verification, keep `BOT_EXECUTION_LOOP_ENABLED=false`, keep
+`BOT_EXECUTION_RECONCILIATION_ENABLED=true`, and use a small
+`BOT_EXECUTION_MAX_NOTIONAL`. The current aggressive profile is rejected and
+cannot be enabled as an automatic loop. Manual exchange smoke tests,
+independent private-state reconciliation, and forward-only market capture
+remain available while a replacement is researched.
 
-`POST /execution/reconcile` is an exchange read only. The enabled runtime loop
-is the sole closed-trade writer: it persists and alerts new closed PnL before
-closed-candle sync and entry evaluation. Automatic entries are rejected while
-Bybit reports an active order or positive position size.
+`POST /execution/reconcile` is an exchange read only. The independent execution
+reconciliation loop is the sole closed-trade writer: it persists and alerts new
+closed PnL even when automatic trading is disabled. Automatic entries are
+rejected while Bybit reports an active order or positive position size.
 
 Automatic execution and the aggressive backtest now use one position-policy
 contract. The current contract caps completed entries at five per UTC day and
@@ -73,8 +75,8 @@ Accepted private order requests are also written to the append-only
 `executionLifecycleEvents` ledger. The authenticated
 `GET /execution/lifecycle-events` endpoint exposes submission state,
 requested quantity, intended TP/SL, and exchange/client order IDs. A
-`ENTRY_SUBMITTED` event still means only that Bybit accepted the request;
-the closed-M5 reconciliation loop advances it from Bybit orders, executions,
+`ENTRY_SUBMITTED` event still means only that Bybit accepted the request; the
+independent reconciliation loop advances it from Bybit orders, executions,
 positions, and closed PnL. Positions with both exchange-reported TP and SL are
 `OPEN_PROTECTED`; missing protection is `OPEN_UNPROTECTED` and sends a
 critical Discord alert. Private WebSocket ingestion remains a follow-up for
@@ -114,9 +116,10 @@ about 90 days of M5 history before enabling the loop. Run
 
 For Docker live execution, use `BOT_MODE=LIVE`, set `BYBIT_API_KEY` and
 `BYBIT_API_SECRET`, and enable `BOT_PRIVATE_EXECUTION_ENABLED`. Keep
-`BOT_EXECUTION_LOOP_ENABLED=false` until the first manual live order and
-reconcile pass. A future automatic profile also requires its own replay gate;
-the current profile is blocked by default.
+`BOT_EXECUTION_LOOP_ENABLED=false` and
+`BOT_EXECUTION_RECONCILIATION_ENABLED=true` during manual live observation. A
+future automatic profile also requires its own replay gate; the current profile
+is blocked by default.
 
 Docker build:
 

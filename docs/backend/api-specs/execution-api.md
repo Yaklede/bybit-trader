@@ -98,14 +98,16 @@ The lifecycle state contract is:
 - `CLOSED`
 - `ERROR`
 
-The runtime reconciliation loop advances submission events from Bybit open
-orders, recent executions, positions, and closed PnL. A positive position with
+The independent reconciliation loop advances submission events from Bybit open
+orders, recent executions, positions, and closed PnL even when automatic entry
+evaluation is disabled. A positive position with
 both exchange-reported TP and SL becomes `OPEN_PROTECTED`; a missing TP or SL
 becomes `OPEN_UNPROTECTED` and emits a critical Korean alert. Recent fills
 without a visible position remain `PARTIALLY_FILLED`, and a matching closed
 PnL advances the active lifecycle to `CLOSED`.
 
-This projection is currently REST polling at each closed M5 cycle. Private
+This projection currently uses REST polling every
+`BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS` (60 seconds by default). Private
 order/execution/position WebSocket ingestion is still required for lower
 latency, sequence-aware transition evidence, and robust partial-fill handling
 before an automatic profile can be approved.
@@ -139,15 +141,15 @@ size. `session` starts when the execution service starts, while `7d` and `30d`
 use rolling UTC durations from response capture time.
 Query params: `mode=TESTNET|LIVE` and `window=session|7d|30d|all`.
 
-## Runtime loop order
+## Reconciliation loop order
 
-Each fully closed M5 cycle first discovers and persists new Bybit closed-PnL
-rows, then drains durable pending Korean close alerts before market sync and
-entry evaluation. `executionTradeClosures` stores `delivered_at`,
+The reconciliation loop discovers and persists new Bybit closed-PnL rows, then
+drains durable pending Korean close alerts. It runs independently of market
+sync and automatic entry evaluation. `executionTradeClosures` stores `delivered_at`,
 `suppressed_at`, `attempt_count`, and `last_attempt_at`. A false delivery result
 or callback exception increments the attempt metadata and remains pending for
 the next five-minute cycle. Each pending row is handled independently, so one
-Discord failure does not prevent later pending alerts or market evaluation.
+Discord failure does not prevent later pending alerts.
 
 The same initial reconciliation request also projects the newest execution
 lifecycle observation. Newly observed partial fills, protected positions, and
@@ -165,7 +167,8 @@ suppressed baseline. This prevents the first Bybit page, currently at most 50
 rows, from flooding Discord. Closures after process start remain pending. Once
 history exists, a later restart treats previously unseen downtime closures as
 pending even when they closed before the new process start. API and dashboard
-reconciliation remain read-only; the runtime loop is the only closure writer.
+reconciliation remain read-only; the background reconciliation loop is the only
+closure writer.
 
 ## Migration note
 

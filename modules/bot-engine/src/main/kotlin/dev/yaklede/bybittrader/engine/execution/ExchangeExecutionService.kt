@@ -1156,7 +1156,6 @@ data class ExchangeTradingLoopConfig(
     val timeframe: Timeframe,
     val candleLimit: Int = 18_000,
     val syncLimit: Int = 1000,
-    val alertBatchLimit: Int = 100,
     val intervalSeconds: Long = 300,
 ) {
     init {
@@ -1164,7 +1163,6 @@ data class ExchangeTradingLoopConfig(
             "Execution loop candle limit must be between 20 and ${ResearchCandleLimits.MAX_M5_REPLAY_CANDLES}."
         }
         require(syncLimit in 1..1000) { "Execution loop sync limit must be between 1 and 1000." }
-        require(alertBatchLimit in 1..1000) { "Execution alert batch limit must be between 1 and 1000." }
         require(intervalSeconds in 10..86_400) { "Execution loop interval seconds must be between 10 and 86400." }
     }
 }

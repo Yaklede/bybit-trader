@@ -17,29 +17,11 @@ class ExchangeTradingLoop(
     private val config: ExchangeTradingLoopConfig,
     private val clock: Clock = Clock.systemUTC(),
     private val onResult: suspend (ExchangeEvaluationResult) -> Unit = {},
-    private val onClosure: suspend (ExecutionTradeClosure) -> Boolean = { false },
-    private val onLifecycleEvent: suspend (ExecutionLifecycleEvent) -> Unit = {},
     private val onFailure: suspend (Throwable) -> Unit = {},
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeTradingLoop::class.java)
 
     suspend fun runOnce(): ExchangeEvaluationResult {
-        val discoveryFailure =
-            try {
-                executionService
-                    .persistExchangeState(config.symbol)
-                    .lifecycleEvent
-                    ?.let { event -> onLifecycleEvent(event) }
-                null
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                logger.warn("execution state reconciliation failed symbol={}", config.symbol.value, error)
-                error
-            }
-        deliverPendingClosureAlerts()
-        if (discoveryFailure != null) {
-            throw discoveryFailure
-        }
         marketDataSyncService.ensureRecentHistory(
             symbol = config.symbol,
             timeframe = config.timeframe,
@@ -59,55 +41,6 @@ class ExchangeTradingLoop(
             )
         onResult(result)
         return result
-    }
-
-    private suspend fun deliverPendingClosureAlerts() {
-        val pendingAlerts =
-            try {
-                executionService.pendingClosureAlerts(config.symbol, config.alertBatchLimit)
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                logger.warn("execution pending closure alert query failed symbol={}", config.symbol.value, error)
-                return
-            }
-        pendingAlerts.forEach { pending ->
-            val attemptedAt = Instant.now(clock)
-            val delivered =
-                try {
-                    onClosure(pending.closure)
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    logger.warn(
-                        "execution closure alert callback failed closureId={} attempt={}",
-                        pending.closure.id,
-                        pending.attemptCount + 1,
-                        error,
-                    )
-                    false
-                }
-            try {
-                executionService.recordClosureAlertAttempt(
-                    closureId = pending.closure.id,
-                    attemptedAt = attemptedAt,
-                    delivered = delivered,
-                )
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                logger.warn(
-                    "execution closure alert attempt persistence failed closureId={} delivered={}",
-                    pending.closure.id,
-                    delivered,
-                    error,
-                )
-            }
-            if (!delivered) {
-                logger.warn(
-                    "execution closure alert remains pending closureId={} attempt={}",
-                    pending.closure.id,
-                    pending.attemptCount + 1,
-                )
-            }
-        }
     }
 
     fun start(scope: CoroutineScope): Job =

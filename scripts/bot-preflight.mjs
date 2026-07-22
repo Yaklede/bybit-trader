@@ -15,7 +15,11 @@ const paperCandleLimit = Number(env.BOT_PAPER_CANDLE_LIMIT || (paperStrategy ===
 const paperSyncLimit = Number(env.BOT_PAPER_SYNC_LIMIT || "1000");
 const privateExecutionEnabled = parseBool(env.BOT_PRIVATE_EXECUTION_ENABLED);
 const executionLoopEnabled = parseBool(env.BOT_EXECUTION_LOOP_ENABLED);
-const executionAllowUnverifiedProfile = parseBool(env.BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE);
+const executionReconciliationEnabled =
+  env.BOT_EXECUTION_RECONCILIATION_ENABLED == null
+    ? privateExecutionEnabled
+    : parseBool(env.BOT_EXECUTION_RECONCILIATION_ENABLED);
+const executionReconciliationIntervalSeconds = Number(env.BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS || "60");
 const executionTimeframe = (env.BOT_EXECUTION_TIMEFRAME || "M5").toUpperCase();
 const executionCandleLimit = Number(env.BOT_EXECUTION_CANDLE_LIMIT || "18000");
 const executionSyncLimit = Number(env.BOT_EXECUTION_SYNC_LIMIT || "1000");
@@ -76,9 +80,21 @@ if (mode !== "PAPER") {
   check("BYBIT_API_SECRET is set outside PAPER mode", isLongEnough(env.BYBIT_API_SECRET, 16), "required for TESTNET/LIVE");
   check("private execution is enabled outside PAPER mode", privateExecutionEnabled, "set BOT_PRIVATE_EXECUTION_ENABLED=true");
   check(
-    "unverified runtime profile has no automatic loop",
-    !executionLoopEnabled || executionAllowUnverifiedProfile,
-    "keep BOT_EXECUTION_LOOP_ENABLED=false or explicitly set BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE=true",
+    "rejected runtime profile has no automatic loop",
+    !executionLoopEnabled,
+    "keep BOT_EXECUTION_LOOP_ENABLED=false until a replacement profile passes the replay gate",
+  );
+  check(
+    "execution reconciliation is enabled",
+    executionReconciliationEnabled,
+    "set BOT_EXECUTION_RECONCILIATION_ENABLED=true to observe private orders and positions",
+  );
+  check(
+    "execution reconciliation interval is valid",
+    Number.isInteger(executionReconciliationIntervalSeconds) &&
+      executionReconciliationIntervalSeconds >= 10 &&
+      executionReconciliationIntervalSeconds <= 86400,
+    `intervalSeconds=${executionReconciliationIntervalSeconds}`,
   );
   check("execution timeframe is M5", executionTimeframe === "M5", `timeframe=${executionTimeframe}`);
   check("execution sync limit respects Bybit page limit", Number.isInteger(executionSyncLimit) && executionSyncLimit >= 1 && executionSyncLimit <= 1000, `executionSyncLimit=${executionSyncLimit}`);

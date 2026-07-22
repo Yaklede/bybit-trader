@@ -68,10 +68,12 @@ Environment secrets, not in the repository.
 
 ## Live Startup Sequence
 
-1. Start with `BOT_EXECUTION_LOOP_ENABLED=false`.
+1. Start with `BOT_EXECUTION_LOOP_ENABLED=false` and
+   `BOT_EXECUTION_RECONCILIATION_ENABLED=true`.
 2. Run `/execution/evaluate-and-submit` once with a small
    `BOT_EXECUTION_MAX_NOTIONAL`.
 3. Run `/execution/reconcile`.
-4. Confirm Bybit order, TP/SL, position, and alert behavior.
-5. Do not enable `BOT_EXECUTION_LOOP_ENABLED` for the current unverified
+4. Confirm the background reconciliation loop records Bybit order, TP/SL,
+   position, closure, and alert behavior.
+5. Do not enable `BOT_EXECUTION_LOOP_ENABLED` for the current rejected
    aggressive profile. A replacement must pass its runtime replay gate first.

@@ -9,9 +9,10 @@ Twingate. `PAPER` mode runs public Bybit candles through the aggressive
 orders with TP/SL, reconcile open orders/positions/executions, send alerts, and
 accept authenticated control commands.
 
-For the intended live-tuning workflow, start `LIVE` with a small
-`BOT_EXECUTION_MAX_NOTIONAL` and `BOT_EXECUTION_LOOP_ENABLED=false`. Run one
-manual order and reconciliation before enabling the loop.
+For the intended live-observation workflow, start `LIVE` with a small
+`BOT_EXECUTION_MAX_NOTIONAL`, `BOT_EXECUTION_LOOP_ENABLED=false`, and
+`BOT_EXECUTION_RECONCILIATION_ENABLED=true`. Run one manual order and confirm
+that background reconciliation observes its full lifecycle.
 
 ## Docker Host Layout
 
@@ -80,6 +81,8 @@ export BYBIT_POSITION_IDX="0"
 
 export BOT_PRIVATE_EXECUTION_ENABLED="true"
 export BOT_EXECUTION_LOOP_ENABLED="false"
+export BOT_EXECUTION_RECONCILIATION_ENABLED="true"
+export BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS="60"
 export BOT_EXECUTION_TIMEFRAME="M5"
 export BOT_EXECUTION_CANDLE_LIMIT="18000"
 export BOT_EXECUTION_SYNC_LIMIT="1000"
@@ -99,7 +102,9 @@ export BOT_EXECUTION_LEVERAGE="15"
 
 Keep `BOT_EXECUTION_LOOP_ENABLED=false` for the first live smoke order. Turn it
 on only for a replacement profile that passes its runtime replay gate. The
-current `absa_final_us_v1` profile is unverified and must remain disabled.
+current `absa_final_us_v1` profile is rejected and must remain disabled. Keep
+the reconciliation loop enabled so manual orders and exchange-side exits remain
+observable.
 
 Enable at least one alert sink:
 
@@ -170,7 +175,8 @@ curl -X POST \
   http://127.0.0.1:8080/execution/evaluate-and-submit
 ```
 
-7. Reconcile Bybit state after any private order:
+7. Confirm the background reconciliation result after any private order. The
+manual endpoint remains available for an immediate read-only snapshot:
 
 ```bash
 curl -X POST \

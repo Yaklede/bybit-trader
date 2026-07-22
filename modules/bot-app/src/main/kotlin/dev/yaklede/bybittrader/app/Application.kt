@@ -32,6 +32,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeEvaluationStatus
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionConfig
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
+import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationLoop
+import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationLoopConfig
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoop
 import dev.yaklede.bybittrader.engine.execution.ExchangeTradingLoopConfig
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
@@ -85,11 +87,12 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} executionLoop={} forwardCapture={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} reconciliationLoop={} executionLoop={} forwardCapture={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
         config.execution.enabled,
+        config.executionReconciliation.enabled,
         config.executionLoop.enabled,
         config.forwardMarketCapture.enabled,
         config.marketData.symbol.value,
@@ -217,6 +220,29 @@ fun main() {
             logger.info("paper trading loop disabled")
             null
         }
+    val executionReconciliationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val executionReconciliationJob =
+        if (executionService != null && config.executionReconciliation.enabled) {
+            logger.info(
+                "execution reconciliation loop enabled intervalSeconds={}",
+                config.executionReconciliation.intervalSeconds,
+            )
+            ExchangeReconciliationLoop(
+                executionService = executionService,
+                config =
+                    ExchangeReconciliationLoopConfig(
+                        symbol = config.marketData.symbol,
+                        alertBatchLimit = config.executionReconciliation.alertBatchLimit,
+                        intervalSeconds = config.executionReconciliation.intervalSeconds,
+                    ),
+                onClosure = { closure -> alertingService.sendExecutionClosure(closure) },
+                onLifecycleEvent = { event -> alertingService.sendExecutionLifecycleEvent(event) },
+                onFailure = { error -> alertingService.sendExecutionReconciliationFailure(error) },
+            ).start(executionReconciliationScope)
+        } else {
+            logger.info("execution reconciliation loop disabled")
+            null
+        }
     val executionLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val executionLoopJob =
         if (executionService != null && config.executionLoop.enabled) {
@@ -230,12 +256,9 @@ fun main() {
                         timeframe = config.executionLoop.timeframe,
                         candleLimit = config.executionLoop.candleLimit,
                         syncLimit = config.executionLoop.syncLimit,
-                        alertBatchLimit = config.executionLoop.alertBatchLimit,
                         intervalSeconds = config.executionLoop.intervalSeconds,
                     ),
                 onResult = { result -> alertingService.sendExecutionLoopResult(result) },
-                onClosure = { closure -> alertingService.sendExecutionClosure(closure) },
-                onLifecycleEvent = { event -> alertingService.sendExecutionLifecycleEvent(event) },
                 onFailure = { error -> alertingService.sendExecutionLoopFailure(error) },
             ).start(executionLoopScope)
         } else {
@@ -278,6 +301,9 @@ fun main() {
                 require(!config.executionLoop.enabled || executionLoopJob?.isActive == true) {
                     "Execution trading loop is not active."
                 }
+                require(!config.executionReconciliation.enabled || executionReconciliationJob?.isActive == true) {
+                    "Execution reconciliation loop is not active."
+                }
                 marketDataSyncService.ticker(config.marketData.symbol)
                 executionService?.accountBalance(DEFAULT_ACCOUNT_COIN)
                 executionService?.reconcile(config.marketData.symbol)
@@ -309,10 +335,12 @@ fun main() {
                 )
             }
             paperLoopJob?.cancel()
+            executionReconciliationJob?.cancel()
             executionLoopJob?.cancel()
             forwardMarketCaptureJob?.cancel()
             resumeReadinessJob.cancel()
             paperLoopScope.cancel()
+            executionReconciliationScope.cancel()
             executionLoopScope.cancel()
             forwardMarketCaptureScope.cancel()
             resumeReadinessScope.cancel()
@@ -548,6 +576,16 @@ private suspend fun AlertingService.sendExecutionLoopFailure(error: Throwable) {
             severity = AlertSeverity.WARNING,
             title = "실거래 점검 필요",
             body = loopFailureAlertBody(loopName = "실거래", error = error),
+        ),
+    )
+}
+
+private suspend fun AlertingService.sendExecutionReconciliationFailure(error: Throwable) {
+    send(
+        AlertMessage(
+            severity = AlertSeverity.WARNING,
+            title = "거래 상태 확인 필요",
+            body = loopFailureAlertBody(loopName = "거래 상태 확인", error = error),
         ),
     )
 }
