@@ -133,7 +133,12 @@ docker compose -f compose.yaml up -d
 `BOT_FORWARD_MARKET_CAPTURE_ENABLED` is disabled by default. When set to
 `true`, the process reads the public Bybit order-book, trade, and liquidation
 streams, stores completed one-minute bars, and does not submit an order or
-change the active strategy. The dashboard's **시장 흐름 수집** panel confirms
+change the active strategy. Raw archiving defaults to the same enabled state and
+writes each public message with receive time, update/sequence IDs, connection
+generation, and quality flags into minute-scoped gzip NDJSON segments. A sealed
+`.ndjson.gz` segment is sealed; a `.part` file is still active or was left by an
+interrupted process and must not be used as a complete research input. The dashboard's
+**시장 흐름 수집** panel confirms
 both the latest completed order-book and taker-trade bars. A liquidation
 timestamp can remain empty when no liquidation event occurred; it is not used
 as a connection-health signal. The panel also shows how many of the latest 60
@@ -146,7 +151,13 @@ sink receives a warning. Repeated failure alerts are limited to one per
 BOT_FORWARD_MARKET_CAPTURE_ENABLED=true
 BYBIT_PUBLIC_WEBSOCKET_URL=wss://stream.bybit.com/v5/public/linear
 BOT_FORWARD_ORDER_BOOK_DEPTH=50
+BOT_FORWARD_RAW_ARCHIVE_ENABLED=true
+BOT_FORWARD_RAW_ARCHIVE_PATH=/data/market-events
 ```
+
+The raw archive is intentionally not deleted automatically. Monitor the Docker
+volume capacity and move sealed segments to durable research storage before the
+volume fills.
 
 Smoke test:
 

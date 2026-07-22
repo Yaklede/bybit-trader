@@ -217,21 +217,32 @@ data class ForwardMarketCaptureSettings(
     val enabled: Boolean,
     val publicWebSocketUrl: String,
     val orderBookDepth: Int,
+    val rawArchiveEnabled: Boolean,
+    val rawArchivePath: String,
 ) {
     init {
         require(publicWebSocketUrl.startsWith("ws://") || publicWebSocketUrl.startsWith("wss://")) {
             "Bybit public WebSocket URL must use ws or wss."
         }
         require(orderBookDepth in 1..50) { "Forward order book depth must be between 1 and 50." }
+        require(rawArchivePath.isNotBlank()) { "Forward market raw archive path must not be blank." }
+        require(!rawArchiveEnabled || enabled) {
+            "BOT_FORWARD_MARKET_CAPTURE_ENABLED=true is required when raw market archiving is enabled."
+        }
     }
 
     companion object {
         fun fromEnvironment(
             environment: Map<String, String>,
             runtimeMode: RuntimeMode,
-        ): ForwardMarketCaptureSettings =
-            ForwardMarketCaptureSettings(
-                enabled = environment["BOT_FORWARD_MARKET_CAPTURE_ENABLED"].toBooleanStrictOrFalse(),
+        ): ForwardMarketCaptureSettings {
+            val enabled = environment["BOT_FORWARD_MARKET_CAPTURE_ENABLED"].toBooleanStrictOrFalse()
+            val rawArchiveEnabled =
+                environment["BOT_FORWARD_RAW_ARCHIVE_ENABLED"]
+                    ?.toBooleanStrictOrFalse()
+                    ?: enabled
+            return ForwardMarketCaptureSettings(
+                enabled = enabled,
                 publicWebSocketUrl =
                     environment["BYBIT_PUBLIC_WEBSOCKET_URL"]
                         ?.takeIf(String::isNotBlank)
@@ -242,7 +253,10 @@ data class ForwardMarketCaptureSettings(
                             -> "wss://stream.bybit.com/v5/public/linear"
                         },
                 orderBookDepth = environment["BOT_FORWARD_ORDER_BOOK_DEPTH"]?.toIntOrNull() ?: 50,
+                rawArchiveEnabled = rawArchiveEnabled,
+                rawArchivePath = environment["BOT_FORWARD_RAW_ARCHIVE_PATH"] ?: "data/market-events",
             )
+        }
     }
 }
 

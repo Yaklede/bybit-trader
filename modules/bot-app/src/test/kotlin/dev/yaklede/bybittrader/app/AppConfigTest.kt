@@ -14,6 +14,8 @@ class AppConfigTest :
             config.marketData.timeframes.map { it.name } shouldBe listOf("M1", "M5", "M15")
             config.forwardMarketCapture.enabled shouldBe false
             config.forwardMarketCapture.orderBookDepth shouldBe 50
+            config.forwardMarketCapture.rawArchiveEnabled shouldBe false
+            config.forwardMarketCapture.rawArchivePath shouldBe "data/market-events"
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
             config.bybitPrivate.accountType shouldBe "UNIFIED"
@@ -212,11 +214,14 @@ class AppConfigTest :
                         "BOT_FORWARD_MARKET_CAPTURE_ENABLED" to "true",
                         "BYBIT_PUBLIC_WEBSOCKET_URL" to "wss://stream.bybit.test/v5/public/linear",
                         "BOT_FORWARD_ORDER_BOOK_DEPTH" to "25",
+                        "BOT_FORWARD_RAW_ARCHIVE_PATH" to "/data/raw-market-test",
                     ),
                 )
 
             config.forwardMarketCapture.enabled shouldBe true
             config.forwardMarketCapture.orderBookDepth shouldBe 25
+            config.forwardMarketCapture.rawArchiveEnabled shouldBe true
+            config.forwardMarketCapture.rawArchivePath shouldBe "/data/raw-market-test"
 
             AppConfig
                 .fromEnvironment(
@@ -230,6 +235,9 @@ class AppConfigTest :
 
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(mapOf("BOT_FORWARD_ORDER_BOOK_DEPTH" to "51"))
+            }
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(mapOf("BOT_FORWARD_RAW_ARCHIVE_ENABLED" to "true"))
             }
         }
 

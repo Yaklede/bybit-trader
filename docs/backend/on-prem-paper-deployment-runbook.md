@@ -58,6 +58,8 @@ Optional forward-only market collection for later strategy research:
 export BOT_FORWARD_MARKET_CAPTURE_ENABLED="false"
 export BYBIT_PUBLIC_WEBSOCKET_URL="wss://stream.bybit.com/v5/public/linear"
 export BOT_FORWARD_ORDER_BOOK_DEPTH="50"
+export BOT_FORWARD_RAW_ARCHIVE_ENABLED="false"
+export BOT_FORWARD_RAW_ARCHIVE_PATH="/data/market-events"
 ```
 
 Set `BOT_FORWARD_MARKET_CAPTURE_ENABLED=true` only after deployment when you
@@ -67,6 +69,10 @@ order-book and taker-trade minute bars are stored; an empty liquidation
 timestamp is normal when the market has no liquidation event.
 Use the panel's `최근 60분 공통 수집` value to verify that both streams are
 continuously stored before running the forward-data diagnostic.
+When enabled, raw public messages are stored as sealed minute `.ndjson.gz`
+segments under `BOT_FORWARD_RAW_ARCHIVE_PATH`. Exclude `.part` files from replay
+because they identify an interrupted segment. No automatic retention is applied,
+so monitor the Docker volume and archive completed segments externally.
 When the stream or minute-bar flush fails, Discord receives `시장 흐름 수집
 점검 필요`; repeated alerts are limited to one every 15 minutes.
 

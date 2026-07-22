@@ -1151,6 +1151,7 @@ class ApiModuleTest :
                 body shouldContain """"openedAt":"2026-06-29T23:30:00Z""""
                 body shouldContain """"unrealizedPnl":"10""""
                 body shouldContain "\"forwardMarketCapture\":{\"enabled\":false,\"orderBookFresh\":false"
+                body shouldContain "\"rawArchive\":{\"enabled\":false,\"archiveSessionId\":null,\"archivedEventCount\":0"
             }
         }
 

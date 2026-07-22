@@ -3,9 +3,11 @@ package dev.yaklede.bybittrader.engine.market.capture
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -159,17 +161,23 @@ interface ForwardMarketCaptureStore {
 fun interface ForwardMarketCaptureFeed {
     suspend fun collect(
         symbol: Symbol,
-        onEvent: suspend (ForwardMarketCaptureEvent) -> Unit,
+        onBatch: suspend (ForwardMarketCaptureBatch) -> Unit,
     )
 }
 
 class ForwardMarketCaptureService(
     private val store: ForwardMarketCaptureStore,
+    private val rawEventArchive: ForwardMarketRawEventArchive? = null,
 ) {
     private val mutex = Mutex()
     private val orderBookAccumulators = mutableMapOf<CaptureBucketKey, OrderBookAccumulator>()
     private val liquidationAccumulators = mutableMapOf<CaptureBucketKey, LiquidationAccumulator>()
     private val takerFlowAccumulators = mutableMapOf<CaptureBucketKey, TakerFlowAccumulator>()
+
+    suspend fun record(batch: ForwardMarketCaptureBatch) {
+        rawEventArchive?.append(batch.rawEvent)
+        batch.normalizedEvents.forEach { event -> record(event) }
+    }
 
     suspend fun record(event: ForwardMarketCaptureEvent) {
         val key = CaptureBucketKey(symbol = event.symbol, openedAt = event.capturedAt.minuteStart())
@@ -186,6 +194,7 @@ class ForwardMarketCaptureService(
     }
 
     suspend fun flushClosedBars(now: Instant): ForwardMarketCaptureFlushResult {
+        rawEventArchive?.flush(now)
         val closingBefore = now.minuteStart()
         val pending =
             mutex.withLock {
@@ -229,6 +238,7 @@ class ForwardMarketCaptureService(
 
 class ForwardMarketCaptureStatusService(
     private val store: ForwardMarketCaptureStore,
+    private val rawEventArchive: ForwardMarketRawEventArchive? = null,
     private val clock: Clock = Clock.systemUTC(),
     private val orderBookFreshness: Duration = Duration.ofMinutes(3),
     private val recentCoverageWindow: Duration = RECENT_COVERAGE_WINDOW,
@@ -292,6 +302,7 @@ class ForwardMarketCaptureStatusService(
                     !availableAt.isBefore(now.minus(orderBookFreshness))
                 } ?: false,
             recentCoverage = recentCoverage,
+            rawArchive = rawEventArchive?.status() ?: ForwardMarketRawArchiveStatus.DISABLED,
         )
     }
 
@@ -358,6 +369,7 @@ data class ForwardMarketCaptureStatus(
     val orderBookFresh: Boolean,
     val takerFlowFresh: Boolean,
     val recentCoverage: ForwardMarketCaptureRecentCoverage?,
+    val rawArchive: ForwardMarketRawArchiveStatus,
 ) {
     companion object {
         val DISABLED =
@@ -369,6 +381,7 @@ data class ForwardMarketCaptureStatus(
                 orderBookFresh = false,
                 takerFlowFresh = false,
                 recentCoverage = null,
+                rawArchive = ForwardMarketRawArchiveStatus.DISABLED,
             )
     }
 }
@@ -393,46 +406,112 @@ class ForwardMarketCaptureLoop(
     failureAlertCooldown: Duration = Duration.ofMinutes(15),
 ) {
     private val logger = LoggerFactory.getLogger(ForwardMarketCaptureLoop::class.java)
+    private val lifecycleLock = Any()
+    private var runtime: ForwardMarketCaptureRuntime? = null
     private val failureAlertThrottle =
         ForwardMarketCaptureFailureThrottle(
             cooldown = failureAlertCooldown,
             now = { Instant.now(clock) },
         )
 
-    fun start(scope: CoroutineScope): Job =
-        scope.launch {
-            coroutineScope {
-                launch {
-                    while (isActive) {
-                        try {
-                            feed.collect(config.symbol) { event -> captureService.record(event) }
-                        } catch (error: Throwable) {
-                            if (error is kotlin.coroutines.cancellation.CancellationException) throw error
-                            logger.warn("forward market capture stream failed symbol={}", config.symbol.value, error)
-                            notifyFailure(error)
-                        }
-                        retryDelay(config.reconnectDelay.toMillis())
-                    }
-                }
-                launch {
-                    while (isActive) {
-                        retryDelay(config.flushInterval.toMillis())
-                        try {
-                            captureService.flushClosedBars(Instant.now(clock))
-                        } catch (error: Throwable) {
-                            if (error is kotlin.coroutines.cancellation.CancellationException) throw error
-                            logger.warn("forward market capture flush failed symbol={}", config.symbol.value, error)
-                            notifyFailure(error)
+    fun start(scope: CoroutineScope): Job {
+        synchronized(lifecycleLock) {
+            check(runtime == null) { "Forward market capture loop is already started." }
+        }
+        val parentJob = Job(scope.coroutineContext[Job])
+        val loopScope = CoroutineScope(scope.coroutineContext + parentJob)
+        val commands = Channel<ForwardMarketCaptureCommand>(capacity = config.batchBufferCapacity)
+        val processorJob =
+            loopScope.launch {
+                try {
+                    for (command in commands) {
+                        when (command) {
+                            is ForwardMarketCaptureCommand.Batch -> captureService.record(command.value)
+                            is ForwardMarketCaptureCommand.Flush -> captureService.flushClosedBars(command.now)
                         }
                     }
+                } catch (error: Throwable) {
+                    if (error is kotlin.coroutines.cancellation.CancellationException) throw error
+                    logger.error("forward market capture pipeline failed symbol={}", config.symbol.value, error)
+                    notifyFailure(error)
+                    throw error
                 }
             }
+        val intakeJob =
+            loopScope.launch {
+                while (isActive) {
+                    try {
+                        feed.collect(config.symbol) { batch ->
+                            commands.send(ForwardMarketCaptureCommand.Batch(batch))
+                        }
+                    } catch (error: Throwable) {
+                        if (error is kotlin.coroutines.cancellation.CancellationException) throw error
+                        logger.warn("forward market capture stream failed symbol={}", config.symbol.value, error)
+                        notifyFailure(error)
+                    }
+                    retryDelay(config.reconnectDelay.toMillis())
+                }
+            }
+        val flushJob =
+            loopScope.launch {
+                while (isActive) {
+                    retryDelay(config.flushInterval.toMillis())
+                    commands.send(ForwardMarketCaptureCommand.Flush(Instant.now(clock)))
+                }
+            }
+        synchronized(lifecycleLock) {
+            runtime =
+                ForwardMarketCaptureRuntime(
+                    parentJob = parentJob,
+                    commands = commands,
+                    intakeJob = intakeJob,
+                    flushJob = flushJob,
+                    processorJob = processorJob,
+                )
         }
+        return parentJob
+    }
+
+    suspend fun stop() {
+        val activeRuntime = synchronized(lifecycleLock) { runtime } ?: return
+        activeRuntime.intakeJob.cancelAndJoin()
+        activeRuntime.flushJob.cancelAndJoin()
+        if (activeRuntime.processorJob.isActive) {
+            activeRuntime.commands.send(ForwardMarketCaptureCommand.Flush(Instant.now(clock)))
+            activeRuntime.commands.close()
+            activeRuntime.processorJob.join()
+        } else {
+            activeRuntime.commands.close()
+        }
+        activeRuntime.parentJob.complete()
+        activeRuntime.parentJob.join()
+        synchronized(lifecycleLock) {
+            if (runtime === activeRuntime) runtime = null
+        }
+    }
 
     private suspend fun notifyFailure(error: Throwable) {
         if (failureAlertThrottle.shouldNotify()) onFailure(error)
     }
 }
+
+private sealed interface ForwardMarketCaptureCommand {
+    data class Batch(
+        val value: ForwardMarketCaptureBatch,
+    ) : ForwardMarketCaptureCommand
+
+    data class Flush(
+        val now: Instant,
+    ) : ForwardMarketCaptureCommand
+}
+
+private data class ForwardMarketCaptureRuntime(
+    val parentJob: CompletableJob,
+    val commands: Channel<ForwardMarketCaptureCommand>,
+    val intakeJob: Job,
+    val flushJob: Job,
+    val processorJob: Job,
+)
 
 internal class ForwardMarketCaptureFailureThrottle(
     private val cooldown: Duration,
@@ -462,10 +541,12 @@ data class ForwardMarketCaptureLoopConfig(
     val symbol: Symbol,
     val flushInterval: Duration = ONE_MINUTE,
     val reconnectDelay: Duration = Duration.ofSeconds(5),
+    val batchBufferCapacity: Int = 4_096,
 ) {
     init {
         require(!flushInterval.isNegative && !flushInterval.isZero) { "Capture flush interval must be positive." }
         require(!reconnectDelay.isNegative && !reconnectDelay.isZero) { "Capture reconnect delay must be positive." }
+        require(batchBufferCapacity > 0) { "Capture batch buffer capacity must be positive." }
     }
 }
 

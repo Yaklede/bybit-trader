@@ -40,6 +40,11 @@ const bybitPublicWebSocketUrl =
   env.BYBIT_PUBLIC_WEBSOCKET_URL ||
   (mode === "TESTNET" ? "wss://stream-testnet.bybit.com/v5/public/linear" : "wss://stream.bybit.com/v5/public/linear");
 const forwardOrderBookDepth = Number(env.BOT_FORWARD_ORDER_BOOK_DEPTH || "50");
+const forwardRawArchiveEnabled =
+  env.BOT_FORWARD_RAW_ARCHIVE_ENABLED == null
+    ? forwardMarketCaptureEnabled
+    : parseBool(env.BOT_FORWARD_RAW_ARCHIVE_ENABLED);
+const forwardRawArchivePath = env.BOT_FORWARD_RAW_ARCHIVE_PATH || "data/market-events";
 const telegramEnabled = parseBool(env.TELEGRAM_ALERTS_ENABLED);
 const discordEnabled = parseBool(env.DISCORD_ALERTS_ENABLED);
 
@@ -62,6 +67,12 @@ if (forwardMarketCaptureEnabled) {
     `depth=${forwardOrderBookDepth}`,
   );
 }
+check(
+  "forward raw archive requires market capture",
+  !forwardRawArchiveEnabled || forwardMarketCaptureEnabled,
+  `capture=${forwardMarketCaptureEnabled}, rawArchive=${forwardRawArchiveEnabled}`,
+);
+if (forwardRawArchiveEnabled) checkWritableDirectory(forwardRawArchivePath);
 
 if (mode === "PAPER") {
   check("paper loop is enabled", paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=true for paper operation");
@@ -174,6 +185,17 @@ function checkWritableParent(filePath) {
     check("database parent directory is writable", true, parent);
   } catch {
     check("database parent directory is writable", false, parent);
+  }
+}
+
+function checkWritableDirectory(directoryPath) {
+  const directory = path.resolve(directoryPath);
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.accessSync(directory, fs.constants.W_OK);
+    check("forward raw archive directory is writable", true, directory);
+  } catch {
+    check("forward raw archive directory is writable", false, directory);
   }
 }
 

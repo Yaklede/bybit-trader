@@ -57,6 +57,7 @@ import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClientConfig
 import dev.yaklede.bybittrader.exchange.bybit.BybitPublicMarketCaptureClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitTradingCategory
+import dev.yaklede.bybittrader.ledger.GzipNdjsonForwardMarketRawEventArchive
 import dev.yaklede.bybittrader.ledger.SqlDelightLedger
 import dev.yaklede.bybittrader.ledger.createLedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
@@ -87,7 +88,7 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} reconciliationLoop={} executionLoop={} forwardCapture={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
@@ -95,6 +96,7 @@ fun main() {
         config.executionReconciliation.enabled,
         config.executionLoop.enabled,
         config.forwardMarketCapture.enabled,
+        config.forwardMarketCapture.rawArchiveEnabled,
         config.marketData.symbol.value,
         config.marketData.timeframes.joinToString(",") { it.name },
     )
@@ -266,13 +268,21 @@ fun main() {
             null
         }
     val forwardMarketCaptureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val forwardMarketCaptureJob =
+    val forwardMarketRawEventArchive =
+        if (config.forwardMarketCapture.enabled && config.forwardMarketCapture.rawArchiveEnabled) {
+            GzipNdjsonForwardMarketRawEventArchive(Path.of(config.forwardMarketCapture.rawArchivePath))
+        } else {
+            null
+        }
+    val forwardMarketCaptureLoop =
         if (config.forwardMarketCapture.enabled) {
             logger.info(
-                "forward market capture enabled symbol={} depth={} streamUrl={}",
+                "forward market capture enabled symbol={} depth={} streamUrl={} rawArchive={} rawArchivePath={}",
                 config.marketData.symbol.value,
                 config.forwardMarketCapture.orderBookDepth,
                 config.forwardMarketCapture.publicWebSocketUrl,
+                config.forwardMarketCapture.rawArchiveEnabled,
+                config.forwardMarketCapture.rawArchivePath,
             )
             ForwardMarketCaptureLoop(
                 feed =
@@ -281,10 +291,14 @@ fun main() {
                         baseUrl = config.forwardMarketCapture.publicWebSocketUrl,
                         orderBookDepth = config.forwardMarketCapture.orderBookDepth,
                     ),
-                captureService = ForwardMarketCaptureService(store = ledger),
+                captureService =
+                    ForwardMarketCaptureService(
+                        store = ledger,
+                        rawEventArchive = forwardMarketRawEventArchive,
+                    ),
                 config = ForwardMarketCaptureLoopConfig(symbol = config.marketData.symbol),
                 onFailure = { error -> alertingService.sendForwardMarketCaptureFailure(error) },
-            ).start(forwardMarketCaptureScope)
+            ).also { loop -> loop.start(forwardMarketCaptureScope) }
         } else {
             logger.info("forward market capture disabled")
             null
@@ -333,16 +347,17 @@ fun main() {
                         body = "Bybit Trader가 종료되고 있어요.",
                     ),
                 )
+                forwardMarketCaptureLoop?.stop()
             }
             paperLoopJob?.cancel()
             executionReconciliationJob?.cancel()
             executionLoopJob?.cancel()
-            forwardMarketCaptureJob?.cancel()
             resumeReadinessJob.cancel()
             paperLoopScope.cancel()
             executionReconciliationScope.cancel()
             executionLoopScope.cancel()
             forwardMarketCaptureScope.cancel()
+            forwardMarketRawEventArchive?.close()
             resumeReadinessScope.cancel()
             httpClient.close()
         },
@@ -369,7 +384,11 @@ fun main() {
                 executionService = executionService,
                 strategyProfileService = strategyProfileService,
                 runtimeMode = config.runtimeMode.name,
-                forwardMarketCaptureStatusService = ForwardMarketCaptureStatusService(store = ledger),
+                forwardMarketCaptureStatusService =
+                    ForwardMarketCaptureStatusService(
+                        store = ledger,
+                        rawEventArchive = forwardMarketRawEventArchive,
+                    ),
                 forwardMarketCaptureEnabled = config.forwardMarketCapture.enabled,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
                 onSmokeAlert = { message -> alertingService.sendSmokeAlert(message) },

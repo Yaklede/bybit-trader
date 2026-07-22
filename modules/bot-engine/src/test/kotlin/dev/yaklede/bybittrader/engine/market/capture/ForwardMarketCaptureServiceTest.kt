@@ -5,6 +5,14 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
@@ -73,6 +81,76 @@ class ForwardMarketCaptureServiceTest :
             store.takerFlowBars.single().takerSellBase shouldBe BigDecimal.ZERO
             store.takerFlowBars.single().buyTradeCount shouldBe 0
             store.takerFlowBars.single().sellTradeCount shouldBe 0
+        }
+
+        "archives a raw batch before aggregating its normalized events" {
+            val store = InMemoryForwardMarketCaptureStore()
+            val archive = RecordingRawEventArchive()
+            val service = ForwardMarketCaptureService(store, archive)
+            val symbol = Symbol("BTCUSDT")
+            val rawEvent = sampleRawEvent(symbol)
+
+            service.record(
+                ForwardMarketCaptureBatch(
+                    rawEvent = rawEvent,
+                    normalizedEvents = listOf(orderBookSnapshot(symbol, "2026-07-10T00:00:05Z", "100", "100", "1")),
+                ),
+            )
+            service.flushClosedBars(Instant.parse("2026-07-10T00:01:00Z"))
+
+            archive.events shouldBe listOf(rawEvent)
+            archive.flushedAt shouldBe listOf(Instant.parse("2026-07-10T00:01:00Z"))
+            store.orderBookBars.size shouldBe 1
+        }
+
+        "graceful stop drains queued batches before the final minute flush" {
+            runBlocking {
+                val store = InMemoryForwardMarketCaptureStore()
+                val archive = RecordingRawEventArchive()
+                val symbol = Symbol("BTCUSDT")
+                val allBatchesAccepted = CompletableDeferred<Unit>()
+                val feed =
+                    ForwardMarketCaptureFeed { _, onBatch ->
+                        repeat(100) {
+                            onBatch(
+                                ForwardMarketCaptureBatch(
+                                    rawEvent = sampleRawEvent(symbol),
+                                    normalizedEvents =
+                                        listOf(orderBookSnapshot(symbol, "2026-07-10T00:00:05Z", "100", "100", "1")),
+                                ),
+                            )
+                        }
+                        allBatchesAccepted.complete(Unit)
+                        awaitCancellation()
+                    }
+                val loop =
+                    ForwardMarketCaptureLoop(
+                        feed = feed,
+                        captureService = ForwardMarketCaptureService(store, archive),
+                        config =
+                            ForwardMarketCaptureLoopConfig(
+                                symbol = symbol,
+                                flushInterval = java.time.Duration.ofDays(1),
+                                batchBufferCapacity = 4,
+                            ),
+                        clock = Clock.fixed(Instant.parse("2026-07-10T00:01:00Z"), ZoneOffset.UTC),
+                    )
+                val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                try {
+                    withTimeout(5_000) {
+                        loop.start(scope)
+                        allBatchesAccepted.await()
+
+                        loop.stop()
+                    }
+
+                    archive.events.size shouldBe 100
+                    store.orderBookBars.single().sampleCount shouldBe 100
+                    archive.flushedAt.last() shouldBe Instant.parse("2026-07-10T00:01:00Z")
+                } finally {
+                    scope.cancel()
+                }
+            }
         }
 
         "reports a fresh order book bar separately from optional liquidation activity" {
@@ -220,6 +298,23 @@ private class InMemoryForwardMarketCaptureStore : ForwardMarketCaptureStore {
             .take(limit)
 }
 
+private class RecordingRawEventArchive : ForwardMarketRawEventArchive {
+    val events = mutableListOf<ForwardMarketRawEvent>()
+    val flushedAt = mutableListOf<Instant>()
+
+    override fun append(event: ForwardMarketRawEvent) {
+        events += event
+    }
+
+    override fun flush(now: Instant) {
+        flushedAt += now
+    }
+
+    override fun status(): ForwardMarketRawArchiveStatus = ForwardMarketRawArchiveStatus.DISABLED
+
+    override fun close() = Unit
+}
+
 private fun orderBookSnapshot(
     symbol: Symbol,
     timestamp: String,
@@ -233,6 +328,24 @@ private fun orderBookSnapshot(
         bidNotional = BigDecimal(bidNotional),
         askNotional = BigDecimal(askNotional),
         spreadBps = BigDecimal(spreadBps),
+    )
+
+private fun sampleRawEvent(symbol: Symbol): ForwardMarketRawEvent =
+    ForwardMarketRawEvent(
+        localConnectionId = "connection-test",
+        topic = "orderbook.50.${symbol.value}",
+        symbol = symbol,
+        eventKind = ForwardMarketEventKind.ORDER_BOOK,
+        messageType = ForwardMarketMessageType.SNAPSHOT,
+        exchangeTimestamp = Instant.parse("2026-07-10T00:00:05Z"),
+        matchingEngineTimestamp = Instant.parse("2026-07-10T00:00:05Z"),
+        receivedAt = Instant.parse("2026-07-10T00:00:05.010Z"),
+        sequenceStart = 100,
+        sequenceEnd = 100,
+        updateId = 10,
+        bookEpoch = 1,
+        quality = ForwardMarketDataQuality.SNAPSHOT_RESET,
+        rawPayload = "{\"topic\":\"orderbook.50.${symbol.value}\"}",
     )
 
 private fun liquidationEvent(

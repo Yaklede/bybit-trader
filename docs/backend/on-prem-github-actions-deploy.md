@@ -60,6 +60,11 @@ override:
 - `BYBIT_PUBLIC_WEBSOCKET_URL`: optional. Defaults by `BOT_MODE` to Bybit's
   public linear WebSocket URL.
 - `BOT_FORWARD_ORDER_BOOK_DEPTH`: default `50`, valid range `1` to `50`.
+- `BOT_FORWARD_RAW_ARCHIVE_ENABLED`: defaults to the forward-capture setting.
+  When enabled, public WebSocket payloads and quality metadata are written to
+  sealed minute gzip NDJSON segments.
+- `BOT_FORWARD_RAW_ARCHIVE_PATH`: default `/data/market-events`. Only sealed
+  `.ndjson.gz` files are complete; `.part` files indicate an interrupted segment.
 - `BYBIT_PRIVATE_BASE_URL`: defaults from `BOT_MODE`: `https://api.bybit.com`
   for `LIVE`, `https://api-testnet.bybit.com` for `TESTNET`.
 - `BYBIT_RECV_WINDOW_MILLIS`: default `5000`.
@@ -135,6 +140,8 @@ gh variable set BOT_EXECUTION_MAX_NOTIONAL --env onprem-live --body 100
 # Optional forward-only research collection
 gh variable set BOT_FORWARD_MARKET_CAPTURE_ENABLED --env onprem-live --body true
 gh variable set BOT_FORWARD_ORDER_BOOK_DEPTH --env onprem-live --body 50
+gh variable set BOT_FORWARD_RAW_ARCHIVE_ENABLED --env onprem-live --body true
+gh variable set BOT_FORWARD_RAW_ARCHIVE_PATH --env onprem-live --body /data/market-events
 ```
 
 Note: the local root `.env` is the application runtime env. The remote

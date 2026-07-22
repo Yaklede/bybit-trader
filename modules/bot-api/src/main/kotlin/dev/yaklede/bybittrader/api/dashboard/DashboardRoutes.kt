@@ -19,6 +19,7 @@ import dev.yaklede.bybittrader.engine.market.MarketTicker
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureRecentCoverage
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatus
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketRawArchiveStatus
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
@@ -222,6 +223,18 @@ data class DashboardForwardMarketCaptureResponse(
     val latestLiquidationBarAt: String?,
     val latestTakerFlowBarAt: String?,
     val recentCoverage: DashboardForwardMarketCaptureCoverageResponse?,
+    val rawArchive: DashboardForwardMarketRawArchiveResponse,
+)
+
+@Serializable
+data class DashboardForwardMarketRawArchiveResponse(
+    val enabled: Boolean,
+    val archiveSessionId: String?,
+    val archivedEventCount: Long,
+    val gapEventCount: Long,
+    val latestReceivedAt: String?,
+    val activeSegment: String?,
+    val lastCompletedSegment: String?,
 )
 
 @Serializable
@@ -463,6 +476,18 @@ private fun ForwardMarketCaptureStatus.toResponse(): DashboardForwardMarketCaptu
         latestLiquidationBarAt = latestLiquidationBarAt?.toString(),
         latestTakerFlowBarAt = latestTakerFlowBarAt?.toString(),
         recentCoverage = recentCoverage?.toResponse(),
+        rawArchive = rawArchive.toResponse(),
+    )
+
+private fun ForwardMarketRawArchiveStatus.toResponse(): DashboardForwardMarketRawArchiveResponse =
+    DashboardForwardMarketRawArchiveResponse(
+        enabled = enabled,
+        archiveSessionId = archiveSessionId,
+        archivedEventCount = archivedEventCount,
+        gapEventCount = gapEventCount,
+        latestReceivedAt = latestReceivedAt?.toString(),
+        activeSegment = activeSegment,
+        lastCompletedSegment = lastCompletedSegment,
     )
 
 private fun ForwardMarketCaptureRecentCoverage.toResponse(): DashboardForwardMarketCaptureCoverageResponse =

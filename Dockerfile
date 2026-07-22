@@ -33,6 +33,7 @@ ENV BOT_API_PORT=8080
 ENV BOT_DATABASE_PATH=/data/bybit-trader.sqlite
 ENV BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH=/opt/bybit-trader/config/volume-flow-composite-current.json
 ENV BOT_STRATEGY_PROFILE_STATE_PATH=/data/strategy-profile-current.txt
+ENV BOT_FORWARD_RAW_ARCHIVE_PATH=/data/market-events
 
 EXPOSE 8080
 

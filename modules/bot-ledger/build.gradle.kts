@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":modules:bot-alerts"))
     implementation(project(":modules:bot-domain"))
     implementation(project(":modules:bot-engine"))
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.sqldelight.sqlite.driver)
 
     testImplementation(libs.kotest.runner.junit5)
