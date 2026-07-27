@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "multi-horizon-momentum-development-v1",
+  "status": "PREDECLARED_DEVELOPMENT",
+  "createdAt": "2026-07-27",
+  "source": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframe": "M5",
+    "developmentFolds": "config/volume-flow-development-folds-v3.json",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "hypothesis": {
+    "family": "MULTI_HORIZON_MOMENTUM",
+    "description": "Trade only when closed-candle price momentum agrees across one-day, seven-day, and thirty-day horizons and the medium/long EMA regime agrees with that direction.",
+    "decisionRule": "A new position is eligible only when the current consensus direction differs from the immediately preceding closed M5 candle.",
+    "fillRule": "Enter at the next contiguous M5 open with configured adverse entry slippage.",
+    "exitRule": "Use an initial ATR stop, an ATR trailing stop, and a fourteen-day maximum holding period."
+  },
+  "fixedParameters": {
+    "momentumLookbackCandles": [288, 2016, 8640],
+    "baseReturnThresholdPct": [1.0, 3.0, 8.0],
+    "riskFraction": 0.01,
+    "maxHoldCandles": 4032,
+    "maxTradesPerDay": 1,
+    "emaFastCandles": 288,
+    "emaSlowCandles": 1152,
+    "emaSlopeLookbackCandles": 288,
+    "relativeVolumeMin": 0.0
+  },
+  "candidateGrid": {
+    "thresholdScale": [0.75, 1.0, 1.25],
+    "minimumConsensusVotes": [2, 3],
+    "stopAtr": [4.0, 8.0],
+    "trailingAtr": [8.0, 16.0, 24.0],
+    "sideMode": ["BOTH", "LONG_ONLY", "SHORT_ONLY"],
+    "maximumCandidateCount": 108
+  },
+  "costAssumptions": {
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002
+  },
+  "developmentGate": {
+    "requiredFoldCount": 4,
+    "minCompoundDailyReturnPctPerFold": 0.2,
+    "maxDrawdownPctPerFold": 40.0,
+    "minTradeCountPerFold": 3,
+    "minActiveDayCoveragePctPerFold": 2.0
+  },
+  "decisionPolicy": {
+    "portToKotlinWhenDevelopmentGatePasses": true,
+    "inspectPost2024ValidationWhenDevelopmentGateFails": false,
+    "automaticPromotionAllowed": false,
+    "parameterExpansionAfterFailureAllowed": false
+  }
+}
