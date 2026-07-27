@@ -321,6 +321,7 @@ function buildCandidates() {
   if (profile === "macro-donchian-aggressive") return buildAggressiveMacroDonchianCandidates();
   if (profile === "macro-donchian-stop-focused") return buildStopFocusedMacroDonchianCandidates();
   if (profile === "multi-horizon-momentum") return buildMultiHorizonMomentumCandidates();
+  if (profile === "macro-pullback-recovery") return buildMacroPullbackRecoveryCandidates();
   if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-absorption") return buildCrossVenueFlowAbsorptionCandidates();
@@ -1435,6 +1436,50 @@ function buildMultiHorizonMomentumCandidates() {
   return candidates;
 }
 
+function buildMacroPullbackRecoveryCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const regimeReturnThresholdPct of [5.0, 10.0]) {
+    for (const countertrendReturnThresholdPct of [3.0, 6.0]) {
+      for (const stopAtr of [8.0, 16.0]) {
+        for (const trailAtr of [16.0, 24.0]) {
+          for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+            candidates.push({
+              id:
+                `macro_recovery_regime${regimeReturnThresholdPct}` +
+                `_counter${countertrendReturnThresholdPct}` +
+                `_stop${stopAtr}` +
+                `_trail${trailAtr}` +
+                `_${sideMode.toLowerCase()}`,
+              family: "MACRO_PULLBACK_RECOVERY",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 0.0,
+              regimeReturnThresholdPct,
+              countertrendReturnThresholdPct,
+              regimeLookbackCandles: 8_640,
+              countertrendLookbackCandles: 864,
+              recoveryLookbackCandles: 144,
+              recoveryThresholdPct: 1.0,
+              emaSlopeLookbackCandles: 288,
+              stopAtr,
+              trailAtr,
+              targetR: 12.0,
+              maxHoldCandles: 4_032,
+              maxTradesPerDay: 1,
+              sideMode,
+              feeRate: 0.0006,
+              entrySlippageRate: 0.0002,
+              exitSlippageRate: 0.0002,
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildCrossVenueFlowTrendCandidates() {
   const candidates = [];
   const session = { id: "all", hours: null };
@@ -1914,6 +1959,8 @@ function switchFamily(candidate, index, endIndex) {
       return macroDonchianTrendSetup(candidate, index);
     case "MULTI_HORIZON_MOMENTUM":
       return multiHorizonMomentumSetup(candidate, index);
+    case "MACRO_PULLBACK_RECOVERY":
+      return macroPullbackRecoverySetup(candidate, index);
     case "CROSS_VENUE_FLOW_TREND":
       return crossVenueFlowTrendSetup(candidate, index);
     case "CROSS_VENUE_FLOW_ABSORPTION":
@@ -2013,6 +2060,55 @@ function multiHorizonMomentumDirection(candidate, index) {
     votes <= -candidate.minimumConsensusVotes &&
     candle.ema288 < candle.ema1152 &&
     candle.ema288 < slopeReference
+  ) {
+    return "SELL";
+  }
+  return null;
+}
+
+function macroPullbackRecoverySetup(candidate, index) {
+  const direction = macroPullbackRecoveryDirection(candidate, index);
+  const previousDirection = macroPullbackRecoveryDirection(candidate, index - 1);
+  if (direction == null || previousDirection === direction) return null;
+  if (candidate.sideMode === "LONG_ONLY" && direction !== "BUY") return null;
+  if (candidate.sideMode === "SHORT_ONLY" && direction !== "SELL") return null;
+
+  const signal = candles[index];
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  return buildSetup(candidate, {
+    side: direction,
+    entryIndex,
+    entry,
+    stopReference: { high: signal.high, low: signal.low },
+  });
+}
+
+function macroPullbackRecoveryDirection(candidate, index) {
+  if (index <= 0) return null;
+  const candle = candles[index];
+  const slopeReference = candles[index - candidate.emaSlopeLookbackCandles]?.ema1152;
+  if (candle?.ema1152 == null || slopeReference == null) return null;
+
+  const regime = priorStatsFor(index + 1, candidate.regimeLookbackCandles);
+  const countertrend = priorStatsFor(index + 1, candidate.countertrendLookbackCandles);
+  const recovery = priorStatsFor(index + 1, candidate.recoveryLookbackCandles);
+  if (regime == null || countertrend == null || recovery == null) return null;
+
+  if (
+    regime.returnPct >= candidate.regimeReturnThresholdPct &&
+    countertrend.returnPct <= -candidate.countertrendReturnThresholdPct &&
+    recovery.returnPct >= candidate.recoveryThresholdPct &&
+    candle.ema1152 > slopeReference
+  ) {
+    return "BUY";
+  }
+  if (
+    regime.returnPct <= -candidate.regimeReturnThresholdPct &&
+    countertrend.returnPct >= candidate.countertrendReturnThresholdPct &&
+    recovery.returnPct <= -candidate.recoveryThresholdPct &&
+    candle.ema1152 < slopeReference
   ) {
     return "SELL";
   }

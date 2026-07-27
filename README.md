@@ -13,12 +13,17 @@ Initial public repository placeholder for a Bybit trading automation project.
 > The raw M5 feature-discovery simulator was corrected for the same issue; its
 > previous 0.8% CDR claim no longer reproduces under causal confirmation fills.
 >
-> **Latest candle-only experiment (2026-07-27):** the predeclared
-> multi-horizon momentum grid passed the `0.2%` CDR target in `0/108`
-> candidates. Its best long-only row stayed profitable in all four pre-2024
-> development folds but reached only `0.01392%` to `0.08627%` CDR and failed
-> one fold under 2x costs. It remains research-only and was not added to the
-> Kotlin runtime or automatic execution.
+> **Latest candle-only experiment (2026-07-27):** the predeclared macro
+> pullback recovery grid passed all development gates in `0/48` candidates.
+> Its highest-ranked row made only four trades across D01-D04 and no trade in
+> D04, with CDR between `0%` and `0.00215%`. The family is rejected without
+> inspecting post-2024 data.
+>
+> The preceding multi-horizon momentum grid also passed the `0.2%` CDR target
+> in `0/108` candidates. Its best long-only row stayed profitable in all four
+> pre-2024 folds but reached only `0.01392%` to `0.08627%` CDR and failed one
+> fold under 2x costs. Both experiments remain research-only and are absent
+> from the Kotlin runtime and automatic execution.
 
 Milestone 1 is the operational backend shell:
 
