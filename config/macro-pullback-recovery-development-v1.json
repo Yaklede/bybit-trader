@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "macro-pullback-recovery-development-v1",
+  "status": "PREDECLARED_DEVELOPMENT",
+  "createdAt": "2026-07-27",
+  "source": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframe": "M5",
+    "developmentFolds": "config/volume-flow-development-folds-v3.json",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "hypothesis": {
+    "family": "MACRO_PULLBACK_RECOVERY",
+    "description": "Trade a recovery after a multi-day countertrend shock only when the closed-candle thirty-day regime and four-day EMA slope still agree with the original macro direction.",
+    "decisionRule": "A long setup requires a positive thirty-day regime, a negative three-day countertrend move, and a positive twelve-hour recovery. A short setup uses the symmetric conditions. A new position is eligible only when the complete direction first appears.",
+    "fillRule": "Enter at the next contiguous M5 open with configured adverse entry slippage.",
+    "exitRule": "Use an initial ATR stop, an ATR trailing stop, and a fourteen-day maximum holding period."
+  },
+  "fixedParameters": {
+    "regimeLookbackCandles": 8640,
+    "countertrendLookbackCandles": 864,
+    "recoveryLookbackCandles": 144,
+    "recoveryThresholdPct": 1.0,
+    "emaSlowCandles": 1152,
+    "emaSlopeLookbackCandles": 288,
+    "riskFraction": 0.01,
+    "maxHoldCandles": 4032,
+    "maxTradesPerDay": 1,
+    "relativeVolumeMin": 0.0
+  },
+  "candidateGrid": {
+    "regimeReturnThresholdPct": [5.0, 10.0],
+    "countertrendReturnThresholdPct": [3.0, 6.0],
+    "stopAtr": [8.0, 16.0],
+    "trailingAtr": [16.0, 24.0],
+    "sideMode": ["BOTH", "LONG_ONLY", "SHORT_ONLY"],
+    "maximumCandidateCount": 48
+  },
+  "costAssumptions": {
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002
+  },
+  "developmentGate": {
+    "requiredFoldCount": 4,
+    "minCompoundDailyReturnPctPerFold": 0.2,
+    "maxDrawdownPctPerFold": 40.0,
+    "minTradeCountPerFold": 3,
+    "minActiveDayCoveragePctPerFold": 2.0
+  },
+  "decisionPolicy": {
+    "portToKotlinWhenDevelopmentGatePasses": true,
+    "inspectPost2024ValidationWhenDevelopmentGateFails": false,
+    "automaticPromotionAllowed": false,
+    "parameterExpansionAfterFailureAllowed": false
+  }
+}
