@@ -52,6 +52,7 @@ test("absorption breakout fills after its confirmation candle closes", async () 
     const trace = JSON.parse(await fs.readFile(outputPath, "utf8"));
     const breakoutTrade = trace.reports[0].trades.find((trade) => trade.side === "BUY");
     assert.ok(breakoutTrade, "fixture should produce a confirmed long breakout");
+    assert.equal(Date.parse(breakoutTrade.openedAt) - Date.parse(breakoutTrade.signalAt), 300_000);
     assert.equal(breakoutTrade.openedAt, "2024-01-01T19:10:00Z");
     assert.equal(breakoutTrade.entryPrice, 101.0202);
   } finally {
@@ -79,6 +80,7 @@ test("technical-analysis discovery profiles are explicit research candidates", a
     const profiles = [
       ["trend-pullback-acceptance", "TREND_PULLBACK_ACCEPTANCE"],
       ["macro-trend-breakout", "MACRO_TREND_BREAKOUT"],
+      ["multi-horizon-momentum", "MULTI_HORIZON_MOMENTUM"],
     ];
     for (const [profile, family] of profiles) {
       const outDirectory = path.join(directory, profile);
@@ -105,6 +107,104 @@ test("technical-analysis discovery profiles are explicit research candidates", a
       assert.equal(ranked.length, 1);
       assert.equal(ranked[0].family, family);
     }
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("multi-horizon momentum profile stays inside its predeclared candidate boundary", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bybit-momentum-boundary-"));
+  try {
+    const databasePath = path.join(directory, "candles.sqlite");
+    const windowsPath = path.join(directory, "windows.json");
+    const outDirectory = path.join(directory, "out");
+    createFixtureDatabase(databasePath);
+    await fs.writeFile(
+      windowsPath,
+      JSON.stringify([
+        {
+          id: "D1",
+          replayStartAt: "2024-01-01T14:00:00Z",
+          replayEndAt: "2024-01-02T00:45:00Z",
+        },
+      ]),
+    );
+
+    execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--db",
+        databasePath,
+        "--windows",
+        windowsPath,
+        "--out",
+        outDirectory,
+        "--profile",
+        "multi-horizon-momentum",
+        "--maxCandidates",
+        "200",
+        "--quiet",
+        "true",
+      ],
+      { encoding: "utf8" },
+    );
+
+    const ranked = JSON.parse(await fs.readFile(path.join(outDirectory, "ranked.json"), "utf8"));
+    assert.equal(ranked.length, 108);
+    assert.equal(new Set(ranked.map((result) => result.id)).size, 108);
+    assert.ok(ranked.every((result) => result.family === "MULTI_HORIZON_MOMENTUM"));
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("cost stress scales candidate fees and slippage without expanding the candidate grid", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bybit-momentum-cost-stress-"));
+  try {
+    const databasePath = path.join(directory, "candles.sqlite");
+    const windowsPath = path.join(directory, "windows.json");
+    const outDirectory = path.join(directory, "out");
+    createFixtureDatabase(databasePath);
+    await fs.writeFile(
+      windowsPath,
+      JSON.stringify([
+        {
+          id: "D1",
+          replayStartAt: "2024-01-01T14:00:00Z",
+          replayEndAt: "2024-01-02T00:45:00Z",
+        },
+      ]),
+    );
+
+    execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--db",
+        databasePath,
+        "--windows",
+        windowsPath,
+        "--out",
+        outDirectory,
+        "--profile",
+        "multi-horizon-momentum",
+        "--candidateId",
+        "multi_momentum_scale0.75_votes3_stop8_trail16_long_only",
+        "--costMultiplier",
+        "1.5",
+        "--quiet",
+        "true",
+      ],
+      { encoding: "utf8" },
+    );
+
+    const ranked = JSON.parse(await fs.readFile(path.join(outDirectory, "ranked.json"), "utf8"));
+    assert.equal(ranked.length, 1);
+    assert.equal(ranked[0].candidate.costMultiplier, 1.5);
+    assert.ok(Math.abs(ranked[0].candidate.feeRate - 0.0009) < 1e-12);
+    assert.ok(Math.abs(ranked[0].candidate.entrySlippageRate - 0.0003) < 1e-12);
+    assert.ok(Math.abs(ranked[0].candidate.exitSlippageRate - 0.0003) < 1e-12);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

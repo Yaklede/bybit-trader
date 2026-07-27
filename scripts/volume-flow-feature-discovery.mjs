@@ -28,6 +28,7 @@ const familyFilter = (args.family ?? "")
   .map((item) => item.trim())
   .filter(Boolean);
 const targetCdrPct = Number(args.targetCdrPct ?? 0.8);
+const costMultiplier = Number(args.costMultiplier ?? 1.0);
 const profile = args.profile ?? "default";
 const quiet = args.quiet === "true";
 const candidateId = args.candidateId;
@@ -76,7 +77,12 @@ if (profile.startsWith("cross-venue-oi") && binanceMetricsCoverage == null) {
   throw new Error(`Profile ${profile} requires --binanceMetricsDir`);
 }
 
+if (!Number.isFinite(costMultiplier) || costMultiplier < 1.0) {
+  throw new Error(`costMultiplier must be a finite number greater than or equal to 1: ${costMultiplier}`);
+}
+
 const allCandidates = buildCandidates()
+  .map(applyCostMultiplier)
   .filter((candidate) => familyFilter.length === 0 || familyFilter.includes(candidate.family));
 const selectedCandidateId = traceCandidateId ?? candidateId;
 const candidates = selectedCandidateId == null
@@ -94,6 +100,7 @@ console.log(
     `family=${familyFilter.length === 0 ? "all" : familyFilter.join(",")}`,
     `profile=${profile}`,
     `targetCdrPct=${targetCdrPct}`,
+    `costMultiplier=${costMultiplier}`,
     `binanceCoverage=${binanceCoverage == null ? "disabled" : fmt(binanceCoverage.coveragePct)}`,
     `binanceDepthCoverage=${binanceDepthCoverage == null ? "disabled" : fmt(binanceDepthCoverage.coveragePct)}`,
     `binanceMetricsCoverage=${binanceMetricsCoverage == null ? "disabled" : fmt(binanceMetricsCoverage.coveragePct)}`,
@@ -162,6 +169,17 @@ function parseArgs(items) {
     }
   }
   return parsed;
+}
+
+function applyCostMultiplier(candidate) {
+  if (costMultiplier === 1.0) return candidate;
+  return {
+    ...candidate,
+    feeRate: (candidate.feeRate ?? 0.0006) * costMultiplier,
+    entrySlippageRate: (candidate.entrySlippageRate ?? 0.0002) * costMultiplier,
+    exitSlippageRate: (candidate.exitSlippageRate ?? 0.0) * costMultiplier,
+    costMultiplier,
+  };
 }
 
 function loadCandles({ dbPath, timeframe }) {
@@ -302,6 +320,7 @@ function buildCandidates() {
   if (profile === "macro-donchian-trend") return buildMacroDonchianTrendCandidates();
   if (profile === "macro-donchian-aggressive") return buildAggressiveMacroDonchianCandidates();
   if (profile === "macro-donchian-stop-focused") return buildStopFocusedMacroDonchianCandidates();
+  if (profile === "multi-horizon-momentum") return buildMultiHorizonMomentumCandidates();
   if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-absorption") return buildCrossVenueFlowAbsorptionCandidates();
@@ -1374,6 +1393,48 @@ function buildStopFocusedMacroDonchianCandidates() {
   return candidates;
 }
 
+function buildMultiHorizonMomentumCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const thresholdScale of [0.75, 1.0, 1.25]) {
+    for (const minimumConsensusVotes of [2, 3]) {
+      for (const stopAtr of [4.0, 8.0]) {
+        for (const trailAtr of [8.0, 16.0, 24.0]) {
+          for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+            candidates.push({
+              id:
+                `multi_momentum_scale${thresholdScale}` +
+                `_votes${minimumConsensusVotes}` +
+                `_stop${stopAtr}` +
+                `_trail${trailAtr}` +
+                `_${sideMode.toLowerCase()}`,
+              family: "MULTI_HORIZON_MOMENTUM",
+              session,
+              riskFraction: 0.01,
+              relativeVolumeMin: 0.0,
+              momentumLookbackCandles: [288, 2_016, 8_640],
+              baseReturnThresholdPct: [1.0, 3.0, 8.0],
+              thresholdScale,
+              minimumConsensusVotes,
+              emaSlopeLookbackCandles: 288,
+              stopAtr,
+              trailAtr,
+              targetR: 12.0,
+              maxHoldCandles: 4_032,
+              maxTradesPerDay: 1,
+              sideMode,
+              feeRate: 0.0006,
+              entrySlippageRate: 0.0002,
+              exitSlippageRate: 0.0002,
+            });
+          }
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildCrossVenueFlowTrendCandidates() {
   const candidates = [];
   const session = { id: "all", hours: null };
@@ -1743,10 +1804,15 @@ function evaluateWindow(candidate, window, options = {}) {
 
     const riskAmount = equity * candidate.riskFraction;
     const quantity = riskAmount / setup.riskPerUnit;
+    const exitSlippageRate = candidate.exitSlippageRate ?? 0.0;
+    const exitFillPrice = setup.side === "BUY"
+      ? exit.exitPrice * (1.0 - exitSlippageRate)
+      : exit.exitPrice * (1.0 + exitSlippageRate);
     const grossPnl = setup.side === "BUY"
-      ? (exit.exitPrice - setup.entryPrice) * quantity
-      : (setup.entryPrice - exit.exitPrice) * quantity;
-    const fees = ((setup.entryPrice + exit.exitPrice) * quantity) * 0.0006;
+      ? (exitFillPrice - setup.entryPrice) * quantity
+      : (setup.entryPrice - exitFillPrice) * quantity;
+    const feeRate = candidate.feeRate ?? 0.0006;
+    const fees = ((setup.entryPrice + exitFillPrice) * quantity) * feeRate;
     const pnl = grossPnl - fees;
     const equityBefore = equity;
 
@@ -1765,6 +1831,7 @@ function evaluateWindow(candidate, window, options = {}) {
     tradesByDay.set(setup.entry.day, dayTrades + 1);
     if (options.traceTrades) {
       trades.push({
+        signalAt: candles[setup.entryIndex - 1].openedAt,
         openedAt: setup.entry.openedAt,
         closedAt: candles[exit.exitIndex].openedAt,
         side: setup.side,
@@ -1772,7 +1839,8 @@ function evaluateWindow(candidate, window, options = {}) {
         entryPrice: round(setup.entryPrice),
         stopPrice: round(setup.stopPrice),
         targetPrice: setup.targetPrice == null ? null : round(setup.targetPrice),
-        exitPrice: round(exit.exitPrice),
+        exitTriggerPrice: round(exit.exitPrice),
+        exitPrice: round(exitFillPrice),
         riskPerUnit: round(setup.riskPerUnit),
         riskFraction: round(candidate.riskFraction),
         stopAtr: round(setup.stopAtr),
@@ -1844,6 +1912,8 @@ function switchFamily(candidate, index, endIndex) {
       return macroTrendBreakoutSetup(candidate, index);
     case "MACRO_DONCHIAN_TREND":
       return macroDonchianTrendSetup(candidate, index);
+    case "MULTI_HORIZON_MOMENTUM":
+      return multiHorizonMomentumSetup(candidate, index);
     case "CROSS_VENUE_FLOW_TREND":
       return crossVenueFlowTrendSetup(candidate, index);
     case "CROSS_VENUE_FLOW_ABSORPTION":
@@ -1897,6 +1967,56 @@ function macroDonchianTrendSetup(candidate, index) {
     entry,
     stopReference,
   });
+}
+
+function multiHorizonMomentumSetup(candidate, index) {
+  const direction = multiHorizonMomentumDirection(candidate, index);
+  if (direction == null || multiHorizonMomentumDirection(candidate, index - 1) === direction) return null;
+  if (candidate.sideMode === "LONG_ONLY" && direction !== "BUY") return null;
+  if (candidate.sideMode === "SHORT_ONLY" && direction !== "SELL") return null;
+
+  const signal = candles[index];
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  return buildSetup(candidate, {
+    side: direction,
+    entryIndex,
+    entry,
+    stopReference: { high: signal.high, low: signal.low },
+  });
+}
+
+function multiHorizonMomentumDirection(candidate, index) {
+  if (index <= 0) return null;
+  const candle = candles[index];
+  const slopeReference = candles[index - candidate.emaSlopeLookbackCandles]?.ema288;
+  if (candle?.ema288 == null || candle.ema1152 == null || slopeReference == null) return null;
+
+  let votes = 0;
+  for (let horizonIndex = 0; horizonIndex < candidate.momentumLookbackCandles.length; horizonIndex += 1) {
+    const stats = priorStatsFor(index + 1, candidate.momentumLookbackCandles[horizonIndex]);
+    if (stats == null) return null;
+    const threshold = candidate.baseReturnThresholdPct[horizonIndex] * candidate.thresholdScale;
+    if (stats.returnPct >= threshold) votes += 1;
+    if (stats.returnPct <= -threshold) votes -= 1;
+  }
+
+  if (
+    votes >= candidate.minimumConsensusVotes &&
+    candle.ema288 > candle.ema1152 &&
+    candle.ema288 > slopeReference
+  ) {
+    return "BUY";
+  }
+  if (
+    votes <= -candidate.minimumConsensusVotes &&
+    candle.ema288 < candle.ema1152 &&
+    candle.ema288 < slopeReference
+  ) {
+    return "SELL";
+  }
+  return null;
 }
 
 function crossVenueFlowTrendSetup(candidate, index) {
@@ -2349,7 +2469,10 @@ function causalFillIndex(confirmationIndex, endIndex) {
 
 function buildSetup(candidate, { side, entryIndex, entry, stopReference }) {
   if (!sideAllowedForRegime(candidate, side, entryIndex)) return null;
-  const entryPrice = side === "BUY" ? entry.open * 1.0002 : entry.open * 0.9998;
+  const entrySlippageRate = candidate.entrySlippageRate ?? 0.0002;
+  const entryPrice = side === "BUY"
+    ? entry.open * (1.0 + entrySlippageRate)
+    : entry.open * (1.0 - entrySlippageRate);
   const stopAtr = stopAtrFor(candidate, entryIndex);
   const atrStop = entry.atr20 != null ? entry.atr20 * stopAtr : 0.0;
   const structuralStop = side === "BUY" ? stopReference.low : stopReference.high;

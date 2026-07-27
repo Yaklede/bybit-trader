@@ -12,6 +12,13 @@ Initial public repository placeholder for a Bybit trading automation project.
 > replay. It cannot be enabled as an automatic execution loop.
 > The raw M5 feature-discovery simulator was corrected for the same issue; its
 > previous 0.8% CDR claim no longer reproduces under causal confirmation fills.
+>
+> **Latest candle-only experiment (2026-07-27):** the predeclared
+> multi-horizon momentum grid passed the `0.2%` CDR target in `0/108`
+> candidates. Its best long-only row stayed profitable in all four pre-2024
+> development folds but reached only `0.01392%` to `0.08627%` CDR and failed
+> one fold under 2x costs. It remains research-only and was not added to the
+> Kotlin runtime or automatic execution.
 
 Milestone 1 is the operational backend shell:
 
