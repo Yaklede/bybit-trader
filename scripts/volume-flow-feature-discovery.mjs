@@ -42,8 +42,8 @@ const binanceMetricsDir = args.binanceMetricsDir;
 await fs.mkdir(outDir, { recursive: true });
 
 const windowsPayload = JSON.parse(await fs.readFile(windowsPath, "utf8"));
-const windows = Array.isArray(windowsPayload) ? windowsPayload : windowsPayload.folds;
-if (!Array.isArray(windows)) throw new Error(`Window file must be an array or contain folds: ${windowsPath}`);
+const windows = Array.isArray(windowsPayload) ? windowsPayload : windowsPayload.folds ?? windowsPayload.windows;
+if (!Array.isArray(windows)) throw new Error(`Window file must be an array or contain folds/windows: ${windowsPath}`);
 const candles = loadCandles({ dbPath, timeframe });
 attachIndicators(candles);
 attachDonchianChannels(candles, [864, 1_440, 2_016, 4_032, 8_640]);

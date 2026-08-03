@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "multi-horizon-momentum-validation-v1",
+  "status": "SEALED_BEFORE_REPLAY",
+  "source": {
+    "symbol": "BTCUSDT",
+    "timeframe": "M5",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z",
+    "latestAvailableAt": "2026-07-02T05:40:00Z"
+  },
+  "windows": [
+    {"id":"V01","purpose":"sealed-validation","replayStartAt":"2024-01-01T00:00:00Z","replayEndAt":"2024-04-01T00:00:00Z"},
+    {"id":"V02","purpose":"sealed-validation","replayStartAt":"2024-04-01T00:00:00Z","replayEndAt":"2024-07-01T00:00:00Z"},
+    {"id":"V03","purpose":"sealed-validation","replayStartAt":"2024-07-01T00:00:00Z","replayEndAt":"2024-10-01T00:00:00Z"},
+    {"id":"V04","purpose":"sealed-validation","replayStartAt":"2024-10-01T00:00:00Z","replayEndAt":"2025-01-01T00:00:00Z"},
+    {"id":"V05","purpose":"sealed-validation","replayStartAt":"2025-01-01T00:00:00Z","replayEndAt":"2025-04-01T00:00:00Z"},
+    {"id":"V06","purpose":"sealed-validation","replayStartAt":"2025-04-01T00:00:00Z","replayEndAt":"2025-07-01T00:00:00Z"},
+    {"id":"V07","purpose":"sealed-validation","replayStartAt":"2025-07-01T00:00:00Z","replayEndAt":"2025-10-01T00:00:00Z"},
+    {"id":"V08","purpose":"sealed-validation","replayStartAt":"2025-10-01T00:00:00Z","replayEndAt":"2026-01-01T00:00:00Z"},
+    {"id":"V09","purpose":"sealed-validation","replayStartAt":"2026-01-01T00:00:00Z","replayEndAt":"2026-04-01T00:00:00Z"},
+    {"id":"V10","purpose":"sealed-validation","replayStartAt":"2026-04-01T00:00:00Z","replayEndAt":"2026-07-02T05:40:00Z"}
+  ],
+  "candidate": "multi_momentum_scale0.75_votes3_stop8_trail16_long_only",
+  "costMultipliers": [1.0, 1.5, 2.0],
+  "promotionAllowed": false
+}
