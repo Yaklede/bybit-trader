@@ -322,6 +322,7 @@ function buildCandidates() {
   if (profile === "macro-donchian-stop-focused") return buildStopFocusedMacroDonchianCandidates();
   if (profile === "multi-horizon-momentum") return buildMultiHorizonMomentumCandidates();
   if (profile === "multi-horizon-momentum-adaptive") return buildAdaptiveMultiHorizonMomentumCandidates();
+  if (profile === "multi-horizon-volume-confirmed") return buildVolumeConfirmedMomentumCandidates();
   if (profile === "macro-pullback-recovery") return buildMacroPullbackRecoveryCandidates();
   if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
@@ -1488,6 +1489,43 @@ function buildAdaptiveMultiHorizonMomentumCandidates() {
   return candidates;
 }
 
+function buildVolumeConfirmedMomentumCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const relativeVolumeMin of [0.0, 1.2, 1.5, 2.0]) {
+    for (const minBodyRatio of [0.0, 0.45]) {
+      for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+        candidates.push({
+          id:
+            `volume_confirmed_momentum_rv${relativeVolumeMin}` +
+            `_body${minBodyRatio}` +
+            `_${sideMode.toLowerCase()}`,
+          family: "MULTI_HORIZON_VOLUME_CONFIRMED",
+          session,
+          riskFraction: 0.01,
+          relativeVolumeMin,
+          momentumLookbackCandles: [288, 2_016, 4_032],
+          baseReturnThresholdPct: [1.0, 3.0, 5.0],
+          thresholdScale: 0.75,
+          minimumConsensusVotes: 3,
+          emaSlopeLookbackCandles: 288,
+          minBodyRatio,
+          stopAtr: 8.0,
+          trailAtr: 16.0,
+          targetR: 12.0,
+          maxHoldCandles: 4_032,
+          maxTradesPerDay: 1,
+          sideMode,
+          feeRate: 0.0006,
+          entrySlippageRate: 0.0002,
+          exitSlippageRate: 0.0002,
+        });
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildMacroPullbackRecoveryCandidates() {
   const candidates = [];
   const session = { id: "all", hours: null };
@@ -2013,6 +2051,8 @@ function switchFamily(candidate, index, endIndex) {
       return multiHorizonMomentumSetup(candidate, index);
     case "MULTI_HORIZON_MOMENTUM_ADAPTIVE":
       return multiHorizonMomentumSetup(candidate, index);
+    case "MULTI_HORIZON_VOLUME_CONFIRMED":
+      return volumeConfirmedMomentumSetup(candidate, index);
     case "MACRO_PULLBACK_RECOVERY":
       return macroPullbackRecoverySetup(candidate, index);
     case "CROSS_VENUE_FLOW_TREND":
@@ -2086,6 +2126,14 @@ function multiHorizonMomentumSetup(candidate, index) {
     entry,
     stopReference: { high: signal.high, low: signal.low },
   });
+}
+
+function volumeConfirmedMomentumSetup(candidate, index) {
+  const setup = multiHorizonMomentumSetup(candidate, index);
+  if (setup == null) return null;
+  const signal = candles[index];
+  if (candidate.minBodyRatio != null && signal.bodyRatio < candidate.minBodyRatio) return null;
+  return setup;
 }
 
 function multiHorizonMomentumDirection(candidate, index) {

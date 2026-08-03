@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "multi-horizon-volume-confirmed-development-v1",
+  "status": "PREDECLARED_DEVELOPMENT",
+  "createdAt": "2026-08-03",
+  "source": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframe": "M5",
+    "developmentFolds": "config/volume-flow-development-folds-v3.json",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "parentHypothesis": "multi-horizon-momentum-adaptive-development-v1",
+  "hypothesis": "A relative-volume and signal-candle body confirmation may remove low-quality momentum transitions while preserving causal timing.",
+  "candidateGrid": {
+    "relativeVolumeMin": [0.0, 1.2, 1.5, 2.0],
+    "minBodyRatio": [0.0, 0.45],
+    "sideMode": ["BOTH", "LONG_ONLY", "SHORT_ONLY"],
+    "fixed": {
+      "momentumLookbackCandles": [288, 2016, 4032],
+      "baseReturnThresholdPct": [1.0, 3.0, 5.0],
+      "thresholdScale": 0.75,
+      "minimumConsensusVotes": 3,
+      "stopAtr": 8.0,
+      "trailAtr": 16.0,
+      "targetR": 12.0,
+      "maxHoldCandles": 4032,
+      "maxTradesPerDay": 1,
+      "riskFraction": 0.01,
+      "feeRate": 0.0006,
+      "entrySlippageRate": 0.0002,
+      "exitSlippageRate": 0.0002
+    },
+    "maximumCandidateCount": 24
+  },
+  "decisionPolicy": {
+    "developmentOnly": true,
+    "post2024InspectionBeforeSelection": false,
+    "automaticPromotionAllowed": false,
+    "parameterExpansionAfterFailureAllowed": false
+  }
+}
