@@ -55,6 +55,8 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeFlowAggressiveStrategy
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClientConfig
+import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateExecutionStream
+import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateExecutionStreamConfig
 import dev.yaklede.bybittrader.exchange.bybit.BybitPublicMarketCaptureClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitTradingCategory
 import dev.yaklede.bybittrader.ledger.GzipNdjsonForwardMarketRawEventArchive
@@ -88,11 +90,12 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
         config.execution.enabled,
+        config.bybitPrivate.privateExecutionStreamEnabled,
         config.executionReconciliation.enabled,
         config.executionLoop.enabled,
         config.forwardMarketCapture.enabled,
@@ -224,7 +227,7 @@ fun main() {
             null
         }
     val executionReconciliationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val executionReconciliationJob =
+    val executionReconciliationLoop =
         if (executionService != null && config.executionReconciliation.enabled) {
             logger.info(
                 "execution reconciliation loop enabled intervalSeconds={}",
@@ -241,9 +244,45 @@ fun main() {
                 onClosure = { closure -> alertingService.sendExecutionClosure(closure) },
                 onLifecycleEvent = { event -> alertingService.sendExecutionLifecycleEvent(event) },
                 onFailure = { error -> alertingService.sendExecutionReconciliationFailure(error) },
-            ).start(executionReconciliationScope)
+            )
         } else {
             logger.info("execution reconciliation loop disabled")
+            null
+        }
+    val executionReconciliationJob = executionReconciliationLoop?.start(executionReconciliationScope)
+    val privateExecutionStreamScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val privateExecutionStreamJob =
+        if (executionService != null &&
+            executionReconciliationLoop != null &&
+            config.bybitPrivate.privateExecutionStreamEnabled
+        ) {
+            logger.info(
+                "private execution stream enabled symbol={} streamUrl={}",
+                config.marketData.symbol.value,
+                config.bybitPrivate.privateWebSocketUrl,
+            )
+            BybitPrivateExecutionStream(
+                httpClient = httpClient,
+                config =
+                    BybitPrivateExecutionStreamConfig(
+                        keyId = config.bybitPrivate.keyId!!,
+                        signingCredential = config.bybitPrivate.signingCredential!!,
+                        webSocketUrl = config.bybitPrivate.privateWebSocketUrl,
+                    ),
+                onExecution = { execution ->
+                    if (execution.symbol == config.marketData.symbol && execution.closedSize?.signum() == 1) {
+                        logger.info(
+                            "private execution close observed; requesting immediate reconciliation symbol={} executionId={} closedSize={}",
+                            execution.symbol.value,
+                            execution.executionId,
+                            execution.closedSize?.toPlainString(),
+                        )
+                        executionReconciliationLoop.requestImmediateReconciliation()
+                    }
+                },
+            ).start(privateExecutionStreamScope)
+        } else {
+            logger.info("private execution stream disabled")
             null
         }
     val executionLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -350,6 +389,7 @@ fun main() {
                 )
                 forwardMarketCaptureLoop?.stop()
             }
+            privateExecutionStreamJob?.cancel()
             paperLoopJob?.cancel()
             executionReconciliationJob?.cancel()
             executionLoopJob?.cancel()
@@ -357,6 +397,7 @@ fun main() {
             paperLoopScope.cancel()
             executionReconciliationScope.cancel()
             executionLoopScope.cancel()
+            privateExecutionStreamScope.cancel()
             forwardMarketCaptureScope.cancel()
             forwardMarketRawEventArchive?.close()
             resumeReadinessScope.cancel()

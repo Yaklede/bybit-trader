@@ -67,9 +67,15 @@ override:
   `.ndjson.gz` files are complete; `.part` files indicate an interrupted segment.
 - `BYBIT_PRIVATE_BASE_URL`: defaults from `BOT_MODE`: `https://api.bybit.com`
   for `LIVE`, `https://api-testnet.bybit.com` for `TESTNET`.
+- `BYBIT_PRIVATE_WEBSOCKET_URL`: optional. Defaults to
+  `wss://stream.bybit.com/v5/private` for `LIVE` and
+  `wss://stream-testnet.bybit.com/v5/private` for `TESTNET`.
 - `BYBIT_RECV_WINDOW_MILLIS`: default `5000`.
 - `BYBIT_POSITION_IDX`: default `0`.
 - `BOT_PRIVATE_EXECUTION_ENABLED`: default `true`.
+- `BOT_PRIVATE_EXECUTION_STREAM_ENABLED`: defaults to the private execution
+  setting. A closing execution wakes reconciliation immediately; REST
+  reconciliation remains the recovery path.
 - `BOT_EXECUTION_LOOP_ENABLED`: default `false`.
 - `BOT_EXECUTION_RECONCILIATION_ENABLED`: default `true`; observes private
   order, position, fill, and closed-PnL state without enabling automatic entry.

@@ -18,6 +18,8 @@ class AppConfigTest :
             config.forwardMarketCapture.rawArchivePath shouldBe "data/market-events"
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
+            config.bybitPrivate.privateWebSocketUrl shouldBe "wss://stream.bybit.com/v5/private"
+            config.bybitPrivate.privateExecutionStreamEnabled shouldBe false
             config.bybitPrivate.accountType shouldBe "UNIFIED"
             config.api.host shouldBe "127.0.0.1"
             config.api.port shouldBe 8080
@@ -87,6 +89,8 @@ class AppConfigTest :
 
             config.runtimeMode shouldBe RuntimeMode.TESTNET
             config.bybitPrivate.credentialsAvailable shouldBe true
+            config.bybitPrivate.privateWebSocketUrl shouldBe "wss://stream-testnet.bybit.com/v5/private"
+            config.bybitPrivate.privateExecutionStreamEnabled shouldBe true
             config.bybitPrivate.recvWindowMillis shouldBe 7000
             config.bybitPrivate.accountType shouldBe "UNIFIED"
             config.execution.enabled shouldBe true
@@ -124,6 +128,21 @@ class AppConfigTest :
             config.executionReconciliation.enabled shouldBe true
             config.executionReconciliation.intervalSeconds shouldBe 90
             config.executionReconciliation.alertBatchLimit shouldBe 25
+        }
+
+        "private execution stream can be explicitly disabled" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "TESTNET",
+                        "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
+                        "BOT_PRIVATE_EXECUTION_STREAM_ENABLED" to "false",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                    ),
+                )
+
+            config.bybitPrivate.privateExecutionStreamEnabled shouldBe false
         }
 
         "execution reconciliation requires private execution" {

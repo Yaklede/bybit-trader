@@ -91,8 +91,10 @@ requested quantity, intended TP/SL, and exchange/client order IDs. A
 independent reconciliation loop advances it from Bybit orders, executions,
 positions, and closed PnL. Positions with both exchange-reported TP and SL are
 `OPEN_PROTECTED`; missing protection is `OPEN_UNPROTECTED` and sends a
-critical Discord alert. Private WebSocket ingestion remains a follow-up for
-lower-latency and sequence-aware state evidence.
+critical Discord alert. When `BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true`, the
+private execution stream wakes reconciliation as soon as a closing execution
+is observed. REST reconciliation remains the durable recovery path after
+reconnects or restarts.
 
 Close alerts use a SQLite-backed at-least-once queue. Failed Discord deliveries
 remain pending and retry on the next M5 cycle; successful delivery is

@@ -25,7 +25,9 @@ Bybit `closed-pnl` 응답은 포지션 종료 손익을 제공하지만 종료 �
 
 ## 운영 한계
 
-현재 구현은 REST reconciliation에서 조회한 체결 이력을 사용한다. private WebSocket 체결 스트림은 아직 실행 경로에 연결하지 않았으므로, Discord 종료 알림의 지연은 reconciliation 주기만큼 발생할 수 있다. REST 조회 실패나 거래소 응답 지연 중에는 원장에 종료가 확인될 때까지 알림이 보류된다.
+private WebSocket `execution` 스트림이 종료 체결을 관찰하면 reconciliation loop를 즉시 깨운다. 원장 기록과 Discord 알림은 기존 REST reconciliation 경로가 수행하므로, WebSocket 이벤트 자체를 원장에 직접 기록하지 않는다. REST 경로는 재연결·재시작·이벤트 누락을 복구하는 at-least-once 경로로 유지된다.
+
+`BOT_PRIVATE_EXECUTION_STREAM_ENABLED`의 기본값은 private execution이 활성화된 경우 `true`이며, 장애 조사나 단계적 롤아웃이 필요할 때만 명시적으로 `false`로 끌 수 있다. private stream은 중복 `execId`를 프로세스 내에서 억제하지만, 최종 중복 방지는 SQLite closure 식별자가 담당한다.
 
 관련 Bybit 계약:
 

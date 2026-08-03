@@ -33,8 +33,16 @@ data class AppConfig(
                     ?: RuntimeMode.PAPER
 
             val privateExecutionEnabled = environment["BOT_PRIVATE_EXECUTION_ENABLED"].toBooleanStrictOrFalse()
+            val privateExecutionStreamEnabled =
+                environment["BOT_PRIVATE_EXECUTION_STREAM_ENABLED"]
+                    ?.toBooleanStrictOrFalse()
+                    ?: privateExecutionEnabled
             val executionLoopEnabled = environment["BOT_EXECUTION_LOOP_ENABLED"].toBooleanStrictOrFalse()
-            if (runtimeMode.requiresPrivateExchangeAccess() || privateExecutionEnabled || executionLoopEnabled) {
+            if (runtimeMode.requiresPrivateExchangeAccess() ||
+                privateExecutionEnabled ||
+                privateExecutionStreamEnabled ||
+                executionLoopEnabled
+            ) {
                 require(!environment["BYBIT_API_KEY"].isNullOrBlank()) {
                     "Bybit key is required for private exchange access."
                 }
@@ -60,6 +68,12 @@ data class AppConfig(
             }
             require(!executionReconciliation.enabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_RECONCILIATION_ENABLED=true."
+            }
+            require(!privateExecutionStreamEnabled || execution.enabled) {
+                "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true."
+            }
+            require(!privateExecutionStreamEnabled || executionReconciliation.enabled) {
+                "BOT_EXECUTION_RECONCILIATION_ENABLED=true is required when private execution streaming is enabled."
             }
             val aggressiveRuntimeProfile = VolumeFlowAggressiveProfiles.current()
             val automaticExecutionAllowed =
@@ -88,7 +102,12 @@ data class AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,
                 forwardMarketCapture = ForwardMarketCaptureSettings.fromEnvironment(environment, runtimeMode),
-                bybitPrivate = BybitPrivateSettings.fromEnvironment(environment, runtimeMode),
+                bybitPrivate =
+                    BybitPrivateSettings.fromEnvironment(
+                        environment = environment,
+                        runtimeMode = runtimeMode,
+                        defaultExecutionStreamEnabled = privateExecutionStreamEnabled,
+                    ),
                 api =
                     ApiConfig(
                         host = environment["BOT_API_HOST"] ?: "127.0.0.1",
@@ -116,6 +135,8 @@ data class BybitPrivateSettings(
     val keyId: String?,
     val signingCredential: String?,
     val baseUrl: String,
+    val privateWebSocketUrl: String,
+    val privateExecutionStreamEnabled: Boolean,
     val recvWindowMillis: Long,
     val category: String,
     val positionIdx: Int,
@@ -123,6 +144,9 @@ data class BybitPrivateSettings(
 ) {
     init {
         require(baseUrl.isNotBlank()) { "Bybit private base URL must not be blank." }
+        require(privateWebSocketUrl.startsWith("ws://") || privateWebSocketUrl.startsWith("wss://")) {
+            "Bybit private WebSocket URL must use ws or wss."
+        }
         require(recvWindowMillis in 1_000..60_000) { "Bybit recv window must be between 1000 and 60000 ms." }
         require(category == "linear") { "Only Bybit linear category is supported for execution." }
         require(positionIdx in 0..2) { "Bybit position index must be 0, 1, or 2." }
@@ -138,6 +162,7 @@ data class BybitPrivateSettings(
         fun fromEnvironment(
             environment: Map<String, String>,
             runtimeMode: RuntimeMode,
+            defaultExecutionStreamEnabled: Boolean = false,
         ): BybitPrivateSettings =
             BybitPrivateSettings(
                 keyId = environment["BYBIT_API_KEY"]?.takeIf { it.isNotBlank() },
@@ -149,6 +174,16 @@ data class BybitPrivateSettings(
                             RuntimeMode.LIVE -> "https://api.bybit.com"
                             RuntimeMode.PAPER -> "https://api-testnet.bybit.com"
                         },
+                privateWebSocketUrl =
+                    environment["BYBIT_PRIVATE_WEBSOCKET_URL"]
+                        ?.takeIf(String::isNotBlank)
+                        ?: when (runtimeMode) {
+                            RuntimeMode.TESTNET -> "wss://stream-testnet.bybit.com/v5/private"
+                            RuntimeMode.LIVE,
+                            RuntimeMode.PAPER,
+                            -> "wss://stream.bybit.com/v5/private"
+                        },
+                privateExecutionStreamEnabled = defaultExecutionStreamEnabled,
                 recvWindowMillis = environment["BYBIT_RECV_WINDOW_MILLIS"]?.toLongOrNull() ?: 5_000,
                 category = environment["BYBIT_PRIVATE_CATEGORY"]?.trim()?.lowercase() ?: "linear",
                 positionIdx = environment["BYBIT_POSITION_IDX"]?.toIntOrNull() ?: 0,

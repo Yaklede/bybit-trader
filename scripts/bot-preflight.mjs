@@ -14,6 +14,10 @@ const paperTimeframe = (env.BOT_PAPER_TIMEFRAME || (paperStrategy === "volume-fl
 const paperCandleLimit = Number(env.BOT_PAPER_CANDLE_LIMIT || (paperStrategy === "volume-flow-aggressive" ? "18000" : "200"));
 const paperSyncLimit = Number(env.BOT_PAPER_SYNC_LIMIT || "1000");
 const privateExecutionEnabled = parseBool(env.BOT_PRIVATE_EXECUTION_ENABLED);
+const privateExecutionStreamEnabled =
+  env.BOT_PRIVATE_EXECUTION_STREAM_ENABLED == null
+    ? privateExecutionEnabled
+    : parseBool(env.BOT_PRIVATE_EXECUTION_STREAM_ENABLED);
 const executionLoopEnabled = parseBool(env.BOT_EXECUTION_LOOP_ENABLED);
 const executionReconciliationEnabled =
   env.BOT_EXECUTION_RECONCILIATION_ENABLED == null
@@ -32,6 +36,9 @@ const executionMaxNotional = env.BOT_EXECUTION_MAX_NOTIONAL ? Number(env.BOT_EXE
 const executionLeverage = env.BOT_EXECUTION_LEVERAGE ? Number(env.BOT_EXECUTION_LEVERAGE) : null;
 const bybitPrivateBaseUrl =
   env.BYBIT_PRIVATE_BASE_URL || (mode === "LIVE" ? "https://api.bybit.com" : "https://api-testnet.bybit.com");
+const bybitPrivateWebSocketUrl =
+  env.BYBIT_PRIVATE_WEBSOCKET_URL ||
+  (mode === "TESTNET" ? "wss://stream-testnet.bybit.com/v5/private" : "wss://stream.bybit.com/v5/private");
 const symbol = env.BOT_SYMBOL || "BTCUSDT";
 const databasePath = env.BOT_DATABASE_PATH || "data/bybit-trader.sqlite";
 const compositeConfigPath = env.BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH || "config/volume-flow-composite-current.json";
@@ -51,6 +58,11 @@ const discordEnabled = parseBool(env.DISCORD_ALERTS_ENABLED);
 check("BOT_MODE is supported", ["PAPER", "TESTNET", "LIVE"].includes(mode), `mode=${mode}`);
 check("BOT_CONTROL_TOKEN is set", isLongEnough(env.BOT_CONTROL_TOKEN, 16), "set a private operator token with 16+ chars");
 check("paper strategy is supported", ["volume-flow-aggressive", "mean-reversion"].includes(paperStrategy), paperStrategy);
+check(
+  "private execution stream requires private execution",
+  !privateExecutionStreamEnabled || privateExecutionEnabled,
+  "set BOT_PRIVATE_EXECUTION_ENABLED=true or disable BOT_PRIVATE_EXECUTION_STREAM_ENABLED",
+);
 check("paper sync limit respects Bybit page limit", Number.isInteger(paperSyncLimit) && paperSyncLimit >= 1 && paperSyncLimit <= 1000, `paperSyncLimit=${paperSyncLimit}`);
 check("composite config file exists", fs.existsSync(compositeConfigPath), compositeConfigPath);
 checkWritableParent(databasePath);
@@ -90,6 +102,16 @@ if (mode !== "PAPER") {
   check("BYBIT_API_KEY is set outside PAPER mode", isLongEnough(env.BYBIT_API_KEY, 8), "required for TESTNET/LIVE");
   check("BYBIT_API_SECRET is set outside PAPER mode", isLongEnough(env.BYBIT_API_SECRET, 16), "required for TESTNET/LIVE");
   check("private execution is enabled outside PAPER mode", privateExecutionEnabled, "set BOT_PRIVATE_EXECUTION_ENABLED=true");
+  check(
+    "private execution stream has a valid WebSocket URL",
+    !privateExecutionStreamEnabled || /^wss?:\/\/.+/.test(bybitPrivateWebSocketUrl),
+    bybitPrivateWebSocketUrl,
+  );
+  check(
+    "private execution stream has reconciliation enabled",
+    !privateExecutionStreamEnabled || executionReconciliationEnabled,
+    "set BOT_EXECUTION_RECONCILIATION_ENABLED=true or disable the private stream",
+  );
   check(
     "rejected runtime profile has no automatic loop",
     !executionLoopEnabled,

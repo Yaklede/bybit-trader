@@ -26,6 +26,11 @@ class BybitRequestSigner(
         return sign(timestamp = timestamp, payload = jsonBody)
     }
 
+    fun signWebSocket(expiresMillis: Long): String {
+        require(expiresMillis > 0) { "Bybit WebSocket auth expiry must be positive." }
+        return hmacSha256Hex("GET/realtime$expiresMillis", signingCredential)
+    }
+
     fun signForTest(
         timestampMillis: String,
         payload: String,

@@ -106,11 +106,13 @@ becomes `OPEN_UNPROTECTED` and emits a critical Korean alert. Recent fills
 without a visible position remain `PARTIALLY_FILLED`, and a matching closed
 PnL advances the active lifecycle to `CLOSED`.
 
-This projection currently uses REST polling every
-`BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS` (60 seconds by default). Private
-order/execution/position WebSocket ingestion is still required for lower
-latency, sequence-aware transition evidence, and robust partial-fill handling
-before an automatic profile can be approved.
+This projection uses REST polling every
+`BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS` (60 seconds by default) as the
+durable recovery path. When
+`BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true`, a private `execution` WebSocket
+close event wakes the same reconciliation loop immediately. The WebSocket
+event is a trigger, not a second persistence path, so closure deduplication and
+Discord at-least-once delivery stay centralized in the existing ledger flow.
 
 ## POST /execution/reconcile
 

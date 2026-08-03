@@ -3,9 +3,10 @@ package dev.yaklede.bybittrader.engine.execution
 import dev.yaklede.bybittrader.domain.Symbol
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
@@ -20,6 +21,13 @@ class ExchangeReconciliationLoop(
     private val onFailure: suspend (Throwable) -> Unit = {},
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeReconciliationLoop::class.java)
+    private val wakeupChannel = Channel<Unit>(capacity = Channel.CONFLATED)
+
+    fun requestImmediateReconciliation() {
+        if (!wakeupChannel.trySend(Unit).isSuccess) {
+            logger.debug("execution reconciliation wakeup was not queued symbol={}", config.symbol.value)
+        }
+    }
 
     suspend fun runOnce(): ExchangeReconciliationReport {
         val reconciliation =
@@ -105,7 +113,9 @@ class ExchangeReconciliationLoop(
                     logger.warn("execution reconciliation loop failed", error)
                     onFailure(error)
                 }
-                delay(config.intervalSeconds * 1_000L)
+                withTimeoutOrNull(config.intervalSeconds * 1_000L) {
+                    wakeupChannel.receive()
+                }
             }
         }
 }
