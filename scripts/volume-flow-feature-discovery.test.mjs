@@ -260,6 +260,53 @@ test("cost stress scales candidate fees and slippage without expanding the candi
   }
 });
 
+test("adaptive momentum profile is capped at its predeclared 24 candidates", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bybit-adaptive-momentum-boundary-"));
+  try {
+    const databasePath = path.join(directory, "candles.sqlite");
+    const windowsPath = path.join(directory, "windows.json");
+    const outDirectory = path.join(directory, "out");
+    createFixtureDatabase(databasePath);
+    await fs.writeFile(
+      windowsPath,
+      JSON.stringify([
+        {
+          id: "D1",
+          replayStartAt: "2024-01-01T14:00:00Z",
+          replayEndAt: "2024-01-02T00:45:00Z",
+        },
+      ]),
+    );
+
+    execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--db",
+        databasePath,
+        "--windows",
+        windowsPath,
+        "--out",
+        outDirectory,
+        "--profile",
+        "multi-horizon-momentum-adaptive",
+        "--maxCandidates",
+        "100",
+        "--quiet",
+        "true",
+      ],
+      { encoding: "utf8" },
+    );
+
+    const ranked = JSON.parse(await fs.readFile(path.join(outDirectory, "ranked.json"), "utf8"));
+    assert.equal(ranked.length, 24);
+    assert.equal(new Set(ranked.map((result) => result.id)).size, 24);
+    assert.ok(ranked.every((result) => result.family === "MULTI_HORIZON_MOMENTUM_ADAPTIVE"));
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("macro pullback recovery profile stays inside its predeclared candidate boundary", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bybit-macro-recovery-boundary-"));
   try {

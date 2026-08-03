@@ -321,6 +321,7 @@ function buildCandidates() {
   if (profile === "macro-donchian-aggressive") return buildAggressiveMacroDonchianCandidates();
   if (profile === "macro-donchian-stop-focused") return buildStopFocusedMacroDonchianCandidates();
   if (profile === "multi-horizon-momentum") return buildMultiHorizonMomentumCandidates();
+  if (profile === "multi-horizon-momentum-adaptive") return buildAdaptiveMultiHorizonMomentumCandidates();
   if (profile === "macro-pullback-recovery") return buildMacroPullbackRecoveryCandidates();
   if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
@@ -1436,6 +1437,57 @@ function buildMultiHorizonMomentumCandidates() {
   return candidates;
 }
 
+function buildAdaptiveMultiHorizonMomentumCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  const horizonSets = [
+    {
+      id: "12h_2d_7d",
+      lookbacks: [144, 576, 2_016],
+      thresholds: [0.5, 1.5, 3.0],
+    },
+    {
+      id: "1d_7d_14d",
+      lookbacks: [288, 2_016, 4_032],
+      thresholds: [1.0, 3.0, 5.0],
+    },
+  ];
+  for (const horizons of horizonSets) {
+    for (const thresholdScale of [0.75, 1.0]) {
+      for (const minimumConsensusVotes of [2, 3]) {
+        for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+          candidates.push({
+            id:
+              `adaptive_momentum_${horizons.id}` +
+              `_scale${thresholdScale}` +
+              `_votes${minimumConsensusVotes}` +
+              `_${sideMode.toLowerCase()}`,
+            family: "MULTI_HORIZON_MOMENTUM_ADAPTIVE",
+            session,
+            riskFraction: 0.01,
+            relativeVolumeMin: 0.0,
+            momentumLookbackCandles: horizons.lookbacks,
+            baseReturnThresholdPct: horizons.thresholds,
+            thresholdScale,
+            minimumConsensusVotes,
+            emaSlopeLookbackCandles: 288,
+            stopAtr: 8.0,
+            trailAtr: 16.0,
+            targetR: 12.0,
+            maxHoldCandles: 4_032,
+            maxTradesPerDay: 1,
+            sideMode,
+            feeRate: 0.0006,
+            entrySlippageRate: 0.0002,
+            exitSlippageRate: 0.0002,
+          });
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildMacroPullbackRecoveryCandidates() {
   const candidates = [];
   const session = { id: "all", hours: null };
@@ -1958,6 +2010,8 @@ function switchFamily(candidate, index, endIndex) {
     case "MACRO_DONCHIAN_TREND":
       return macroDonchianTrendSetup(candidate, index);
     case "MULTI_HORIZON_MOMENTUM":
+      return multiHorizonMomentumSetup(candidate, index);
+    case "MULTI_HORIZON_MOMENTUM_ADAPTIVE":
       return multiHorizonMomentumSetup(candidate, index);
     case "MACRO_PULLBACK_RECOVERY":
       return macroPullbackRecoverySetup(candidate, index);

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "multi-horizon-momentum-adaptive-development-v1",
+  "status": "PREDECLARED_DEVELOPMENT",
+  "createdAt": "2026-08-03",
+  "source": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframe": "M5",
+    "developmentFolds": "config/volume-flow-development-folds-v3.json",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "hypothesis": "Shorter momentum horizons may reduce the delayed long-only response of the rejected 1d/7d/30d baseline without changing the causal fill or exit model.",
+  "candidateGrid": {
+    "horizonSets": [
+      {"id":"12h_2d_7d","lookbacks":[144,576,2016],"thresholdsPct":[0.5,1.5,3.0]},
+      {"id":"1d_7d_14d","lookbacks":[288,2016,4032],"thresholdsPct":[1.0,3.0,5.0]}
+    ],
+    "thresholdScale": [0.75, 1.0],
+    "minimumConsensusVotes": [2, 3],
+    "sideMode": ["BOTH", "LONG_ONLY", "SHORT_ONLY"],
+    "fixed": {
+      "stopAtr": 8.0,
+      "trailAtr": 16.0,
+      "targetR": 12.0,
+      "maxHoldCandles": 4032,
+      "maxTradesPerDay": 1,
+      "riskFraction": 0.01,
+      "feeRate": 0.0006,
+      "entrySlippageRate": 0.0002,
+      "exitSlippageRate": 0.0002
+    },
+    "maximumCandidateCount": 24
+  },
+  "decisionPolicy": {
+    "developmentOnly": true,
+    "post2024InspectionBeforeSelection": false,
+    "automaticPromotionAllowed": false,
+    "parameterExpansionAfterFailureAllowed": false
+  }
+}
