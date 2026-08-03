@@ -195,7 +195,8 @@ class BacktestRunner(
                 }
 
                 CausalExitTouch.TARGET,
-                CausalExitTouch.NONE -> Unit
+                CausalExitTouch.NONE,
+                -> Unit
             }
 
             if (!partialTaken && config.partialTakeProfitFraction > 0.0 && candle.touches(side, partialTargetPrice)) {
