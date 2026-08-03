@@ -640,7 +640,9 @@ function App() {
               <dl className="detail-list compact">
                 <StateRow label="프로핏 팩터" value={formatRatioValue(primaryPerformance?.profitFactor)} />
                 <StateRow label="기대값" value={formatMoney(primaryPerformance?.expectancy)} />
-                <StateRow label="최대 종료 손실폭" value={formatPercentValue(primaryPerformance?.maxClosedTradeDrawdownPct)} />
+                <StateRow label="계좌 MDD" value={formatPercentValue(primaryPerformance?.maxAccountDrawdownPct)} />
+                <StateRow label="실현손익 곡선 낙폭" value={formatPercentValue(primaryPerformance?.maxClosedTradeDrawdownPct)} />
+                <StateRow label="최근 equity 조회" value={formatDateTime(primaryPerformance?.accountEquityCapturedAt)} />
                 <StateRow label="마지막 종료" value={formatDateTime(primaryPerformance?.lastClosedAt)} />
               </dl>
             </section>
