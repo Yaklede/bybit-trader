@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "multi-horizon-m15-regime-development-v1",
+  "status": "PREDECLARED_DEVELOPMENT",
+  "createdAt": "2026-08-03",
+  "source": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframes": ["M5", "M15"],
+    "developmentFolds": "config/volume-flow-development-folds-v3.json",
+    "developmentDataEndAt": "2024-01-01T00:00:00Z"
+  },
+  "parentHypothesis": "multi-horizon-momentum-adaptive-development-v1",
+  "hypothesis": "A completed M15 EMA regime should filter M5 momentum transitions that disagree with the larger closed-candle direction.",
+  "executionRule": "M15 data is aggregated from exchange-aligned M5 candles and a bucket is eligible only after its close time is at or before the M5 signal close time.",
+  "candidateGrid": {
+    "m15SlopeLookbackCandles": [96, 288],
+    "thresholdScale": [0.75, 1.0],
+    "minimumConsensusVotes": [2, 3],
+    "sideMode": ["BOTH", "LONG_ONLY", "SHORT_ONLY"],
+    "fixed": {
+      "momentumLookbackCandles": [288, 2016, 4032],
+      "baseReturnThresholdPct": [1.0, 3.0, 5.0],
+      "stopAtr": 8.0,
+      "trailAtr": 16.0,
+      "targetR": 12.0,
+      "maxHoldCandles": 4032,
+      "maxTradesPerDay": 1,
+      "riskFraction": 0.01,
+      "feeRate": 0.0006,
+      "entrySlippageRate": 0.0002,
+      "exitSlippageRate": 0.0002
+    },
+    "maximumCandidateCount": 24
+  },
+  "decisionPolicy": {
+    "developmentOnly": true,
+    "post2024InspectionBeforeSelection": false,
+    "automaticPromotionAllowed": false,
+    "parameterExpansionAfterFailureAllowed": false
+  }
+}

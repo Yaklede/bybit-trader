@@ -46,6 +46,9 @@ const windows = Array.isArray(windowsPayload) ? windowsPayload : windowsPayload.
 if (!Array.isArray(windows)) throw new Error(`Window file must be an array or contain folds/windows: ${windowsPath}`);
 const candles = loadCandles({ dbPath, timeframe });
 attachIndicators(candles);
+const m15Candles = aggregateM15Candles(candles);
+attachIndicators(m15Candles);
+const m15IndexByOpenedAtMs = new Map(m15Candles.map((candle, index) => [candle.openedAtMs, index]));
 attachDonchianChannels(candles, [864, 1_440, 2_016, 4_032, 8_640]);
 let binanceCoverage = null;
 if (binanceDir != null) {
@@ -214,6 +217,37 @@ function loadCandles({ dbPath, timeframe }) {
     });
 }
 
+function aggregateM15Candles(items) {
+  const grouped = [];
+  const byBucket = new Map();
+  for (const candle of items) {
+    const bucketOpenedAtMs = Math.floor(candle.openedAtMs / 900_000) * 900_000;
+    let aggregate = byBucket.get(bucketOpenedAtMs);
+    if (aggregate == null) {
+      aggregate = {
+        index: grouped.length,
+        openedAt: new Date(bucketOpenedAtMs).toISOString().replace(".000Z", "Z"),
+        openedAtMs: bucketOpenedAtMs,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+        hour: new Date(bucketOpenedAtMs).getUTCHours(),
+        day: new Date(bucketOpenedAtMs).toISOString().slice(0, 10),
+      };
+      byBucket.set(bucketOpenedAtMs, aggregate);
+      grouped.push(aggregate);
+    } else {
+      aggregate.high = Math.max(aggregate.high, candle.high);
+      aggregate.low = Math.min(aggregate.low, candle.low);
+      aggregate.close = candle.close;
+      aggregate.volume += candle.volume;
+    }
+  }
+  return grouped;
+}
+
 function attachIndicators(items) {
   const volumeQueue = [];
   const trQueue = [];
@@ -324,6 +358,7 @@ function buildCandidates() {
   if (profile === "multi-horizon-momentum-adaptive") return buildAdaptiveMultiHorizonMomentumCandidates();
   if (profile === "multi-horizon-volume-confirmed") return buildVolumeConfirmedMomentumCandidates();
   if (profile === "multi-horizon-exit-ablation") return buildExitAblationMomentumCandidates();
+  if (profile === "multi-horizon-m15-regime") return buildM15RegimeMomentumCandidates();
   if (profile === "macro-pullback-recovery") return buildMacroPullbackRecoveryCandidates();
   if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
@@ -1560,6 +1595,46 @@ function buildExitAblationMomentumCandidates() {
   return candidates;
 }
 
+function buildM15RegimeMomentumCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const m15SlopeLookbackCandles of [96, 288]) {
+    for (const thresholdScale of [0.75, 1.0]) {
+      for (const minimumConsensusVotes of [2, 3]) {
+        for (const sideMode of ["BOTH", "LONG_ONLY", "SHORT_ONLY"]) {
+          candidates.push({
+            id:
+              `m15_regime_slope${m15SlopeLookbackCandles}` +
+              `_scale${thresholdScale}` +
+              `_votes${minimumConsensusVotes}` +
+              `_${sideMode.toLowerCase()}`,
+            family: "MULTI_HORIZON_M15_REGIME",
+            session,
+            riskFraction: 0.01,
+            relativeVolumeMin: 0.0,
+            momentumLookbackCandles: [288, 2_016, 4_032],
+            baseReturnThresholdPct: [1.0, 3.0, 5.0],
+            thresholdScale,
+            minimumConsensusVotes,
+            emaSlopeLookbackCandles: 288,
+            m15SlopeLookbackCandles,
+            stopAtr: 8.0,
+            trailAtr: 16.0,
+            targetR: 12.0,
+            maxHoldCandles: 4_032,
+            maxTradesPerDay: 1,
+            sideMode,
+            feeRate: 0.0006,
+            entrySlippageRate: 0.0002,
+            exitSlippageRate: 0.0002,
+          });
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildMacroPullbackRecoveryCandidates() {
   const candidates = [];
   const session = { id: "all", hours: null };
@@ -2089,6 +2164,8 @@ function switchFamily(candidate, index, endIndex) {
       return volumeConfirmedMomentumSetup(candidate, index);
     case "MULTI_HORIZON_EXIT_ABLATION":
       return multiHorizonMomentumSetup(candidate, index);
+    case "MULTI_HORIZON_M15_REGIME":
+      return m15RegimeMomentumSetup(candidate, index);
     case "MACRO_PULLBACK_RECOVERY":
       return macroPullbackRecoverySetup(candidate, index);
     case "CROSS_VENUE_FLOW_TREND":
@@ -2170,6 +2247,40 @@ function volumeConfirmedMomentumSetup(candidate, index) {
   const signal = candles[index];
   if (candidate.minBodyRatio != null && signal.bodyRatio < candidate.minBodyRatio) return null;
   return setup;
+}
+
+function m15RegimeMomentumSetup(candidate, index) {
+  const direction = multiHorizonMomentumDirection(candidate, index);
+  if (direction == null || multiHorizonMomentumDirection(candidate, index - 1) === direction) return null;
+  if (candidate.sideMode === "LONG_ONLY" && direction !== "BUY") return null;
+  if (candidate.sideMode === "SHORT_ONLY" && direction !== "SELL") return null;
+  if (m15RegimeDirectionAt(index, candidate.m15SlopeLookbackCandles) !== direction) return null;
+
+  const signal = candles[index];
+  const entryIndex = index + 1;
+  const entry = candles[entryIndex];
+  if (entry == null) return null;
+  return buildSetup(candidate, {
+    side: direction,
+    entryIndex,
+    entry,
+    stopReference: { high: signal.high, low: signal.low },
+  });
+}
+
+function m15RegimeDirectionAt(signalIndex, slopeLookbackCandles) {
+  const signal = candles[signalIndex];
+  if (signal == null) return null;
+  const signalEndAtMs = signal.openedAtMs + 300_000;
+  const completedBucketStartMs = Math.floor((signalEndAtMs - 900_000) / 900_000) * 900_000;
+  const m15Index = m15IndexByOpenedAtMs.get(completedBucketStartMs);
+  if (m15Index == null || m15Index < slopeLookbackCandles) return null;
+  const current = m15Candles[m15Index];
+  const slopeReference = m15Candles[m15Index - slopeLookbackCandles];
+  if (current.ema288 == null || current.ema1152 == null || slopeReference?.ema288 == null) return null;
+  if (current.ema288 > current.ema1152 && current.ema288 > slopeReference.ema288) return "BUY";
+  if (current.ema288 < current.ema1152 && current.ema288 < slopeReference.ema288) return "SELL";
+  return null;
 }
 
 function multiHorizonMomentumDirection(candidate, index) {
