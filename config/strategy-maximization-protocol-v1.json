@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "strategy-maximization-v1",
+  "status": "DEVELOPMENT",
+  "createdAt": "2026-08-03",
+  "purpose": "Evaluate causal, cost-aware strategy candidates without promoting a research result automatically.",
+  "sourceData": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframes": ["M1", "M5", "M15"],
+    "latestCandleAt": {
+      "M1": "2026-07-02T05:40:00Z",
+      "M5": "2026-07-02T05:40:00Z",
+      "M15": "2026-07-02T05:30:00Z"
+    },
+    "developmentAndValidationPolicy": "NESTED_WALK_FORWARD_REQUIRED"
+  },
+  "baseline": {
+    "profileId": "multi-horizon-momentum-development-v1",
+    "candidateCount": 108,
+    "status": "RESEARCH_ONLY",
+    "validationStatus": "UNVERIFIED",
+    "automaticExecutionAllowed": false
+  },
+  "selectionPolicy": {
+    "dailyCompoundReturnIsSearchObjective": false,
+    "maximumNewCandidatesPerStage": 24,
+    "maximumSequentialStages": 4,
+    "parameterSelectionAllowedInsideTrainingOnly": true,
+    "sealedWindowMayBeInspectedBeforeApproval": false,
+    "promotionRequiresFreshSealedWindow": true,
+    "parameterExpansionAfterFailedStage": false,
+    "automaticPromotionAllowed": false
+  },
+  "executionContract": {
+    "decisionUsesClosedCandlesOnly": true,
+    "entryFill": "NEXT_CONTIGUOUS_CANDLE_OPEN_WITH_ADVERSE_SLIPPAGE",
+    "sameCandleStopAndTarget": "STOP_FIRST",
+    "missingEntryCandle": "NO_TRADE",
+    "feesAndSlippageAppliedToBothSides": true,
+    "runtimeAndBacktestContractMustMatch": true
+  },
+  "approvalGates": {
+    "minimumExternalPositiveFoldRatio": 0.75,
+    "minimumTotalClosedTrades": 200,
+    "maximumBaseDrawdownPct": 30.0,
+    "maximumStressDrawdownPct": 40.0,
+    "maximumLiquidationCount": 0,
+    "minimumBootstrapExpectancyLowerBoundR": 0.0,
+    "maximumSingleTradeProfitContributionPct": 25.0,
+    "requiredCostStressMultipliers": [1.0, 1.5, 2.0],
+    "requiredRiskFractions": [0.0025, 0.005, 0.0075, 0.01]
+  },
+  "walkForward": {
+    "trainingWindowMonths": 24,
+    "testWindowMonths": 6,
+    "purgeWindowDays": 14,
+    "minimumOuterFoldCount": 8,
+    "foldsMustCoverMultipleMarketRegimes": true
+  },
+  "promotion": {
+    "requiredStatus": "VERIFIED",
+    "requiredRuntimeFingerprintMatch": true,
+    "requiredPaperOrShadowEvidence": true,
+    "researchProfilesCannotBeLiveExecuted": true
+  }
+}
