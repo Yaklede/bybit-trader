@@ -558,6 +558,31 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
+        "execution rejects a positive target whose net risk reward is below the minimum" {
+            val gateway = RecordingExecutionGateway()
+            val store = InMemoryTradingStore()
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            accountEquity = BigDecimal("1000"),
+                            riskFraction = BigDecimal("0.01"),
+                            quantityStep = BigDecimal("0.001"),
+                            minQuantity = BigDecimal("0.001"),
+                        ),
+                    strategy = CostDistortedTargetStrategy(),
+                )
+
+            val result = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.REJECTED
+            result.reasonCodes shouldContainExactly listOf("NET_RISK_REWARD_BELOW_MINIMUM")
+            gateway.placedOrders shouldBe emptyList()
+        }
+
         "automatic entry rejects active orders and open positions" {
             val symbol = Symbol("BTCUSDT")
             val activeOrder =
@@ -1269,6 +1294,27 @@ private class TinyTargetStrategy : TradingStrategy {
                     expectedR = BigDecimal("1"),
                 ),
             reasonCodes = listOf("TINY_TARGET"),
+        )
+    }
+}
+
+private class CostDistortedTargetStrategy : TradingStrategy {
+    override val name: String = "cost-distorted-target-test"
+    override val warmupCandles: Int = 2
+
+    override fun evaluate(candles: List<Candle>): StrategyDecision {
+        val latest = candles.last()
+        return StrategyDecision(
+            intent =
+                SignalIntent(
+                    symbol = latest.symbol,
+                    side = Side.BUY,
+                    strategy = name,
+                    score = SignalScore(80, listOf("COST_DISTORTED_TARGET")),
+                    invalidationPrice = Price(BigDecimal("104")),
+                    expectedR = BigDecimal("1.2"),
+                ),
+            reasonCodes = listOf("COST_DISTORTED_TARGET"),
         )
     }
 }

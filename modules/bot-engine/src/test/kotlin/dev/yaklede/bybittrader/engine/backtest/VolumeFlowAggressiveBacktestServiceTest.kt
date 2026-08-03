@@ -149,6 +149,19 @@ class VolumeFlowAggressiveBacktestServiceTest :
             result.liquidationCount shouldBe 0
         }
 
+        "rejects aggressive entries whose net risk reward is below the contract minimum" {
+            val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
+
+            val result =
+                service.run(
+                    symbol = Symbol("BTCUSDT"),
+                    m5Limit = 120,
+                    config = aggressiveTestConfig().copy(minimumNetRiskReward = 100.0),
+                )
+
+            result.tradeCount shouldBe 0
+        }
+
         "can block aggressive entries by side regime rules" {
             val service = VolumeFlowAggressiveBacktestService(InMemoryAggressiveCandleStore(aggressiveAbsorptionCandles()))
             val blockedConfig =

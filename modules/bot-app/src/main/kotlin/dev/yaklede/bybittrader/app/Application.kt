@@ -192,6 +192,7 @@ fun main() {
                         maxNotional = config.execution.maxNotional,
                         leverage = config.execution.leverage,
                         liquidationBufferPct = config.execution.liquidationBufferPct,
+                        minimumNetRiskReward = config.execution.minimumNetRiskReward,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                 positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),

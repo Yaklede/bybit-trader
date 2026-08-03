@@ -28,6 +28,7 @@ data class VolumeFlowAggressiveExecutionContract(
     val maxNotional: Double?,
     val leverage: Double?,
     val liquidationBufferPct: Double,
+    val minimumNetRiskReward: Double = 1.0,
 ) {
     val fingerprint: String
         get() =
@@ -49,6 +50,7 @@ data class VolumeFlowAggressiveExecutionContract(
             "maxNotional=${maxNotional.canonicalNumber()}",
             "leverage=${leverage.canonicalNumber()}",
             "liquidationBufferPct=${liquidationBufferPct.canonicalNumber()}",
+            "minimumNetRiskReward=${minimumNetRiskReward.canonicalNumber()}",
         ).joinToString("|")
 }
 
@@ -99,6 +101,7 @@ data class VolumeFlowAggressiveBacktestConfig(
     val maxNotional: Double? = null,
     val leverage: Double? = null,
     val liquidationBufferPct: Double = 0.6,
+    val minimumNetRiskReward: Double = 1.0,
     val sessionHoursUtc: Set<Int> = setOf(13, 14, 15, 16, 17, 18, 19, 20, 21),
     val entrySignalHoursUtc: Set<Int>? = null,
     val volumeLookback: Int = 20,
@@ -154,6 +157,7 @@ data class VolumeFlowAggressiveBacktestConfig(
         require(maxNotional == null || maxNotional > 0.0) { "Maximum notional must be positive." }
         require(leverage == null || leverage > 1.0) { "Leverage must be greater than 1." }
         require(liquidationBufferPct in 0.0..10.0) { "Liquidation buffer must be between 0 and 10 percent." }
+        require(minimumNetRiskReward > 0.0) { "Minimum net risk reward must be positive." }
         require(sessionHoursUtc.isNotEmpty()) { "Session hours must not be empty." }
         require(sessionHoursUtc.all { it in 0..23 }) { "Session hours must be between 0 and 23." }
         require(entrySignalHoursUtc == null || entrySignalHoursUtc.isNotEmpty()) {
@@ -321,6 +325,7 @@ object VolumeFlowAggressiveProfiles {
                     maxNotional = 100.0,
                     leverage = 15.0,
                     liquidationBufferPct = 0.6,
+                    minimumNetRiskReward = 1.0,
                 ),
             validationStatus = StrategyValidationStatus.REJECTED,
         )
@@ -421,6 +426,7 @@ fun VolumeFlowAggressiveBacktestConfig.executionContract(): VolumeFlowAggressive
         maxNotional = maxNotional,
         leverage = leverage,
         liquidationBufferPct = liquidationBufferPct,
+        minimumNetRiskReward = minimumNetRiskReward,
     )
 
 fun VolumeFlowAggressiveBacktestConfig.withExecutionContract(
@@ -438,6 +444,7 @@ fun VolumeFlowAggressiveBacktestConfig.withExecutionContract(
         maxNotional = contract.maxNotional,
         leverage = contract.leverage,
         liquidationBufferPct = contract.liquidationBufferPct,
+        minimumNetRiskReward = contract.minimumNetRiskReward,
     )
 
 private fun VolumeFlowAggressiveBacktestConfig.normalizedSignalDefinition(): VolumeFlowAggressiveBacktestConfig =

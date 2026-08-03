@@ -460,6 +460,7 @@ data class ExecutionSettings(
     val maxNotional: BigDecimal?,
     val leverage: BigDecimal?,
     val liquidationBufferPct: BigDecimal,
+    val minimumNetRiskReward: BigDecimal,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -482,6 +483,9 @@ data class ExecutionSettings(
         require(liquidationBufferPct >= BigDecimal.ZERO && liquidationBufferPct <= BigDecimal("10")) {
             "Execution liquidation buffer must be between 0 and 10 percent."
         }
+        require(minimumNetRiskReward > BigDecimal.ZERO) {
+            "Execution minimum net risk reward must be positive."
+        }
     }
 
     companion object {
@@ -503,6 +507,8 @@ data class ExecutionSettings(
                 leverage = environment["BOT_EXECUTION_LEVERAGE"]?.takeIf { it.isNotBlank() }?.let(::BigDecimal),
                 liquidationBufferPct =
                     environment["BOT_EXECUTION_LIQUIDATION_BUFFER_PCT"]?.let(::BigDecimal) ?: BigDecimal("0.6"),
+                minimumNetRiskReward =
+                    environment["BOT_EXECUTION_MIN_NET_RR"]?.let(::BigDecimal) ?: BigDecimal("1.0"),
             )
     }
 }
@@ -520,6 +526,7 @@ fun ExecutionSettings.toAggressiveExecutionContract(): VolumeFlowAggressiveExecu
         maxNotional = maxNotional?.toDouble(),
         leverage = leverage?.toDouble(),
         liquidationBufferPct = liquidationBufferPct.toDouble(),
+        minimumNetRiskReward = minimumNetRiskReward.toDouble(),
     )
 
 private fun PaperStrategyKind.defaultRiskFraction(): BigDecimal =

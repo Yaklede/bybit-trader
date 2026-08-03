@@ -33,6 +33,7 @@ class AppConfigTest :
             config.execution.allowUnverifiedProfile shouldBe false
             config.execution.useLiveAccountEquity shouldBe false
             config.execution.leverage shouldBe null
+            config.execution.minimumNetRiskReward.toPlainString() shouldBe "1.0"
             config.executionLoop.enabled shouldBe false
             config.executionReconciliation.enabled shouldBe false
             config.executionReconciliation.alertBatchLimit shouldBe 100
@@ -80,6 +81,7 @@ class AppConfigTest :
                         "BOT_EXECUTION_MAX_NOTIONAL" to "100000",
                         "BOT_EXECUTION_LEVERAGE" to "15",
                         "BOT_EXECUTION_LIQUIDATION_BUFFER_PCT" to "0.8",
+                        "BOT_EXECUTION_MIN_NET_RR" to "1.25",
                     ),
                 )
 
@@ -101,6 +103,7 @@ class AppConfigTest :
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"
             config.execution.liquidationBufferPct.toPlainString() shouldBe "0.8"
+            config.execution.minimumNetRiskReward.toPlainString() shouldBe "1.25"
         }
 
         "execution reconciliation settings can be configured independently of automatic entries" {

@@ -340,7 +340,14 @@ class VolumeFlowAggressiveBacktestService(
         val sizing =
             ExecutionTradePlanCalculator.calculateSizing(
                 entryPrice = BigDecimal.valueOf(setup.plannedEntryPrice),
-                riskPerUnit = BigDecimal.valueOf(setup.riskPerUnit),
+                riskPerUnit =
+                    ExecutionTradePlanCalculator.costAdjustedRiskPerUnit(
+                        entryPrice = BigDecimal.valueOf(setup.plannedEntryPrice),
+                        riskPerUnit = BigDecimal.valueOf(setup.riskPerUnit),
+                        feeRate = BigDecimal.valueOf(config.feeRate),
+                        slippageBufferRate = BigDecimal.valueOf(config.slippageRate),
+                        exitSlippageRate = BigDecimal.valueOf(config.exitSlippageRate),
+                    ),
                 intendedRisk = BigDecimal.valueOf(equity * config.riskFraction),
                 accountEquity = BigDecimal.valueOf(equity),
                 constraints =
@@ -521,6 +528,18 @@ class VolumeFlowAggressiveBacktestService(
                     riskPerUnit = BigDecimal.valueOf(riskPerUnit),
                     expectedR = BigDecimal.valueOf(config.targetR),
                 ).toDouble()
+        val targetStopRejection =
+            ExecutionTradePlanCalculator.targetStopRejection(
+                side = side,
+                entryPrice = BigDecimal.valueOf(close),
+                takeProfit = BigDecimal.valueOf(targetPrice),
+                stopLoss = BigDecimal.valueOf(stopPrice),
+                feeRate = BigDecimal.valueOf(config.feeRate),
+                slippageBufferRate = BigDecimal.valueOf(config.slippageRate),
+                minimumNetRiskReward = BigDecimal.valueOf(config.minimumNetRiskReward),
+                exitSlippageRate = BigDecimal.valueOf(config.exitSlippageRate),
+            )
+        if (targetStopRejection != null) return null
         val leverageStopRejection =
             ExecutionTradePlanCalculator.leverageStopRejection(
                 side = side,
@@ -686,7 +705,9 @@ class VolumeFlowAggressiveBacktestService(
                 takeProfit = BigDecimal.valueOf(targetPrice),
                 stopLoss = BigDecimal.valueOf(stopPrice),
                 feeRate = BigDecimal.valueOf(config.feeRate),
-                slippageBufferRate = BigDecimal.valueOf(config.slippageRate + config.exitSlippageRate),
+                slippageBufferRate = BigDecimal.valueOf(config.slippageRate),
+                exitSlippageRate = BigDecimal.valueOf(config.exitSlippageRate),
+                minimumNetRiskReward = BigDecimal.valueOf(config.minimumNetRiskReward),
             )
         if (targetStopRejection != null) return null
         val leverageStopRejection =

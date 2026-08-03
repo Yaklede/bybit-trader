@@ -262,10 +262,18 @@ class ExchangeExecutionService(
         val riskPerUnit = entryPrice.subtract(signal.invalidationPrice.value).abs()
         val accountEquity = executionAccountEquity()
         val intendedRisk = accountEquity.multiply(config.riskFraction, MathContext.DECIMAL64)
+        val costAdjustedRiskPerUnit =
+            ExecutionTradePlanCalculator.costAdjustedRiskPerUnit(
+                entryPrice = entryPrice,
+                riskPerUnit = riskPerUnit,
+                feeRate = config.feeRate,
+                slippageBufferRate = config.slippageBufferRate,
+                exitSlippageRate = config.slippageBufferRate,
+            )
         val sizing =
             ExecutionTradePlanCalculator.calculateSizing(
                 entryPrice = entryPrice,
-                riskPerUnit = riskPerUnit,
+                riskPerUnit = costAdjustedRiskPerUnit,
                 intendedRisk = intendedRisk,
                 accountEquity = accountEquity,
                 constraints = config.sizingConstraints(),
@@ -317,6 +325,8 @@ class ExchangeExecutionService(
                 stopLoss = signal.invalidationPrice.value,
                 feeRate = config.feeRate,
                 slippageBufferRate = config.slippageBufferRate,
+                minimumNetRiskReward = config.minimumNetRiskReward,
+                exitSlippageRate = config.slippageBufferRate,
             ) ?: ExecutionTradePlanCalculator.leverageStopRejection(
                 side = signal.side,
                 entryPrice = entryPrice,

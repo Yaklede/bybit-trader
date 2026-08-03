@@ -66,6 +66,17 @@ internal object ExecutionTradePlanCalculator {
             Side.SELL -> entryPrice.subtract(riskPerUnit.multiply(expectedR, MathContext.DECIMAL64))
         }
 
+    fun costAdjustedRiskPerUnit(
+        entryPrice: BigDecimal,
+        riskPerUnit: BigDecimal,
+        feeRate: BigDecimal,
+        slippageBufferRate: BigDecimal,
+        exitSlippageRate: BigDecimal = slippageBufferRate,
+    ): BigDecimal {
+        val roundTripCostRate = roundTripCostRate(feeRate, slippageBufferRate, exitSlippageRate)
+        return riskPerUnit.add(entryPrice.multiply(roundTripCostRate, MathContext.DECIMAL64))
+    }
+
     fun targetStopRejection(
         side: Side,
         entryPrice: BigDecimal,
@@ -73,6 +84,8 @@ internal object ExecutionTradePlanCalculator {
         stopLoss: BigDecimal,
         feeRate: BigDecimal,
         slippageBufferRate: BigDecimal,
+        minimumNetRiskReward: BigDecimal = BigDecimal.ONE,
+        exitSlippageRate: BigDecimal = slippageBufferRate,
     ): String? {
         val grossTargetMove =
             when (side) {
@@ -85,9 +98,16 @@ internal object ExecutionTradePlanCalculator {
                 Side.SELL -> stopLoss.subtract(entryPrice)
             }
         if (grossTargetMove <= BigDecimal.ZERO || stopMove <= BigDecimal.ZERO) return "INVALID_TARGET_STOP_GEOMETRY"
-        val roundTripCostRate = feeRate.multiply(BigDecimal("2")).add(slippageBufferRate)
-        val roundTripCostMove = entryPrice.multiply(roundTripCostRate, MathContext.DECIMAL64)
-        return if (grossTargetMove <= roundTripCostMove) "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES" else null
+        val roundTripCostMove =
+            entryPrice.multiply(
+                roundTripCostRate(feeRate, slippageBufferRate, exitSlippageRate),
+                MathContext.DECIMAL64,
+            )
+        if (grossTargetMove <= roundTripCostMove) return "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES"
+        val netReward = grossTargetMove.subtract(roundTripCostMove)
+        val netRisk = stopMove.add(roundTripCostMove)
+        val netRiskReward = netReward.divide(netRisk, MathContext.DECIMAL64)
+        return if (netRiskReward < minimumNetRiskReward) "NET_RISK_REWARD_BELOW_MINIMUM" else null
     }
 
     fun leverageStopRejection(
@@ -110,6 +130,12 @@ internal object ExecutionTradePlanCalculator {
             }.divide(entryPrice, MathContext.DECIMAL64)
         return if (stopDistanceRate >= liquidationDistanceRate) "STOP_REACHES_ESTIMATED_LIQUIDATION" else null
     }
+
+    private fun roundTripCostRate(
+        feeRate: BigDecimal,
+        entrySlippageRate: BigDecimal,
+        exitSlippageRate: BigDecimal,
+    ): BigDecimal = feeRate.multiply(BigDecimal("2")).add(entrySlippageRate).add(exitSlippageRate)
 }
 
 internal fun ExchangeExecutionConfig.sizingConstraints(): ExecutionSizingConstraints =

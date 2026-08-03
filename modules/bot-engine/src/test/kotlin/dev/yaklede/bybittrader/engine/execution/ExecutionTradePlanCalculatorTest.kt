@@ -81,6 +81,46 @@ class ExecutionTradePlanCalculatorTest :
             rejection shouldBe "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES"
         }
 
+        "charges slippage on both sides of the round trip" {
+            val rejection =
+                ExecutionTradePlanCalculator.targetStopRejection(
+                    side = Side.BUY,
+                    entryPrice = BigDecimal("100"),
+                    takeProfit = BigDecimal("100.15"),
+                    stopLoss = BigDecimal("99"),
+                    feeRate = BigDecimal("0.0006"),
+                    slippageBufferRate = BigDecimal("0.0002"),
+                )
+
+            rejection shouldBe "TARGET_DOES_NOT_COVER_ROUND_TRIP_FEES"
+        }
+
+        "rejects a positive but cost-distorted net risk reward" {
+            val rejection =
+                ExecutionTradePlanCalculator.targetStopRejection(
+                    side = Side.BUY,
+                    entryPrice = BigDecimal("100"),
+                    takeProfit = BigDecimal("101.20"),
+                    stopLoss = BigDecimal("99"),
+                    feeRate = BigDecimal("0.0006"),
+                    slippageBufferRate = BigDecimal("0.0002"),
+                )
+
+            rejection shouldBe "NET_RISK_REWARD_BELOW_MINIMUM"
+        }
+
+        "includes round trip costs in risk sizing" {
+            val riskPerUnit =
+                ExecutionTradePlanCalculator.costAdjustedRiskPerUnit(
+                    entryPrice = BigDecimal("100"),
+                    riskPerUnit = BigDecimal("1"),
+                    feeRate = BigDecimal("0.0006"),
+                    slippageBufferRate = BigDecimal("0.0002"),
+                )
+
+            riskPerUnit.compareTo(BigDecimal("1.16")) shouldBe 0
+        }
+
         "rejects a stop beyond the estimated liquidation boundary" {
             val rejection =
                 ExecutionTradePlanCalculator.leverageStopRejection(

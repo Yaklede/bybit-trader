@@ -21,6 +21,7 @@ data class ExchangeExecutionConfig(
     val maxNotional: BigDecimal? = null,
     val leverage: BigDecimal? = null,
     val liquidationBufferPct: BigDecimal = BigDecimal("0.6"),
+    val minimumNetRiskReward: BigDecimal = BigDecimal("1.0"),
     val duplicateSignalLookback: Int = 50,
 ) {
     init {
@@ -43,6 +44,9 @@ data class ExchangeExecutionConfig(
         require(leverage == null || leverage > BigDecimal.ONE) { "Execution leverage must be greater than 1." }
         require(liquidationBufferPct >= BigDecimal.ZERO && liquidationBufferPct <= BigDecimal("10")) {
             "Execution liquidation buffer must be between 0 and 10 percent."
+        }
+        require(minimumNetRiskReward > BigDecimal.ZERO) {
+            "Execution minimum net risk reward must be positive."
         }
         require(duplicateSignalLookback in 1..100) { "Duplicate signal lookback must be between 1 and 100." }
     }
