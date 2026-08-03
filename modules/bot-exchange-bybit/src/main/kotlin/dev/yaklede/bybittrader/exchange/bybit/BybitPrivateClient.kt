@@ -423,6 +423,12 @@ private fun BybitExecutionItem.toExchangeExecution(fallbackSymbol: Symbol): Exch
         quantity = quantity,
         fee = execFee.toBigDecimalOrNull() ?: BigDecimal.ZERO,
         executedAt = executedAt,
+        executionId = execId,
+        executionType = execType,
+        createType = createType,
+        stopOrderType = stopOrderType,
+        closedSize = closedSize.toBigDecimalOrNull(),
+        executionPnl = execPnl.toBigDecimalOrNull(),
     )
 }
 
@@ -605,6 +611,7 @@ private data class BybitExecutionsResult(
 
 @Serializable
 private data class BybitExecutionItem(
+    val execId: String? = null,
     val orderId: String? = null,
     val orderLinkId: String? = null,
     val symbol: String? = null,
@@ -613,6 +620,11 @@ private data class BybitExecutionItem(
     val execQty: String? = null,
     val execFee: String? = null,
     val execTime: String? = null,
+    val execPnl: String? = null,
+    val closedSize: String? = null,
+    val execType: String? = null,
+    val createType: String? = null,
+    val stopOrderType: String? = null,
 )
 
 @Serializable

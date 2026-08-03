@@ -481,12 +481,13 @@ class ExchangeExecutionService(
 
     suspend fun persistDiscoveredClosures(symbol: Symbol): List<ExecutionTradeClosure> {
         logger.info("execution closure discovery requested symbol={}", symbol.value)
-        return persistDiscoveredClosures(symbol, gateway.closedPnls(symbol))
+        val executions = gateway.executions(symbol)
+        return persistDiscoveredClosures(symbol, gateway.closedPnls(symbol), executions)
     }
 
     suspend fun persistExchangeState(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
-        val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls)
+        val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
         val lifecycleEvent = persistLifecycleObservation(report)
         return report.copy(
             persistedClosures = persistedClosures,
@@ -497,12 +498,14 @@ class ExchangeExecutionService(
     private suspend fun persistDiscoveredClosures(
         symbol: Symbol,
         closedPnls: List<ExchangeClosedPnl>,
+        executions: List<ExchangeExecutionFill> = emptyList(),
     ): List<ExecutionTradeClosure> {
         val store = projectionStore ?: return emptyList()
         val firstBootstrap = !store.hasClosureHistory(runtimeMode, symbol)
         val persistedClosures =
             closedPnls.mapNotNull { closedPnl ->
-                val closure = closedPnl.toTradeClosure(runtimeMode)
+                val resolvedClosedPnl = closedPnl.resolveExitReason(executions)
+                val closure = resolvedClosedPnl.toTradeClosure(runtimeMode)
                 val suppressedAt = sessionStartedAt.takeIf { firstBootstrap && closure.closedAt.isBefore(it) }
                 store
                     .recordTradeClosure(closure, suppressedAt = suppressedAt)
@@ -512,9 +515,11 @@ class ExchangeExecutionService(
             refreshPerformanceSnapshots()
         }
         logger.info(
-            "execution closure discovery completed symbol={} newClosures={}",
+            "execution closure discovery completed symbol={} observedClosures={} newClosures={} reasons={}",
             symbol.value,
+            closedPnls.size,
             persistedClosures.size,
+            persistedClosures.groupingBy(ExecutionTradeClosure::exitReason).eachCount(),
         )
         return persistedClosures
     }
@@ -537,10 +542,10 @@ class ExchangeExecutionService(
                     id = 0,
                     state = ExecutionLifecycleState.CLOSED,
                     filledQuantity = observedClosure.quantity,
-                    fillVwap = observedClosure.entryPrice,
+                    fillVwap = observedClosure.exitPrice,
                     exchangeOrderId = observedClosure.exchangeOrderId,
                     clientOrderId = observedClosure.clientOrderId,
-                    reasonCode = observedClosure.exitReason ?: "CLOSED_PNL_OBSERVED",
+                    reasonCode = observedClosure.exitReason ?: "UNKNOWN",
                     occurredAt = observedClosure.closedAt,
                 ),
             )
@@ -680,14 +685,18 @@ class ExchangeExecutionService(
                 executions = gateway.executions(symbol),
                 closedPnls = gateway.closedPnls(symbol),
             )
+        val resolvedClosedPnls = report.closedPnls.map { closedPnl -> closedPnl.resolveExitReason(report.executions) }
+        val resolvedReport = report.copy(closedPnls = resolvedClosedPnls)
         logger.info(
-            "execution reconcile read completed symbol={} openOrders={} positions={} executions={}",
+            "execution reconcile read completed symbol={} openOrders={} positions={} executions={} closedPnls={} exitReasons={}",
             symbol.value,
             report.openOrders.size,
             report.positions.size,
             report.executions.size,
+            resolvedReport.closedPnls.size,
+            resolvedReport.closedPnls.groupingBy { it.exitReason ?: "UNKNOWN" }.eachCount(),
         )
-        return report
+        return resolvedReport
     }
 
     private suspend fun refreshPerformanceSnapshots() {
@@ -1307,10 +1316,54 @@ private fun ExchangeClosedPnl.toTradeClosure(mode: ExecutionRuntimeMode): Execut
         grossPnl = grossPnl,
         fees = fees,
         netPnl = netPnl,
-        exitReason = exitReason ?: "CLOSED_PNL",
+        exitReason = exitReason ?: "UNKNOWN",
         exchangeOrderId = exchangeOrderId,
         clientOrderId = clientOrderId,
     )
+
+private fun ExchangeClosedPnl.resolveExitReason(executions: List<ExchangeExecutionFill>): ExchangeClosedPnl {
+    val existingReason = exitReason?.trim()?.uppercase()
+    if (existingReason != null && existingReason !in GENERIC_EXIT_REASONS) return this
+
+    val matchingExecutions =
+        executions.filter { execution ->
+            (!exchangeOrderId.isNullOrBlank() && execution.exchangeOrderId == exchangeOrderId) ||
+                (!clientOrderId.isNullOrBlank() && execution.clientOrderId == clientOrderId)
+        }
+    val observedReason = matchingExecutions.asSequence().mapNotNull(ExchangeExecutionFill::exitReason).firstOrNull()
+    val clientReason = clientOrderId?.let(::clientOrderExitReason)
+    return copy(exitReason = observedReason ?: clientReason ?: existingReason ?: "UNKNOWN")
+}
+
+private fun ExchangeExecutionFill.exitReason(): String? =
+    listOf(createType, stopOrderType, executionType)
+        .asSequence()
+        .mapNotNull(::normalizeExchangeExitReason)
+        .firstOrNull()
+
+private fun normalizeExchangeExitReason(value: String?): String? {
+    val normalized = value?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return null
+    return when {
+        normalized.contains("ADL") -> "ADL"
+        normalized.contains("LIQ") || normalized.contains("TAKEOVER") -> "LIQUIDATION"
+        normalized.contains("TRAILING") -> "TRAILING_STOP"
+        normalized.contains("TAKE_PROFIT") || normalized.contains("TAKEPROFIT") -> "TAKE_PROFIT"
+        normalized.contains("STOP_LOSS") || normalized.contains("STOPLOSS") -> "STOP_LOSS"
+        else -> null
+    }
+}
+
+private fun clientOrderExitReason(clientOrderId: String): String? {
+    val prefix = clientOrderId.substringBefore('-', missingDelimiterValue = clientOrderId).uppercase()
+    return when (prefix) {
+        "TIME" -> "TIME_EXIT"
+        "CLOSE" -> "MANUAL_EXIT"
+        "MANUAL" -> "MANUAL_EXIT"
+        else -> null
+    }
+}
+
+private val GENERIC_EXIT_REASONS = setOf("", "CLOSED_PNL", "CLOSED_PNL_OBSERVED", "UNKNOWN")
 
 private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
     mode: ExecutionRuntimeMode,

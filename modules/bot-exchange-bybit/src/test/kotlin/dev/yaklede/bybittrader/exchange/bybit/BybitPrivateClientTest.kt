@@ -216,7 +216,13 @@ class BybitPrivateClientTest :
                                         "execPrice": "70000",
                                         "execQty": "0.2",
                                         "execFee": "8.4",
-                                        "execTime": "1719748800000"
+                                        "execTime": "1719748800000",
+                                        "execId": "exec-1",
+                                        "execPnl": "20",
+                                        "closedSize": "0.2",
+                                        "execType": "Trade",
+                                        "createType": "CreateByStopLoss",
+                                        "stopOrderType": "StopLoss"
                                       }
                                     ]
                                   }
@@ -250,6 +256,11 @@ class BybitPrivateClientTest :
             positions.single().takeProfit shouldBe BigDecimal("68000")
             positions.single().stopLoss shouldBe BigDecimal("71000")
             executions.single().fee shouldBe BigDecimal("8.4")
+            executions.single().executionId shouldBe "exec-1"
+            executions.single().executionPnl shouldBe BigDecimal("20")
+            executions.single().closedSize shouldBe BigDecimal("0.2")
+            executions.single().createType shouldBe "CreateByStopLoss"
+            executions.single().stopOrderType shouldBe "StopLoss"
         }
 
         "accountBalance maps Bybit unified wallet balance" {

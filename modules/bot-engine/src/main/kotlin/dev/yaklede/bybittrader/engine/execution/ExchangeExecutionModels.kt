@@ -125,6 +125,12 @@ data class ExchangeExecutionFill(
     val quantity: BigDecimal,
     val fee: BigDecimal,
     val executedAt: Instant,
+    val executionId: String? = null,
+    val executionType: String? = null,
+    val createType: String? = null,
+    val stopOrderType: String? = null,
+    val closedSize: BigDecimal? = null,
+    val executionPnl: BigDecimal? = null,
 )
 
 data class ExchangeClosedPnl(

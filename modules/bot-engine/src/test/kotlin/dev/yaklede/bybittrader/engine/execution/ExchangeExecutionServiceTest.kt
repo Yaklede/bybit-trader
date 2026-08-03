@@ -913,6 +913,53 @@ class ExchangeExecutionServiceTest :
             latest?.state shouldBe ExecutionLifecycleState.CLOSED
             latest?.reasonCode shouldBe "TAKE_PROFIT"
             latest?.exchangeOrderId shouldBe "exchange-exit-1"
+            latest?.fillVwap shouldBe BigDecimal("105")
+        }
+
+        "exchange reconciliation classifies the close from Bybit execution metadata" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(
+                    state = ExecutionLifecycleState.EXIT_SUBMITTED,
+                    occurredAt = Instant.parse("2024-06-29T23:20:00Z"),
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    executions =
+                        listOf(
+                            ExchangeExecutionFill(
+                                exchangeOrderId = "exchange-exit-1",
+                                clientOrderId = "close-BTCUSDT-1-B",
+                                symbol = symbol,
+                                side = Side.SELL,
+                                price = BigDecimal("105"),
+                                quantity = BigDecimal("1"),
+                                fee = BigDecimal("0.06"),
+                                executedAt = Instant.parse("2024-06-29T23:30:00Z"),
+                                executionType = "Trade",
+                                createType = "CreateByStopLoss",
+                                stopOrderType = "StopLoss",
+                                closedSize = BigDecimal.ONE,
+                                executionPnl = BigDecimal("5"),
+                            ),
+                        ),
+                    closedPnls =
+                        listOf(
+                            testClosedPnl(
+                                exchangeOrderId = "exchange-exit-1",
+                                closedAt = Instant.parse("2024-06-29T23:30:00Z"),
+                                exitReason = "CLOSED_PNL",
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            service.persistExchangeState(symbol)
+
+            store.closures.single().exitReason shouldBe "STOP_LOSS"
+            store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)?.reasonCode shouldBe "STOP_LOSS"
         }
 
         "live performance aggregates all stored closures across contract windows" {
@@ -1337,6 +1384,7 @@ private fun executionCandle(
 private fun testClosedPnl(
     exchangeOrderId: String,
     closedAt: Instant = Instant.parse("2024-06-29T23:30:00Z"),
+    exitReason: String = "TAKE_PROFIT",
 ): ExchangeClosedPnl =
     ExchangeClosedPnl(
         exchangeOrderId = exchangeOrderId,
@@ -1351,7 +1399,7 @@ private fun testClosedPnl(
         grossPnl = BigDecimal("5.12"),
         fees = BigDecimal("0.12"),
         netPnl = BigDecimal("5"),
-        exitReason = "TAKE_PROFIT",
+        exitReason = exitReason,
     )
 
 private fun testLifecycleEvent(
