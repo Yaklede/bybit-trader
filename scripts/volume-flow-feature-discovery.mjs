@@ -323,6 +323,7 @@ function buildCandidates() {
   if (profile === "multi-horizon-momentum") return buildMultiHorizonMomentumCandidates();
   if (profile === "multi-horizon-momentum-adaptive") return buildAdaptiveMultiHorizonMomentumCandidates();
   if (profile === "multi-horizon-volume-confirmed") return buildVolumeConfirmedMomentumCandidates();
+  if (profile === "multi-horizon-exit-ablation") return buildExitAblationMomentumCandidates();
   if (profile === "macro-pullback-recovery") return buildMacroPullbackRecoveryCandidates();
   if (profile === "cross-venue-flow-trend") return buildCrossVenueFlowTrendCandidates();
   if (profile === "cross-venue-flow-trend-focused") return buildFocusedCrossVenueFlowTrendCandidates();
@@ -1526,6 +1527,39 @@ function buildVolumeConfirmedMomentumCandidates() {
   return candidates;
 }
 
+function buildExitAblationMomentumCandidates() {
+  const candidates = [];
+  const session = { id: "all", hours: null };
+  for (const stopAtr of [4.0, 8.0, 12.0]) {
+    for (const trailAtr of [8.0, 16.0]) {
+      for (const maxHoldCandles of [1_008, 2_016, 4_032]) {
+        candidates.push({
+          id: `exit_ablation_stop${stopAtr}_trail${trailAtr}_hold${maxHoldCandles}`,
+          family: "MULTI_HORIZON_EXIT_ABLATION",
+          session,
+          riskFraction: 0.01,
+          relativeVolumeMin: 0.0,
+          momentumLookbackCandles: [288, 2_016, 4_032],
+          baseReturnThresholdPct: [1.0, 3.0, 5.0],
+          thresholdScale: 0.75,
+          minimumConsensusVotes: 3,
+          emaSlopeLookbackCandles: 288,
+          stopAtr,
+          trailAtr,
+          targetR: 12.0,
+          maxHoldCandles,
+          maxTradesPerDay: 1,
+          sideMode: "LONG_ONLY",
+          feeRate: 0.0006,
+          entrySlippageRate: 0.0002,
+          exitSlippageRate: 0.0002,
+        });
+      }
+    }
+  }
+  return candidates;
+}
+
 function buildMacroPullbackRecoveryCandidates() {
   const candidates = [];
   const session = { id: "all", hours: null };
@@ -2053,6 +2087,8 @@ function switchFamily(candidate, index, endIndex) {
       return multiHorizonMomentumSetup(candidate, index);
     case "MULTI_HORIZON_VOLUME_CONFIRMED":
       return volumeConfirmedMomentumSetup(candidate, index);
+    case "MULTI_HORIZON_EXIT_ABLATION":
+      return multiHorizonMomentumSetup(candidate, index);
     case "MACRO_PULLBACK_RECOVERY":
       return macroPullbackRecoverySetup(candidate, index);
     case "CROSS_VENUE_FLOW_TREND":
