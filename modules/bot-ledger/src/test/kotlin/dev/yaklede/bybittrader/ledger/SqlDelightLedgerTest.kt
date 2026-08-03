@@ -13,6 +13,7 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
@@ -461,9 +462,33 @@ class SqlDelightLedgerTest :
                     maxClosedTradeDrawdownPct = BigDecimal.ZERO,
                     lastClosedAt = closure.closedAt,
                     capturedAt = Instant.parse("2026-06-30T00:11:00Z"),
+                    accountEquity = BigDecimal("1005"),
+                    accountPeakEquity = BigDecimal("1005"),
+                    maxAccountDrawdownPct = BigDecimal.ZERO,
+                    accountEquityCapturedAt = Instant.parse("2026-06-30T00:11:00Z"),
                 ),
             )
-            ledger.latestLivePerformanceSummary(ExecutionRuntimeMode.LIVE, LivePerformanceWindow.ALL)?.tradeCount shouldBe 1
+            val performance = ledger.latestLivePerformanceSummary(ExecutionRuntimeMode.LIVE, LivePerformanceWindow.ALL)
+            performance?.tradeCount shouldBe 1
+            performance?.accountEquity shouldBe BigDecimal("1005")
+            performance?.maxAccountDrawdownPct shouldBe BigDecimal.ZERO
+
+            ledger.recordAccountSnapshot(
+                ExecutionAccountSnapshot(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    accountType = "UNIFIED",
+                    totalEquity = BigDecimal("1000"),
+                    totalWalletBalance = BigDecimal("1000"),
+                    totalMarginBalance = BigDecimal("1000"),
+                    totalAvailableBalance = BigDecimal("900"),
+                    totalPerpUnrealizedPnl = BigDecimal.ZERO,
+                    capturedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                ),
+            ) shouldBe 1L
+            ledger.accountSnapshots(ExecutionRuntimeMode.LIVE, null).single().totalEquity shouldBe BigDecimal("1000")
+            ledger
+                .latestAccountSnapshot(ExecutionRuntimeMode.LIVE, Instant.parse("2026-06-30T00:05:00Z"))
+                ?.totalEquity shouldBe BigDecimal("1000")
         }
 
         "deduplicates nullable closure ids at the database identity key" {
@@ -653,6 +678,7 @@ class SqlDelightLedgerTest :
                     "premiumIndexBars",
                     "fundingRates",
                     "executionLifecycleEvents",
+                    "executionAccountSnapshots",
                 ),
             ) shouldBe true
         }

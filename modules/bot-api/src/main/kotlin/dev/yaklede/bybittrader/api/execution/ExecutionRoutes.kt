@@ -479,6 +479,10 @@ data class LivePerformanceSummaryResponse(
     val maxClosedTradeDrawdownPct: String,
     val lastClosedAt: String?,
     val capturedAt: String,
+    val accountEquity: String?,
+    val accountPeakEquity: String?,
+    val maxAccountDrawdownPct: String?,
+    val accountEquityCapturedAt: String?,
 )
 
 @Serializable
@@ -637,6 +641,10 @@ private fun LivePerformanceSnapshot?.toResponse(request: LivePerformanceQueryVal
             maxClosedTradeDrawdownPct = "0",
             lastClosedAt = null,
             capturedAt = Instant.EPOCH.toString(),
+            accountEquity = null,
+            accountPeakEquity = null,
+            maxAccountDrawdownPct = null,
+            accountEquityCapturedAt = null,
         )
     } else {
         LivePerformanceSummaryResponse(
@@ -653,6 +661,10 @@ private fun LivePerformanceSnapshot?.toResponse(request: LivePerformanceQueryVal
             maxClosedTradeDrawdownPct = maxClosedTradeDrawdownPct.toPlainString(),
             lastClosedAt = lastClosedAt?.toString(),
             capturedAt = capturedAt.toString(),
+            accountEquity = accountEquity?.toPlainString(),
+            accountPeakEquity = accountPeakEquity?.toPlainString(),
+            maxAccountDrawdownPct = maxAccountDrawdownPct?.toPlainString(),
+            accountEquityCapturedAt = accountEquityCapturedAt?.toString(),
         )
     }
 

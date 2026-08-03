@@ -254,6 +254,21 @@ ON executionLifecycleEvents(identity_key);
 CREATE INDEX executionLifecycleEvents_mode_symbol_id_idx
 ON executionLifecycleEvents(mode, symbol, id DESC);
 
+CREATE TABLE executionAccountSnapshots (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL,
+  account_type TEXT NOT NULL,
+  total_equity TEXT,
+  total_wallet_balance TEXT,
+  total_margin_balance TEXT,
+  total_available_balance TEXT,
+  total_perp_unrealized_pnl TEXT,
+  captured_at TEXT NOT NULL
+);
+
+CREATE INDEX executionAccountSnapshots_mode_capturedAt_id_idx
+ON executionAccountSnapshots(mode, captured_at, id DESC);
+
 CREATE TABLE livePerformanceSnapshots (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   mode TEXT NOT NULL,
@@ -268,7 +283,11 @@ CREATE TABLE livePerformanceSnapshots (
   expectancy TEXT,
   max_closed_trade_drawdown_pct TEXT NOT NULL,
   last_closed_at TEXT,
-  captured_at TEXT NOT NULL
+  captured_at TEXT NOT NULL,
+  account_equity TEXT,
+  account_peak_equity TEXT,
+  max_account_drawdown_pct TEXT,
+  account_equity_captured_at TEXT
 );
 
 CREATE INDEX livePerformanceSnapshots_mode_window_id_idx
@@ -862,13 +881,48 @@ INSERT INTO livePerformanceSnapshots(
   expectancy,
   max_closed_trade_drawdown_pct,
   last_closed_at,
+  captured_at,
+  account_equity,
+  account_peak_equity,
+  max_account_drawdown_pct,
+  account_equity_captured_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+insertExecutionAccountSnapshot:
+INSERT INTO executionAccountSnapshots(
+  mode,
+  account_type,
+  total_equity,
+  total_wallet_balance,
+  total_margin_balance,
+  total_available_balance,
+  total_perp_unrealized_pnl,
   captured_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectExecutionAccountSnapshots:
+SELECT id, mode, account_type, total_equity, total_wallet_balance, total_margin_balance,
+  total_available_balance, total_perp_unrealized_pnl, captured_at
+FROM executionAccountSnapshots
+WHERE mode = :mode
+  AND (:capturedAtOrAfter IS NULL OR captured_at >= :capturedAtOrAfter)
+ORDER BY captured_at ASC, id ASC;
+
+selectLatestExecutionAccountSnapshot:
+SELECT id, mode, account_type, total_equity, total_wallet_balance, total_margin_balance,
+  total_available_balance, total_perp_unrealized_pnl, captured_at
+FROM executionAccountSnapshots
+WHERE mode = :mode
+  AND captured_at <= :capturedAtOrBefore
+ORDER BY captured_at DESC, id DESC
+LIMIT 1;
 
 selectLatestLivePerformanceSnapshot:
 SELECT id, mode, window, trade_count, win_rate_pct, gross_profit, gross_loss, fees, net_pnl, profit_factor, expectancy,
-  max_closed_trade_drawdown_pct, last_closed_at, captured_at
+  max_closed_trade_drawdown_pct, last_closed_at, captured_at, account_equity, account_peak_equity,
+  max_account_drawdown_pct, account_equity_captured_at
 FROM livePerformanceSnapshots
 WHERE (:mode IS NULL OR mode = :mode)
   AND window = :window

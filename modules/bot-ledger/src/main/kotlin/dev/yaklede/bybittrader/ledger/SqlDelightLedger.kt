@@ -15,6 +15,7 @@ import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.control.ControlEventRecorder
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
@@ -46,6 +47,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
+import dev.yaklede.bybittrader.ledger.db.ExecutionAccountSnapshots
 import dev.yaklede.bybittrader.ledger.db.ExecutionLifecycleEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
@@ -818,6 +820,10 @@ class SqlDelightLedger(
             max_closed_trade_drawdown_pct = snapshot.maxClosedTradeDrawdownPct.toPlainString(),
             last_closed_at = snapshot.lastClosedAt?.toString(),
             captured_at = snapshot.capturedAt.toString(),
+            account_equity = snapshot.accountEquity?.toPlainString(),
+            account_peak_equity = snapshot.accountPeakEquity?.toPlainString(),
+            max_account_drawdown_pct = snapshot.maxAccountDrawdownPct?.toPlainString(),
+            account_equity_captured_at = snapshot.accountEquityCapturedAt?.toString(),
         )
         return database.ledgerQueries.lastInsertRowId().executeAsOne()
     }
@@ -830,6 +836,42 @@ class SqlDelightLedger(
             .selectLatestLivePerformanceSnapshot(mode = mode?.name, window = window.name)
             .executeAsOneOrNull()
             ?.toLivePerformanceSnapshot()
+
+    override suspend fun recordAccountSnapshot(snapshot: ExecutionAccountSnapshot): Long {
+        database.ledgerQueries.insertExecutionAccountSnapshot(
+            mode = snapshot.mode.name,
+            account_type = snapshot.accountType,
+            total_equity = snapshot.totalEquity?.toPlainString(),
+            total_wallet_balance = snapshot.totalWalletBalance?.toPlainString(),
+            total_margin_balance = snapshot.totalMarginBalance?.toPlainString(),
+            total_available_balance = snapshot.totalAvailableBalance?.toPlainString(),
+            total_perp_unrealized_pnl = snapshot.totalPerpUnrealizedPnl?.toPlainString(),
+            captured_at = snapshot.capturedAt.toString(),
+        )
+        return database.ledgerQueries.lastInsertRowId().executeAsOne()
+    }
+
+    override suspend fun accountSnapshots(
+        mode: ExecutionRuntimeMode,
+        capturedAtOrAfter: Instant?,
+    ): List<ExecutionAccountSnapshot> =
+        database.ledgerQueries
+            .selectExecutionAccountSnapshots(
+                mode = mode.name,
+                capturedAtOrAfter = capturedAtOrAfter?.toString(),
+            ).executeAsList()
+            .map(ExecutionAccountSnapshots::toExecutionAccountSnapshot)
+
+    override suspend fun latestAccountSnapshot(
+        mode: ExecutionRuntimeMode,
+        capturedAtOrBefore: Instant,
+    ): ExecutionAccountSnapshot? =
+        database.ledgerQueries
+            .selectLatestExecutionAccountSnapshot(
+                mode = mode.name,
+                capturedAtOrBefore = capturedAtOrBefore.toString(),
+            ).executeAsOneOrNull()
+            ?.toExecutionAccountSnapshot()
 }
 
 fun createLedgerDatabase(driver: SqlDriver): LedgerDatabase = LedgerDatabase(driver)
@@ -1124,6 +1166,23 @@ private fun LivePerformanceSnapshots.toLivePerformanceSnapshot(): LivePerformanc
         expectancy = expectancy?.let(::BigDecimal),
         maxClosedTradeDrawdownPct = BigDecimal(max_closed_trade_drawdown_pct),
         lastClosedAt = last_closed_at?.let(Instant::parse),
+        capturedAt = Instant.parse(captured_at),
+        accountEquity = account_equity?.let(::BigDecimal),
+        accountPeakEquity = account_peak_equity?.let(::BigDecimal),
+        maxAccountDrawdownPct = max_account_drawdown_pct?.let(::BigDecimal),
+        accountEquityCapturedAt = account_equity_captured_at?.let(Instant::parse),
+    )
+
+private fun ExecutionAccountSnapshots.toExecutionAccountSnapshot(): ExecutionAccountSnapshot =
+    ExecutionAccountSnapshot(
+        id = id,
+        mode = ExecutionRuntimeMode.valueOf(mode),
+        accountType = account_type,
+        totalEquity = total_equity?.let(::BigDecimal),
+        totalWalletBalance = total_wallet_balance?.let(::BigDecimal),
+        totalMarginBalance = total_margin_balance?.let(::BigDecimal),
+        totalAvailableBalance = total_available_balance?.let(::BigDecimal),
+        totalPerpUnrealizedPnl = total_perp_unrealized_pnl?.let(::BigDecimal),
         capturedAt = Instant.parse(captured_at),
     )
 

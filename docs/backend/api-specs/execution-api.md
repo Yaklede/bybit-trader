@@ -141,6 +141,11 @@ size. `session` starts when the execution service starts, while `7d` and `30d`
 use rolling UTC durations from response capture time.
 Query params: `mode=TESTNET|LIVE` and `window=session|7d|30d|all`.
 
+The response also includes `accountEquity`, `accountPeakEquity`,
+`maxAccountDrawdownPct`, and `accountEquityCapturedAt` when the reconciliation
+loop has stored a Bybit wallet-balance snapshot. `maxClosedTradeDrawdownPct`
+is the realized-PnL-only curve and must not be interpreted as account MDD.
+
 ## Reconciliation loop order
 
 The reconciliation loop discovers and persists new Bybit closed-PnL rows, then

@@ -22,6 +22,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlin.coroutines.cancellation.CancellationException
 
 class ExchangeExecutionService(
     private val stateStore: BotStateStore,
@@ -487,6 +488,7 @@ class ExchangeExecutionService(
 
     suspend fun persistExchangeState(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
+        persistAccountSnapshot()
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
         val lifecycleEvent = persistLifecycleObservation(report)
         return report.copy(
@@ -703,13 +705,38 @@ class ExchangeExecutionService(
         val store = projectionStore ?: return
         val capturedAt = Instant.now(clock)
         LivePerformanceWindow.values().forEach { window ->
-            val closures = store.performanceClosures(runtimeMode, window.startAt(capturedAt, sessionStartedAt))
+            val startAt = window.startAt(capturedAt, sessionStartedAt)
+            val closures = store.performanceClosures(runtimeMode, startAt)
+            val accountSnapshots = store.accountSnapshots(runtimeMode, startAt)
+            val accountBaseline = startAt?.let { store.latestAccountSnapshot(runtimeMode, it) }
             store.recordLivePerformanceSnapshot(
                 closures.toPerformanceSnapshot(
                     mode = runtimeMode,
                     window = window,
                     capturedAt = capturedAt,
+                    accountSnapshots = accountSnapshots,
+                    accountBaseline = accountBaseline,
                 ),
+            )
+        }
+    }
+
+    private suspend fun persistAccountSnapshot() {
+        val store = projectionStore ?: return
+        try {
+            store.recordAccountSnapshot(
+                gateway
+                    .accountBalance("USDT")
+                    .toExecutionAccountSnapshot(runtimeMode),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.warn(
+                "execution account snapshot unavailable mode={} errorType={} message={}",
+                runtimeMode.name,
+                error::class.simpleName,
+                error.message,
             )
         }
     }
@@ -1166,6 +1193,12 @@ class ExchangeExecutionService(
                 mode = effectiveMode,
                 window = window,
                 capturedAt = capturedAt,
+                accountSnapshots =
+                    store.accountSnapshots(effectiveMode, window.startAt(capturedAt, sessionStartedAt)),
+                accountBaseline =
+                    window
+                        .startAt(capturedAt, sessionStartedAt)
+                        ?.let { startAt -> store.latestAccountSnapshot(effectiveMode, startAt) },
             )
     }
 }
@@ -1365,10 +1398,24 @@ private fun clientOrderExitReason(clientOrderId: String): String? {
 
 private val GENERIC_EXIT_REASONS = setOf("", "CLOSED_PNL", "CLOSED_PNL_OBSERVED", "UNKNOWN")
 
+private fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRuntimeMode): ExecutionAccountSnapshot =
+    ExecutionAccountSnapshot(
+        mode = mode,
+        accountType = accountType,
+        totalEquity = totalEquity,
+        totalWalletBalance = totalWalletBalance,
+        totalMarginBalance = totalMarginBalance,
+        totalAvailableBalance = totalAvailableBalance,
+        totalPerpUnrealizedPnl = totalPerpUnrealizedPnl,
+        capturedAt = capturedAt,
+    )
+
 private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
     mode: ExecutionRuntimeMode,
     window: LivePerformanceWindow,
     capturedAt: Instant,
+    accountSnapshots: List<ExecutionAccountSnapshot> = emptyList(),
+    accountBaseline: ExecutionAccountSnapshot? = null,
 ): LivePerformanceSnapshot {
     val sorted = sortedBy { it.closedAt }
     val grossProfit = sorted.filter { it.netPnl > BigDecimal.ZERO }.fold(BigDecimal.ZERO) { acc, trade -> acc + trade.netPnl }
@@ -1387,17 +1434,45 @@ private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
         }
     val profitFactor = if (grossLoss > BigDecimal.ZERO) grossProfit.divide(grossLoss, 8, RoundingMode.HALF_UP) else null
     val expectancy = if (tradeCount == 0) null else netPnl.divide(BigDecimal(tradeCount), 8, RoundingMode.HALF_UP)
-    var equity = BigDecimal.ZERO
-    var peak = BigDecimal.ZERO
-    var maxDrawdownPct = BigDecimal.ZERO
+    var closedTradeEquity = BigDecimal.ZERO
+    var closedTradePeak = BigDecimal.ZERO
+    var maxClosedTradeDrawdownPct = BigDecimal.ZERO
     sorted.forEach { trade ->
-        equity += trade.netPnl
-        if (equity > peak) peak = equity
-        if (peak > BigDecimal.ZERO) {
-            val drawdown = peak.subtract(equity).divide(peak, 8, RoundingMode.HALF_UP).multiply(BigDecimal("100"))
-            if (drawdown > maxDrawdownPct) maxDrawdownPct = drawdown
+        closedTradeEquity += trade.netPnl
+        if (closedTradeEquity > closedTradePeak) closedTradePeak = closedTradeEquity
+        if (closedTradePeak > BigDecimal.ZERO) {
+            val drawdown =
+                closedTradePeak
+                    .subtract(closedTradeEquity)
+                    .divide(closedTradePeak, 8, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal("100"))
+            if (drawdown > maxClosedTradeDrawdownPct) maxClosedTradeDrawdownPct = drawdown
         }
     }
+    val accountPoints =
+        buildList {
+            accountBaseline?.let(::add)
+            addAll(accountSnapshots)
+        }.sortedWith(compareBy(ExecutionAccountSnapshot::capturedAt, ExecutionAccountSnapshot::id))
+    var accountPeak: BigDecimal? = null
+    var maxAccountDrawdownPct: BigDecimal? = null
+    accountPoints.forEach { snapshot ->
+        val equity = snapshot.totalEquity ?: return@forEach
+        val previousPeak = accountPeak
+        val peak = if (previousPeak == null || equity > previousPeak) equity else previousPeak
+        accountPeak = peak
+        if (peak > BigDecimal.ZERO) {
+            val drawdown =
+                peak
+                    .subtract(equity)
+                    .divide(peak, 8, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal("100"))
+            if (maxAccountDrawdownPct == null || drawdown > maxAccountDrawdownPct) {
+                maxAccountDrawdownPct = drawdown
+            }
+        }
+    }
+    val latestAccountSnapshot = accountPoints.lastOrNull { it.totalEquity != null }
     return LivePerformanceSnapshot(
         mode = mode,
         window = window,
@@ -1409,9 +1484,13 @@ private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
         netPnl = netPnl,
         profitFactor = profitFactor,
         expectancy = expectancy,
-        maxClosedTradeDrawdownPct = maxDrawdownPct,
+        maxClosedTradeDrawdownPct = maxClosedTradeDrawdownPct,
         lastClosedAt = sorted.lastOrNull()?.closedAt,
         capturedAt = capturedAt,
+        accountEquity = latestAccountSnapshot?.totalEquity,
+        accountPeakEquity = accountPeak,
+        maxAccountDrawdownPct = maxAccountDrawdownPct,
+        accountEquityCapturedAt = latestAccountSnapshot?.capturedAt,
     )
 }
 

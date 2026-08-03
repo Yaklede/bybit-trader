@@ -42,6 +42,18 @@ fun ensureAdditiveLedgerSchema(driver: JdbcSqliteDriver) {
                         "UPDATE executionTradeClosures SET suppressed_at = CURRENT_TIMESTAMP WHERE delivered_at IS NULL AND suppressed_at IS NULL",
                     )
                 }
+                val performanceSnapshotColumns =
+                    listOf(
+                        "account_equity" to "TEXT",
+                        "account_peak_equity" to "TEXT",
+                        "max_account_drawdown_pct" to "TEXT",
+                        "account_equity_captured_at" to "TEXT",
+                    )
+                performanceSnapshotColumns.forEach { (column, type) ->
+                    if (!connection.hasColumn("livePerformanceSnapshots", column)) {
+                        statement.execute("ALTER TABLE livePerformanceSnapshots ADD COLUMN $column $type")
+                    }
+                }
                 statement.execute(EXECUTION_CLOSURE_IDENTITY_BACKFILL)
                 statement.execute(EXECUTION_CLOSURE_DUPLICATE_CLEANUP)
                 statement.execute(
@@ -233,6 +245,20 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         "CREATE UNIQUE INDEX IF NOT EXISTS executionLifecycleEvents_identity_idx ON executionLifecycleEvents(identity_key)",
         "CREATE INDEX IF NOT EXISTS executionLifecycleEvents_mode_symbol_id_idx ON executionLifecycleEvents(mode, symbol, id DESC)",
         """
+        CREATE TABLE IF NOT EXISTS executionAccountSnapshots (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          mode TEXT NOT NULL,
+          account_type TEXT NOT NULL,
+          total_equity TEXT,
+          total_wallet_balance TEXT,
+          total_margin_balance TEXT,
+          total_available_balance TEXT,
+          total_perp_unrealized_pnl TEXT,
+          captured_at TEXT NOT NULL
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS executionAccountSnapshots_mode_capturedAt_id_idx ON executionAccountSnapshots(mode, captured_at, id DESC)",
+        """
         CREATE TABLE IF NOT EXISTS livePerformanceSnapshots (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           mode TEXT NOT NULL,
@@ -247,7 +273,11 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
           expectancy TEXT,
           max_closed_trade_drawdown_pct TEXT NOT NULL,
           last_closed_at TEXT,
-          captured_at TEXT NOT NULL
+          captured_at TEXT NOT NULL,
+          account_equity TEXT,
+          account_peak_equity TEXT,
+          max_account_drawdown_pct TEXT,
+          account_equity_captured_at TEXT
         )
         """.trimIndent(),
         "CREATE INDEX IF NOT EXISTS livePerformanceSnapshots_mode_window_id_idx ON livePerformanceSnapshots(mode, window, id DESC)",

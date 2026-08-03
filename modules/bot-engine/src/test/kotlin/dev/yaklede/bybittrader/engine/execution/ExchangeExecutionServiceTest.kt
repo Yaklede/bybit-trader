@@ -979,6 +979,33 @@ class ExchangeExecutionServiceTest :
             service.livePerformanceSummary(null, LivePerformanceWindow.SEVEN_DAYS)?.tradeCount shouldBe 2
             service.livePerformanceSummary(null, LivePerformanceWindow.SESSION)?.tradeCount shouldBe 1
         }
+
+        "live performance reports account equity drawdown separately from closed trade pnl" {
+            val now = Instant.parse("2024-06-30T00:00:00Z")
+            val store = InMemoryTradingStore()
+            val service = testService(store = store, config = ExchangeExecutionConfig(enabled = true))
+            listOf("100", "120", "90").forEachIndexed { index, equity ->
+                store.recordAccountSnapshot(
+                    ExecutionAccountSnapshot(
+                        mode = ExecutionRuntimeMode.TESTNET,
+                        accountType = "UNIFIED",
+                        totalEquity = BigDecimal(equity),
+                        totalWalletBalance = BigDecimal(equity),
+                        totalMarginBalance = BigDecimal(equity),
+                        totalAvailableBalance = BigDecimal(equity),
+                        totalPerpUnrealizedPnl = BigDecimal.ZERO,
+                        capturedAt = now.plusSeconds(index.toLong()),
+                    ),
+                )
+            }
+
+            val summary = service.livePerformanceSummary(null, LivePerformanceWindow.ALL)
+
+            summary?.accountEquity shouldBe BigDecimal("90")
+            summary?.accountPeakEquity shouldBe BigDecimal("120")
+            summary?.maxAccountDrawdownPct shouldBe BigDecimal("25.00000000")
+            summary?.maxClosedTradeDrawdownPct shouldBe BigDecimal.ZERO
+        }
     })
 
 private fun testService(
@@ -1076,6 +1103,7 @@ private class InMemoryTradingStore :
     val closures = mutableListOf<ExecutionTradeClosure>()
     val lifecycleRecords = mutableListOf<ExecutionLifecycleEvent>()
     val performance = mutableListOf<LivePerformanceSnapshot>()
+    val accountSnapshots = mutableListOf<ExecutionAccountSnapshot>()
     val suppressedAt = mutableMapOf<Long, Instant>()
     val deliveredAt = mutableMapOf<Long, Instant>()
     val alertAttempts = mutableMapOf<Long, Int>()
@@ -1230,6 +1258,28 @@ private class InMemoryTradingStore :
         mode: ExecutionRuntimeMode?,
         window: LivePerformanceWindow,
     ): LivePerformanceSnapshot? = performance.lastOrNull { (mode == null || it.mode == mode) && it.window == window }
+
+    override suspend fun recordAccountSnapshot(snapshot: ExecutionAccountSnapshot): Long {
+        val id = accountSnapshots.size + 1L
+        accountSnapshots += snapshot.copy(id = id)
+        return id
+    }
+
+    override suspend fun accountSnapshots(
+        mode: ExecutionRuntimeMode,
+        capturedAtOrAfter: Instant?,
+    ): List<ExecutionAccountSnapshot> =
+        accountSnapshots.filter { snapshot ->
+            snapshot.mode == mode && (capturedAtOrAfter == null || !snapshot.capturedAt.isBefore(capturedAtOrAfter))
+        }
+
+    override suspend fun latestAccountSnapshot(
+        mode: ExecutionRuntimeMode,
+        capturedAtOrBefore: Instant,
+    ): ExecutionAccountSnapshot? =
+        accountSnapshots
+            .filter { snapshot -> snapshot.mode == mode && !snapshot.capturedAt.isAfter(capturedAtOrBefore) }
+            .maxByOrNull(ExecutionAccountSnapshot::capturedAt)
 }
 
 private class RecordingExecutionGateway(

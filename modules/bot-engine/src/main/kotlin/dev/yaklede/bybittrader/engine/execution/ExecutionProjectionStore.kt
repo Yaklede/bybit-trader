@@ -38,6 +38,22 @@ data class LivePerformanceSnapshot(
     val maxClosedTradeDrawdownPct: BigDecimal,
     val lastClosedAt: Instant?,
     val capturedAt: Instant,
+    val accountEquity: BigDecimal? = null,
+    val accountPeakEquity: BigDecimal? = null,
+    val maxAccountDrawdownPct: BigDecimal? = null,
+    val accountEquityCapturedAt: Instant? = null,
+)
+
+data class ExecutionAccountSnapshot(
+    val id: Long = 0,
+    val mode: ExecutionRuntimeMode,
+    val accountType: String,
+    val totalEquity: BigDecimal?,
+    val totalWalletBalance: BigDecimal?,
+    val totalMarginBalance: BigDecimal?,
+    val totalAvailableBalance: BigDecimal?,
+    val totalPerpUnrealizedPnl: BigDecimal?,
+    val capturedAt: Instant,
 )
 
 data class PendingExecutionClosureAlert(
@@ -101,4 +117,16 @@ interface ExecutionProjectionStore {
         mode: ExecutionRuntimeMode?,
         window: LivePerformanceWindow,
     ): LivePerformanceSnapshot?
+
+    suspend fun recordAccountSnapshot(snapshot: ExecutionAccountSnapshot): Long = 0
+
+    suspend fun accountSnapshots(
+        mode: ExecutionRuntimeMode,
+        capturedAtOrAfter: Instant?,
+    ): List<ExecutionAccountSnapshot> = emptyList()
+
+    suspend fun latestAccountSnapshot(
+        mode: ExecutionRuntimeMode,
+        capturedAtOrBefore: Instant,
+    ): ExecutionAccountSnapshot? = null
 }
