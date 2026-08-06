@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -60,6 +60,7 @@ export async function acquireSubminuteSequence(options, dependencies = {}) {
     repositoryRoot,
     `build/research/${protocol.protocolId}-${options.stage}-acquisition.json`,
   );
+  const implementationSha256 = await implementationFingerprint(repositoryRoot);
   const blocks = options.stage === "selection"
     ? protocol.acquisition.selectionBlocks
     : protocol.acquisition.internalValidationBlocks;
@@ -91,6 +92,7 @@ export async function acquireSubminuteSequence(options, dependencies = {}) {
     schemaVersion: 1,
     protocolId: protocol.protocolId,
     protocolSha256,
+    implementationSha256,
     stage: options.stage,
     status: "IN_PROGRESS",
     sourceDateCount: dates.length,
@@ -187,6 +189,7 @@ export async function acquireSubminuteSequence(options, dependencies = {}) {
     report.updatedAt = now();
     report.completedDates = audit.completedDates;
     report.normalizedFeatureSha256 = normalizedFeatureFingerprint(targetDb, protocol.sourceData.symbol, dates);
+    targetDb.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch (error) {
     failure = error;
     report.status = "FAILED_SOURCE_ACQUISITION";
@@ -586,6 +589,10 @@ function copyCandleBlocks(sourceDb, targetDb, symbol, blocks) {
 async function acquireDerivativesFeatures(db, symbol, blocks, requestDelayMs, log, fetchImpl) {
   const start = blocks.map((block) => block.sourceStartDate).sort()[0];
   const end = blocks.map((block) => block.sourceEndDate).sort().at(-1);
+  if (hasCompleteDerivativesCoverage(db, symbol, start, end)) {
+    log(`derivatives feature acquisition skipped range=${start}..${end} reason=complete`);
+    return;
+  }
   await backfillFlow(parseFlowArgs([
     `--db=/unused/subminute.sqlite`,
     `--symbol=${symbol}`,
@@ -594,6 +601,24 @@ async function acquireDerivativesFeatures(db, symbol, blocks, requestDelayMs, lo
     "--datasets=oi,funding",
     `--request-delay-ms=${requestDelayMs}`,
   ]), { db, log, fetchImpl });
+}
+
+function hasCompleteDerivativesCoverage(db, symbol, start, end) {
+  if (!tableExists(db, "openInterestSnapshots") || !tableExists(db, "fundingRates")) return false;
+  const startAt = `${start}T00:00:00Z`;
+  const endExclusive = `${addUtcDays(end, 1)}T00:00:00Z`;
+  const durationMillis = Date.parse(endExclusive) - Date.parse(startAt);
+  const expectedOpenInterest = durationMillis / 300_000;
+  const expectedFunding = durationMillis / 28_800_000;
+  const openInterest = db.prepare(`
+    SELECT count(*) count FROM openInterestSnapshots
+    WHERE symbol=? AND interval='M5' AND timestamp>=? AND timestamp<?
+  `).get(symbol, startAt, endExclusive);
+  const funding = db.prepare(`
+    SELECT count(*) count FROM fundingRates
+    WHERE symbol=? AND timestamp>=? AND timestamp<?
+  `).get(symbol, startAt, endExclusive);
+  return Number(openInterest.count) === expectedOpenInterest && Number(funding.count) === expectedFunding;
 }
 
 function auditSubminuteCoverage(db, symbol, dates, bucketMillis) {
@@ -616,10 +641,11 @@ function auditCompletedDates(db, symbol, dates) {
   return auditSubminuteCoverage(db, symbol, dates, 5_000).completedDates;
 }
 
-function normalizedFeatureFingerprint(db, symbol, dates) {
+export function normalizedFeatureFingerprint(db, symbol, dates) {
   const hash = createHash("sha256");
   const updateRows = (query, parameters) => {
-    for (const row of db.prepare(query).iterate(...parameters)) {
+    const statement = db.prepare(query);
+    for (const row of statement.all(...parameters)) {
       const { id: _ignoredId, ...stableRow } = row;
       hash.update(JSON.stringify(stableRow));
       hash.update("\n");
@@ -632,6 +658,23 @@ function normalizedFeatureFingerprint(db, symbol, dates) {
   }
   updateRows("SELECT symbol, interval, timestamp, open_interest FROM openInterestSnapshots WHERE symbol=? ORDER BY timestamp", [symbol]);
   updateRows("SELECT symbol, timestamp, funding_rate FROM fundingRates WHERE symbol=? ORDER BY timestamp", [symbol]);
+  return hash.digest("hex");
+}
+
+export async function implementationFingerprint(repositoryRoot) {
+  const paths = [
+    "scripts/bybit-orderbook-backfill.mjs",
+    "scripts/bybit-flow-backfill.mjs",
+    "scripts/subminute-sequence-protocol.mjs",
+    "scripts/subminute-sequence-acquire.mjs",
+  ];
+  const hash = createHash("sha256");
+  for (const path of paths) {
+    hash.update(path);
+    hash.update("\0");
+    hash.update(await readFile(resolve(repositoryRoot, path)));
+    hash.update("\0");
+  }
   return hash.digest("hex");
 }
 
@@ -710,6 +753,10 @@ function inTransaction(db, action) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function tableExists(db, table) {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1").get(table) != null;
 }
 
 async function sha256File(path) {

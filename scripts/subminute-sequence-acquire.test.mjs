@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -8,6 +9,8 @@ import {
   completeTradeSliceDay,
   ensureSubminuteSchema,
   expectedArchiveDay,
+  implementationFingerprint,
+  normalizedFeatureFingerprint,
   parseArgs,
   verifyOrderBookMinuteParity,
   verifyTradeMinuteParity,
@@ -145,6 +148,38 @@ test("five-second features aggregate back to the previously bound minute evidenc
   assert.doesNotThrow(() => verifyOrderBookMinuteParity(bookSlices, db, "BTCUSDT", "2024-01-01"));
   assert.doesNotThrow(() => verifyTradeMinuteParity(tradeSlices, db, "BTCUSDT", "2024-01-01"));
   db.close();
+});
+
+test("normalized feature fingerprint hashes complete result batches deterministically", () => {
+  const db = new DatabaseSync(":memory:");
+  ensureSubminuteSchema(db);
+  db.exec(`
+    CREATE TABLE openInterestSnapshots(id INTEGER PRIMARY KEY, symbol TEXT, interval TEXT, timestamp TEXT, open_interest TEXT);
+    CREATE TABLE fundingRates(id INTEGER PRIMARY KEY, symbol TEXT, timestamp TEXT, funding_rate TEXT);
+    INSERT INTO subminuteOrderBookSlices(
+      symbol, opened_at, message_count, snapshot_count, carried_forward,
+      close_best_bid, close_best_ask, open_mid_price, high_mid_price, low_mid_price, close_mid_price,
+      mean_top5_imbalance, start_top5_imbalance, end_top5_imbalance,
+      min_top5_imbalance, max_top5_imbalance, mean_microprice_edge_bps,
+      bid_added_top5_notional, bid_removed_top5_notional, ask_added_top5_notional, ask_removed_top5_notional
+    ) VALUES ('BTCUSDT','2024-01-01T00:00:00Z',1,1,0,'100','101','100.5','100.5','100.5','100.5','0','0','0','0','0','0','0','0','0','0');
+    INSERT INTO subminuteTradeSlices(
+      symbol, opened_at, trade_count, buy_notional, sell_notional, buy_count, sell_count
+    ) VALUES ('BTCUSDT','2024-01-01T00:00:00Z',0,'0','0',0,0);
+    INSERT INTO openInterestSnapshots VALUES (1,'BTCUSDT','M5','2024-01-01T00:00:00Z','1000');
+    INSERT INTO fundingRates VALUES (1,'BTCUSDT','2024-01-01T00:00:00Z','0.0001');
+  `);
+  const fingerprint = normalizedFeatureFingerprint(db, "BTCUSDT", ["2024-01-01"]);
+  assert.match(fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(fingerprint, normalizedFeatureFingerprint(db, "BTCUSDT", ["2024-01-01"]));
+  db.close();
+});
+
+test("acquisition implementation fingerprint binds every parser on the evidence path", async () => {
+  const repositoryRoot = path.resolve(new URL("..", import.meta.url).pathname);
+  const fingerprint = await implementationFingerprint(repositoryRoot);
+  assert.match(fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(fingerprint, await implementationFingerprint(repositoryRoot));
 });
 
 function aggregateDatabase() {
