@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-event-flow-fixed-extension-result-v1",
+  "status": "REJECTED_FIXED_EXTENSION",
+  "protocolId": "bybit-event-flow-fixed-extension-v1",
+  "protocolSha256": "41f109407b8e9076331f6c097573f789957b04e4de5ba58c3add5b08746c9049",
+  "fixedCandidateId": "car_ti0p4_cw5_ci0p1_ob0p05",
+  "fixedCandidateSha256": "4e7f9a1f11207ae26fcf7017cf9b4fc8b3a6aba3e841d8ebcb98010196b2f81e",
+  "acquisitionReceiptSha256": "61ec8dfb8192ad27e03b0359a728f6ece78001639ad3ce69531b981169463b0a",
+  "extensionSourceFingerprintSha256": "306d53403f8f241d8a397787fb3508168bc0201f6503f2cd9ea49d3533fac3c0",
+  "researchDatabaseSha256": "44724180f0150ac935d90514e98f09562632b5653e9ad76480519e71e37fe923",
+  "implementationSha256": "265a4328f8a5e7e65a39807f98206cf9195af253b86148c4139abcb79e2deff4",
+  "resultArtifactSha256": "987785f114c2d436ec0e6fde8e28d1b93d947a949cd7ad909b95a37ad2bb6712",
+  "generatedAt": "2026-08-06T10:31:47.076Z",
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 140,
+    "stageCandidates": 1,
+    "cumulativeCandidates": 141,
+    "maximumCumulativeCandidates": 192,
+    "remainingCandidates": 51
+  },
+  "metrics": {
+    "observedDays": 96,
+    "tradeCount": 23,
+    "wins": 8,
+    "winRatePct": 34.7826087,
+    "netReturnPct": -0.38040915,
+    "compoundDailyReturnPct": -0.00397007,
+    "meanNetR": -0.03084639,
+    "profitFactor": 0.92416001,
+    "maxDrawdownPct": 3.30615898,
+    "liquidationCount": 0,
+    "maximumWinnerProfitConcentration": 0.18426992,
+    "bootstrapLowerMeanNetR": -0.38123913,
+    "bootstrapUpperMeanNetR": 0.39836013
+  },
+  "sideBreakdown": [
+    {
+      "side": "BUY",
+      "tradeCount": 10,
+      "wins": 3,
+      "meanNetR": -0.12946842,
+      "totalNetR": -1.29468415
+    },
+    {
+      "side": "SELL",
+      "tradeCount": 13,
+      "wins": 5,
+      "meanNetR": 0.04501671,
+      "totalNetR": 0.58521718
+    }
+  ],
+  "exitBreakdown": [
+    {
+      "exitReason": "STOP",
+      "tradeCount": 7,
+      "meanNetR": -1,
+      "totalNetR": -7
+    },
+    {
+      "exitReason": "TARGET",
+      "tradeCount": 5,
+      "meanNetR": 1.59288045,
+      "totalNetR": 7.96440223
+    },
+    {
+      "exitReason": "TIME",
+      "tradeCount": 11,
+      "meanNetR": -0.15216993,
+      "totalNetR": -1.6738692
+    }
+  ],
+  "periodBreakdown": {
+    "positiveQuarters": 3,
+    "totalQuarters": 8,
+    "positiveYears": 1,
+    "totalYears": 2,
+    "years": [
+      {
+        "year": "2023",
+        "observedDays": 48,
+        "tradeCount": 16,
+        "winRatePct": 25,
+        "netReturnPct": -2.69011612,
+        "meanNetR": -0.33936967,
+        "profitFactor": 0.29517375,
+        "bootstrapLowerMeanNetR": -0.53804919
+      },
+      {
+        "year": "2024",
+        "observedDays": 48,
+        "tradeCount": 7,
+        "winRatePct": 57.14285714,
+        "netReturnPct": 2.37355845,
+        "meanNetR": 0.67434968,
+        "profitFactor": 3.85934904,
+        "bootstrapLowerMeanNetR": 0.0755633
+      }
+    ]
+  },
+  "gate": {
+    "passed": false,
+    "checks": {
+      "minimumTrades": false,
+      "minimumLongTrades": true,
+      "minimumShortTrades": true,
+      "minimumPositiveQuarters": false,
+      "minimumPositiveYears": false,
+      "minimumProfitFactor": false,
+      "minimumMeanNetR": false,
+      "minimumBootstrapLowerMeanNetR": false,
+      "maximumDrawdownPct": true,
+      "maximumLiquidationCount": true,
+      "maximumWinnerProfitConcentration": true
+    }
+  },
+  "diagnosis": [
+    "THE_POST_HOC_BEST_DEVELOPMENT_CANDIDATE_DID_NOT_REPLICATE_ON_UNTOUCHED_EVENT_DATES",
+    "THE_CANDIDATE_WAS_NEGATIVE_IN_2023_AND_POSITIVE_ON_ONLY_SEVEN_2024_TRADES",
+    "TIME_EXITS_WERE_THE_LARGEST_NON_STOP_SOURCE_OF_NEGATIVE_EXPECTANCY",
+    "THE_LONG_SIDE_WAS_NEGATIVE_WHILE_THE_SHORT_SIDE_WAS_ONLY_MARGINALLY_POSITIVE",
+    "THE_RESULT_FAILED_SAMPLE_SIZE_REGIME_STABILITY_PROFIT_FACTOR_MEAN_R_AND_BOOTSTRAP_GATES"
+  ],
+  "nextStageBoundary": {
+    "allowed": "PREDECLARE_A_DISTINCT_EVENT_FLOW_HYPOTHESIS_USING_DEVELOPMENT_EVIDENCE_ONLY",
+    "notAllowed": [
+      "RETUNE_OR_PROMOTE_THE_REJECTED_FIXED_CANDIDATE",
+      "LOWER_THE_PREDECLARED_EXTENSION_GATES",
+      "ACQUIRE_VALIDATION_EXTERNAL_OR_FRESH_SEALED_DATA",
+      "ENABLE_AUTOMATIC_OR_LIVE_EXECUTION"
+    ]
+  },
+  "validationDataRead": false,
+  "externalDataRead": false,
+  "freshSealedDataRead": false,
+  "validationDataAcquisitionAllowed": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
