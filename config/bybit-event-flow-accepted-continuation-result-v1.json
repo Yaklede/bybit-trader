@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-event-flow-accepted-continuation-result-v1",
+  "status": "REJECTED_ACCEPTED_CONTINUATION",
+  "protocolId": "bybit-event-flow-accepted-continuation-v1",
+  "protocolSha256": "cf4e8b17319fd5b84a1831062bc208c69ab23dc3a465da0df245ea4afb3fc266",
+  "parentResultSha256": "ab41a1a0cb58697c98a192193879748872f5c1b8fe9a4d9b15413002bbaedacd",
+  "implementationSha256": "e820d3144942039519a330c3745df0ff9ff58ae213864228ea0fcc0847021249",
+  "resultArtifactSha256": "81e67fcac6af32dfc969aa71f99c73ce043710c97efe879cc4e846a21e240d50",
+  "generatedAt": "2026-08-06T10:46:51.470Z",
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 141,
+    "stageCandidates": 16,
+    "cumulativeCandidates": 157,
+    "maximumCumulativeCandidates": 192,
+    "remainingCandidates": 35
+  },
+  "selection2023": {
+    "evaluationDays": 60,
+    "eligibleCandidateCount": 0,
+    "candidateTradeCountRange": {
+      "minimum": 53,
+      "maximum": 76
+    },
+    "candidateNetReturnPctRange": {
+      "minimum": -13.24082432,
+      "maximum": -8.442765
+    },
+    "candidateMeanNetRRange": {
+      "minimum": -0.3865713,
+      "maximum": -0.30678004
+    },
+    "candidateProfitFactorRange": {
+      "minimum": 0.26843391,
+      "maximum": 0.38515961
+    },
+    "bestRankedIneligibleCandidate": {
+      "candidateId": "adc_cw3_ci0p1_rn1p5_ob0p05",
+      "tradeCount": 56,
+      "netReturnPct": -8.442765,
+      "meanNetR": -0.31340011,
+      "profitFactor": 0.37269678,
+      "maxDrawdownPct": 8.83530919,
+      "bootstrapLowerMeanNetR": -0.44339783,
+      "bootstrapUpperMeanNetR": -0.19208893
+    }
+  },
+  "observedButNotSelectable2024": {
+    "candidateMeanNetRWasPositiveCount": 16,
+    "candidateTradeCountRange": {
+      "minimum": 8,
+      "maximum": 17
+    },
+    "bestRanked2023Candidate": {
+      "tradeCount": 10,
+      "meanNetR": 0.18013832
+    },
+    "interpretation": "NO_2023_ELIGIBLE_CANDIDATE_EXISTED_SO_2024_OUTCOMES_CANNOT_SELECT_OR_PROMOTE_A_CANDIDATE"
+  },
+  "bestRankedCandidateAllDevelopment": {
+    "tradeCount": 66,
+    "longTrades": 36,
+    "shortTrades": 30,
+    "longMeanNetR": -0.21066246,
+    "shortMeanNetR": -0.27217249,
+    "stopExits": 22,
+    "targetExits": 8,
+    "timeExits": 36,
+    "timeExitMeanNetR": -0.13088846
+  },
+  "gate": {
+    "passed": false,
+    "checks": {
+      "selectedCandidateExists": false,
+      "minimumTrades": false,
+      "minimumLongTrades": false,
+      "minimumShortTrades": false,
+      "minimumPositiveEraCount": false,
+      "minimumProfitFactor": false,
+      "minimumMeanNetR": false,
+      "minimumBootstrapLowerMeanNetR": false,
+      "maximumDrawdownPct": true,
+      "maximumLiquidationCount": true,
+      "maximumWinnerProfitConcentration": true
+    }
+  },
+  "diagnosis": [
+    "POST_SHOCK_SAME_DIRECTION_ACCEPTANCE_DID_NOT_REPAIR_CONTINUATION_EXPECTANCY_IN_2023",
+    "EVERY_FROZEN_CANDIDATE_WAS_MATERIALLY_NEGATIVE_WITH_PROFIT_FACTOR_BELOW_ZERO_POINT_FOUR",
+    "BOTH_LONG_AND_SHORT_DIRECTIONS_WERE_NEGATIVE_FOR_THE_BEST_RANKED_CANDIDATE",
+    "TIME_EXITS_ACCOUNTED_FOR_MORE_THAN_HALF_OF_THE_BEST_RANKED_CANDIDATES_TRADES",
+    "POSITIVE_SMALL_2024_SAMPLES_CANNOT_OVERRIDE_THE_PREDECLARED_2023_SELECTION_FAILURE"
+  ],
+  "nextStageBoundary": {
+    "allowed": "PREDECLARE_A_DISTINCT_FAILED_LIQUIDITY_SWEEP_REVERSAL_HYPOTHESIS",
+    "notAllowed": [
+      "RETUNE_OR_PROMOTE_ANY_ACCEPTED_CONTINUATION_CANDIDATE",
+      "SELECT_A_CANDIDATE_FROM_2024_AFTER_2023_SELECTION_FAILED",
+      "LOWER_SELECTION_OR_VALIDATION_GATES",
+      "ACQUIRE_VALIDATION_EXTERNAL_OR_FRESH_SEALED_DATA",
+      "ENABLE_AUTOMATIC_OR_LIVE_EXECUTION"
+    ]
+  },
+  "validationDataRead": false,
+  "externalDataRead": false,
+  "freshSealedDataRead": false,
+  "validationDataAcquisitionAllowed": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
