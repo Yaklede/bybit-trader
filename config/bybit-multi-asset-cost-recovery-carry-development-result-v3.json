@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-multi-asset-cost-recovery-carry-development-result-v3",
+  "programStatus": "PASSED_DEVELOPMENT_ONLY_FROZEN_FOR_2026_SEAL",
+  "protocol": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-development-v3.json",
+    "sha256": "cc79d223ed4c4cf3e68b9d8bf449513f18d37e7f6a988083996279bd4652f7f2"
+  },
+  "replayFreeze": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-replay-freeze-v3.json",
+    "sha256": "54e885395c992c35b29e548032beb6896891ea5d520bfeee0854df5203fb3f48"
+  },
+  "sourceArtifacts": {
+    "resultReportSha256": "4807a2f43b51f13a7718083ab2381bb5720f80fc75568dbcc0d4a15954df692a",
+    "rankedCandidatesSha256": "c0c7242cf32d8f3e06ef07c6c493bc2c799d521e30eb1446e75b6ae751f10a2c",
+    "bestCandidateTradesSha256": "4ac614234166be79bf9ddd66c1f54438a9ad05c0de5ed60e3f518d381bb47ef9"
+  },
+  "trialAccounting": {
+    "priorObservedCandidatesAndProtocols": 336,
+    "evaluatedCandidates": 54,
+    "cumulativeObservedCandidatesAndProtocols": 390,
+    "passedCandidates": 4,
+    "selectedCandidateCount": 1
+  },
+  "selectedCandidate": {
+    "id": "multi_asset_cost_recovery_carry_018",
+    "sha256": "46bac80f02e00cdbcb4605e785a0f2dee6865d983c9082e326615381dd91dfcf",
+    "parameters": {
+      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "entryDelayMinutes": 5,
+      "minimumEntryBasisPct": -0.001,
+      "maximumEntryBasisPct": 0.003,
+      "maximumAbsoluteMarkIndexPremiumPct": 0.003,
+      "basisDivergenceStopPctFromEntry": 0.01,
+      "reentryCooldownHours": 24,
+      "minimumProjectedNetCarryScore": 0.001,
+      "maximumConcurrentPairs": 2,
+      "projectedCarryHorizonSettlements": 135,
+      "minimumPositiveFundingStreak": 3,
+      "minimumTrailingMedianFundingRate": 0.0001,
+      "maximumHoldingDays": 90,
+      "exitConsecutiveNonPositiveFundingCount": 24
+    }
+  },
+  "annualMetrics": [
+    {
+      "year": 2023,
+      "endingEquityUsdt": 681.14628045,
+      "netReturnPct": 3.20398189,
+      "compoundDailyReturnPct": 0.00864072,
+      "tradeCount": 9,
+      "tradedAssetCount": 3,
+      "positiveAssetCount": 3,
+      "positiveQuarterCount": 4,
+      "profitFactor": 72.39847709,
+      "bootstrapLowerMeanDailyReturnPct": 0.00564429,
+      "maximumDrawdownPct": 0.39974184,
+      "costStressNetReturnPct": 2.80769231,
+      "secondLegDelayStressNetReturnPct": 2.89415499,
+      "liquidationCount": 0
+    },
+    {
+      "year": 2024,
+      "endingEquityUsdt": 697.09619565,
+      "netReturnPct": 5.6206357,
+      "compoundDailyReturnPct": 0.01494199,
+      "tradeCount": 8,
+      "tradedAssetCount": 3,
+      "positiveAssetCount": 3,
+      "positiveQuarterCount": 4,
+      "profitFactor": 999,
+      "bootstrapLowerMeanDailyReturnPct": 0.00962686,
+      "maximumDrawdownPct": 0.43591163,
+      "costStressNetReturnPct": 5.22676158,
+      "secondLegDelayStressNetReturnPct": 5.18479429,
+      "liquidationCount": 0
+    },
+    {
+      "year": 2025,
+      "endingEquityUsdt": 668.0170934,
+      "netReturnPct": 1.21471112,
+      "compoundDailyReturnPct": 0.00330798,
+      "tradeCount": 8,
+      "tradedAssetCount": 3,
+      "positiveAssetCount": 3,
+      "positiveQuarterCount": 4,
+      "profitFactor": 66.52698341,
+      "bootstrapLowerMeanDailyReturnPct": 0.00138006,
+      "maximumDrawdownPct": 0.26519337,
+      "costStressNetReturnPct": 0.91679564,
+      "secondLegDelayStressNetReturnPct": 1.06257552,
+      "liquidationCount": 0
+    }
+  ],
+  "summary": {
+    "startingEquityUsdtPerYear": 660,
+    "totalClosedPositions": 25,
+    "totalPositiveQuarterCount": 12,
+    "threeYearCompoundedReturnPct": 10.32879397,
+    "worstYearNetReturnPct": 1.21471112,
+    "worstYearCostStressNetReturnPct": 0.91679564,
+    "worstYearSecondLegDelayStressNetReturnPct": 1.06257552,
+    "maximumAnnualDrawdownPct": 0.43591163,
+    "totalLiquidationCount": 0
+  },
+  "developmentGate": {
+    "passed": true,
+    "failedChecks": []
+  },
+  "decision": {
+    "candidateFrozenWithoutRetuning": true,
+    "sealed2026AcquisitionAllowed": true,
+    "sealed2026MayBeReadBeforeProtocolFreeze": false,
+    "developmentPassGrantsExecution": false
+  },
+  "evidenceBoundary": {
+    "development2023Through2025Read": true,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
