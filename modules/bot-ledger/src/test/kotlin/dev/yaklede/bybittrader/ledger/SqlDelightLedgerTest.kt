@@ -52,6 +52,13 @@ import dev.yaklede.bybittrader.engine.paper.PaperRuntimePhase
 import dev.yaklede.bybittrader.engine.paper.PaperRuntimeState
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.position.CausalPositionState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowPosition
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowStatus
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -978,6 +985,8 @@ class SqlDelightLedgerTest :
                     "executionPositionRuntimeStates",
                     "paperRuntimeStates",
                     "makerShadowEvents",
+                    "volumeConfirmedTrendShadowStates",
+                    "volumeConfirmedTrendShadowEvents",
                 ),
             ) shouldBe true
         }
@@ -1016,6 +1025,20 @@ class SqlDelightLedgerTest :
             ledger.deleteExecutionPositionRuntimeState(state.mode, symbol)
             ledger.executionPositionRuntimeState(state.mode, symbol) shouldBe null
         }
+
+        "trend shadow state and idempotent events commit atomically" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val state = sampleTrendShadowState()
+            val event = sampleTrendShadowEvent(state)
+
+            ledger.commitTrendShadow(state, listOf(event))
+            ledger.commitTrendShadow(state, listOf(event))
+
+            ledger.trendShadowState(state.protocolId, state.symbol) shouldBe state
+            ledger.trendShadowEvents(state.sessionId, 10) shouldBe listOf(event)
+        }
     })
 
 private data class StoredClosureAlertState(
@@ -1024,6 +1047,77 @@ private data class StoredClosureAlertState(
     val attemptCount: Long,
     val lastAttemptAt: String?,
 )
+
+private fun sampleTrendShadowState(): VolumeConfirmedTrendShadowState =
+    VolumeConfirmedTrendShadowState(
+        protocolId = "volume-confirmed-trend-ensemble-v1",
+        candidateId = "vcte_4h_majority_001",
+        protocolSha256 = "a".repeat(64),
+        symbol = Symbol("BTCUSDT"),
+        sessionId = "trend-shadow-ledger-test",
+        status = VolumeConfirmedTrendShadowStatus.OBSERVING,
+        sessionStartedAt = Instant.parse("2026-08-07T00:00:10Z"),
+        indicatorState =
+            VolumeConfirmedTrendIndicatorState(
+                processedBars = 540,
+                lastBarOpenedAt = Instant.parse("2026-08-06T20:00:00Z"),
+                emaStates =
+                    listOf(
+                        VolumeConfirmedTrendEmaState(100.0, 99.0),
+                        VolumeConfirmedTrendEmaState(101.0, 98.0),
+                    ),
+                targetSide = Side.BUY,
+                recentVolumes = listOf(10.0, 20.0),
+            ),
+        lastAppliedFundingAt = Instant.parse("2026-08-07T00:00:00Z"),
+        lastObservedAt = Instant.parse("2026-08-07T00:00:10Z"),
+        position =
+            VolumeConfirmedTrendShadowPosition(
+                side = Side.BUY,
+                quantity = 0.001,
+                entryAt = Instant.parse("2026-08-07T00:00:00Z"),
+                entryPrice = 60_012.0,
+                entryFee = 0.0360072,
+                fundingPnl = -0.001,
+            ),
+        sessionStartingEquity = 100.0,
+        cash = 99.9639928,
+        equity = 99.952,
+        peakEquity = 101.0,
+        maximumDrawdownPct = 1.0376237624,
+        totalFees = 0.0360072,
+        totalSlippage = 0.012,
+        totalFundingPnl = -0.001,
+        closedTrades = 0,
+        executedTransitions = 1,
+        invalidatedSessionCount = 0,
+        updatedAt = Instant.parse("2026-08-07T00:00:10Z"),
+    )
+
+private fun sampleTrendShadowEvent(state: VolumeConfirmedTrendShadowState): VolumeConfirmedTrendShadowEvent =
+    VolumeConfirmedTrendShadowEvent(
+        eventId = "b".repeat(64),
+        sessionId = state.sessionId,
+        protocolId = state.protocolId,
+        protocolSha256 = state.protocolSha256,
+        symbol = state.symbol,
+        type = VolumeConfirmedTrendShadowEventType.POSITION_OPENED,
+        eventAt = Instant.parse("2026-08-07T00:00:00Z"),
+        observedAt = Instant.parse("2026-08-07T00:00:10Z"),
+        h4OpenedAt = Instant.parse("2026-08-06T20:00:00Z"),
+        side = Side.BUY,
+        referencePrice = 60_000.0,
+        fillPrice = 60_012.0,
+        quantity = 0.001,
+        fee = 0.0360072,
+        slippage = 0.012,
+        fundingPnl = 0.0,
+        grossPnl = 0.0,
+        netPnl = -0.0360072,
+        cash = state.cash,
+        equity = state.equity,
+        reason = "VOLUME_CONFIRMED_TREND_TRANSITION",
+    )
 
 private fun samplePaperRuntimeState(): PaperRuntimeState =
     PaperRuntimeState(

@@ -455,6 +455,46 @@ CREATE TABLE makerShadowEvents (
 CREATE INDEX makerShadowEvents_session_id_idx
 ON makerShadowEvents(session_id, id);
 
+CREATE TABLE volumeConfirmedTrendShadowStates (
+  protocol_id TEXT NOT NULL,
+  candidate_id TEXT NOT NULL,
+  protocol_sha256 TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  state_payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (protocol_id, symbol)
+);
+
+CREATE TABLE volumeConfirmedTrendShadowEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  session_id TEXT NOT NULL,
+  protocol_id TEXT NOT NULL,
+  protocol_sha256 TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  event_at TEXT NOT NULL,
+  observed_at TEXT NOT NULL,
+  h4_opened_at TEXT,
+  side TEXT,
+  reference_price TEXT,
+  fill_price TEXT,
+  quantity TEXT,
+  fee TEXT NOT NULL,
+  slippage TEXT NOT NULL,
+  funding_pnl TEXT NOT NULL,
+  gross_pnl TEXT NOT NULL,
+  net_pnl TEXT NOT NULL,
+  cash TEXT NOT NULL,
+  equity TEXT NOT NULL,
+  reason TEXT NOT NULL
+);
+
+CREATE INDEX volumeConfirmedTrendShadowEvents_session_id_idx
+ON volumeConfirmedTrendShadowEvents(session_id, id);
+
 selectBotState:
 SELECT mode, updated_at, heartbeat_at
 FROM botState
@@ -1340,3 +1380,56 @@ countMakerShadowEventsBySession:
 SELECT COUNT(*)
 FROM makerShadowEvents
 WHERE session_id = ?;
+
+upsertVolumeConfirmedTrendShadowState:
+INSERT OR REPLACE INTO volumeConfirmedTrendShadowStates(
+  protocol_id,
+  candidate_id,
+  protocol_sha256,
+  symbol,
+  session_id,
+  status,
+  state_payload,
+  updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectVolumeConfirmedTrendShadowState:
+SELECT protocol_id, candidate_id, protocol_sha256, symbol, session_id, status, state_payload, updated_at
+FROM volumeConfirmedTrendShadowStates
+WHERE protocol_id = ? AND symbol = ?;
+
+insertVolumeConfirmedTrendShadowEvent:
+INSERT OR IGNORE INTO volumeConfirmedTrendShadowEvents(
+  event_id,
+  session_id,
+  protocol_id,
+  protocol_sha256,
+  symbol,
+  event_type,
+  event_at,
+  observed_at,
+  h4_opened_at,
+  side,
+  reference_price,
+  fill_price,
+  quantity,
+  fee,
+  slippage,
+  funding_pnl,
+  gross_pnl,
+  net_pnl,
+  cash,
+  equity,
+  reason
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectVolumeConfirmedTrendShadowEventsBySession:
+SELECT id, event_id, session_id, protocol_id, protocol_sha256, symbol, event_type,
+  event_at, observed_at, h4_opened_at, side, reference_price, fill_price, quantity,
+  fee, slippage, funding_pnl, gross_pnl, net_pnl, cash, equity, reason
+FROM volumeConfirmedTrendShadowEvents
+WHERE session_id = ?
+ORDER BY id DESC
+LIMIT ?;

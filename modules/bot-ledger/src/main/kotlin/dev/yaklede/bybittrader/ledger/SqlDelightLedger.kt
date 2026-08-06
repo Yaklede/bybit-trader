@@ -61,6 +61,10 @@ import dev.yaklede.bybittrader.engine.paper.PaperRuntimeStateStore
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowStore
 import dev.yaklede.bybittrader.ledger.db.ExecutionAccountSnapshots
 import dev.yaklede.bybittrader.ledger.db.ExecutionAccountTransactions
 import dev.yaklede.bybittrader.ledger.db.ExecutionFillEvents
@@ -89,6 +93,7 @@ import dev.yaklede.bybittrader.ledger.db.SelectRecentTrades
 import dev.yaklede.bybittrader.ledger.db.SelectTakerFlowBarsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectTakerFlowBarsBetween
 import dev.yaklede.bybittrader.ledger.db.Signals
+import dev.yaklede.bybittrader.ledger.db.VolumeConfirmedTrendShadowEvents
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
@@ -109,7 +114,8 @@ class SqlDelightLedger(
     ExecutionPositionRuntimeStateStore,
     PaperTradingStore,
     PaperRuntimeStateStore,
-    MakerShadowLedger {
+    MakerShadowLedger,
+    VolumeConfirmedTrendShadowStore {
     override suspend fun current(): BotRuntimeStatus {
         val row = database.ledgerQueries.selectBotState().executeAsOneOrNull()
         if (row != null) {
@@ -161,6 +167,81 @@ class SqlDelightLedger(
                 )
             }
         }
+    }
+
+    override suspend fun trendShadowState(
+        protocolId: String,
+        symbol: Symbol,
+    ): VolumeConfirmedTrendShadowState? {
+        require(protocolId.isNotBlank()) { "Trend shadow protocol ID must not be blank." }
+        return database.ledgerQueries
+            .selectVolumeConfirmedTrendShadowState(
+                protocol_id = protocolId,
+                symbol = symbol.value,
+            ).executeAsOneOrNull()
+            ?.toTrendShadowState()
+    }
+
+    override suspend fun commitTrendShadow(
+        state: VolumeConfirmedTrendShadowState,
+        events: List<VolumeConfirmedTrendShadowEvent>,
+    ) {
+        require(events.all { it.protocolId == state.protocolId && it.protocolSha256 == state.protocolSha256 }) {
+            "Trend shadow events must match the persisted protocol."
+        }
+        require(events.all { it.symbol == state.symbol }) { "Trend shadow events must match the persisted symbol." }
+        database.ledgerQueries.transaction {
+            events.forEach { event ->
+                database.ledgerQueries.insertVolumeConfirmedTrendShadowEvent(
+                    event_id = event.eventId,
+                    session_id = event.sessionId,
+                    protocol_id = event.protocolId,
+                    protocol_sha256 = event.protocolSha256,
+                    symbol = event.symbol.value,
+                    event_type = event.type.name,
+                    event_at = event.eventAt.toString(),
+                    observed_at = event.observedAt.toString(),
+                    h4_opened_at = event.h4OpenedAt?.toString(),
+                    side = event.side?.name,
+                    reference_price = event.referencePrice?.toString(),
+                    fill_price = event.fillPrice?.toString(),
+                    quantity = event.quantity?.toString(),
+                    fee = event.fee.toString(),
+                    slippage = event.slippage.toString(),
+                    funding_pnl = event.fundingPnl.toString(),
+                    gross_pnl = event.grossPnl.toString(),
+                    net_pnl = event.netPnl.toString(),
+                    cash = event.cash.toString(),
+                    equity = event.equity.toString(),
+                    reason = event.reason,
+                )
+            }
+            database.ledgerQueries.upsertVolumeConfirmedTrendShadowState(
+                protocol_id = state.protocolId,
+                candidate_id = state.candidateId,
+                protocol_sha256 = state.protocolSha256,
+                symbol = state.symbol.value,
+                session_id = state.sessionId,
+                status = state.status.name,
+                state_payload = state.toTrendShadowStatePayload(),
+                updated_at = state.updatedAt.toString(),
+            )
+        }
+    }
+
+    override suspend fun trendShadowEvents(
+        sessionId: String,
+        limit: Int,
+    ): List<VolumeConfirmedTrendShadowEvent> {
+        require(sessionId.isNotBlank()) { "Trend shadow session ID must not be blank." }
+        require(limit in 1..10_000) { "Trend shadow event limit must be between 1 and 10000." }
+        return database.ledgerQueries
+            .selectVolumeConfirmedTrendShadowEventsBySession(
+                session_id = sessionId,
+                value_ = limit.toLong(),
+            ).executeAsList()
+            .map(VolumeConfirmedTrendShadowEvents::toTrendShadowEvent)
+            .asReversed()
     }
 
     override suspend fun update(status: BotRuntimeStatus) {
@@ -1279,6 +1360,31 @@ private fun ExecutionLifecycleEvents.toExecutionLifecycleEvent(): ExecutionLifec
         protectionDeadlineAt = protection_deadline_at?.let(Instant::parse),
         fixedTargetEnabled = fixed_target_enabled != 0L,
         intendedRisk = intended_risk?.let(::BigDecimal),
+    )
+
+private fun VolumeConfirmedTrendShadowEvents.toTrendShadowEvent(): VolumeConfirmedTrendShadowEvent =
+    VolumeConfirmedTrendShadowEvent(
+        eventId = event_id,
+        sessionId = session_id,
+        protocolId = protocol_id,
+        protocolSha256 = protocol_sha256,
+        symbol = Symbol(symbol),
+        type = VolumeConfirmedTrendShadowEventType.valueOf(event_type),
+        eventAt = Instant.parse(event_at),
+        observedAt = Instant.parse(observed_at),
+        h4OpenedAt = h4_opened_at?.let(Instant::parse),
+        side = side?.let(Side::valueOf),
+        referencePrice = reference_price?.toDouble(),
+        fillPrice = fill_price?.toDouble(),
+        quantity = quantity?.toDouble(),
+        fee = fee.toDouble(),
+        slippage = slippage.toDouble(),
+        fundingPnl = funding_pnl.toDouble(),
+        grossPnl = gross_pnl.toDouble(),
+        netPnl = net_pnl.toDouble(),
+        cash = cash.toDouble(),
+        equity = equity.toDouble(),
+        reason = reason,
     )
 
 private fun SelectRecentMarketCandles.toCandle(): Candle =

@@ -484,6 +484,49 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         )
         """.trimIndent(),
         "CREATE INDEX IF NOT EXISTS makerShadowEvents_session_id_idx ON makerShadowEvents(session_id, id)",
+        """
+        CREATE TABLE IF NOT EXISTS volumeConfirmedTrendShadowStates (
+          protocol_id TEXT NOT NULL,
+          candidate_id TEXT NOT NULL,
+          protocol_sha256 TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          state_payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (protocol_id, symbol)
+        )
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS volumeConfirmedTrendShadowEvents (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          event_id TEXT NOT NULL UNIQUE,
+          session_id TEXT NOT NULL,
+          protocol_id TEXT NOT NULL,
+          protocol_sha256 TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          event_at TEXT NOT NULL,
+          observed_at TEXT NOT NULL,
+          h4_opened_at TEXT,
+          side TEXT,
+          reference_price TEXT,
+          fill_price TEXT,
+          quantity TEXT,
+          fee TEXT NOT NULL,
+          slippage TEXT NOT NULL,
+          funding_pnl TEXT NOT NULL,
+          gross_pnl TEXT NOT NULL,
+          net_pnl TEXT NOT NULL,
+          cash TEXT NOT NULL,
+          equity TEXT NOT NULL,
+          reason TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE INDEX IF NOT EXISTS volumeConfirmedTrendShadowEvents_session_id_idx
+        ON volumeConfirmedTrendShadowEvents(session_id, id)
+        """.trimIndent(),
     )
 
 private val EXECUTION_CLOSURE_IDENTITY_BACKFILL =
