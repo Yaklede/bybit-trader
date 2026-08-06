@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-confirmed-trend-ensemble-v1-kotlin-parity-result",
+  "status": "KOTLIN_CORE_PARITY_PASS_PAPER_RUNTIME_REQUIRED",
+  "gitSha": "204dc044aa093e9f2dfb6e246df3f1f474cf1349",
+  "protocolSha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74",
+  "externalDatabaseSha256": "9c80bd330b8edb3a3a081b88ff4493ad7e1035da2d4d807e4ff625ee844bbbb6",
+  "nodeTrace": {
+    "ignoredPath": "build/research/volume-confirmed-trend-node-parity.json",
+    "sha256": "24d11f7f845f0bf747aff188fe1460c7c6de20f10b9995673369a4762eb546b7"
+  },
+  "kotlinTrace": {
+    "ignoredPath": "build/research/volume-confirmed-trend-kotlin-parity.json",
+    "sha256": "2f4f0687dad4dcdaee62b4b1e20c0ab2ab700ba12e133516a411c77ed93b47bb"
+  },
+  "comparison": {
+    "h4BarCount": 14424,
+    "fundingRateCount": 7212,
+    "commandCount": 165,
+    "runCount": 9,
+    "comparedTradeCount": 1485,
+    "exactFields": [
+      "protocolSha256",
+      "venue",
+      "timestamps",
+      "side",
+      "indices",
+      "reason",
+      "counts"
+    ],
+    "numericTolerance": 0.00000001,
+    "passed": true
+  },
+  "remainingGates": {
+    "paperRuntimeReplayParity": false,
+    "freshShadowPass": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
