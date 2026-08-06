@@ -181,7 +181,7 @@ export function prepareEventBlock(block) {
 }
 
 export function detectEventSignal(candidate, row) {
-  const minimumTakerImbalance = candidate.family === "CONFIRMED_ABSORPTION_REVERSAL"
+  const minimumTakerImbalance = ["CONFIRMED_ABSORPTION_REVERSAL", "ACCEPTED_DEPLETION_CONTINUATION"].includes(candidate.family)
     ? candidate.minimumSetupAbsoluteTakerImbalance
     : candidate.minimumAbsoluteTakerImbalance;
   if (
@@ -191,7 +191,7 @@ export function detectEventSignal(candidate, row) {
     Math.abs(row.takerImbalance) < minimumTakerImbalance ||
     row.relativeTakerNotional < candidate.minimumRelativeTakerNotional
   ) return null;
-  if (candidate.family === "EVENT_DEPLETION_CONTINUATION") {
+  if (["EVENT_DEPLETION_CONTINUATION", "ACCEPTED_DEPLETION_CONTINUATION"].includes(candidate.family)) {
     if (
       row.alignedEndTop5Imbalance < candidate.minimumAlignedTop5Imbalance ||
       row.alignedMicropriceEdgeBps < candidate.minimumAlignedMicropriceEdgeBps ||
@@ -234,7 +234,7 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
   let lastReplayRow = null;
   for (const row of block.rows) {
     if (row.openedAtMs < replayStartMs) {
-      if (candidate.family === "CONFIRMED_ABSORPTION_REVERSAL") continue;
+      if (["CONFIRMED_ABSORPTION_REVERSAL", "ACCEPTED_DEPLETION_CONTINUATION"].includes(candidate.family)) continue;
       if (row.closeTimeMs === replayStartMs) {
         const signal = detectEventSignal(candidate, row);
         if (signal != null) state.pending = { signal, expectedEntryAtMs: replayStartMs };
@@ -247,6 +247,8 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
     processPosition(state, row, executionContract);
     if (state.position == null && candidate.family === "CONFIRMED_ABSORPTION_REVERSAL") {
       processConfirmedReversalState(state, candidate, row);
+    } else if (state.position == null && candidate.family === "ACCEPTED_DEPLETION_CONTINUATION") {
+      processAcceptedContinuationState(state, candidate, row);
     } else if (state.position == null) {
       const signal = detectEventSignal(candidate, row);
       if (signal != null && row.closeTimeMs < replayEndMs) {
@@ -423,7 +425,11 @@ export function metricsForEventTrades(trades, blocks, protocol, { alreadyFiltere
     confidenceLevel: bootstrapConfig.confidenceLevel,
     seed: bootstrapConfig.seed,
   });
-  const observedDays = Math.max(1, blocks.length * protocol.blockContract.evaluationDaysPerBlock);
+  const replayDurations = blocks.map((block) =>
+    (Date.parse(block.replayEndAt) - Date.parse(block.replayStartAt)) / DAY_MS);
+  const observedDays = Math.max(1, replayDurations.every((days) => Number.isFinite(days) && days > 0)
+    ? replayDurations.reduce((sum, days) => sum + days, 0)
+    : blocks.length * protocol.blockContract.evaluationDaysPerBlock);
   const blockMeans = blocks.map((block) => {
     const values = selected.filter((trade) => trade.blockId === block.id).map((trade) => trade.netR);
     return values.length > 0 ? average(values) : 0;
@@ -481,6 +487,8 @@ function signalRecord(candidate, row, orderSide) {
     consumedSideReplenishment: row.consumedSideReplenishment,
     m15Regime: row.m15Regime,
     closeTradePrice: row.closeTradePrice,
+    highTradePrice: row.highTradePrice,
+    lowTradePrice: row.lowTradePrice,
   };
 }
 
@@ -532,6 +540,66 @@ function confirmReversal(setup, candidate, row) {
     confirmationTakerImbalance: row.takerImbalance,
     confirmationRelativeTakerNotional: row.relativeTakerNotional,
     confirmationAlignedTop5Imbalance: alignedBook,
+    confirmationCloseTradePrice: row.closeTradePrice,
+  };
+}
+
+function processAcceptedContinuationState(state, candidate, row) {
+  let confirmed = false;
+  if (state.arm != null && row.closeTimeMs > state.arm.signalCloseTimeMs) {
+    const expiresAt = state.arm.signalCloseTimeMs + candidate.confirmationWindowMinutes * MINUTE_MS;
+    if (row.closeTimeMs <= expiresAt) {
+      const confirmation = confirmAcceptedContinuation(state.arm, candidate, row);
+      if (confirmation != null) {
+        state.pending = { signal: confirmation, expectedEntryAtMs: row.closeTimeMs };
+        state.arm = null;
+        confirmed = true;
+      }
+    } else {
+      state.arm = null;
+    }
+  }
+  if (!confirmed && state.pending == null) {
+    const setup = detectEventSignal(candidate, row);
+    if (setup != null) state.arm = setup;
+  }
+}
+
+function confirmAcceptedContinuation(setup, candidate, row) {
+  if (
+    !Number.isFinite(setup.highTradePrice) ||
+    !Number.isFinite(setup.lowTradePrice) ||
+    !Number.isFinite(row.closeTradePrice) ||
+    !Number.isFinite(row.endTop5Imbalance) ||
+    !Number.isFinite(row.meanMicropriceEdgeBps) ||
+    !Number.isFinite(row.takerImbalance)
+  ) return null;
+  const side = setup.orderSide;
+  const directionSign = side === "BUY" ? 1 : -1;
+  const alignedBook = directionSign * row.endTop5Imbalance;
+  const alignedMicroprice = directionSign * row.meanMicropriceEdgeBps;
+  const priceAccepted = side === "BUY"
+    ? row.closeTradePrice > setup.highTradePrice
+    : row.closeTradePrice < setup.lowTradePrice;
+  if (
+    row.takerDirection !== side ||
+    Math.abs(row.takerImbalance) < candidate.minimumConfirmationAbsoluteTakerImbalance ||
+    row.relativeTakerNotional == null ||
+    row.relativeTakerNotional < candidate.minimumConfirmationRelativeTakerNotional ||
+    alignedBook < candidate.minimumConfirmationAlignedTop5Imbalance ||
+    alignedMicroprice < candidate.minimumAlignedMicropriceEdgeBps ||
+    row.m15Regime !== side ||
+    !priceAccepted
+  ) return null;
+  return {
+    ...setup,
+    atr: row.atr,
+    signalCloseTimeMs: row.closeTimeMs,
+    confirmationOpenedAtMs: row.openedAtMs,
+    confirmationTakerImbalance: row.takerImbalance,
+    confirmationRelativeTakerNotional: row.relativeTakerNotional,
+    confirmationAlignedTop5Imbalance: alignedBook,
+    confirmationAlignedMicropriceEdgeBps: alignedMicroprice,
     confirmationCloseTradePrice: row.closeTradePrice,
   };
 }
