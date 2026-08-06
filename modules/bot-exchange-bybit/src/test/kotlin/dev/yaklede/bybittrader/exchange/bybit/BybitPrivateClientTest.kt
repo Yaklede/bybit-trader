@@ -4,8 +4,11 @@ import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeTimeInForce
 import io.kotest.assertions.throwables.shouldThrow
@@ -400,6 +403,75 @@ class BybitPrivateClientTest :
             balance.totalPerpUnrealizedPnl shouldBe BigDecimal("100.5")
             balance.coins.single().walletBalance shouldBe BigDecimal("1000")
             balance.capturedAt shouldBe Instant.parse("2024-06-30T00:00:00Z")
+        }
+
+        "execution profiles map account position mode leverage and instrument rules" {
+            val requestedPaths = mutableListOf<String>()
+            val engine =
+                MockEngine { request ->
+                    requestedPaths += request.url.encodedPath
+                    val content =
+                        when (request.url.encodedPath) {
+                            "/v5/account/info" -> {
+                                request.headers["X-BAPI-API-KEY"] shouldBe "test-api-key"
+                                """{"retCode":0,"retMsg":"OK","result":{"unifiedMarginStatus":5,"marginMode":"REGULAR_MARGIN","updatedTime":"1719705600000"}}"""
+                            }
+                            "/v5/position/list" -> {
+                                request.headers["X-BAPI-API-KEY"] shouldBe "test-api-key"
+                                """{"retCode":0,"retMsg":"OK","result":{"list":[{"symbol":"BTCUSDT","side":"","size":"0","positionIdx":0,"leverage":"1","isReduceOnly":false}]}}"""
+                            }
+                            "/v5/market/instruments-info" -> {
+                                request.headers["X-BAPI-API-KEY"] shouldBe null
+                                """
+                                {
+                                  "retCode": 0,
+                                  "retMsg": "OK",
+                                  "result": {
+                                    "list": [{
+                                      "symbol": "BTCUSDT",
+                                      "status": "Trading",
+                                      "contractType": "LinearPerpetual",
+                                      "baseCoin": "BTC",
+                                      "quoteCoin": "USDT",
+                                      "settleCoin": "USDT",
+                                      "unifiedMarginTrade": true,
+                                      "lotSizeFilter": {"minOrderQty":"0.001","qtyStep":"0.001","minNotionalValue":"5"},
+                                      "priceFilter": {"tickSize":"0.1"},
+                                      "leverageFilter": {"minLeverage":"1","maxLeverage":"100","leverageStep":"0.01"}
+                                    }]
+                                  }
+                                }
+                                """.trimIndent()
+                            }
+                            else -> error("unexpected path ${request.url.encodedPath}")
+                        }
+                    respond(
+                        content = content,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val account = client.accountExecutionProfile()
+            val position = client.positionExecutionProfile(Symbol("BTCUSDT"))
+            val instrument = client.instrumentRules(Symbol("BTCUSDT"))
+
+            requestedPaths.shouldContainExactly(
+                "/v5/account/info",
+                "/v5/position/list",
+                "/v5/market/instruments-info",
+            )
+            account.accountMode shouldBe ExchangeAccountMode.UNIFIED_2
+            account.marginMode shouldBe ExchangeMarginMode.CROSS
+            position.positionMode shouldBe ExchangePositionMode.ONE_WAY
+            position.buyLeverage shouldBe BigDecimal.ONE
+            position.sellLeverage shouldBe BigDecimal.ONE
+            instrument.minimumOrderQuantity shouldBe BigDecimal("0.001")
+            instrument.quantityStep shouldBe BigDecimal("0.001")
+            instrument.minimumNotional shouldBe BigDecimal("5")
+            instrument.priceTick shouldBe BigDecimal("0.1")
+            instrument.unifiedMarginTrade shouldBe true
         }
 
         "accountTransactions paginates and maps balance-changing events" {

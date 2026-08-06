@@ -183,6 +183,76 @@ data class ExchangePosition(
     val stopLoss: BigDecimal? = null,
 )
 
+enum class ExchangeAccountMode {
+    CLASSIC,
+    UNIFIED_1,
+    UNIFIED_2,
+    UNKNOWN,
+}
+
+enum class ExchangeMarginMode {
+    CROSS,
+    ISOLATED,
+    PORTFOLIO,
+    UNKNOWN,
+}
+
+enum class ExchangePositionMode {
+    ONE_WAY,
+    HEDGE,
+    UNKNOWN,
+}
+
+data class ExchangeAccountExecutionProfile(
+    val accountType: String,
+    val accountMode: ExchangeAccountMode,
+    val unifiedMarginStatus: Int,
+    val marginMode: ExchangeMarginMode,
+    val updatedAt: Instant?,
+)
+
+data class ExchangePositionExecutionProfile(
+    val symbol: Symbol,
+    val positionMode: ExchangePositionMode,
+    val buyLeverage: BigDecimal?,
+    val sellLeverage: BigDecimal?,
+    val observedPositionIndices: Set<Int>,
+    val reduceOnlyRestricted: Boolean,
+)
+
+data class ExchangeInstrumentRules(
+    val symbol: Symbol,
+    val status: String,
+    val contractType: String,
+    val baseCoin: String,
+    val quoteCoin: String,
+    val settleCoin: String,
+    val unifiedMarginTrade: Boolean,
+    val minimumOrderQuantity: BigDecimal,
+    val quantityStep: BigDecimal,
+    val minimumNotional: BigDecimal,
+    val priceTick: BigDecimal,
+    val minimumLeverage: BigDecimal,
+    val maximumLeverage: BigDecimal,
+    val leverageStep: BigDecimal,
+) {
+    init {
+        require(status.isNotBlank() && contractType.isNotBlank()) { "Exchange instrument status must not be blank." }
+        require(baseCoin.isNotBlank() && quoteCoin.isNotBlank() && settleCoin.isNotBlank()) {
+            "Exchange instrument currencies must not be blank."
+        }
+        require(minimumOrderQuantity > BigDecimal.ZERO && quantityStep > BigDecimal.ZERO) {
+            "Exchange instrument quantity rules must be positive."
+        }
+        require(minimumNotional > BigDecimal.ZERO && priceTick > BigDecimal.ZERO) {
+            "Exchange instrument notional and price rules must be positive."
+        }
+        require(minimumLeverage > BigDecimal.ZERO && maximumLeverage >= minimumLeverage && leverageStep > BigDecimal.ZERO) {
+            "Exchange instrument leverage rules are invalid."
+        }
+    }
+}
+
 data class ExchangePositionProtectionRequest(
     val symbol: Symbol,
     val takeProfit: BigDecimal?,
@@ -393,6 +463,15 @@ enum class ExchangeEvaluationStatus {
 }
 
 interface ExchangeExecutionGateway {
+    suspend fun accountExecutionProfile(): ExchangeAccountExecutionProfile =
+        throw ExchangeExecutionException("Exchange account execution profile is unavailable.")
+
+    suspend fun positionExecutionProfile(symbol: Symbol): ExchangePositionExecutionProfile =
+        throw ExchangeExecutionException("Exchange position execution profile is unavailable.")
+
+    suspend fun instrumentRules(symbol: Symbol): ExchangeInstrumentRules =
+        throw ExchangeExecutionException("Exchange instrument rules are unavailable.")
+
     suspend fun setLeverage(
         symbol: Symbol,
         leverage: BigDecimal,

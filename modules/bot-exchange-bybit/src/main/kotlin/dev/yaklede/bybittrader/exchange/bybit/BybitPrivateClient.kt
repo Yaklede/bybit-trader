@@ -5,6 +5,8 @@ import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountExecutionProfile
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
@@ -13,10 +15,14 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
+import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
+import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -51,6 +57,65 @@ class BybitPrivateClient(
 
     init {
         require(config.baseUrl.isNotBlank()) { "Bybit private base URL must not be blank." }
+    }
+
+    override suspend fun accountExecutionProfile(): ExchangeAccountExecutionProfile {
+        val response =
+            signedGet<BybitAccountInfoResponse>(
+                path = "/v5/account/info",
+                queryString = "",
+            )
+        response.requireSuccess("get account info")
+        val result = response.result ?: throw ExchangeExecutionException("Bybit account info response had no result.")
+        return ExchangeAccountExecutionProfile(
+            accountType = config.accountType,
+            accountMode = result.unifiedMarginStatus.toExchangeAccountMode(),
+            unifiedMarginStatus = result.unifiedMarginStatus,
+            marginMode = result.marginMode.toExchangeMarginMode(),
+            updatedAt = result.updatedTime.toInstantFromMillisOrNull(),
+        )
+    }
+
+    override suspend fun positionExecutionProfile(symbol: Symbol): ExchangePositionExecutionProfile {
+        val response = positionResponse(symbol)
+        val positions = response.result?.list.orEmpty()
+        val indices = positions.mapNotNull(BybitPositionItem::positionIdx).toSet()
+        val positionMode =
+            when {
+                indices == setOf(0) -> ExchangePositionMode.ONE_WAY
+                indices.isNotEmpty() && indices.all { it == 1 || it == 2 } -> ExchangePositionMode.HEDGE
+                else -> ExchangePositionMode.UNKNOWN
+            }
+        val oneWayLeverage = positions.firstOrNull { it.positionIdx == 0 }?.leverage.toBigDecimalOrNull()
+        return ExchangePositionExecutionProfile(
+            symbol = symbol,
+            positionMode = positionMode,
+            buyLeverage = positions.firstOrNull { it.positionIdx == 1 }?.leverage.toBigDecimalOrNull() ?: oneWayLeverage,
+            sellLeverage = positions.firstOrNull { it.positionIdx == 2 }?.leverage.toBigDecimalOrNull() ?: oneWayLeverage,
+            observedPositionIndices = indices,
+            reduceOnlyRestricted = positions.any(BybitPositionItem::isReduceOnly),
+        )
+    }
+
+    override suspend fun instrumentRules(symbol: Symbol): ExchangeInstrumentRules {
+        val query =
+            bybitQueryString(
+                "category" to config.category.apiValue,
+                "symbol" to symbol.value,
+            )
+        val response =
+            publicGet<BybitInstrumentInfoResponse>(
+                path = "/v5/market/instruments-info",
+                queryString = query,
+            )
+        response.requireSuccess("get instrument info")
+        val item =
+            response.result
+                ?.list
+                .orEmpty()
+                .singleOrNull { it.symbol == symbol.value }
+                ?: throw ExchangeExecutionException("Bybit instrument info response had no exact symbol.")
+        return item.toExchangeInstrumentRules(symbol)
     }
 
     override suspend fun setLeverage(
@@ -173,6 +238,14 @@ class BybitPrivateClient(
     }
 
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> {
+        val response = positionResponse(symbol)
+        return response.result
+            ?.list
+            .orEmpty()
+            .mapNotNull { item -> item.toExchangePosition(symbol) }
+    }
+
+    private suspend fun positionResponse(symbol: Symbol): BybitPositionsResponse {
         val query =
             bybitQueryString(
                 "category" to config.category.apiValue,
@@ -184,10 +257,7 @@ class BybitPrivateClient(
                 queryString = query,
             )
         response.requireSuccess("list positions")
-        return response.result
-            ?.list
-            .orEmpty()
-            .mapNotNull { item -> item.toExchangePosition(symbol) }
+        return response
     }
 
     override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> {
@@ -294,7 +364,7 @@ class BybitPrivateClient(
         val headers = signer.signGet(queryString)
         return try {
             httpClient
-                .get("${config.baseUrl.trimEnd('/')}$path?$queryString") {
+                .get(config.requestUrl(path, queryString)) {
                     apply(headers)
                 }.body()
         } catch (cause: CancellationException) {
@@ -303,6 +373,18 @@ class BybitPrivateClient(
             throw ExchangeExecutionException("Bybit private request failed.", cause = cause)
         }
     }
+
+    private suspend inline fun <reified T> publicGet(
+        path: String,
+        queryString: String,
+    ): T =
+        try {
+            httpClient.get(config.requestUrl(path, queryString)).body()
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            throw ExchangeExecutionException("Bybit public instrument request failed.", cause = cause)
+        }
 
     private suspend inline fun <reified T> signedPost(
         path: String,
@@ -323,6 +405,11 @@ class BybitPrivateClient(
         }
     }
 }
+
+private fun BybitPrivateClientConfig.requestUrl(
+    path: String,
+    queryString: String,
+): String = "${baseUrl.trimEnd('/')}$path${queryString.takeIf(String::isNotBlank)?.let { "?$it" }.orEmpty()}"
 
 data class BybitPrivateClientConfig(
     val keyId: String,
@@ -428,6 +515,22 @@ private fun String?.toOrderStatus(): OrderStatus =
         else -> OrderStatus.SUBMITTED
     }
 
+private fun Int.toExchangeAccountMode(): ExchangeAccountMode =
+    when (this) {
+        1 -> ExchangeAccountMode.CLASSIC
+        3, 4 -> ExchangeAccountMode.UNIFIED_1
+        5, 6 -> ExchangeAccountMode.UNIFIED_2
+        else -> ExchangeAccountMode.UNKNOWN
+    }
+
+private fun String.toExchangeMarginMode(): ExchangeMarginMode =
+    when (this) {
+        "REGULAR_MARGIN" -> ExchangeMarginMode.CROSS
+        "ISOLATED_MARGIN" -> ExchangeMarginMode.ISOLATED
+        "PORTFOLIO_MARGIN" -> ExchangeMarginMode.PORTFOLIO
+        else -> ExchangeMarginMode.UNKNOWN
+    }
+
 private fun String?.toBigDecimalOrNull(): BigDecimal? = this?.takeIf { it.isNotBlank() }?.let(::BigDecimal)
 
 private fun String?.toPositiveBigDecimalOrNull(): BigDecimal? = toBigDecimalOrNull()?.takeIf { value -> value > BigDecimal.ZERO }
@@ -471,6 +574,24 @@ private fun BybitPositionItem.toExchangePosition(fallbackSymbol: Symbol): Exchan
         stopLoss = stopLoss.toPositiveBigDecimalOrNull(),
     )
 }
+
+private fun BybitInstrumentInfoItem.toExchangeInstrumentRules(fallbackSymbol: Symbol): ExchangeInstrumentRules =
+    ExchangeInstrumentRules(
+        symbol = symbol?.let(::Symbol) ?: fallbackSymbol,
+        status = requireNotNull(status) { "Bybit instrument status was absent." },
+        contractType = requireNotNull(contractType) { "Bybit instrument contract type was absent." },
+        baseCoin = requireNotNull(baseCoin) { "Bybit instrument base coin was absent." },
+        quoteCoin = requireNotNull(quoteCoin) { "Bybit instrument quote coin was absent." },
+        settleCoin = requireNotNull(settleCoin) { "Bybit instrument settle coin was absent." },
+        unifiedMarginTrade = unifiedMarginTrade,
+        minimumOrderQuantity = requireNotNull(lotSizeFilter?.minOrderQty.toBigDecimalOrNull()),
+        quantityStep = requireNotNull(lotSizeFilter?.qtyStep.toBigDecimalOrNull()),
+        minimumNotional = requireNotNull(lotSizeFilter?.minNotionalValue.toBigDecimalOrNull()),
+        priceTick = requireNotNull(priceFilter?.tickSize.toBigDecimalOrNull()),
+        minimumLeverage = requireNotNull(leverageFilter?.minLeverage.toBigDecimalOrNull()),
+        maximumLeverage = requireNotNull(leverageFilter?.maxLeverage.toBigDecimalOrNull()),
+        leverageStep = requireNotNull(leverageFilter?.leverageStep.toBigDecimalOrNull()),
+    )
 
 private fun BybitExecutionItem.toExchangeExecution(fallbackSymbol: Symbol): ExchangeExecutionFill? {
     val side = side.toSide() ?: return null
@@ -719,6 +840,68 @@ private data class BybitPositionItem(
     val takeProfit: String? = null,
     val stopLoss: String? = null,
     val updatedTime: String? = null,
+    val positionIdx: Int? = null,
+    val leverage: String? = null,
+    val isReduceOnly: Boolean = false,
+)
+
+@Serializable
+private data class BybitAccountInfoResponse(
+    override val retCode: Int,
+    override val retMsg: String,
+    val result: BybitAccountInfoResult? = null,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitAccountInfoResult(
+    val unifiedMarginStatus: Int,
+    val marginMode: String,
+    val updatedTime: String? = null,
+)
+
+@Serializable
+private data class BybitInstrumentInfoResponse(
+    override val retCode: Int,
+    override val retMsg: String,
+    val result: BybitInstrumentInfoResult? = null,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitInstrumentInfoResult(
+    val list: List<BybitInstrumentInfoItem> = emptyList(),
+)
+
+@Serializable
+private data class BybitInstrumentInfoItem(
+    val symbol: String? = null,
+    val status: String? = null,
+    val contractType: String? = null,
+    val baseCoin: String? = null,
+    val quoteCoin: String? = null,
+    val settleCoin: String? = null,
+    val unifiedMarginTrade: Boolean = false,
+    val lotSizeFilter: BybitLotSizeFilter? = null,
+    val priceFilter: BybitPriceFilter? = null,
+    val leverageFilter: BybitLeverageFilter? = null,
+)
+
+@Serializable
+private data class BybitLotSizeFilter(
+    val minOrderQty: String? = null,
+    val qtyStep: String? = null,
+    val minNotionalValue: String? = null,
+)
+
+@Serializable
+private data class BybitPriceFilter(
+    val tickSize: String? = null,
+)
+
+@Serializable
+private data class BybitLeverageFilter(
+    val minLeverage: String? = null,
+    val maxLeverage: String? = null,
+    val leverageStep: String? = null,
 )
 
 @Serializable
