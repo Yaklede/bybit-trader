@@ -240,6 +240,9 @@ fun VolumeFlowAggressiveBacktestConfig.positionPolicy(): AutomaticPositionPolicy
         timeframe = Timeframe.M5,
         maxHoldCandles = maxHoldCandles,
         maxTradesPerUtcDay = maxTradesPerDay,
+        atrTrailingPeriod = atrLookback,
+        atrTrailingMultiplier = trailingAtrMultiple ?: 0.0,
+        fixedTargetEnabled = trailingAtrMultiple == null,
     )
 
 data class VolumeFlowAggressiveAdaptiveStop(

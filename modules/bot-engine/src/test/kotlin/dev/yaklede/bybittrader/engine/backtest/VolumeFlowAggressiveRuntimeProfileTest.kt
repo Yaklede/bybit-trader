@@ -16,6 +16,8 @@ class VolumeFlowAggressiveRuntimeProfileTest :
                 .maxHoldingDuration
                 .toHours() shouldBe 3
             profile.strategyConfig.positionPolicy().maxTradesPerUtcDay shouldBe 5
+            profile.strategyConfig.positionPolicy().atrTrailingPeriod shouldBe profile.strategyConfig.atrLookback
+            profile.strategyConfig.positionPolicy().fixedTargetEnabled shouldBe true
             replay.profileId shouldBe profile.profileId
             replay.initialEquity shouldBe 100.0
             replay.executionContract() shouldBe profile.executionContract
