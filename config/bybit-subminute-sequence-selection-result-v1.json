@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-subminute-sequence-selection-result-v1",
+  "status": "REJECTED_NO_SELECTION_CANDIDATE",
+  "programStatus": "CLOSED_NO_APPROVABLE_SUBMINUTE_SEQUENCE_STRATEGY_V1",
+  "protocolId": "bybit-subminute-sequence-development-v1",
+  "protocolSha256": "24b5ffe11cf86ecf9452cfb5caa937e49358729198cf4e9b5aad074693e5dbb9",
+  "acquisitionReceiptSha256": "05e98d5b7628b3a75ff89f4150209538a21eb45058fc8856197a5a088eeb3ad9",
+  "selectionSnapshotSha256": "bb7b95dda9de96835b4288a0e35ff03a4ed27d39d32caf5a85923b8b6e93e15f",
+  "normalizedFeatureSha256": "ba3265dd57cae8b008fbb433e131c94c4b9521342e64b77238a763a4b85a83c9",
+  "implementationSha256": "014a1302a4ed446e9e939773d1954190b9f5f699f3a72a37c213ae95f848e01e",
+  "resultArtifactSha256": "bc4161820df2d2d4c991a069d61254299b2f52df0e1254459b42cade9edafb9b",
+  "generatedAt": "2026-08-06T12:08:33.619Z",
+  "trialAccounting": {
+    "priorClosedProgramCandidates": 191,
+    "stageCandidates": 32,
+    "cumulativeObservedCandidates": 223,
+    "absorptionReversalCandidates": 16,
+    "depletionContinuationCandidates": 16
+  },
+  "selection2023": {
+    "evaluationDays": 24,
+    "eligibleCandidateCount": 0,
+    "profitableCandidateCount": 8,
+    "candidateTradeCountRange": {"minimum": 2, "maximum": 15},
+    "candidateNetReturnPctRange": {"minimum": -4.37784779, "maximum": 0.77550025},
+    "candidateMeanNetRRange": {"minimum": -0.75323468, "maximum": 0.39716226},
+    "candidateProfitFactorRange": {"minimum": 0, "maximum": 2.50629166},
+    "candidateMaxDrawdownPctRange": {"minimum": 0.6302336, "maximum": 4.40058522},
+    "gateFailureCounts": {
+      "minimumTrades": 32,
+      "minimumLongTrades": 32,
+      "minimumPositiveQuarterCount": 32,
+      "maximumWinnerProfitConcentration": 31,
+      "minimumBootstrapLowerMeanNetR": 31,
+      "minimumShortTrades": 13,
+      "minimumProfitFactor": 24,
+      "minimumMeanNetR": 24
+    }
+  },
+  "bestByFamily": [
+    {
+      "family": "SUBMINUTE_ABSORPTION_REVERSAL",
+      "candidateId": "subminute_absorption_reversal_09",
+      "tradeCount": 11,
+      "longTrades": 1,
+      "shortTrades": 10,
+      "netReturnPct": 0.77550025,
+      "compoundDailyReturnPct": 0.03219304,
+      "meanNetR": 0.142626,
+      "profitFactor": 1.64735103,
+      "maxDrawdownPct": 1.05850578,
+      "positiveQuarterCount": 1,
+      "bootstrapLowerMeanNetR": 0,
+      "winnerProfitConcentration": 0.49230765,
+      "exitCounts": {"time": 9, "target": 1, "stop": 1}
+    },
+    {
+      "family": "SUBMINUTE_DEPLETION_CONTINUATION",
+      "candidateId": "subminute_depletion_continuation_14",
+      "tradeCount": 2,
+      "longTrades": 0,
+      "shortTrades": 2,
+      "netReturnPct": -0.15470719,
+      "compoundDailyReturnPct": -0.00645092,
+      "meanNetR": -0.15877771,
+      "profitFactor": 0.68348547,
+      "maxDrawdownPct": 0.67980626,
+      "positiveQuarterCount": 0,
+      "bootstrapLowerMeanNetR": -0.03969443,
+      "winnerProfitConcentration": 1,
+      "exitCounts": {"time": 1, "stop": 1}
+    }
+  ],
+  "featureScaleDiagnostic": [
+    {"blockId": "S01", "meanAbsoluteMicropriceEdgeBps": 0.03390883, "absoluteThresholdPassBucketCount": 26747, "meanCloseSpreadBps": 0.11383264},
+    {"blockId": "S02", "meanAbsoluteMicropriceEdgeBps": 0.01191391, "absoluteThresholdPassBucketCount": 5, "meanCloseSpreadBps": 0.03762246},
+    {"blockId": "S03", "meanAbsoluteMicropriceEdgeBps": 0.01055898, "absoluteThresholdPassBucketCount": 7, "meanCloseSpreadBps": 0.03313306},
+    {"blockId": "S04", "meanAbsoluteMicropriceEdgeBps": 0.01122027, "absoluteThresholdPassBucketCount": 3, "meanCloseSpreadBps": 0.0363588}
+  ],
+  "conclusion": [
+    "NO_CANDIDATE_MET_THE_PREDECLARED_2023_SELECTION_GATE",
+    "ALL_32_CANDIDATES_FAILED_MINIMUM_TRADES_LONG_TRADES_AND_POSITIVE_QUARTERS",
+    "THE_EIGHT_POSITIVE_ABSORPTION_ROWS_TRADED_ALMOST_EXCLUSIVELY_IN_2023Q1",
+    "THE_ABSOLUTE_MICROPRICE_BPS_CONFIRMATION_COLLAPSED_WHEN_THE_OBSERVED_SPREAD_SCALE_CONTRACTED",
+    "THE_DEPLETION_CONTINUATION_FAMILY_HAD_ZERO_PROFITABLE_CANDIDATES",
+    "THE_2024_INTERNAL_AND_ALL_LATER_EVIDENCE_REMAIN_UNREAD",
+    "THIS_RESULT_CANNOT_SUPPORT_AUTOMATIC_OR_LIVE_EXECUTION"
+  ],
+  "nextStageBoundary": {
+    "allowed": [
+      "DECLARE_A_NEW_SPREAD_NORMALIZED_MICROPRICE_FEATURE_CONTRACT_BEFORE_REPLAYING_ITS_OUTCOMES",
+      "COUNT_EVERY_NEW_CANDIDATE_IN_THE_CUMULATIVE_TRIAL_LEDGER",
+      "REUSE_2023_ONLY_AS_EXPLICIT_DEVELOPMENT_EVIDENCE",
+      "PRESERVE_2024_AS_UNREAD_INTERNAL_VALIDATION"
+    ],
+    "notAllowed": [
+      "LOWER_THE_ABSOLUTE_MICROPRICE_THRESHOLD_INSIDE_THE_CLOSED_V1_PROGRAM",
+      "PROMOTE_THE_Q1_ONLY_ABSORPTION_ROW",
+      "ACQUIRE_2024_FOR_THE_REJECTED_V1_PROGRAM",
+      "ENABLE_AUTOMATIC_OR_LIVE_EXECUTION"
+    ]
+  },
+  "internalValidation2024Read": false,
+  "expansionRead": false,
+  "validation2025Read": false,
+  "external2026Read": false,
+  "freshSealedRead": false,
+  "internalValidationAcquisitionAllowed": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}

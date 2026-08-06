@@ -42,6 +42,15 @@ Initial public repository placeholder for a Bybit trading automation project.
 > `-0.14276R`. The 2025 validation, 2026 external, and fresh sealed windows
 > remain unread. See the
 > [event-flow research closure](docs/backend/event-flow-research-closure-2026-08-06.md).
+>
+> **5-second sequence v1 rejected (2026-08-06):** all 32 predeclared
+> absorption and depletion candidates failed the 2023 selection gate. The best
+> absorption row returned `+0.77550%` over 24 evaluation days but traded only
+> 11 times, had one Long, and was profitable in only one quarter. Its fixed
+> `0.05bps` microprice confirmation was scale-dependent: qualifying buckets
+> fell from 26,747 in Q1 to 5, 7, and 3 in the remaining quarters as observed
+> spreads contracted. The v1 program is closed; 2024 and later evidence remain
+> unread, and no profile is approved for automatic or live execution.
 
 Milestone 1 is the operational backend shell:
 
