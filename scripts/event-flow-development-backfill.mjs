@@ -59,8 +59,29 @@ export function parseArgs(argv) {
 export async function acquireDevelopment(options, dependencies = {}) {
   const protocolBytes = await readFile(options.protocol);
   const protocol = validateEventFlowProtocol(JSON.parse(protocolBytes));
-  const protocolSha256 = sha256(protocolBytes);
   const blocks = acquisitionBlocks(protocol, "development");
+  return acquireEventFlowBlocks({
+    options,
+    protocolBytes,
+    protocol,
+    blocks,
+    stage: "development",
+    sourceFingerprintField: "developmentSourceFingerprintSha256",
+    logLabel: "event-flow development",
+  }, dependencies);
+}
+
+export async function acquireEventFlowBlocks(context, dependencies = {}) {
+  const {
+    options,
+    protocolBytes,
+    protocol,
+    blocks,
+    stage,
+    sourceFingerprintField,
+    logLabel,
+  } = context;
+  const protocolSha256 = sha256(protocolBytes);
   const repositoryRoot = resolve(dirname(options.protocol), "..");
   const sourceDatabase = resolve(repositoryRoot, protocol.sourceData.canonicalCandleDatabase);
   const targetDatabase = resolve(repositoryRoot, protocol.sourceData.researchDatabase);
@@ -94,7 +115,7 @@ export async function acquireDevelopment(options, dependencies = {}) {
     schemaVersion: 1,
     protocolId: protocol.protocolId,
     protocolSha256,
-    stage: "development",
+    stage,
     status: "IN_PROGRESS",
     sourceDatabase: protocol.sourceData.canonicalCandleDatabase,
     sourceDatabaseSha256: actualSourceSha256,
@@ -104,7 +125,7 @@ export async function acquireDevelopment(options, dependencies = {}) {
     completedBlocks: [],
     failure: null,
     targetDatabaseSha256: null,
-    developmentSourceFingerprintSha256: null,
+    [sourceFingerprintField]: null,
   };
 
   let failure = null;
@@ -114,12 +135,13 @@ export async function acquireDevelopment(options, dependencies = {}) {
       protocolId: protocol.protocolId,
       protocolSha256,
       sourceDatabaseSha256: actualSourceSha256,
+      stage,
     });
     assertDevelopmentOnly(targetDb, blocks);
     await writeReport(reportPath, report);
 
     for (const block of blocks) {
-      log(`event-flow development acquisition started block=${block.id} range=${block.sourceStartDate}..${block.sourceEndDate}`);
+      log(`${logLabel} acquisition started block=${block.id} range=${block.sourceStartDate}..${block.sourceEndDate}`);
       copyCandleBlock(sourceDb, targetDb, protocol.sourceData.symbol, protocol.sourceData.timeframes, block);
       assertDevelopmentOnly(targetDb, blocks);
 
@@ -168,12 +190,12 @@ export async function acquireDevelopment(options, dependencies = {}) {
       });
       report.updatedAt = now();
       await writeReport(reportPath, report);
-      log(`event-flow development acquisition completed block=${block.id} fingerprint=${audit.sourceFingerprintSha256}`);
+      log(`${logLabel} acquisition completed block=${block.id} fingerprint=${audit.sourceFingerprintSha256}`);
     }
     assertDevelopmentOnly(targetDb, blocks);
     report.status = "COMPLETE";
     report.updatedAt = now();
-    report.developmentSourceFingerprintSha256 = sha256(
+    report[sourceFingerprintField] = sha256(
       report.completedBlocks.map((block) => `${block.id}|${block.sourceFingerprintSha256}`).join("\n"),
     );
   } catch (error) {
@@ -225,7 +247,7 @@ export function bindResearchDatabase(db, expected) {
   const entries = new Map([
     ["protocolId", expected.protocolId],
     ["protocolSha256", expected.protocolSha256],
-    ["stage", "development"],
+    ["stage", expected.stage ?? "development"],
     ["sourceDatabaseSha256", expected.sourceDatabaseSha256],
   ]);
   const select = db.prepare("SELECT value FROM researchAcquisitionMetadata WHERE key=?");

@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
+  acquireEventFlowBlocks,
   assertDevelopmentOnly,
   bindResearchDatabase,
   copyCandleBlock,
@@ -77,6 +81,10 @@ test("research database binding cannot be silently reused by another protocol", 
     () => bindResearchDatabase(db, { ...expected, protocolSha256: "c".repeat(64) }),
     /metadata mismatch/,
   );
+  assert.throws(
+    () => bindResearchDatabase(db, { ...expected, stage: "fixed-candidate-extension" }),
+    /metadata mismatch/,
+  );
   db.close();
 });
 
@@ -89,6 +97,68 @@ test("continuous candle validation rejects time gaps even when row count matches
     { opened_at: "2024-01-01T00:00:00Z" },
     { opened_at: "2024-01-01T00:02:00Z" },
   ], "2024-01-01T00:00:00Z", 2, 60_000), false);
+});
+
+test("generic event-flow acquisition seals an explicit extension stage and fingerprint", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "event-flow-extension-"));
+  const source = new DatabaseSync(":memory:");
+  const target = new DatabaseSync(":memory:");
+  createCandleSchema(source);
+  seedTimeframe(source, "BTCUSDT", "M1", "2024-01-01", 1_440, 60_000);
+  const block = {
+    id: "X01",
+    era: "TEST",
+    sourceStartDate: "2024-01-01",
+    sourceEndDate: "2024-01-01",
+    replayStartAt: "2024-01-01T00:00:00Z",
+    replayEndAt: "2024-01-02T00:00:00Z",
+  };
+  let hashCalls = 0;
+  try {
+    const report = await acquireEventFlowBlocks({
+      options: {
+        protocol: path.join(root, "config", "protocol.json"),
+        report: path.join(root, "extension-report.json"),
+      },
+      protocolBytes: Buffer.from("frozen-extension"),
+      protocol: {
+        protocolId: "extension-test-v1",
+        sourceData: {
+          canonicalCandleDatabase: "source.sqlite",
+          canonicalCandleDatabaseSha256: "a".repeat(64),
+          researchDatabase: "target.sqlite",
+          symbol: "BTCUSDT",
+          timeframes: ["M1"],
+        },
+      },
+      blocks: [block],
+      stage: "fixed-candidate-extension",
+      sourceFingerprintField: "extensionSourceFingerprintSha256",
+      logLabel: "test extension",
+    }, {
+      sourceDb: source,
+      targetDb: target,
+      hashFile: async () => (++hashCalls === 1 ? "a".repeat(64) : "c".repeat(64)),
+      orderBookBackfill: async () => {},
+      tradeBackfill: async () => {},
+      coverageAudit: () => ({
+        status: "COMPLETE",
+        sourceFingerprintSha256: "b".repeat(64),
+        days: [{ orderBookArchiveSha256: "d".repeat(64), tradeArchiveSha256: "e".repeat(64) }],
+      }),
+      now: () => "2026-08-06T00:00:00.000Z",
+      log: () => {},
+    });
+    assert.equal(report.status, "COMPLETE");
+    assert.equal(report.stage, "fixed-candidate-extension");
+    assert.match(report.extensionSourceFingerprintSha256, /^[a-f0-9]{64}$/);
+    assert.equal(report.developmentSourceFingerprintSha256, undefined);
+    assert.equal(target.prepare("SELECT value FROM researchAcquisitionMetadata WHERE key='stage'").get().value, "fixed-candidate-extension");
+  } finally {
+    source.close();
+    target.close();
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 function createCandleSchema(db) {
