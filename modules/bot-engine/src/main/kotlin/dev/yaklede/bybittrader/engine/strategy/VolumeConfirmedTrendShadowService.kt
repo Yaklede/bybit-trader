@@ -157,7 +157,25 @@ interface VolumeConfirmedTrendShadowStore {
         sessionId: String,
         limit: Int,
     ): List<VolumeConfirmedTrendShadowEvent>
+
+    suspend fun trendShadowEvents(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): List<VolumeConfirmedTrendShadowEvent> {
+        val state = trendShadowState(protocolId, symbol) ?: return emptyList()
+        return trendShadowEvents(state.sessionId, limit)
+    }
 }
+
+data class VolumeConfirmedTrendShadowReport(
+    val protocolId: String,
+    val candidateId: String,
+    val protocolSha256: String,
+    val symbol: Symbol,
+    val state: VolumeConfirmedTrendShadowState?,
+    val recentEvents: List<VolumeConfirmedTrendShadowEvent>,
+)
 
 enum class VolumeConfirmedTrendShadowEvaluationStatus {
     BOOTSTRAPPED,
@@ -199,6 +217,18 @@ class VolumeConfirmedTrendShadowService(
     }
 
     suspend fun state(): VolumeConfirmedTrendShadowState? = shadowStore.trendShadowState(config.bootstrap.protocolId, config.symbol)
+
+    suspend fun report(limit: Int): VolumeConfirmedTrendShadowReport {
+        require(limit in 1..100) { "Trend shadow report event limit must be between 1 and 100." }
+        return VolumeConfirmedTrendShadowReport(
+            protocolId = config.bootstrap.protocolId,
+            candidateId = config.bootstrap.candidateId,
+            protocolSha256 = config.bootstrap.protocolSha256,
+            symbol = config.symbol,
+            state = shadowStore.trendShadowState(config.bootstrap.protocolId, config.symbol),
+            recentEvents = shadowStore.trendShadowEvents(config.bootstrap.protocolId, config.symbol, limit),
+        )
+    }
 
     suspend fun evaluate(ticker: MarketTicker): VolumeConfirmedTrendShadowEvaluationResult {
         require(ticker.symbol == config.symbol) { "Trend shadow ticker symbol does not match its configuration." }

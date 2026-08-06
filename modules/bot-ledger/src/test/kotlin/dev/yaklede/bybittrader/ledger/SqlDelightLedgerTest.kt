@@ -1032,12 +1032,20 @@ class SqlDelightLedgerTest :
             val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
             val state = sampleTrendShadowState()
             val event = sampleTrendShadowEvent(state)
+            val previousEvent =
+                event.copy(
+                    eventId = "c".repeat(64),
+                    sessionId = "trend-shadow-ledger-previous",
+                    eventAt = event.eventAt.minusSeconds(14_400),
+                    observedAt = event.observedAt.minusSeconds(14_400),
+                )
 
-            ledger.commitTrendShadow(state, listOf(event))
-            ledger.commitTrendShadow(state, listOf(event))
+            ledger.commitTrendShadow(state, listOf(previousEvent, event))
+            ledger.commitTrendShadow(state, listOf(previousEvent, event))
 
             ledger.trendShadowState(state.protocolId, state.symbol) shouldBe state
             ledger.trendShadowEvents(state.sessionId, 10) shouldBe listOf(event)
+            ledger.trendShadowEvents(state.protocolId, state.symbol, 10) shouldBe listOf(previousEvent, event)
         }
     })
 

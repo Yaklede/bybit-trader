@@ -137,6 +137,20 @@ class VolumeConfirmedTrendShadowServiceTest :
             shadowOpen.fee + shadowClose.fee shouldBe historicalShort.fees
             shadowClose.netPnl shouldBe historicalShort.netPnl
         }
+
+        "reports persisted state and recent events without evaluating the strategy" {
+            val fixture = ShadowFixture()
+            val service = fixture.service()
+            service.evaluate(fixture.ticker("2026-01-01T12:01:00Z", "110"))
+
+            val report = service.report(limit = 10)
+
+            report.protocolId shouldBe "trend-test"
+            report.candidateId shouldBe "trend-test-candidate"
+            report.state shouldBe fixture.store.state
+            report.recentEvents shouldBe fixture.events
+            shouldThrow<IllegalArgumentException> { service.report(limit = 0) }
+        }
     })
 
 private class ShadowFixture {

@@ -361,7 +361,7 @@ fun main() {
         }
     val trendShadowScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val trendShadowAlertPolicy = VolumeConfirmedTrendShadowAlertPolicy()
-    val trendShadowJob =
+    val trendShadowService =
         if (config.volumeConfirmedTrendShadow.enabled) {
             val settings = config.volumeConfirmedTrendShadow
             val runtimeDefinition =
@@ -380,21 +380,27 @@ fun main() {
                 settings.initialEquity,
                 runtimeDefinition.bootstrap.indicatorState.lastBarOpenedAt,
             )
-            val shadowService =
-                VolumeConfirmedTrendShadowService(
-                    candleStore = ledger,
-                    flowStore = ledger,
-                    shadowStore = ledger,
-                    config =
-                        VolumeConfirmedTrendShadowConfig(
-                            symbol = config.marketData.symbol,
-                            bootstrap = runtimeDefinition.bootstrap,
-                            initialEquity = settings.initialEquity.toDouble(),
-                            parameters = runtimeDefinition.protocol.parameters,
-                            executionContract = runtimeDefinition.protocol.executionContract,
-                            maximumObservationDelay = settings.maximumObservationDelay,
-                        ),
-                )
+            VolumeConfirmedTrendShadowService(
+                candleStore = ledger,
+                flowStore = ledger,
+                shadowStore = ledger,
+                config =
+                    VolumeConfirmedTrendShadowConfig(
+                        symbol = config.marketData.symbol,
+                        bootstrap = runtimeDefinition.bootstrap,
+                        initialEquity = settings.initialEquity.toDouble(),
+                        parameters = runtimeDefinition.protocol.parameters,
+                        executionContract = runtimeDefinition.protocol.executionContract,
+                        maximumObservationDelay = settings.maximumObservationDelay,
+                    ),
+            )
+        } else {
+            logger.info("volume-confirmed trend shadow disabled")
+            null
+        }
+    val trendShadowJob =
+        trendShadowService?.let { shadowService ->
+            val settings = config.volumeConfirmedTrendShadow
             VolumeConfirmedTrendShadowLoop(
                 marketDataSyncService = marketDataSyncService,
                 fundingRateSyncService =
@@ -449,9 +455,6 @@ fun main() {
                     }
                 },
             ).start(trendShadowScope)
-        } else {
-            logger.info("volume-confirmed trend shadow disabled")
-            null
         }
     val forwardMarketCaptureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val forwardMarketRawEventArchive =
@@ -620,6 +623,7 @@ fun main() {
                 executionService = executionService,
                 controlSymbol = config.marketData.symbol,
                 strategyProfileService = strategyProfileService,
+                volumeConfirmedTrendShadowReportProvider = trendShadowService?.let { service -> service::report },
                 runtimeMode = config.runtimeMode.name,
                 forwardMarketCaptureStatusService =
                     ForwardMarketCaptureStatusService(

@@ -1433,3 +1433,12 @@ FROM volumeConfirmedTrendShadowEvents
 WHERE session_id = ?
 ORDER BY id DESC
 LIMIT ?;
+
+selectVolumeConfirmedTrendShadowEventsByProtocol:
+SELECT id, event_id, session_id, protocol_id, protocol_sha256, symbol, event_type,
+  event_at, observed_at, h4_opened_at, side, reference_price, fill_price, quantity,
+  fee, slippage, funding_pnl, gross_pnl, net_pnl, cash, equity, reason
+FROM volumeConfirmedTrendShadowEvents
+WHERE protocol_id = ? AND symbol = ?
+ORDER BY id DESC
+LIMIT ?;

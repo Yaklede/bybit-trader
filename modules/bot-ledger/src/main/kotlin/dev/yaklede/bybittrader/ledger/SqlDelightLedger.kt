@@ -244,6 +244,23 @@ class SqlDelightLedger(
             .asReversed()
     }
 
+    override suspend fun trendShadowEvents(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): List<VolumeConfirmedTrendShadowEvent> {
+        require(protocolId.isNotBlank()) { "Trend shadow protocol ID must not be blank." }
+        require(limit in 1..10_000) { "Trend shadow event limit must be between 1 and 10000." }
+        return database.ledgerQueries
+            .selectVolumeConfirmedTrendShadowEventsByProtocol(
+                protocol_id = protocolId,
+                symbol = symbol.value,
+                value_ = limit.toLong(),
+            ).executeAsList()
+            .map(VolumeConfirmedTrendShadowEvents::toTrendShadowEvent)
+            .asReversed()
+    }
+
     override suspend fun update(status: BotRuntimeStatus) {
         if (database.ledgerQueries.selectBotState().executeAsOneOrNull() == null) {
             database.ledgerQueries.insertBotState(
