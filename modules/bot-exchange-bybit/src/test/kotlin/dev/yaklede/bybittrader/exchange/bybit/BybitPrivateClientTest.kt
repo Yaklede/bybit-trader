@@ -402,6 +402,102 @@ class BybitPrivateClientTest :
             balance.capturedAt shouldBe Instant.parse("2024-06-30T00:00:00Z")
         }
 
+        "accountTransactions paginates and maps balance-changing events" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.encodedPath shouldBe "/v5/account/transaction-log"
+                    request.url.parameters["accountType"] shouldBe "UNIFIED"
+                    request.url.parameters["category"] shouldBe "linear"
+                    request.url.parameters["currency"] shouldBe "USDT"
+                    request.url.parameters["startTime"] shouldBe "1719705600000"
+                    request.url.parameters["endTime"] shouldBe "1719792000000"
+                    request.url.parameters["limit"] shouldBe "50"
+                    val repeatedTrade =
+                        """
+                        {
+                          "id": "transaction-1",
+                          "symbol": "BTCUSDT",
+                          "category": "linear",
+                          "side": "Buy",
+                          "transactionTime": "1719748800000",
+                          "type": "TRADE",
+                          "transSubType": "",
+                          "qty": "0.2",
+                          "size": "0.2",
+                          "currency": "USDT",
+                          "tradePrice": "70000",
+                          "funding": "0",
+                          "fee": "8.4",
+                          "cashFlow": "20",
+                          "change": "11.6",
+                          "cashBalance": "1011.6",
+                          "feeRate": "0.0006",
+                          "tradeId": "trade-1",
+                          "orderId": "exchange-1",
+                          "orderLinkId": "client-1"
+                        }
+                        """.trimIndent()
+                    val content =
+                        if (requestCount == 1) {
+                            request.url.parameters["cursor"] shouldBe null
+                            """
+                            {"retCode":0,"retMsg":"OK","result":{"nextPageCursor":"cursor-2","list":[$repeatedTrade]}}
+                            """.trimIndent()
+                        } else {
+                            request.url.parameters["cursor"] shouldBe "cursor-2"
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "nextPageCursor": "",
+                                "list": [
+                                  $repeatedTrade,
+                                  {
+                                    "id": "transaction-2",
+                                    "symbol": "BTCUSDT",
+                                    "category": "linear",
+                                    "side": "None",
+                                    "transactionTime": "1719752400000",
+                                    "type": "SETTLEMENT",
+                                    "currency": "USDT",
+                                    "funding": "-0.5",
+                                    "fee": "0",
+                                    "cashFlow": "0",
+                                    "change": "-0.5",
+                                    "cashBalance": "1011.1"
+                                  }
+                                ]
+                              }
+                            }
+                            """.trimIndent()
+                        }
+                    respond(
+                        content = content,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val transactions =
+                client.accountTransactions(
+                    currency = "usdt",
+                    startAt = Instant.parse("2024-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2024-07-01T00:00:00Z"),
+                )
+
+            requestCount shouldBe 2
+            transactions.map { it.transactionId }.shouldContainExactly("transaction-1", "transaction-2")
+            transactions.first().change shouldBe BigDecimal("11.6")
+            transactions.first().fee shouldBe BigDecimal("8.4")
+            transactions.first().side shouldBe Side.BUY
+            transactions.last().funding shouldBe BigDecimal("-0.5")
+            transactions.last().side shouldBe null
+        }
+
         "bybit error responses throw sanitized execution exception" {
             val engine =
                 MockEngine {

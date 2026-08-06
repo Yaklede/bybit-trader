@@ -258,6 +258,29 @@ data class ExchangeAccountBalance(
     val capturedAt: Instant,
 )
 
+data class ExchangeAccountTransaction(
+    val transactionId: String,
+    val symbol: Symbol?,
+    val category: String,
+    val side: Side?,
+    val transactionAt: Instant,
+    val type: String,
+    val subtype: String?,
+    val quantity: BigDecimal?,
+    val size: BigDecimal?,
+    val currency: String,
+    val tradePrice: BigDecimal?,
+    val funding: BigDecimal,
+    val fee: BigDecimal,
+    val cashFlow: BigDecimal,
+    val change: BigDecimal,
+    val cashBalance: BigDecimal?,
+    val feeRate: BigDecimal?,
+    val tradeId: String?,
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+)
+
 data class ExchangeCoinBalance(
     val coin: String,
     val equity: BigDecimal?,
@@ -265,6 +288,7 @@ data class ExchangeCoinBalance(
     val walletBalance: BigDecimal?,
     val locked: BigDecimal?,
     val unrealizedPnl: BigDecimal?,
+    val cumulativeRealizedPnl: BigDecimal? = null,
 )
 
 data class ExchangeReconciliationReport(
@@ -377,6 +401,12 @@ interface ExchangeExecutionGateway {
     suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> = emptyList()
 
     suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance
+
+    suspend fun accountTransactions(
+        currency: String,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeAccountTransaction> = emptyList()
 }
 
 class ExchangeExecutionException(

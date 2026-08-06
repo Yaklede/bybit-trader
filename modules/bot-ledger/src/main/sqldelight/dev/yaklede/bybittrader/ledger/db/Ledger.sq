@@ -318,6 +318,13 @@ CREATE TABLE executionAccountSnapshots (
   total_margin_balance TEXT,
   total_available_balance TEXT,
   total_perp_unrealized_pnl TEXT,
+  total_initial_margin TEXT,
+  total_maintenance_margin TEXT,
+  tracked_coin TEXT,
+  tracked_coin_equity TEXT,
+  tracked_coin_wallet_balance TEXT,
+  tracked_coin_unrealized_pnl TEXT,
+  tracked_coin_cumulative_realized_pnl TEXT,
   captured_at TEXT NOT NULL
 );
 
@@ -334,6 +341,39 @@ CREATE TABLE executionRiskStates (
   last_closure_id INTEGER,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE executionAccountTransactions (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL,
+  transaction_id TEXT NOT NULL,
+  symbol TEXT,
+  category TEXT NOT NULL,
+  side TEXT,
+  transaction_at TEXT NOT NULL,
+  transaction_type TEXT NOT NULL,
+  transaction_subtype TEXT,
+  quantity TEXT,
+  size TEXT,
+  currency TEXT NOT NULL,
+  trade_price TEXT,
+  funding TEXT NOT NULL,
+  fee TEXT NOT NULL,
+  cash_flow TEXT NOT NULL,
+  balance_change TEXT NOT NULL,
+  cash_balance TEXT,
+  fee_rate TEXT,
+  trade_id TEXT,
+  exchange_order_id TEXT,
+  client_order_id TEXT,
+  received_at TEXT NOT NULL,
+  identity_key TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX executionAccountTransactions_identity_idx
+ON executionAccountTransactions(identity_key);
+
+CREATE INDEX executionAccountTransactions_mode_currency_transactionAt_id_idx
+ON executionAccountTransactions(mode, currency, transaction_at, id);
 
 CREATE TABLE livePerformanceSnapshots (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -1044,13 +1084,22 @@ INSERT INTO executionAccountSnapshots(
   total_margin_balance,
   total_available_balance,
   total_perp_unrealized_pnl,
+  total_initial_margin,
+  total_maintenance_margin,
+  tracked_coin,
+  tracked_coin_equity,
+  tracked_coin_wallet_balance,
+  tracked_coin_unrealized_pnl,
+  tracked_coin_cumulative_realized_pnl,
   captured_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectExecutionAccountSnapshots:
 SELECT id, mode, account_type, total_equity, total_wallet_balance, total_margin_balance,
-  total_available_balance, total_perp_unrealized_pnl, captured_at
+  total_available_balance, total_perp_unrealized_pnl, total_initial_margin, total_maintenance_margin,
+  tracked_coin, tracked_coin_equity, tracked_coin_wallet_balance, tracked_coin_unrealized_pnl,
+  tracked_coin_cumulative_realized_pnl, captured_at
 FROM executionAccountSnapshots
 WHERE mode = :mode
   AND (:capturedAtOrAfter IS NULL OR captured_at >= :capturedAtOrAfter)
@@ -1058,7 +1107,9 @@ ORDER BY captured_at ASC, id ASC;
 
 selectLatestExecutionAccountSnapshot:
 SELECT id, mode, account_type, total_equity, total_wallet_balance, total_margin_balance,
-  total_available_balance, total_perp_unrealized_pnl, captured_at
+  total_available_balance, total_perp_unrealized_pnl, total_initial_margin, total_maintenance_margin,
+  tracked_coin, tracked_coin_equity, tracked_coin_wallet_balance, tracked_coin_unrealized_pnl,
+  tracked_coin_cumulative_realized_pnl, captured_at
 FROM executionAccountSnapshots
 WHERE mode = :mode
   AND captured_at <= :capturedAtOrBefore
@@ -1083,6 +1134,56 @@ SELECT mode, peak_equity, utc_day_started_at, day_start_equity, latest_equity,
   consecutive_losses, last_closure_id, updated_at
 FROM executionRiskStates
 WHERE mode = ?;
+
+insertExecutionAccountTransaction:
+INSERT OR IGNORE INTO executionAccountTransactions(
+  mode,
+  transaction_id,
+  symbol,
+  category,
+  side,
+  transaction_at,
+  transaction_type,
+  transaction_subtype,
+  quantity,
+  size,
+  currency,
+  trade_price,
+  funding,
+  fee,
+  cash_flow,
+  balance_change,
+  cash_balance,
+  fee_rate,
+  trade_id,
+  exchange_order_id,
+  client_order_id,
+  received_at,
+  identity_key
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectExecutionAccountTransactions:
+SELECT id, mode, transaction_id, symbol, category, side, transaction_at, transaction_type,
+  transaction_subtype, quantity, size, currency, trade_price, funding, fee, cash_flow,
+  balance_change, cash_balance, fee_rate, trade_id, exchange_order_id, client_order_id,
+  received_at, identity_key
+FROM executionAccountTransactions
+WHERE mode = :mode
+  AND currency = :currency
+  AND (:transactionAtOrAfter IS NULL OR transaction_at >= :transactionAtOrAfter)
+  AND (:transactionAtOrBefore IS NULL OR transaction_at <= :transactionAtOrBefore)
+ORDER BY transaction_at ASC, id ASC;
+
+selectLatestExecutionAccountTransaction:
+SELECT id, mode, transaction_id, symbol, category, side, transaction_at, transaction_type,
+  transaction_subtype, quantity, size, currency, trade_price, funding, fee, cash_flow,
+  balance_change, cash_balance, fee_rate, trade_id, exchange_order_id, client_order_id,
+  received_at, identity_key
+FROM executionAccountTransactions
+WHERE mode = :mode AND currency = :currency
+ORDER BY transaction_at DESC, id DESC
+LIMIT 1;
 
 selectLatestLivePerformanceSnapshot:
 SELECT id, mode, window, trade_count, win_rate_pct, gross_profit, gross_loss, fees, net_pnl, profit_factor, expectancy,

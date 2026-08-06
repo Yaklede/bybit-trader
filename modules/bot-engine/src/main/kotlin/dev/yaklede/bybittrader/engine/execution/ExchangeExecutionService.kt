@@ -659,6 +659,7 @@ class ExchangeExecutionService(
     private suspend fun persistExchangeStateLocked(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
         val accountSnapshot = persistAccountSnapshot()
+        accountSnapshot?.let { snapshot -> persistAccountTransactions(snapshot.capturedAt) }
         persistExecutionFills(report.executions)
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
         accountSnapshot?.let { snapshot -> persistRiskState(snapshot, persistedClosures) }
@@ -1448,6 +1449,52 @@ class ExchangeExecutionService(
                 error.message,
             )
             null
+        }
+    }
+
+    private suspend fun persistAccountTransactions(endAt: Instant): List<ExecutionAccountTransactionEvent> {
+        val store = projectionStore ?: return emptyList()
+        return try {
+            val latest = store.latestAccountTransaction(runtimeMode, ACCOUNT_LEDGER_CURRENCY)
+            val bootstrapStart = endAt.minus(ACCOUNT_TRANSACTION_BOOTSTRAP_RANGE)
+            val overlapStart = latest?.transaction?.transactionAt?.minus(ACCOUNT_TRANSACTION_OVERLAP)
+            val startAt = overlapStart?.takeIf { it.isAfter(bootstrapStart) } ?: bootstrapStart
+            val receivedAt = Instant.now(clock)
+            val persisted =
+                gateway
+                    .accountTransactions(
+                        currency = ACCOUNT_LEDGER_CURRENCY,
+                        startAt = startAt,
+                        endAt = endAt,
+                    ).mapNotNull { transaction ->
+                        val event =
+                            ExecutionAccountTransactionEvent(
+                                mode = runtimeMode,
+                                transaction = transaction,
+                                receivedAt = receivedAt,
+                            )
+                        store.recordAccountTransaction(event)?.let { id -> event.copy(id = id) }
+                    }
+            logger.info(
+                "execution account transactions persisted mode={} currency={} startAt={} endAt={} newTransactions={}",
+                runtimeMode.name,
+                ACCOUNT_LEDGER_CURRENCY,
+                startAt,
+                endAt,
+                persisted.size,
+            )
+            persisted
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.warn(
+                "execution account transaction sync unavailable mode={} currency={} errorType={} message={}",
+                runtimeMode.name,
+                ACCOUNT_LEDGER_CURRENCY,
+                error::class.simpleName,
+                error.message,
+            )
+            emptyList()
         }
     }
 
@@ -2520,8 +2567,9 @@ private fun clientOrderExitReason(clientOrderId: String): String? {
 
 private val GENERIC_EXIT_REASONS = setOf("", "CLOSED_PNL", "CLOSED_PNL_OBSERVED", "UNKNOWN")
 
-private fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRuntimeMode): ExecutionAccountSnapshot =
-    ExecutionAccountSnapshot(
+private fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRuntimeMode): ExecutionAccountSnapshot {
+    val trackedCoin = coins.firstOrNull { coin -> coin.coin.equals(ACCOUNT_LEDGER_CURRENCY, ignoreCase = true) }
+    return ExecutionAccountSnapshot(
         mode = mode,
         accountType = accountType,
         totalEquity = totalEquity,
@@ -2530,7 +2578,15 @@ private fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRun
         totalAvailableBalance = totalAvailableBalance,
         totalPerpUnrealizedPnl = totalPerpUnrealizedPnl,
         capturedAt = capturedAt,
+        totalInitialMargin = totalInitialMargin,
+        totalMaintenanceMargin = totalMaintenanceMargin,
+        trackedCoin = trackedCoin?.coin,
+        trackedCoinEquity = trackedCoin?.equity,
+        trackedCoinWalletBalance = trackedCoin?.walletBalance,
+        trackedCoinUnrealizedPnl = trackedCoin?.unrealizedPnl,
+        trackedCoinCumulativeRealizedPnl = trackedCoin?.cumulativeRealizedPnl,
     )
+}
 
 private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
     mode: ExecutionRuntimeMode,
@@ -2664,6 +2720,9 @@ private object EmptyExecutionProjectionStore : ExecutionProjectionStore {
 private const val SIGNAL_KEY_PREFIX = "SIGNAL_AT_"
 private const val DAILY_ENTRY_EVENT_QUERY_LIMIT = 1000
 private const val RISK_CLOSURE_QUERY_LIMIT = 1000
+private const val ACCOUNT_LEDGER_CURRENCY = "USDT"
+private val ACCOUNT_TRANSACTION_BOOTSTRAP_RANGE: Duration = Duration.ofHours(24)
+private val ACCOUNT_TRANSACTION_OVERLAP: Duration = Duration.ofMinutes(5)
 private val RISK_STATE_REFRESH_REASON_CODES =
     setOf(
         "RISK_STATE_UNAVAILABLE",

@@ -13,8 +13,10 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountTransactionEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
@@ -492,12 +494,20 @@ class SqlDelightLedgerTest :
                     totalAvailableBalance = BigDecimal("900"),
                     totalPerpUnrealizedPnl = BigDecimal.ZERO,
                     capturedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    totalInitialMargin = BigDecimal("50"),
+                    totalMaintenanceMargin = BigDecimal("20"),
+                    trackedCoin = "USDT",
+                    trackedCoinEquity = BigDecimal("1000"),
+                    trackedCoinWalletBalance = BigDecimal("990"),
+                    trackedCoinUnrealizedPnl = BigDecimal("10"),
+                    trackedCoinCumulativeRealizedPnl = BigDecimal("25"),
                 ),
             ) shouldBe 1L
             ledger.accountSnapshots(ExecutionRuntimeMode.LIVE, null).single().totalEquity shouldBe BigDecimal("1000")
             ledger
                 .latestAccountSnapshot(ExecutionRuntimeMode.LIVE, Instant.parse("2026-06-30T00:05:00Z"))
                 ?.totalEquity shouldBe BigDecimal("1000")
+            ledger.accountSnapshots(ExecutionRuntimeMode.LIVE, null).single().trackedCoinWalletBalance shouldBe BigDecimal("990")
 
             val riskState =
                 ExecutionRiskState(
@@ -512,6 +522,47 @@ class SqlDelightLedgerTest :
                 )
             ledger.upsertExecutionRiskState(riskState)
             ledger.executionRiskState(ExecutionRuntimeMode.LIVE) shouldBe riskState
+
+            val transactionEvent =
+                ExecutionAccountTransactionEvent(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    transaction =
+                        ExchangeAccountTransaction(
+                            transactionId = "transaction-1",
+                            symbol = symbol,
+                            category = "linear",
+                            side = Side.BUY,
+                            transactionAt = Instant.parse("2026-06-30T00:10:30Z"),
+                            type = "TRADE",
+                            subtype = null,
+                            quantity = BigDecimal("0.1"),
+                            size = BigDecimal("0.1"),
+                            currency = "USDT",
+                            tradePrice = BigDecimal("60000"),
+                            funding = BigDecimal.ZERO,
+                            fee = BigDecimal("3.6"),
+                            cashFlow = BigDecimal("10"),
+                            change = BigDecimal("6.4"),
+                            cashBalance = BigDecimal("996.4"),
+                            feeRate = BigDecimal("0.0006"),
+                            tradeId = "trade-1",
+                            exchangeOrderId = "exchange-1",
+                            clientOrderId = "client-1",
+                        ),
+                    receivedAt = Instant.parse("2026-06-30T00:11:00Z"),
+                )
+            ledger.recordAccountTransaction(transactionEvent) shouldBe 1L
+            ledger.recordAccountTransaction(transactionEvent) shouldBe null
+            ledger
+                .latestAccountTransaction(ExecutionRuntimeMode.LIVE, "USDT")
+                ?.transaction shouldBe transactionEvent.transaction
+            ledger
+                .accountTransactions(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    currency = "USDT",
+                    transactionAtOrAfter = Instant.parse("2026-06-30T00:10:00Z"),
+                    transactionAtOrBefore = Instant.parse("2026-06-30T00:11:00Z"),
+                ).size shouldBe 1
         }
 
         "deduplicates nullable closure ids at the database identity key" {
@@ -807,6 +858,7 @@ class SqlDelightLedgerTest :
                     "executionLifecycleEvents",
                     "executionAccountSnapshots",
                     "executionRiskStates",
+                    "executionAccountTransactions",
                     "executionPositionRuntimeStates",
                     "paperRuntimeStates",
                 ),

@@ -5,6 +5,7 @@ import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeClosedPnl
@@ -32,6 +33,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.math.BigDecimal
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 
 class BybitPrivateClient(
@@ -243,6 +245,46 @@ class BybitPrivateClient(
                 ?.firstOrNull()
                 ?: throw ExchangeExecutionException("Bybit wallet balance response had no account.")
         return account.toExchangeAccountBalance(clock.instant())
+    }
+
+    override suspend fun accountTransactions(
+        currency: String,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeAccountTransaction> {
+        require(!endAt.isBefore(startAt)) { "Transaction-log end time must not be before start time." }
+        require(Duration.between(startAt, endAt) <= MAX_TRANSACTION_LOG_RANGE) {
+            "Transaction-log range must not exceed seven days."
+        }
+        val normalizedCurrency = currency.trim().uppercase()
+        require(normalizedCurrency.isNotBlank()) { "Transaction-log currency must not be blank." }
+
+        val transactions = mutableListOf<ExchangeAccountTransaction>()
+        val observedCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        do {
+            val query =
+                bybitQueryString(
+                    "accountType" to config.accountType,
+                    "category" to config.category.apiValue,
+                    "currency" to normalizedCurrency,
+                    "startTime" to startAt.toEpochMilli().toString(),
+                    "endTime" to endAt.toEpochMilli().toString(),
+                    "limit" to "50",
+                    "cursor" to cursor,
+                )
+            val response =
+                signedGet<BybitTransactionLogResponse>(
+                    path = "/v5/account/transaction-log",
+                    queryString = query,
+                )
+            response.requireSuccess("get transaction log")
+            val result = response.result ?: break
+            transactions += result.list.mapNotNull(BybitTransactionLogItem::toExchangeAccountTransaction)
+            val nextCursor = result.nextPageCursor?.takeIf(String::isNotBlank)
+            cursor = nextCursor?.takeIf(observedCursors::add)
+        } while (cursor != null)
+        return transactions.distinctBy(ExchangeAccountTransaction::identityKey)
     }
 
     private suspend inline fun <reified T> signedGet(
@@ -502,7 +544,47 @@ private fun BybitWalletBalanceCoin.toExchangeCoinBalance(): ExchangeCoinBalance 
         walletBalance = walletBalance.toBigDecimalOrNull(),
         locked = locked.toBigDecimalOrNull(),
         unrealizedPnl = unrealisedPnl.toBigDecimalOrNull(),
+        cumulativeRealizedPnl = cumRealisedPnl.toBigDecimalOrNull(),
     )
+
+private fun BybitTransactionLogItem.toExchangeAccountTransaction(): ExchangeAccountTransaction? {
+    val normalizedId = id?.takeIf(String::isNotBlank) ?: return null
+    val timestamp = transactionTime.toInstantFromMillisOrNull() ?: return null
+    val normalizedCurrency = currency?.takeIf(String::isNotBlank) ?: return null
+    val normalizedType = type?.takeIf(String::isNotBlank) ?: return null
+    return ExchangeAccountTransaction(
+        transactionId = normalizedId,
+        symbol = symbol?.takeIf(String::isNotBlank)?.let(::Symbol),
+        category = category.orEmpty(),
+        side = side.toSide(),
+        transactionAt = timestamp,
+        type = normalizedType,
+        subtype = transSubType?.takeIf(String::isNotBlank),
+        quantity = qty.toBigDecimalOrNull(),
+        size = size.toBigDecimalOrNull(),
+        currency = normalizedCurrency,
+        tradePrice = tradePrice.toBigDecimalOrNull(),
+        funding = funding.toBigDecimalOrNull() ?: BigDecimal.ZERO,
+        fee = fee.toBigDecimalOrNull() ?: BigDecimal.ZERO,
+        cashFlow = cashFlow.toBigDecimalOrNull() ?: BigDecimal.ZERO,
+        change = change.toBigDecimalOrNull() ?: BigDecimal.ZERO,
+        cashBalance = cashBalance.toBigDecimalOrNull(),
+        feeRate = feeRate.toBigDecimalOrNull(),
+        tradeId = tradeId?.takeIf(String::isNotBlank),
+        exchangeOrderId = orderId?.takeIf(String::isNotBlank),
+        clientOrderId = orderLinkId?.takeIf(String::isNotBlank),
+    )
+}
+
+private fun ExchangeAccountTransaction.identityKey(): String =
+    listOf(
+        transactionId,
+        type,
+        tradeId.orEmpty(),
+        exchangeOrderId.orEmpty(),
+        transactionAt.toString(),
+        change.toPlainString(),
+    ).joinToString("|")
 
 private interface BybitOrderResponse {
     val retCode: Int
@@ -731,4 +813,44 @@ private data class BybitWalletBalanceCoin(
     val locked: String? = null,
     @SerialName("unrealisedPnl")
     val unrealisedPnl: String? = null,
+    val cumRealisedPnl: String? = null,
 )
+
+@Serializable
+private data class BybitTransactionLogResponse(
+    override val retCode: Int,
+    override val retMsg: String,
+    val result: BybitTransactionLogResult? = null,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitTransactionLogResult(
+    val list: List<BybitTransactionLogItem> = emptyList(),
+    val nextPageCursor: String? = null,
+)
+
+@Serializable
+private data class BybitTransactionLogItem(
+    val id: String? = null,
+    val symbol: String? = null,
+    val category: String? = null,
+    val side: String? = null,
+    val transactionTime: String? = null,
+    val type: String? = null,
+    val transSubType: String? = null,
+    val qty: String? = null,
+    val size: String? = null,
+    val currency: String? = null,
+    val tradePrice: String? = null,
+    val funding: String? = null,
+    val fee: String? = null,
+    val cashFlow: String? = null,
+    val change: String? = null,
+    val cashBalance: String? = null,
+    val feeRate: String? = null,
+    val tradeId: String? = null,
+    val orderId: String? = null,
+    val orderLinkId: String? = null,
+)
+
+private val MAX_TRANSACTION_LOG_RANGE: Duration = Duration.ofDays(7)

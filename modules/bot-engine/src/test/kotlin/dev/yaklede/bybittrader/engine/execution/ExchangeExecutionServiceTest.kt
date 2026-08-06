@@ -1739,6 +1739,50 @@ class ExchangeExecutionServiceTest :
             state?.lastClosureId shouldBe 1L
         }
 
+        "exchange reconciliation persists account transactions and tracked coin balances idempotently" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            val transaction = testAccountTransaction()
+            val accountBalance =
+                ExchangeAccountBalance(
+                    accountType = "UNIFIED",
+                    totalEquity = BigDecimal("1000"),
+                    totalWalletBalance = BigDecimal("990"),
+                    totalMarginBalance = BigDecimal("1000"),
+                    totalAvailableBalance = BigDecimal("900"),
+                    totalPerpUnrealizedPnl = BigDecimal("10"),
+                    totalInitialMargin = BigDecimal("50"),
+                    totalMaintenanceMargin = BigDecimal("20"),
+                    coins =
+                        listOf(
+                            ExchangeCoinBalance(
+                                coin = "USDT",
+                                equity = BigDecimal("1000"),
+                                usdValue = BigDecimal("1000"),
+                                walletBalance = BigDecimal("990"),
+                                locked = BigDecimal.ZERO,
+                                unrealizedPnl = BigDecimal("10"),
+                                cumulativeRealizedPnl = BigDecimal("25"),
+                            ),
+                        ),
+                    capturedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                )
+            val gateway =
+                RecordingExecutionGateway(
+                    accountTransactions = listOf(transaction),
+                    accountBalance = accountBalance,
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            service.persistExchangeState(symbol)
+            service.persistExchangeState(symbol)
+
+            store.accountTransactionEvents.map { it.transaction } shouldBe listOf(transaction)
+            store.accountSnapshots.last().trackedCoinWalletBalance shouldBe BigDecimal("990")
+            store.accountSnapshots.last().trackedCoinCumulativeRealizedPnl shouldBe BigDecimal("25")
+            gateway.accountTransactionRequests shouldBe 2
+        }
+
         "exchange reconciliation classifies the close from Bybit execution metadata" {
             val symbol = Symbol("BTCUSDT")
             val store = InMemoryTradingStore()
@@ -1930,6 +1974,7 @@ private class InMemoryTradingStore :
     val positionRuntimeStates = mutableMapOf<Pair<ExecutionRuntimeMode, Symbol>, ExecutionPositionRuntimeState>()
     val performance = mutableListOf<LivePerformanceSnapshot>()
     val accountSnapshots = mutableListOf<ExecutionAccountSnapshot>()
+    val accountTransactionEvents = mutableListOf<ExecutionAccountTransactionEvent>()
     val riskStates = mutableMapOf<ExecutionRuntimeMode, ExecutionRiskState>()
     val suppressedAt = mutableMapOf<Long, Instant>()
     val deliveredAt = mutableMapOf<Long, Instant>()
@@ -2160,6 +2205,36 @@ private class InMemoryTradingStore :
     }
 
     override suspend fun executionRiskState(mode: ExecutionRuntimeMode): ExecutionRiskState? = riskStates[mode]
+
+    override suspend fun recordAccountTransaction(event: ExecutionAccountTransactionEvent): Long? {
+        if (accountTransactionEvents.any { existing -> existing.mode == event.mode && existing.transaction == event.transaction }) {
+            return null
+        }
+        val id = accountTransactionEvents.size + 1L
+        accountTransactionEvents += event.copy(id = id)
+        return id
+    }
+
+    override suspend fun accountTransactions(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+        transactionAtOrAfter: Instant?,
+        transactionAtOrBefore: Instant?,
+    ): List<ExecutionAccountTransactionEvent> =
+        accountTransactionEvents.filter { event ->
+            event.mode == mode &&
+                event.transaction.currency == currency &&
+                (transactionAtOrAfter == null || !event.transaction.transactionAt.isBefore(transactionAtOrAfter)) &&
+                (transactionAtOrBefore == null || !event.transaction.transactionAt.isAfter(transactionAtOrBefore))
+        }
+
+    override suspend fun latestAccountTransaction(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+    ): ExecutionAccountTransactionEvent? =
+        accountTransactionEvents
+            .filter { event -> event.mode == mode && event.transaction.currency == currency }
+            .maxByOrNull { event -> event.transaction.transactionAt }
 }
 
 private class RecordingExecutionGateway(
@@ -2167,6 +2242,7 @@ private class RecordingExecutionGateway(
     positions: List<ExchangePosition> = emptyList(),
     private val executions: List<ExchangeExecutionFill> = emptyList(),
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
+    private val accountTransactions: List<ExchangeAccountTransaction> = emptyList(),
     private val protectionFailure: Throwable? = null,
     private val closeImmediatelyOnReduceOnly: Boolean = false,
     private val accountBalance: ExchangeAccountBalance =
@@ -2192,6 +2268,7 @@ private class RecordingExecutionGateway(
     var positionRequests: Int = 0
     var executionRequests: Int = 0
     var closedPnlRequests: Int = 0
+    var accountTransactionRequests: Int = 0
 
     override suspend fun setLeverage(
         symbol: Symbol,
@@ -2258,6 +2335,19 @@ private class RecordingExecutionGateway(
     }
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = accountBalance
+
+    override suspend fun accountTransactions(
+        currency: String,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeAccountTransaction> {
+        accountTransactionRequests += 1
+        return accountTransactions.filter { transaction ->
+            transaction.currency == currency &&
+                !transaction.transactionAt.isBefore(startAt) &&
+                !transaction.transactionAt.isAfter(endAt)
+        }
+    }
 }
 
 private class AlwaysBuyExecutionStrategy : TradingStrategy {
@@ -2377,6 +2467,30 @@ private fun testClosedPnl(
         fees = BigDecimal("0.12"),
         netPnl = BigDecimal("5"),
         exitReason = exitReason,
+    )
+
+private fun testAccountTransaction(): ExchangeAccountTransaction =
+    ExchangeAccountTransaction(
+        transactionId = "transaction-1",
+        symbol = Symbol("BTCUSDT"),
+        category = "linear",
+        side = Side.BUY,
+        transactionAt = Instant.parse("2024-06-29T23:30:00Z"),
+        type = "TRADE",
+        subtype = null,
+        quantity = BigDecimal("0.1"),
+        size = BigDecimal("0.1"),
+        currency = "USDT",
+        tradePrice = BigDecimal("60000"),
+        funding = BigDecimal.ZERO,
+        fee = BigDecimal("3.6"),
+        cashFlow = BigDecimal("3.5"),
+        change = BigDecimal("-0.1"),
+        cashBalance = BigDecimal("990"),
+        feeRate = BigDecimal("0.0006"),
+        tradeId = "trade-1",
+        exchangeOrderId = "exchange-1",
+        clientOrderId = "client-1",
     )
 
 private fun testLifecycleEvent(

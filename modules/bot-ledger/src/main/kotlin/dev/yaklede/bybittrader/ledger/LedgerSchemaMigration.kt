@@ -70,6 +70,21 @@ fun ensureAdditiveLedgerSchema(driver: JdbcSqliteDriver) {
                         statement.execute("ALTER TABLE executionLifecycleEvents ADD COLUMN $column $type")
                     }
                 }
+                val executionAccountSnapshotColumns =
+                    listOf(
+                        "total_initial_margin" to "TEXT",
+                        "total_maintenance_margin" to "TEXT",
+                        "tracked_coin" to "TEXT",
+                        "tracked_coin_equity" to "TEXT",
+                        "tracked_coin_wallet_balance" to "TEXT",
+                        "tracked_coin_unrealized_pnl" to "TEXT",
+                        "tracked_coin_cumulative_realized_pnl" to "TEXT",
+                    )
+                executionAccountSnapshotColumns.forEach { (column, type) ->
+                    if (!connection.hasColumn("executionAccountSnapshots", column)) {
+                        statement.execute("ALTER TABLE executionAccountSnapshots ADD COLUMN $column $type")
+                    }
+                }
                 statement.execute(EXECUTION_CLOSURE_IDENTITY_BACKFILL)
                 statement.execute(EXECUTION_CLOSURE_DUPLICATE_CLEANUP)
                 statement.execute(
@@ -322,6 +337,13 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
           total_margin_balance TEXT,
           total_available_balance TEXT,
           total_perp_unrealized_pnl TEXT,
+          total_initial_margin TEXT,
+          total_maintenance_margin TEXT,
+          tracked_coin TEXT,
+          tracked_coin_equity TEXT,
+          tracked_coin_wallet_balance TEXT,
+          tracked_coin_unrealized_pnl TEXT,
+          tracked_coin_cumulative_realized_pnl TEXT,
           captured_at TEXT NOT NULL
         )
         """.trimIndent(),
@@ -338,6 +360,36 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
           updated_at TEXT NOT NULL
         )
         """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS executionAccountTransactions (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          mode TEXT NOT NULL,
+          transaction_id TEXT NOT NULL,
+          symbol TEXT,
+          category TEXT NOT NULL,
+          side TEXT,
+          transaction_at TEXT NOT NULL,
+          transaction_type TEXT NOT NULL,
+          transaction_subtype TEXT,
+          quantity TEXT,
+          size TEXT,
+          currency TEXT NOT NULL,
+          trade_price TEXT,
+          funding TEXT NOT NULL,
+          fee TEXT NOT NULL,
+          cash_flow TEXT NOT NULL,
+          balance_change TEXT NOT NULL,
+          cash_balance TEXT,
+          fee_rate TEXT,
+          trade_id TEXT,
+          exchange_order_id TEXT,
+          client_order_id TEXT,
+          received_at TEXT NOT NULL,
+          identity_key TEXT NOT NULL
+        )
+        """.trimIndent(),
+        "CREATE UNIQUE INDEX IF NOT EXISTS executionAccountTransactions_identity_idx ON executionAccountTransactions(identity_key)",
+        "CREATE INDEX IF NOT EXISTS executionAccountTransactions_mode_currency_transactionAt_id_idx ON executionAccountTransactions(mode, currency, transaction_at, id)",
         """
         CREATE TABLE IF NOT EXISTS livePerformanceSnapshots (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

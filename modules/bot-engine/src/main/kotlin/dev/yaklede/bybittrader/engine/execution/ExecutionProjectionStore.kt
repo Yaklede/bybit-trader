@@ -54,6 +54,20 @@ data class ExecutionAccountSnapshot(
     val totalAvailableBalance: BigDecimal?,
     val totalPerpUnrealizedPnl: BigDecimal?,
     val capturedAt: Instant,
+    val totalInitialMargin: BigDecimal? = null,
+    val totalMaintenanceMargin: BigDecimal? = null,
+    val trackedCoin: String? = null,
+    val trackedCoinEquity: BigDecimal? = null,
+    val trackedCoinWalletBalance: BigDecimal? = null,
+    val trackedCoinUnrealizedPnl: BigDecimal? = null,
+    val trackedCoinCumulativeRealizedPnl: BigDecimal? = null,
+)
+
+data class ExecutionAccountTransactionEvent(
+    val id: Long = 0,
+    val mode: ExecutionRuntimeMode,
+    val transaction: ExchangeAccountTransaction,
+    val receivedAt: Instant,
 )
 
 data class ExecutionFillEvent(
@@ -149,4 +163,18 @@ interface ExecutionProjectionStore {
     suspend fun upsertExecutionRiskState(state: ExecutionRiskState) = Unit
 
     suspend fun executionRiskState(mode: ExecutionRuntimeMode): ExecutionRiskState? = null
+
+    suspend fun recordAccountTransaction(event: ExecutionAccountTransactionEvent): Long? = null
+
+    suspend fun accountTransactions(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+        transactionAtOrAfter: Instant?,
+        transactionAtOrBefore: Instant?,
+    ): List<ExecutionAccountTransactionEvent> = emptyList()
+
+    suspend fun latestAccountTransaction(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+    ): ExecutionAccountTransactionEvent? = null
 }

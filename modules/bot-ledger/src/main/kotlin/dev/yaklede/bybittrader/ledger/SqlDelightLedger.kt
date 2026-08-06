@@ -15,8 +15,10 @@ import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.control.ControlEventRecorder
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountTransactionEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
@@ -55,6 +57,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
 import dev.yaklede.bybittrader.ledger.db.ExecutionAccountSnapshots
+import dev.yaklede.bybittrader.ledger.db.ExecutionAccountTransactions
 import dev.yaklede.bybittrader.ledger.db.ExecutionFillEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionLifecycleEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionRiskStates
@@ -969,6 +972,13 @@ class SqlDelightLedger(
             total_margin_balance = snapshot.totalMarginBalance?.toPlainString(),
             total_available_balance = snapshot.totalAvailableBalance?.toPlainString(),
             total_perp_unrealized_pnl = snapshot.totalPerpUnrealizedPnl?.toPlainString(),
+            total_initial_margin = snapshot.totalInitialMargin?.toPlainString(),
+            total_maintenance_margin = snapshot.totalMaintenanceMargin?.toPlainString(),
+            tracked_coin = snapshot.trackedCoin,
+            tracked_coin_equity = snapshot.trackedCoinEquity?.toPlainString(),
+            tracked_coin_wallet_balance = snapshot.trackedCoinWalletBalance?.toPlainString(),
+            tracked_coin_unrealized_pnl = snapshot.trackedCoinUnrealizedPnl?.toPlainString(),
+            tracked_coin_cumulative_realized_pnl = snapshot.trackedCoinCumulativeRealizedPnl?.toPlainString(),
             captured_at = snapshot.capturedAt.toString(),
         )
         return database.ledgerQueries.lastInsertRowId().executeAsOne()
@@ -1014,6 +1024,65 @@ class SqlDelightLedger(
             .selectExecutionRiskState(mode.name)
             .executeAsOneOrNull()
             ?.toExecutionRiskState()
+
+    override suspend fun recordAccountTransaction(event: ExecutionAccountTransactionEvent): Long? =
+        database.transactionWithResult {
+            val transaction = event.transaction
+            database.ledgerQueries.insertExecutionAccountTransaction(
+                mode = event.mode.name,
+                transaction_id = transaction.transactionId,
+                symbol = transaction.symbol?.value,
+                category = transaction.category,
+                side = transaction.side?.name,
+                transaction_at = transaction.transactionAt.toString(),
+                transaction_type = transaction.type,
+                transaction_subtype = transaction.subtype,
+                quantity = transaction.quantity?.toPlainString(),
+                size = transaction.size?.toPlainString(),
+                currency = transaction.currency,
+                trade_price = transaction.tradePrice?.toPlainString(),
+                funding = transaction.funding.toPlainString(),
+                fee = transaction.fee.toPlainString(),
+                cash_flow = transaction.cashFlow.toPlainString(),
+                balance_change = transaction.change.toPlainString(),
+                cash_balance = transaction.cashBalance?.toPlainString(),
+                fee_rate = transaction.feeRate?.toPlainString(),
+                trade_id = transaction.tradeId,
+                exchange_order_id = transaction.exchangeOrderId,
+                client_order_id = transaction.clientOrderId,
+                received_at = event.receivedAt.toString(),
+                identity_key = event.identityKey(),
+            )
+            if (database.ledgerQueries.selectChanges().executeAsOne() == 0L) {
+                null
+            } else {
+                database.ledgerQueries.lastInsertRowId().executeAsOne()
+            }
+        }
+
+    override suspend fun accountTransactions(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+        transactionAtOrAfter: Instant?,
+        transactionAtOrBefore: Instant?,
+    ): List<ExecutionAccountTransactionEvent> =
+        database.ledgerQueries
+            .selectExecutionAccountTransactions(
+                mode = mode.name,
+                currency = currency,
+                transactionAtOrAfter = transactionAtOrAfter?.toString(),
+                transactionAtOrBefore = transactionAtOrBefore?.toString(),
+            ).executeAsList()
+            .map(ExecutionAccountTransactions::toExecutionAccountTransactionEvent)
+
+    override suspend fun latestAccountTransaction(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+    ): ExecutionAccountTransactionEvent? =
+        database.ledgerQueries
+            .selectLatestExecutionAccountTransaction(mode.name, currency)
+            .executeAsOneOrNull()
+            ?.toExecutionAccountTransactionEvent()
 }
 
 fun createLedgerDatabase(driver: SqlDriver): LedgerDatabase = LedgerDatabase(driver)
@@ -1377,6 +1446,54 @@ private fun ExecutionAccountSnapshots.toExecutionAccountSnapshot(): ExecutionAcc
         totalAvailableBalance = total_available_balance?.let(::BigDecimal),
         totalPerpUnrealizedPnl = total_perp_unrealized_pnl?.let(::BigDecimal),
         capturedAt = Instant.parse(captured_at),
+        totalInitialMargin = total_initial_margin?.let(::BigDecimal),
+        totalMaintenanceMargin = total_maintenance_margin?.let(::BigDecimal),
+        trackedCoin = tracked_coin,
+        trackedCoinEquity = tracked_coin_equity?.let(::BigDecimal),
+        trackedCoinWalletBalance = tracked_coin_wallet_balance?.let(::BigDecimal),
+        trackedCoinUnrealizedPnl = tracked_coin_unrealized_pnl?.let(::BigDecimal),
+        trackedCoinCumulativeRealizedPnl = tracked_coin_cumulative_realized_pnl?.let(::BigDecimal),
+    )
+
+private fun ExecutionAccountTransactionEvent.identityKey(): String =
+    listOf(
+        mode.name,
+        transaction.transactionId,
+        transaction.type,
+        transaction.tradeId.orEmpty(),
+        transaction.exchangeOrderId.orEmpty(),
+        transaction.transactionAt.toString(),
+        transaction.change.toPlainString(),
+    ).joinToString("|")
+
+private fun ExecutionAccountTransactions.toExecutionAccountTransactionEvent(): ExecutionAccountTransactionEvent =
+    ExecutionAccountTransactionEvent(
+        id = id,
+        mode = ExecutionRuntimeMode.valueOf(mode),
+        transaction =
+            ExchangeAccountTransaction(
+                transactionId = transaction_id,
+                symbol = symbol?.let(::Symbol),
+                category = category,
+                side = side?.let(Side::valueOf),
+                transactionAt = Instant.parse(transaction_at),
+                type = transaction_type,
+                subtype = transaction_subtype,
+                quantity = quantity?.let(::BigDecimal),
+                size = size?.let(::BigDecimal),
+                currency = currency,
+                tradePrice = trade_price?.let(::BigDecimal),
+                funding = BigDecimal(funding),
+                fee = BigDecimal(fee),
+                cashFlow = BigDecimal(cash_flow),
+                change = BigDecimal(balance_change),
+                cashBalance = cash_balance?.let(::BigDecimal),
+                feeRate = fee_rate?.let(::BigDecimal),
+                tradeId = trade_id,
+                exchangeOrderId = exchange_order_id,
+                clientOrderId = client_order_id,
+            ),
+        receivedAt = Instant.parse(received_at),
     )
 
 private fun ExecutionRiskStates.toExecutionRiskState(): ExecutionRiskState =
