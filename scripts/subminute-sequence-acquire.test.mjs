@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -13,6 +15,7 @@ import {
   implementationFingerprint,
   normalizedFeatureFingerprint,
   parseArgs,
+  sealStageSnapshot,
   verifyOrderBookMinuteParity,
   verifyTradeMinuteParity,
 } from "./subminute-sequence-acquire.mjs";
@@ -200,6 +203,44 @@ test("candle copying is byte-stable on resume instead of replacing identical row
   assert.equal(target.prepare("SELECT id FROM marketCandles").get().id, firstId);
   source.close();
   target.close();
+});
+
+test("stage snapshot is sealed once and revalidated by normalized feature hash", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "bybit-subminute-snapshot-"));
+  const sourcePath = path.join(directory, "source.sqlite");
+  const snapshotPath = path.join(directory, "selection.sqlite");
+  try {
+    const db = new DatabaseSync(sourcePath);
+    ensureSubminuteSchema(db);
+    db.exec(`
+      CREATE TABLE openInterestSnapshots(id INTEGER PRIMARY KEY, symbol TEXT, interval TEXT, timestamp TEXT, open_interest TEXT);
+      CREATE TABLE fundingRates(id INTEGER PRIMARY KEY, symbol TEXT, timestamp TEXT, funding_rate TEXT);
+      INSERT INTO subminuteOrderBookSlices(
+        symbol, opened_at, message_count, snapshot_count, carried_forward,
+        close_best_bid, close_best_ask, open_mid_price, high_mid_price, low_mid_price, close_mid_price,
+        mean_top5_imbalance, start_top5_imbalance, end_top5_imbalance,
+        min_top5_imbalance, max_top5_imbalance, mean_microprice_edge_bps,
+        bid_added_top5_notional, bid_removed_top5_notional, ask_added_top5_notional, ask_removed_top5_notional
+      ) VALUES ('BTCUSDT','2024-01-01T00:00:00Z',1,1,0,'100','101','100.5','100.5','100.5','100.5','0','0','0','0','0','0','0','0','0','0');
+      INSERT INTO subminuteTradeSlices(symbol,opened_at,trade_count,buy_notional,sell_notional,buy_count,sell_count)
+      VALUES ('BTCUSDT','2024-01-01T00:00:00Z',0,'0','0',0,0);
+      INSERT INTO openInterestSnapshots VALUES (1,'BTCUSDT','M5','2024-01-01T00:00:00Z','1000');
+      INSERT INTO fundingRates VALUES (1,'BTCUSDT','2024-01-01T00:00:00Z','0.0001');
+      PRAGMA wal_checkpoint(TRUNCATE);
+    `);
+    const featureHash = normalizedFeatureFingerprint(db, "BTCUSDT", ["2024-01-01"]);
+    db.close();
+    const first = await sealStageSnapshot(sourcePath, snapshotPath, "BTCUSDT", ["2024-01-01"], featureHash);
+    const second = await sealStageSnapshot(sourcePath, snapshotPath, "BTCUSDT", ["2024-01-01"], featureHash);
+    assert.match(first, /^[a-f0-9]{64}$/);
+    assert.equal(second, first);
+    await assert.rejects(
+      () => sealStageSnapshot(sourcePath, snapshotPath, "BTCUSDT", ["2024-01-01"], "0".repeat(64)),
+      /feature hash mismatch/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 function aggregateDatabase() {

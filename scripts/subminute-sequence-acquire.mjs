@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -60,6 +60,10 @@ export async function acquireSubminuteSequence(options, dependencies = {}) {
     repositoryRoot,
     `build/research/${protocol.protocolId}-${options.stage}-acquisition.json`,
   );
+  const stageSnapshotPath = resolve(
+    repositoryRoot,
+    `build/research/${protocol.protocolId}-${options.stage}.sqlite`,
+  );
   const implementationSha256 = await implementationFingerprint(repositoryRoot);
   const blocks = options.stage === "selection"
     ? protocol.acquisition.selectionBlocks
@@ -101,6 +105,8 @@ export async function acquireSubminuteSequence(options, dependencies = {}) {
     failure: null,
     targetDatabase: protocol.sourceData.researchDatabase,
     targetDatabaseSha256: null,
+    stageSnapshot: `build/research/${protocol.protocolId}-${options.stage}.sqlite`,
+    stageSnapshotSha256: null,
     normalizedFeatureSha256: null,
     startedAt: now(),
     updatedAt: now(),
@@ -190,6 +196,14 @@ export async function acquireSubminuteSequence(options, dependencies = {}) {
     report.completedDates = audit.completedDates;
     report.normalizedFeatureSha256 = normalizedFeatureFingerprint(targetDb, protocol.sourceData.symbol, dates);
     targetDb.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    report.stageSnapshotSha256 = await sealStageSnapshot(
+      targetDatabasePath,
+      stageSnapshotPath,
+      protocol.sourceData.symbol,
+      dates,
+      report.normalizedFeatureSha256,
+      hashFile,
+    );
   } catch (error) {
     failure = error;
     report.status = "FAILED_SOURCE_ACQUISITION";
@@ -676,6 +690,37 @@ export async function implementationFingerprint(repositoryRoot) {
     hash.update("\0");
   }
   return hash.digest("hex");
+}
+
+export async function sealStageSnapshot(
+  sourcePath,
+  snapshotPath,
+  symbol,
+  dates,
+  expectedFeatureSha256,
+  hashFile = sha256File,
+) {
+  try {
+    await access(snapshotPath);
+  } catch {
+    await mkdir(dirname(snapshotPath), { recursive: true });
+    const temporaryPath = `${snapshotPath}.tmp`;
+    await rm(temporaryPath, { force: true });
+    await copyFile(sourcePath, temporaryPath);
+    await rename(temporaryPath, snapshotPath);
+  }
+  const snapshotDb = new DatabaseSync(snapshotPath, { readOnly: true });
+  try {
+    const actualFeatureSha256 = normalizedFeatureFingerprint(snapshotDb, symbol, dates);
+    if (actualFeatureSha256 !== expectedFeatureSha256) {
+      throw new Error(
+        `Sealed stage snapshot feature hash mismatch: expected ${expectedFeatureSha256}, got ${actualFeatureSha256}.`,
+      );
+    }
+  } finally {
+    snapshotDb.close();
+  }
+  return hashFile(snapshotPath);
 }
 
 function uniqueBlockDates(blocks) {
