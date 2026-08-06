@@ -144,13 +144,13 @@ object VolumeConfirmedTrendExecutionModel {
         }
         require(fundingRate.isFinite()) { "Trend funding rate must be finite." }
         val fundingPnl = -position.side.sign * position.quantity * settlementPrice * fundingRate
-        val updatedPosition = position.copy(fundingPnl = position.fundingPnl + fundingPnl)
+        val fundedPosition = position.copy(fundingPnl = position.fundingPnl + fundingPnl)
         val cashAfter = cash + fundingPnl
         return VolumeConfirmedTrendFundingExecution(
-            position = updatedPosition,
+            position = fundedPosition,
             fundingPnl = fundingPnl,
             cashAfter = cashAfter,
-            equityAfter = markEquity(cashAfter, updatedPosition, settlementPrice),
+            equityAfter = markEquity(cashAfter, fundedPosition, settlementPrice),
         )
     }
 

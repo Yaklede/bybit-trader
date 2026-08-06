@@ -36,7 +36,7 @@ class VolumeConfirmedTrendShadowRoutesTest :
             testApplication {
                 applicationWithShadowProvider(provider = { sampleReport() })
 
-                client.get(ENDPOINT).status shouldBe HttpStatusCode.Unauthorized
+                client.get(SHADOW_PATH).status shouldBe HttpStatusCode.Unauthorized
             }
         }
 
@@ -44,7 +44,7 @@ class VolumeConfirmedTrendShadowRoutesTest :
             testApplication {
                 applicationWithShadowProvider(null)
 
-                val response = client.get(ENDPOINT) { bearerAuth(CREDENTIAL) }
+                val response = client.get(SHADOW_PATH) { bearerAuth(CREDENTIAL) }
 
                 response.status shouldBe HttpStatusCode.OK
                 response.bodyAsText() shouldBe
@@ -62,7 +62,7 @@ class VolumeConfirmedTrendShadowRoutesTest :
                     },
                 )
 
-                val response = client.get("$ENDPOINT?limit=7") { bearerAuth(CREDENTIAL) }
+                val response = client.get("$SHADOW_PATH?limit=7") { bearerAuth(CREDENTIAL) }
 
                 response.status shouldBe HttpStatusCode.OK
                 requestedLimit shouldBe 7
@@ -82,8 +82,8 @@ class VolumeConfirmedTrendShadowRoutesTest :
             testApplication {
                 applicationWithShadowProvider(provider = { sampleReport() })
 
-                client.get("$ENDPOINT?limit=invalid") { bearerAuth(CREDENTIAL) }.status shouldBe HttpStatusCode.BadRequest
-                client.get("$ENDPOINT?limit=101") { bearerAuth(CREDENTIAL) }.status shouldBe HttpStatusCode.BadRequest
+                client.get("$SHADOW_PATH?limit=invalid") { bearerAuth(CREDENTIAL) }.status shouldBe HttpStatusCode.BadRequest
+                client.get("$SHADOW_PATH?limit=101") { bearerAuth(CREDENTIAL) }.status shouldBe HttpStatusCode.BadRequest
             }
         }
 
@@ -94,7 +94,7 @@ class VolumeConfirmedTrendShadowRoutesTest :
                     approvalProvider = { sampleApprovalReport() },
                 )
 
-                val response = client.get(APPROVAL_ENDPOINT) { bearerAuth(CREDENTIAL) }
+                val response = client.get(APPROVAL_PATH) { bearerAuth(CREDENTIAL) }
 
                 response.status shouldBe HttpStatusCode.OK
                 response.bodyAsText().also { body ->
@@ -224,6 +224,6 @@ private fun sampleEvent(state: VolumeConfirmedTrendShadowState): VolumeConfirmed
         reason = "MISSED_H4_COUNT=1",
     )
 
-private const val ENDPOINT = "/strategy/volume-confirmed-trend/shadow"
-private const val APPROVAL_ENDPOINT = "/strategy/volume-confirmed-trend/approval"
+private const val SHADOW_PATH = "/strategy/volume-confirmed-trend/shadow"
+private const val APPROVAL_PATH = "/strategy/volume-confirmed-trend/approval"
 private const val CREDENTIAL = "test-control-credential"
