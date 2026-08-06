@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "maker-shadow-forward-development-v1",
+  "candidateId": "maker_shadow_baseline_001",
+  "researchStage": "DEVELOPMENT_FORWARD_UNSEALED",
+  "automaticExecutionAllowed": false,
+  "symbol": "BTCUSDT",
+  "orderBookDepth": 50,
+  "parameters": {
+    "initialEquity": "100",
+    "orderQuantity": "0.001",
+    "maxNotional": "100",
+    "queueMultiplier": "1.5",
+    "queueBufferQuantity": "0",
+    "minSpreadBps": "0",
+    "makerFeeRate": "0.0002",
+    "takerFeeRate": "0.00055",
+    "takerExitSlippageBps": "2",
+    "maxQuoteAgeMillis": 2000,
+    "maxHoldingSeconds": 60,
+    "maxEventDelayMillis": 1000,
+    "tradeIdCacheSize": 100000
+  },
+  "evidencePolicy": {
+    "source": "FORWARD_RAW_ARCHIVE",
+    "allowPartFiles": false,
+    "requireContiguousReceiveOrder": true,
+    "minimumObservedHours": "168",
+    "minimumClosedPositions": 200,
+    "requiredQueueStressMultipliers": ["1.0", "1.5", "2.0"],
+    "requiredCostStressMultipliers": ["1.0", "1.5", "2.0"]
+  }
+}

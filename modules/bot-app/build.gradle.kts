@@ -14,6 +14,13 @@ tasks.register<JavaExec>("runMultiHorizonParity") {
     mainClass.set("dev.yaklede.bybittrader.app.research.MultiHorizonParityMainKt")
 }
 
+tasks.register<JavaExec>("runMakerShadowReplay") {
+    group = "verification"
+    description = "Replays sealed raw market events through the conservative maker shadow engine."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.yaklede.bybittrader.app.research.MakerShadowReplayMainKt")
+}
+
 dependencies {
     implementation(project(":modules:bot-api"))
     implementation(project(":modules:bot-alerts"))
