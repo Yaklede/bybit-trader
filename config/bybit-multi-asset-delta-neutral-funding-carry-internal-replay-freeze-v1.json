@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "freezeId": "bybit-multi-asset-delta-neutral-funding-carry-internal-replay-freeze-v1",
+  "status": "FROZEN_BEFORE_MULTI_ASSET_INTERNAL_OUTCOME_REPLAY",
+  "frozenAt": "2026-08-06",
+  "protocol": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-internal-v1.json",
+    "sha256": "b2e3b132e9cfa30322aeabf3e167863c9b4c65ccd2f7c2c27703aa0915a25da0"
+  },
+  "acquisitionReceipt": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-internal-acquisition-receipt-v1.json",
+    "sha256": "1f647717d71a70b13499b7861f5204706f24dcc1cbccfbf7e4393b8a888f58b6"
+  },
+  "implementation": {
+    "simulatorPath": "scripts/lib/multi-asset-delta-neutral-funding-carry-research.mjs",
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "replayPath": "scripts/multi-asset-delta-neutral-funding-carry-internal-replay.mjs",
+    "replaySha256": "017e13a2bae5f268a1a623d2e0d1341bdc0ae2ec45e0452f6910667d1f18793d",
+    "compositeSha256": "4c638de8aaefd6aeb57019632c77b9c800bbcd147810748a94b1c89dff60e0fa"
+  },
+  "outcomeBoundary": {
+    "BTCUSDT2024SingleAssetMetricsPreviouslyRead": true,
+    "ETHUSDT2024SingleAssetMetricsReadBeforeFreeze": false,
+    "SOLUSDT2024SingleAssetMetricsReadBeforeFreeze": false,
+    "internalPortfolioMetricsReadBeforeFreeze": false,
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "candidatePolicy": {
+    "candidateId": "multi_asset_delta_neutral_carry_04",
+    "candidateSha256": "2b46f1abe6caef9fb31eb6ad85de2ff4973985e52d76a1f377cc8ef2e6d974e9",
+    "evaluatedCandidateCount": 1,
+    "candidateMayBeRetunedAfterOutcome": false
+  },
+  "gatePolicy": {
+    "allInternalGatesMustPassBeforeExternalAcquisition": true,
+    "gateMayBeChangedAfterOutcome": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
