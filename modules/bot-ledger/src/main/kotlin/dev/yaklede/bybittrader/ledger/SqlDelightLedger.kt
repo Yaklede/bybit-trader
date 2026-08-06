@@ -234,7 +234,7 @@ class SqlDelightLedger(
         limit: Int,
     ): List<VolumeConfirmedTrendShadowEvent> {
         require(sessionId.isNotBlank()) { "Trend shadow session ID must not be blank." }
-        require(limit in 1..10_000) { "Trend shadow event limit must be between 1 and 10000." }
+        require(limit in 1..100_000) { "Trend shadow event limit must be between 1 and 100000." }
         return database.ledgerQueries
             .selectVolumeConfirmedTrendShadowEventsBySession(
                 session_id = sessionId,
@@ -250,7 +250,7 @@ class SqlDelightLedger(
         limit: Int,
     ): List<VolumeConfirmedTrendShadowEvent> {
         require(protocolId.isNotBlank()) { "Trend shadow protocol ID must not be blank." }
-        require(limit in 1..10_000) { "Trend shadow event limit must be between 1 and 10000." }
+        require(limit in 1..100_000) { "Trend shadow event limit must be between 1 and 100000." }
         return database.ledgerQueries
             .selectVolumeConfirmedTrendShadowEventsByProtocol(
                 protocol_id = protocolId,

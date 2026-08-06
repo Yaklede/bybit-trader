@@ -44,6 +44,14 @@ tasks.register<JavaExec>("generateVolumeConfirmedTrendBootstrap") {
     workingDir = rootProject.projectDir
 }
 
+tasks.register<JavaExec>("runVolumeConfirmedTrendRuntimeParity") {
+    group = "verification"
+    description = "Replays external trend evidence through the persisted shadow runtime and historical adapter."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.yaklede.bybittrader.app.research.VolumeConfirmedTrendRuntimeParityMainKt")
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation(project(":modules:bot-api"))
     implementation(project(":modules:bot-alerts"))

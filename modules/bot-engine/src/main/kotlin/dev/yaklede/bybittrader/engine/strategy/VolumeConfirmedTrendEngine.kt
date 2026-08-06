@@ -381,7 +381,9 @@ data class VolumeConfirmedTrendTrade(
 
 data class VolumeConfirmedTrendSimulation(
     val startingEquity: Double,
+    val endingCash: Double,
     val endingEquity: Double,
+    val endingOpenPosition: VolumeConfirmedTrendOpenPosition?,
     val maximumConservativeIntrabarDrawdownPct: Double,
     val maximumEntryExposureFraction: Double,
     val maximumAdverseExposureFraction: Double,
@@ -409,6 +411,7 @@ object VolumeConfirmedTrendSimulator {
         startingEquity: Double,
         costMultiplier: Double,
         contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+        closeAtEvidenceEnd: Boolean = true,
     ): VolumeConfirmedTrendSimulation {
         require(bars.isNotEmpty() && commands.size == bars.size) { "Trend simulation evidence and commands must align." }
         require(startingEquity > 0.0 && costMultiplier >= 1.0) { "Trend simulation capital and cost multiplier are invalid." }
@@ -511,10 +514,15 @@ object VolumeConfirmedTrendSimulator {
             peakEquity = max(peakEquity, closeEquity)
         }
         val finalBar = bars.last()
-        closePosition(finalBar.close, finalBar.openedAt.plusSeconds(H4_SECONDS), "EVIDENCE_END")
+        if (closeAtEvidenceEnd) {
+            closePosition(finalBar.close, finalBar.openedAt.plusSeconds(H4_SECONDS), "EVIDENCE_END")
+        }
+        val endingEquity = markEquity(finalBar.close)
         return VolumeConfirmedTrendSimulation(
             startingEquity = startingEquity,
-            endingEquity = cash,
+            endingCash = cash,
+            endingEquity = endingEquity,
+            endingOpenPosition = position,
             maximumConservativeIntrabarDrawdownPct = maximumDrawdown,
             maximumEntryExposureFraction = maximumEntryExposure,
             maximumAdverseExposureFraction = maximumAdverseExposure,

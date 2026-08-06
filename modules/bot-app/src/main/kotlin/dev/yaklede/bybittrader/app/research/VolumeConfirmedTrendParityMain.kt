@@ -77,8 +77,8 @@ fun main(args: Array<String>) {
         val symbol = market.requiredString("symbol")
         val start = Instant.parse(external.requiredString("startInclusive"))
         val end = Instant.parse(external.requiredString("endExclusive"))
-        val bars = loadH4(connection, symbol, start, end)
-        val funding = loadFunding(connection, symbol, start, end)
+        val bars = loadVolumeConfirmedTrendH4(connection, symbol, start, end)
+        val funding = loadVolumeConfirmedTrendFunding(connection, symbol, start, end)
         val commands = VolumeConfirmedTrendEngine.commands(bars, parameters)
         val runs =
             capital.requiredArray("startingEquitiesUsdt").flatMap { equityValue ->
@@ -117,7 +117,7 @@ fun main(args: Array<String>) {
     }
 }
 
-private fun loadH4(
+internal fun loadVolumeConfirmedTrendH4(
     connection: Connection,
     symbol: String,
     start: Instant,
@@ -151,7 +151,7 @@ private fun loadH4(
             }
         }
 
-private fun loadFunding(
+internal fun loadVolumeConfirmedTrendFunding(
     connection: Connection,
     symbol: String,
     start: Instant,

@@ -97,6 +97,31 @@ class VolumeConfirmedTrendEngineTest :
             (result.maximumAdverseExposureFraction >= result.maximumEntryExposureFraction) shouldBe true
         }
 
+        "can preserve the ending position for runtime replay parity" {
+            val start = Instant.parse("2026-01-01T00:00:00Z")
+            val bars =
+                listOf(
+                    h4Bar(start, 100.0, 110.0),
+                    h4Bar(start.plusSeconds(14_400), 110.0, 120.0),
+                )
+
+            val result =
+                VolumeConfirmedTrendSimulator.run(
+                    bars = bars,
+                    fundingRates = emptyList(),
+                    commands = listOf(command(Side.BUY, bars, 0), null),
+                    startingEquity = 100.0,
+                    costMultiplier = 1.0,
+                    contract = VolumeConfirmedTrendExecutionContract(oneWayFeeRate = 0.0, oneWaySlippageRate = 0.0),
+                    closeAtEvidenceEnd = false,
+                )
+
+            result.trades shouldBe emptyList()
+            result.endingOpenPosition?.side shouldBe Side.BUY
+            result.endingCash shouldBeExactly 100.0
+            result.endingEquity shouldBeExactly 113.0
+        }
+
         "restores the streaming evaluator without changing future transitions" {
             val parameters =
                 VolumeConfirmedTrendParameters(
