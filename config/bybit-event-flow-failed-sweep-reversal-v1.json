@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "bybit-event-flow-failed-sweep-reversal-v1",
+  "status": "PREDECLARED_DEVELOPMENT_HYPOTHESIS_BEFORE_REPLAY",
+  "declaredAt": "2026-08-06",
+  "parentResult": {
+    "resultId": "bybit-event-flow-accepted-continuation-result-v1",
+    "resultReceiptSha256": "7b84b1e4735f2625120836945c623bc9dde8ebfd1ef9df9ec945c79743f96dab",
+    "requiredStatus": "REJECTED_ACCEPTED_CONTINUATION"
+  },
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 157,
+    "stageCandidates": 16,
+    "cumulativeCandidates": 173,
+    "maximumCumulativeCandidates": 192,
+    "remainingCandidatesAfterStage": 19
+  },
+  "hypothesis": {
+    "family": "FAILED_LIQUIDITY_SWEEP_REVERSAL",
+    "statement": "A high-impact directional taker sweep against the closed M15 regime reverses only after a later closed M1 bar flips taker and top-five pressure and closes through the setup trade open, proving that the directional auction failed.",
+    "distinctFromRejectedCandidates": [
+      "ABSORPTION_REVERSAL_REQUIRED_SMALL_DIRECTIONAL_IMPACT",
+      "ACCEPTED_CONTINUATION_ENTERED_IN_THE_SETUP_TAKER_DIRECTION",
+      "FAILED_SWEEP_REVERSAL_REQUIRES_LARGE_ATR_NORMALIZED_IMPACT_AND_FULL_PRICE_REJECTION"
+    ],
+    "fixed": {
+      "minimumSetupAbsoluteTakerImbalance": 0.4,
+      "minimumRelativeTakerNotional": 2,
+      "minimumDirectionalImpactAtr": 0.25,
+      "minimumDirectionalCloseLocation": 0.8,
+      "minimumOpposingSideDepletion": 0.1,
+      "minimumAlignedMicropriceEdgeBps": 0,
+      "requireClosedM15RegimeAlignmentWithReversal": true,
+      "requireConfirmationCloseBeyondSetupTradeOpen": true,
+      "requireConfirmationAlignedMicroprice": true,
+      "initialStopAtr": 1.25,
+      "minimumEffectiveStopFloorPct": 0.004,
+      "targetR": 2.5,
+      "maximumHoldingMinutes": 180
+    },
+    "grid": {
+      "confirmationWindowMinutes": [5, 10],
+      "minimumConfirmationAbsoluteTakerImbalance": [0.1, 0.25],
+      "minimumConfirmationRelativeTakerNotional": [1, 1.5],
+      "minimumConfirmationAlignedTop5Imbalance": [0.05, 0.15]
+    },
+    "candidateCount": 16
+  },
+  "hypothesisSha256": "0a62f32d55fa39a965eea95a5d5894943dc0faf7f7b9bbf284feee81d3a06756",
+  "setupFrequencyAudit": {
+    "usedReturnsOrExitOutcomes": false,
+    "selection2023RawSetups": 484,
+    "validation2024RawSetups": 154,
+    "auditPerformedBeforeProtocolFreeze": true
+  },
+  "stateMachine": {
+    "FLAT_TO_SWEEP_ARMED": "A_CLOSED_M1_BAR_PASSES_ALL_FIXED_HIGH_IMPACT_SWEEP_RULES",
+    "SWEEP_ARMED_TO_ENTRY_PENDING": "A_LATER_CLOSED_M1_BAR_WITHIN_THE_CANDIDATE_WINDOW_FLIPS_FLOW_AND_BOOK_AND_CLOSES_THROUGH_THE_SETUP_TRADE_OPEN",
+    "ENTRY_PENDING_TO_OPEN": "FILL_AT_THE_NEXT_CONTIGUOUS_M1_OPEN_IN_THE_OPPOSITE_DIRECTION",
+    "SWEEP_EXPIRY": "RETURN_TO_FLAT_WITHOUT_ORDER",
+    "NO_SAME_MINUTE_CONFIRMATION": true
+  },
+  "sourceEvidence": [
+    {
+      "id": "PRIMARY_DEVELOPMENT",
+      "protocolId": "bybit-event-flow-development-v1",
+      "protocolSha256": "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d",
+      "acquisitionReceiptSha256": "73419fc5cdddb2b1f04e53868a1bbd5d5ba3b2799e83d0d8c4a964a179ce6ee5",
+      "sourceFingerprintSha256": "a4de3485e49a81ee3cd23a03ece58abecd339d389f90fcdb20bc41eb597ad047",
+      "databasePath": "build/research/bybit-event-flow-development-v1.sqlite",
+      "databaseSha256": "054e55a07629e17a50131e06c444b044089de70a9d6511f6256e55d63278500d",
+      "blockIds": ["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10", "D11", "D12"]
+    },
+    {
+      "id": "FIXED_EXTENSION_NOW_DEVELOPMENT",
+      "protocolId": "bybit-event-flow-fixed-extension-v1",
+      "protocolSha256": "41f109407b8e9076331f6c097573f789957b04e4de5ba58c3add5b08746c9049",
+      "acquisitionReceiptSha256": "61ec8dfb8192ad27e03b0359a728f6ece78001639ad3ce69531b981169463b0a",
+      "sourceFingerprintSha256": "306d53403f8f241d8a397787fb3508168bc0201f6503f2cd9ea49d3533fac3c0",
+      "databasePath": "build/research/bybit-event-flow-fixed-extension-v1.sqlite",
+      "databaseSha256": "44724180f0150ac935d90514e98f09562632b5653e9ad76480519e71e37fe923",
+      "blockIds": ["X01", "X02", "X03", "X04", "X05", "X06", "X07", "X08", "X09", "X10", "X11", "X12", "X13", "X14", "X15", "X16"]
+    }
+  ],
+  "chronologicalDevelopment": {
+    "candidateSelection": {
+      "period": "2023",
+      "blockIds": ["D01", "D02", "D03", "D04", "D05", "D06", "X01", "X02", "X03", "X04", "X05", "X06", "X07", "X08"],
+      "evaluationDays": 60,
+      "selectCandidateOnce": true,
+      "ranking": ["BOOTSTRAP_LOWER_MEAN_NET_R", "WORST_BLOCK_MEAN_NET_R", "PROFIT_FACTOR", "CANDIDATE_ID"],
+      "eligibility": {
+        "minimumTrades": 15,
+        "minimumProfitFactor": 1,
+        "minimumMeanNetR": 0,
+        "maximumDrawdownPct": 10,
+        "maximumLiquidationCount": 0
+      }
+    },
+    "validationEras": [
+      {
+        "id": "2024H1",
+        "blockIds": ["D07", "D08", "D09", "X09", "X10", "X11", "X12"],
+        "evaluationDays": 30
+      },
+      {
+        "id": "2024H2",
+        "blockIds": ["D10", "D11", "D12", "X13", "X14", "X15", "X16"],
+        "evaluationDays": 30
+      }
+    ],
+    "validationGate": {
+      "minimumTrades": 12,
+      "minimumLongTrades": 4,
+      "minimumShortTrades": 4,
+      "minimumPositiveEraCount": 2,
+      "totalEraCount": 2,
+      "minimumProfitFactor": 1.2,
+      "minimumMeanNetR": 0,
+      "minimumBootstrapLowerMeanNetR": 0,
+      "maximumDrawdownPct": 15,
+      "maximumLiquidationCount": 0,
+      "maximumWinnerProfitConcentration": 0.35
+    }
+  },
+  "executionContract": {
+    "entry": "NEXT_CONTIGUOUS_M1_OPEN",
+    "sameBarConflict": "STOP_FIRST",
+    "discontinuousEntry": "NO_TRADE",
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002,
+    "riskFraction": 0.005,
+    "researchLeverage": 15,
+    "maintenanceMarginRate": 0.005,
+    "minimumInitialRiskPct": 0.004,
+    "maximumInitialRiskPct": 0.025,
+    "maximumTradesPerUtcDay": 5,
+    "cooldownMinutes": 30,
+    "quantityModel": "CONTINUOUS_RESEARCH_ONLY",
+    "liquidationTriggerSource": "ADVERSE_M1_EXTREME_BEFORE_OTHER_FAVORABLE_EXITS",
+    "capitalAndExchangeStepStressDeferredToStage": "M6"
+  },
+  "statistics": {
+    "bootstrap": {
+      "method": "CIRCULAR_MOVING_BLOCK",
+      "iterations": 5000,
+      "blockLengthTrades": 5,
+      "confidenceLevel": 0.95,
+      "seed": 20260806
+    }
+  },
+  "outcomePolicy": {
+    "failure": "REJECT_THE_FAMILY_AND_KEEP_ALL_LATER_EVIDENCE_LOCKED",
+    "pass": "COMMIT_ONE_EXACT_CANDIDATE_FINGERPRINT_BEFORE_VALIDATION_ACQUISITION",
+    "retuneFrom2024Validation": false,
+    "validationDataMayBeAcquiredDirectly": false,
+    "externalDataMayBeAcquiredDirectly": false,
+    "freshSealedDataMayBeAcquiredDirectly": false,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
