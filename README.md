@@ -59,6 +59,15 @@ Initial public repository placeholder for a Bybit trading automation project.
 > made only `+0.05971R` before fees against `0.22215R` average fee cost and was
 > gross-positive in two of four quarters. This family is closed without reading
 > 2024 or enabling execution.
+>
+> **Funding crowding development evidence sealed (2026-08-06):** the distinct
+> low-turnover contrarian/carry study now has a frozen 2020-2022 snapshot with
+> 3,034 settled funding observations, 97,096 official M15 premium bars, and
+> 1,845,081 causal price candles. One official 13-bar premium source gap is
+> retained without interpolation; all 3,034 funding decisions still have a
+> closed premium input within 30 minutes. This is acquisition evidence only.
+> The 32 predeclared candidates have not yet been evaluated, 2023 and later
+> evidence remains locked, and execution remains disabled.
 
 Milestone 1 is the operational backend shell:
 

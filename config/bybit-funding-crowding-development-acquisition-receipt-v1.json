@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bybit-funding-crowding-development-acquisition-receipt-v1",
+  "status": "COMPLETE_DEVELOPMENT_EVIDENCE_SEALED",
+  "protocolId": "bybit-funding-crowding-development-v1",
+  "protocolSha256": "e9fd7162c46b9208d0b7e228c8e8cd29827e72ef29ebdca735118a30016e133e",
+  "implementationSha256": "60d7d8e665ef777656fa9942b786ae96ef5036adbaf893f3f6e1bdbefa037694",
+  "acquisitionReportSha256": "2d9e30838ffb2f50151e39a7c343fae60b386eea66483926eb3777ba34debe1e",
+  "sourceDatabaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+  "stage": "development",
+  "developmentStart": "2020-03-25T00:00:00Z",
+  "developmentEndExclusive": "2023-01-01T00:00:00Z",
+  "stageSnapshot": "build/research/bybit-funding-crowding-development-v1-development.sqlite",
+  "stageSnapshotSha256": "2b8b1cdd55f1c0bb5cfba7bdda719e63af95a0d72fb7997c1c4b1639ab1aea51",
+  "normalizedFeatureSha256": "ee2d9985ab21fa14d35a809006fc1c10e00c514b63d3371247d098698d1a6ca2",
+  "officialRestEvidence": {
+    "fundingPageCount": 17,
+    "fundingRowCount": 3034,
+    "fundingResponseChainSha256": "e950570449c69109a76985dd8713a9c932bbe36e7e8846113e092ec053d2df16",
+    "fundingContentSha256": "1c182af91eb4d9cfdbf6fabea4364ab43bba91d93d39689efa0cf44211054b2d",
+    "premiumPageCount": 99,
+    "premiumRowCount": 97096,
+    "premiumResponseChainSha256": "14076aa54e9cc08b98d665a1f592261b27f39c1695a09582f876a52cc76488b4",
+    "premiumContentSha256": "dff32640cc188bb0ec9748f92b06db62a0ce70731e98713a0d131fda60cba77a"
+  },
+  "coverage": {
+    "m1CandleCount": 1456644,
+    "m5CandleCount": 291328,
+    "m15CandleCount": 97109,
+    "fundingWarmupBeforeF01": 292,
+    "checkedFundingSettlementCount": 3034,
+    "missingDecisionInputCount": 0,
+    "premiumSourceGapCount": 1,
+    "premiumMissingIntervalCount": 13,
+    "premiumSourceGapAfter": "2020-10-19T08:15:00Z",
+    "premiumSourceGapNext": "2020-10-19T11:45:00Z"
+  },
+  "integrity": {
+    "allFundingIntervalsContinuous": true,
+    "allCandleIntervalsContinuousAndOnGrid": true,
+    "allFundingSettlementsHaveClosedPremiumWithinThirtyMinutes": true,
+    "premiumSourceGapRetainedWithoutInterpolation": true,
+    "allRawRestPagesRetainedAndHashed": true,
+    "stageSnapshotStableAcrossResume": true
+  },
+  "lockedEvidence": {
+    "internalValidation2023Through2024Read": false,
+    "external2025Read": false,
+    "external2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "developmentEvaluationAllowed": true,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
