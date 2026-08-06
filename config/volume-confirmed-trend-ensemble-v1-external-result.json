@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-confirmed-trend-ensemble-v1-external-result",
+  "programStatus": "HISTORICALLY_VALIDATED_SHADOW_REQUIRED",
+  "protocol": {
+    "path": "config/volume-confirmed-trend-ensemble-v1.json",
+    "sha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74"
+  },
+  "acquisitionEvidence": {
+    "venue": "BINANCE_USDM",
+    "archiveCount": 158,
+    "archiveManifestSha256": "d12d17c71c2bd731b1a37a8d0e79eeb59f17d389bbcf62ff889323398eac0fa3",
+    "importManifestSha256": "cdfe90bbd9f42e74ffc9c096f0c82f7600d59f0805b7ca3bb0c618ea1a51a919",
+    "databaseSha256": "9c80bd330b8edb3a3a081b88ff4493ad7e1035da2d4d807e4ff625ee844bbbb6",
+    "h4BarCount": 14424,
+    "fundingRateCount": 7212,
+    "firstH4OpenedAt": "2020-01-01T00:00:00.000Z",
+    "lastH4OpenedAt": "2026-07-31T20:00:00.000Z",
+    "sourceFeatureSha256": "bb1634cca011a44b062f20aebd25e7ecd307fea37e3dd0082fb8e43efa6250f7"
+  },
+  "sourceResult": {
+    "ignoredPath": "build/research/volume-confirmed-trend-ensemble-v1-external-result.json",
+    "evaluationSha256": "3752e97f6c51cce40afe65455b17c69576f2ec783d91837ba750d4f58e0bcdd2"
+  },
+  "canonicalMetrics": {
+    "startingEquityUsdt": 660,
+    "baseline": {
+      "endingEquityUsdt": 3605.34525093,
+      "netReturnPct": 446.26443196,
+      "cagrPct": 30.73573214,
+      "compoundDailyReturnPct": 0.07340346,
+      "maximumConservativeIntrabarDrawdownPct": 30.58189901,
+      "maximumEntryExposureFraction": 0.64976059,
+      "maximumAdverseExposureFraction": 1.01287642,
+      "closedTradeCount": 165,
+      "annualizedSideChangeCount": 25.89193862,
+      "winRatePct": 26.06060606,
+      "profitFactor": 1.72547093,
+      "positiveCompleteYearFraction": 1,
+      "positiveRollingTwelveMonthFraction": 0.94820513,
+      "worstRollingTwelveMonthReturnPct": -10.98158031,
+      "positiveRandomWindowFraction": 0.9,
+      "liquidationCount": 0
+    },
+    "doubleCost": {
+      "endingEquityUsdt": 3061.65576025,
+      "netReturnPct": 363.8872364,
+      "cagrPct": 27.40571514,
+      "compoundDailyReturnPct": 0.06633449,
+      "maximumConservativeIntrabarDrawdownPct": 30.52759511,
+      "maximumEntryExposureFraction": 0.64977103,
+      "maximumAdverseExposureFraction": 1.01065659,
+      "winRatePct": 24.84848485,
+      "profitFactor": 1.61654072,
+      "positiveRollingTwelveMonthFraction": 0.92102564,
+      "worstRollingTwelveMonthReturnPct": -13.78229962,
+      "positiveRandomWindowFraction": 0.9,
+      "liquidationCount": 0
+    }
+  },
+  "startingCapitalStress": [
+    {
+      "startingEquityUsdt": 100,
+      "baselineEndingEquityUsdt": 389.97489662,
+      "baselineCagrPct": 23.96278643,
+      "doubleCostEndingEquityUsdt": 378.02087588,
+      "doubleCostCagrPct": 23.35511084
+    },
+    {
+      "startingEquityUsdt": 660,
+      "baselineEndingEquityUsdt": 3605.34525093,
+      "baselineCagrPct": 30.73573214,
+      "doubleCostEndingEquityUsdt": 3061.65576025,
+      "doubleCostCagrPct": 27.40571514
+    },
+    {
+      "startingEquityUsdt": 1000,
+      "baselineEndingEquityUsdt": 5455.30865267,
+      "baselineCagrPct": 30.7080051,
+      "doubleCostEndingEquityUsdt": 4589.50042036,
+      "doubleCostCagrPct": 27.19071522
+    }
+  ],
+  "externalGate": {
+    "passed": true,
+    "failedChecks": [],
+    "parametersChangedAfterExternalRead": false
+  },
+  "remainingGates": {
+    "freshShadowPass": false,
+    "paperReplayParity": false
+  },
+  "decision": {
+    "historicalValidationPassed": true,
+    "shadowObservationAllowed": true,
+    "developmentOrExternalPassGrantsExecution": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}

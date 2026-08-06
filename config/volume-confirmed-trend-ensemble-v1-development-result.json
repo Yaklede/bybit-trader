@@ -16,9 +16,8 @@
     "sourceFeatureSha256": "ad002dcc0c5ab17697b1858338f01275a9aac51de65c59d2a0d7f091bd45d8cf"
   },
   "sourceResult": {
-    "generatedAt": "2026-08-06T17:04:14.261Z",
     "ignoredPath": "build/research/volume-confirmed-trend-ensemble-v1-result.json",
-    "sha256": "6133cb47d5eabb7aa78c3055d8f384fb929c8e4b703de057fb2e8f18906f30f7"
+    "evaluationSha256": "00f6cbbdb94fd099c05a4122f55a009c37b78fece7188939a8ca6f8d72cd0e25"
   },
   "canonicalMetrics": {
     "startingEquityUsdt": 660,

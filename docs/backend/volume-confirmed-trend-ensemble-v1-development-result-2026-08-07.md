@@ -9,7 +9,7 @@
 | 항목 | 값 |
 |---|---|
 | 프로토콜 SHA-256 | `6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74` |
-| 결과 SHA-256 | `6133cb47d5eabb7aa78c3055d8f384fb929c8e4b703de057fb2e8f18906f30f7` |
+| 평가 SHA-256 | `00f6cbbdb94fd099c05a4122f55a009c37b78fece7188939a8ca6f8d72cd0e25` |
 | 특성 자료 SHA-256 | `ad002dcc0c5ab17697b1858338f01275a9aac51de65c59d2a0d7f091bd45d8cf` |
 | H4 봉 | 13,947개 |
 | Funding rate | 6,973개 |
