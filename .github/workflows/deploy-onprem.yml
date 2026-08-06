@@ -43,6 +43,7 @@ jobs:
             config/volume-confirmed-trend-ensemble-v1-kotlin-parity-result.json \
             config/volume-confirmed-trend-ensemble-v1-runtime-parity-result.json \
             config/volume-confirmed-trend-ensemble-v1-forward-policy.json \
+            config/volume-confirmed-trend-live-approval.json \
             deploy-package/config/
           cat > deploy-package/release.env <<EOF
           APP_VERSION=${SAFE_VERSION}

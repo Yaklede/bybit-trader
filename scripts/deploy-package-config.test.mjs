@@ -13,6 +13,7 @@ const runtimeConfigFiles = [
   "volume-confirmed-trend-ensemble-v1-kotlin-parity-result.json",
   "volume-confirmed-trend-ensemble-v1-runtime-parity-result.json",
   "volume-confirmed-trend-ensemble-v1-forward-policy.json",
+  "volume-confirmed-trend-live-approval.json",
 ];
 
 const workflow = fs.readFileSync(".github/workflows/deploy-onprem.yml", "utf8");

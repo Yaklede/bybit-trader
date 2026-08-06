@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "status": "NOT_APPROVED",
+  "approvalId": null,
+  "protocol": {
+    "id": "volume-confirmed-trend-ensemble-v1",
+    "candidateId": "vcte_4h_majority_001",
+    "sha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74"
+  },
+  "forwardPolicy": {
+    "id": "volume-confirmed-trend-ensemble-v1-forward-policy",
+    "sha256": "5ea2185fe9f4299f656ca89848a5ffd77acb578954517cd22432e5b4d64dc62b"
+  },
+  "shadowSessionId": null,
+  "shadowEvidenceSha256": null,
+  "approvalReportSha256": null,
+  "approvedAt": null,
+  "approvedBy": null,
+  "liveExecutionAllowed": false,
+  "reasonCode": "FRESH_SHADOW_AND_HUMAN_REVIEW_REQUIRED"
+}

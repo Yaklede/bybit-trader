@@ -17,6 +17,7 @@ RUN chmod +x ./gradlew && \
        config/volume-confirmed-trend-ensemble-v1-kotlin-parity-result.json \
        config/volume-confirmed-trend-ensemble-v1-runtime-parity-result.json \
        config/volume-confirmed-trend-ensemble-v1-forward-policy.json \
+       config/volume-confirmed-trend-live-approval.json \
        modules/bot-app/build/install/bot-app/config/
 
 FROM eclipse-temurin:17-jre-jammy
