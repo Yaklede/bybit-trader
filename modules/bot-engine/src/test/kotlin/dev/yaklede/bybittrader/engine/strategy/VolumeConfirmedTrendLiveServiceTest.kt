@@ -46,6 +46,31 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 0
         }
 
+        "non-approved reconciliation remains private-read free" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.DISABLED
+            gateway.exchangeReadCount shouldBe 0
+        }
+
+        "approved reconciliation initializes a flat checkpoint before the first signal" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.FLAT
+            store.events.single().type shouldBe VolumeConfirmedTrendLiveEventType.INITIALIZED
+            gateway.submittedOrders.size shouldBe 0
+        }
+
         "approved flat account records intent before submitting one bounded IOC order" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()

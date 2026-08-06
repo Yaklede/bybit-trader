@@ -64,6 +64,25 @@ object VolumeConfirmedTrendTargetPlanner {
         priceTick: BigDecimal,
         currentPosition: VolumeConfirmedTrendObservedPosition?,
         contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+    ): VolumeConfirmedTrendTargetPlan =
+        plan(
+            protocolSha256 = protocolSha256,
+            signal = command.toExecutionSignal(),
+            accountEquity = accountEquity,
+            referencePrice = referencePrice,
+            priceTick = priceTick,
+            currentPosition = currentPosition,
+            contract = contract,
+        )
+
+    fun plan(
+        protocolSha256: String,
+        signal: VolumeConfirmedTrendExecutionSignal,
+        accountEquity: BigDecimal,
+        referencePrice: BigDecimal,
+        priceTick: BigDecimal,
+        currentPosition: VolumeConfirmedTrendObservedPosition?,
+        contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
     ): VolumeConfirmedTrendTargetPlan {
         require(protocolSha256.matches(Regex("[0-9a-f]{64}"))) {
             "Trend target planner requires a lowercase protocol SHA-256."
@@ -72,11 +91,11 @@ object VolumeConfirmedTrendTargetPlanner {
         require(referencePrice > BigDecimal.ZERO) { "Trend target planner reference price must be positive." }
         require(priceTick > BigDecimal.ZERO) { "Trend target planner price tick must be positive." }
 
-        val decisionKey = "$protocolSha256|${command.executionAt}|${command.side.name}"
-        if (currentPosition?.side == command.side) {
+        val decisionKey = "$protocolSha256|${signal.executionAt}|${signal.side.name}"
+        if (currentPosition?.side == signal.side) {
             return noOrderPlan(
                 action = VolumeConfirmedTrendTargetAction.NO_ACTION,
-                targetSide = command.side,
+                targetSide = signal.side,
                 decisionKey = decisionKey,
                 reasonCode = "TARGET_SIDE_ALREADY_OPEN",
             )
@@ -86,18 +105,18 @@ object VolumeConfirmedTrendTargetPlanner {
             val exitSide = currentPosition.side.opposite()
             return orderPlan(
                 action = VolumeConfirmedTrendTargetAction.CLOSE,
-                targetSide = command.side,
+                targetSide = signal.side,
                 orderSide = exitSide,
                 orderQuantity = currentPosition.quantity,
                 reduceOnly = true,
                 limitPrice = boundedLimitPrice(referencePrice, exitSide, priceTick, contract),
                 decisionKey = decisionKey,
-                clientOrderId = clientOrderId(protocolSha256, command, phase = "x", side = exitSide),
+                clientOrderId = clientOrderId(protocolSha256, signal, phase = "x", side = exitSide),
                 reasonCode = "OPPOSITE_POSITION_REQUIRES_CONFIRMED_EXIT",
             )
         }
 
-        val entryLimitPrice = boundedLimitPrice(referencePrice, command.side, priceTick, contract)
+        val entryLimitPrice = boundedLimitPrice(referencePrice, signal.side, priceTick, contract)
         val quantity =
             VolumeConfirmedTrendEngine
                 .quantity(
@@ -108,7 +127,7 @@ object VolumeConfirmedTrendTargetPlanner {
         if (quantity <= BigDecimal.ZERO) {
             return noOrderPlan(
                 action = VolumeConfirmedTrendTargetAction.NO_TRADE,
-                targetSide = command.side,
+                targetSide = signal.side,
                 decisionKey = decisionKey,
                 reasonCode = "MINIMUM_QUANTITY_EXCEEDS_EXPOSURE_LIMIT",
             )
@@ -116,13 +135,13 @@ object VolumeConfirmedTrendTargetPlanner {
 
         return orderPlan(
             action = VolumeConfirmedTrendTargetAction.OPEN,
-            targetSide = command.side,
-            orderSide = command.side,
+            targetSide = signal.side,
+            orderSide = signal.side,
             orderQuantity = quantity,
             reduceOnly = false,
             limitPrice = entryLimitPrice,
             decisionKey = decisionKey,
-            clientOrderId = clientOrderId(protocolSha256, command, phase = "e", side = command.side),
+            clientOrderId = clientOrderId(protocolSha256, signal, phase = "e", side = signal.side),
             reasonCode = "TARGET_POSITION_ENTRY_READY",
         )
     }
@@ -146,13 +165,13 @@ object VolumeConfirmedTrendTargetPlanner {
 
     private fun clientOrderId(
         protocolSha256: String,
-        command: VolumeConfirmedTrendCommand,
+        signal: VolumeConfirmedTrendExecutionSignal,
         phase: String,
         side: Side,
     ): String {
         val sideCode = if (side == Side.BUY) "b" else "s"
-        val digest = sha256("$protocolSha256|${command.executionAt}|${command.side.name}|$phase|${side.name}").take(8)
-        return "vct-$phase-$sideCode-${command.executionAt.epochSecond}-$digest"
+        val digest = sha256("$protocolSha256|${signal.executionAt}|${signal.side.name}|$phase|${side.name}").take(8)
+        return "vct-$phase-$sideCode-${signal.executionAt.epochSecond}-$digest"
     }
 
     private fun sha256(value: String): String =

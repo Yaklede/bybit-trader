@@ -111,6 +111,25 @@ data class VolumeConfirmedTrendCommand(
     val priorVolumeMedian: Double,
 )
 
+data class VolumeConfirmedTrendExecutionSignal(
+    val side: Side,
+    val decisionAt: Instant,
+    val executionAt: Instant,
+) {
+    init {
+        require(!executionAt.isBefore(decisionAt)) {
+            "Trend execution cannot precede its decision."
+        }
+    }
+}
+
+fun VolumeConfirmedTrendCommand.toExecutionSignal(): VolumeConfirmedTrendExecutionSignal =
+    VolumeConfirmedTrendExecutionSignal(
+        side = side,
+        decisionAt = decisionAt,
+        executionAt = executionAt,
+    )
+
 data class VolumeConfirmedTrendEmaState(
     val fast: Double?,
     val slow: Double?,

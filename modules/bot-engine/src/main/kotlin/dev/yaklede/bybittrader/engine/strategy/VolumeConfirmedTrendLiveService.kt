@@ -18,20 +18,41 @@ class VolumeConfirmedTrendLiveService(
     private val approvalReportSha256: String,
     private val executionContract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
     private val clock: () -> Instant = Instant::now,
-) {
+) : VolumeConfirmedTrendLiveExecutor {
     private val evaluationMutex = Mutex()
     private val recovery = VolumeConfirmedTrendLiveRecovery(gateway, store, config)
 
     suspend fun evaluate(
         command: VolumeConfirmedTrendCommand,
         referencePrice: BigDecimal,
+    ): VolumeConfirmedTrendLiveEvaluationResult = evaluate(command.toExecutionSignal(), referencePrice)
+
+    override suspend fun evaluate(
+        signal: VolumeConfirmedTrendExecutionSignal,
+        referencePrice: BigDecimal,
     ): VolumeConfirmedTrendLiveEvaluationResult =
         evaluationMutex.withLock {
-            evaluateLocked(command, referencePrice)
+            evaluateLocked(signal, referencePrice)
+        }
+
+    override suspend fun reconcile(): VolumeConfirmedTrendLiveEvaluationResult =
+        evaluationMutex.withLock {
+            reconcileLocked()
+        }
+
+    override suspend fun haltForSafety(reasonCode: String): VolumeConfirmedTrendLiveEvaluationResult =
+        evaluationMutex.withLock {
+            require(reasonCode.isNotBlank()) { "Trend live safety halt reason must not be blank." }
+            halt(
+                previous = store.trendLiveState(config.protocolId, config.symbol),
+                signal = null,
+                now = clock(),
+                reasonCode = reasonCode,
+            )
         }
 
     private suspend fun evaluateLocked(
-        command: VolumeConfirmedTrendCommand,
+        signal: VolumeConfirmedTrendExecutionSignal,
         referencePrice: BigDecimal,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         require(referencePrice > BigDecimal.ZERO) { "Trend live reference price must be positive." }
@@ -72,7 +93,7 @@ class VolumeConfirmedTrendLiveService(
         if (!contractValidation.valid) {
             return halt(
                 previous = stored,
-                command = command,
+                signal = signal,
                 now = now,
                 reasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
                 contractFailures = contractValidation.failures,
@@ -80,27 +101,27 @@ class VolumeConfirmedTrendLiveService(
         }
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (openPositions.size > 1) {
-            return halt(stored, command, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+            return halt(stored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
         if (stored != null && stored.status in PENDING_ORDER_STATES) {
             return recovery.recover(stored, position, now)
         }
         if (stored == null && position != null) {
-            return halt(null, command, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+            return halt(null, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
         }
         if (stored?.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
             position != null
         ) {
-            return halt(stored, command, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
+            return halt(stored, signal, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
         }
         if (stored != null &&
             stored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
             !stored.matches(position)
         ) {
-            return halt(stored, command, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+            return halt(stored, signal, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
         }
-        if (stored != null && stored.status in NOT_FILLED_STATES && stored.activeDecisionKey == commandDecisionKey(command)) {
+        if (stored != null && stored.status in NOT_FILLED_STATES && stored.activeDecisionKey == signalDecisionKey(signal)) {
             return VolumeConfirmedTrendLiveEvaluationResult(
                 status = VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED,
                 state = stored,
@@ -111,12 +132,12 @@ class VolumeConfirmedTrendLiveService(
         val balance = gateway.accountBalance("USDT")
         val equity =
             balance.totalEquity?.takeIf { it > BigDecimal.ZERO }
-                ?: return halt(stored, command, now, "TREND_ACCOUNT_EQUITY_UNAVAILABLE", position = position)
+                ?: return halt(stored, signal, now, "TREND_ACCOUNT_EQUITY_UNAVAILABLE", position = position)
         val observed = position?.toObservedPosition()
         val plan =
             VolumeConfirmedTrendTargetPlanner.plan(
                 protocolSha256 = config.protocolSha256,
-                command = command,
+                signal = signal,
                 accountEquity = equity,
                 referencePrice = referencePrice,
                 priceTick = instrument.priceTick,
@@ -124,17 +145,113 @@ class VolumeConfirmedTrendLiveService(
                 contract = executionContract,
             )
         return when (plan.action) {
-            VolumeConfirmedTrendTargetAction.NO_ACTION -> noAction(stored, command, position, plan, now)
-            VolumeConfirmedTrendTargetAction.NO_TRADE -> noTrade(stored, command, plan, now)
+            VolumeConfirmedTrendTargetAction.NO_ACTION -> noAction(stored, signal, position, plan, now)
+            VolumeConfirmedTrendTargetAction.NO_TRADE -> noTrade(stored, signal, plan, now)
             VolumeConfirmedTrendTargetAction.OPEN,
             VolumeConfirmedTrendTargetAction.CLOSE,
-            -> submitPlan(stored, command, plan, instrument, position, now)
+            -> submitPlan(stored, signal, plan, instrument, position, now)
         }
     }
 
+    private suspend fun reconcileLocked(): VolumeConfirmedTrendLiveEvaluationResult {
+        val now = clock()
+        val stored = store.trendLiveState(config.protocolId, config.symbol)
+        val approval = approvalValidation()
+        if (!approval.liveExecutionAllowed) {
+            val state = blockByApproval(stored, now)
+            return VolumeConfirmedTrendLiveEvaluationResult(
+                status = VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED,
+                state = state,
+                plan = null,
+                approvalFailures = approval.failures,
+            )
+        }
+        if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) {
+            return VolumeConfirmedTrendLiveEvaluationResult(
+                status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
+                state = stored,
+                plan = null,
+            )
+        }
+
+        val instrument = gateway.instrumentRules(config.symbol)
+        val contractValidation =
+            VolumeConfirmedTrendExchangeContractValidator.validate(
+                account = gateway.accountExecutionProfile(),
+                position = gateway.positionExecutionProfile(config.symbol),
+                instrument = instrument,
+                contract = executionContract,
+            )
+        if (!contractValidation.valid) {
+            return halt(
+                previous = stored,
+                signal = null,
+                now = now,
+                reasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
+                contractFailures = contractValidation.failures,
+            )
+        }
+        val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        if (openPositions.size > 1) {
+            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+        }
+        val position = openPositions.singleOrNull()
+        if (stored != null && stored.status in PENDING_ORDER_STATES) {
+            return recovery.recover(stored, position, now)
+        }
+        if (stored == null || stored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
+            if (position != null) {
+                return halt(stored, null, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+            }
+            val initialized =
+                baseState(stored, now).copy(
+                    status = VolumeConfirmedTrendLiveStatus.FLAT,
+                    approvalId = approvalReceipt.approvalId,
+                    updatedAt = now,
+                )
+            store.commitTrendLive(
+                initialized,
+                listOf(lifecycleEvent(initialized, VolumeConfirmedTrendLiveEventType.INITIALIZED, "TREND_LIVE_INITIALIZED", now)),
+            )
+            return VolumeConfirmedTrendLiveEvaluationResult(
+                status = VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED,
+                state = initialized,
+                plan = null,
+            )
+        }
+        if (stored.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
+            position != null
+        ) {
+            return halt(stored, null, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
+        }
+        if (stored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
+            !stored.matches(position)
+        ) {
+            return halt(stored, null, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+        }
+        return VolumeConfirmedTrendLiveEvaluationResult(
+            status =
+                if (stored.status in NOT_FILLED_STATES) {
+                    VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED
+                } else {
+                    VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED
+                },
+            state = stored,
+            plan = null,
+        )
+    }
+
+    private suspend fun approvalValidation(): VolumeConfirmedTrendLiveApprovalValidation =
+        VolumeConfirmedTrendLiveApprovalValidator.validate(
+            receipt = approvalReceipt,
+            report = approvalReportProvider(),
+            actualShadowEvidenceSha256 = shadowEvidenceSha256,
+            actualApprovalReportSha256 = approvalReportSha256,
+        )
+
     private suspend fun submitPlan(
         previous: VolumeConfirmedTrendLiveState?,
-        command: VolumeConfirmedTrendCommand,
+        signal: VolumeConfirmedTrendExecutionSignal,
         plan: VolumeConfirmedTrendTargetPlan,
         instrument: ExchangeInstrumentRules,
         position: ExchangePosition?,
@@ -143,7 +260,7 @@ class VolumeConfirmedTrendLiveService(
         val quantity = requireNotNull(plan.orderQuantity)
         val limitPrice = requireNotNull(plan.limitPrice)
         if (quantity * limitPrice < instrument.minimumNotional) {
-            return noTrade(previous, command, plan, now, reasonCode = "MINIMUM_NOTIONAL_NOT_MET")
+            return noTrade(previous, signal, plan, now, reasonCode = "MINIMUM_NOTIONAL_NOT_MET")
         }
         val intentType =
             if (plan.action == VolumeConfirmedTrendTargetAction.OPEN) {
@@ -210,7 +327,7 @@ class VolumeConfirmedTrendLiveService(
 
     private suspend fun noAction(
         previous: VolumeConfirmedTrendLiveState?,
-        command: VolumeConfirmedTrendCommand,
+        signal: VolumeConfirmedTrendExecutionSignal,
         position: ExchangePosition?,
         plan: VolumeConfirmedTrendTargetPlan,
         now: Instant,
@@ -220,7 +337,7 @@ class VolumeConfirmedTrendLiveService(
                 status = if (position == null) VolumeConfirmedTrendLiveStatus.FLAT else VolumeConfirmedTrendLiveStatus.OPEN,
                 approvalId = approvalReceipt.approvalId,
                 activeDecisionKey = plan.decisionKey,
-                pendingTargetSide = command.side,
+                pendingTargetSide = signal.side,
                 clientOrderId = null,
                 exchangeOrderId = null,
                 observedPositionSide = position?.side,
@@ -234,7 +351,7 @@ class VolumeConfirmedTrendLiveService(
 
     private suspend fun noTrade(
         previous: VolumeConfirmedTrendLiveState?,
-        command: VolumeConfirmedTrendCommand,
+        signal: VolumeConfirmedTrendExecutionSignal,
         plan: VolumeConfirmedTrendTargetPlan,
         now: Instant,
         reasonCode: String = plan.reasonCode,
@@ -244,7 +361,7 @@ class VolumeConfirmedTrendLiveService(
                 status = VolumeConfirmedTrendLiveStatus.FLAT,
                 approvalId = approvalReceipt.approvalId,
                 activeDecisionKey = plan.decisionKey,
-                pendingTargetSide = command.side,
+                pendingTargetSide = signal.side,
                 clientOrderId = null,
                 exchangeOrderId = null,
                 observedPositionSide = null,
@@ -286,7 +403,7 @@ class VolumeConfirmedTrendLiveService(
 
     private suspend fun halt(
         previous: VolumeConfirmedTrendLiveState?,
-        command: VolumeConfirmedTrendCommand?,
+        signal: VolumeConfirmedTrendExecutionSignal?,
         now: Instant,
         reasonCode: String,
         position: ExchangePosition? = null,
@@ -296,8 +413,8 @@ class VolumeConfirmedTrendLiveService(
             baseState(previous, now).copy(
                 status = VolumeConfirmedTrendLiveStatus.HALTED,
                 approvalId = approvalReceipt.approvalId,
-                activeDecisionKey = command?.let { commandDecisionKey(it) } ?: previous?.activeDecisionKey,
-                pendingTargetSide = command?.side ?: previous?.pendingTargetSide,
+                activeDecisionKey = signal?.let { signalDecisionKey(it) } ?: previous?.activeDecisionKey,
+                pendingTargetSide = signal?.side ?: previous?.pendingTargetSide,
                 observedPositionSide = position?.side ?: previous?.observedPositionSide,
                 observedPositionQuantity = position?.size ?: previous?.observedPositionQuantity,
                 haltedReasonCode = reasonCode,
@@ -336,8 +453,8 @@ class VolumeConfirmedTrendLiveService(
                 updatedAt = now,
             )
 
-    private fun commandDecisionKey(command: VolumeConfirmedTrendCommand): String =
-        "${config.protocolSha256}|${command.executionAt}|${command.side.name}"
+    private fun signalDecisionKey(signal: VolumeConfirmedTrendExecutionSignal): String =
+        "${config.protocolSha256}|${signal.executionAt}|${signal.side.name}"
 
     private fun VolumeConfirmedTrendLiveState.matches(position: ExchangePosition?): Boolean =
         position != null && observedPositionSide == position.side && observedPositionQuantity?.compareTo(position.size) == 0

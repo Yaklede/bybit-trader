@@ -217,6 +217,7 @@ enum class VolumeConfirmedTrendLiveEvaluationStatus {
     ORDER_NOT_FILLED,
     RECOVERED,
     RECOVERY_PENDING,
+    RECONCILED,
 }
 
 data class VolumeConfirmedTrendLiveEvaluationResult(
@@ -226,3 +227,14 @@ data class VolumeConfirmedTrendLiveEvaluationResult(
     val approvalFailures: List<VolumeConfirmedTrendLiveApprovalFailure> = emptyList(),
     val contractFailures: List<VolumeConfirmedTrendExchangeContractFailure> = emptyList(),
 )
+
+interface VolumeConfirmedTrendLiveExecutor {
+    suspend fun evaluate(
+        signal: VolumeConfirmedTrendExecutionSignal,
+        referencePrice: BigDecimal,
+    ): VolumeConfirmedTrendLiveEvaluationResult
+
+    suspend fun reconcile(): VolumeConfirmedTrendLiveEvaluationResult
+
+    suspend fun haltForSafety(reasonCode: String): VolumeConfirmedTrendLiveEvaluationResult
+}
