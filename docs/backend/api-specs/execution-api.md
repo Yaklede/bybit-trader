@@ -57,6 +57,11 @@ outside `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`, `FEE_REFUND`,
 and `INTEREST` are treated as external capital flows. Deposits and withdrawals
 therefore change strategy units without resetting or fabricating strategy
 returns. A new or migrated NAV state blocks entries for one baseline interval.
+The automatic loop emits a Korean Discord/Telegram alert when an entry-risk
+reason first appears or its reason set changes. Repeated evaluations with the
+same reason set are suppressed in-process. A single recovery alert is emitted
+when all entry-risk reasons clear; ordinary `NO_TRADE` strategy reasons do not
+produce risk alerts.
 The gross target move must exceed configured round-trip fees plus
 `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`; otherwise the signal is rejected before
 any private order call.

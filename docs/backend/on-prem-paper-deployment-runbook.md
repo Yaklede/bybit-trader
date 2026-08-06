@@ -166,6 +166,10 @@ Use a dedicated Unified account; unrelated loans, earn products, conversions,
 and account transfers are treated as capital outside this strategy. Do not place
 manual trades in the same account because Bybit reports them as `TRADE`, which
 is indistinguishable from bot performance at the account-transaction layer.
+The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
+first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
+Repeated five-minute loop evaluations with the same reason do not create alert
+spam.
 
 Enable at least one alert sink:
 

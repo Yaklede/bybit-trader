@@ -321,6 +321,7 @@ fun main() {
             null
         }
     val executionLoopScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val executionRiskAlertPolicy = ExecutionRiskAlertPolicy()
     val executionLoopJob =
         if (executionService != null && config.executionLoop.enabled) {
             logger.info("execution loop enabled intervalSeconds={}", config.executionLoop.intervalSeconds)
@@ -335,7 +336,7 @@ fun main() {
                         syncLimit = config.executionLoop.syncLimit,
                         intervalSeconds = config.executionLoop.intervalSeconds,
                     ),
-                onResult = { result -> alertingService.sendExecutionLoopResult(result) },
+                onResult = { result -> alertingService.sendExecutionLoopResult(result, executionRiskAlertPolicy) },
                 onFailure = { error -> alertingService.sendExecutionLoopFailure(error) },
             ).start(executionLoopScope)
         } else {
@@ -674,7 +675,11 @@ private suspend fun AlertingService.sendForwardMarketCaptureFailure(error: Throw
     )
 }
 
-private suspend fun AlertingService.sendExecutionLoopResult(result: ExchangeEvaluationResult) {
+private suspend fun AlertingService.sendExecutionLoopResult(
+    result: ExchangeEvaluationResult,
+    riskAlertPolicy: ExecutionRiskAlertPolicy,
+) {
+    riskAlertPolicy.messages(result).forEach { message -> send(message) }
     when (result.status) {
         ExchangeEvaluationStatus.SUBMITTED ->
             send(
