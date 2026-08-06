@@ -28,6 +28,14 @@ tasks.register<JavaExec>("runMakerShadowReplayMatrix") {
     mainClass.set("dev.yaklede.bybittrader.app.research.MakerShadowReplayMatrixMainKt")
 }
 
+tasks.register<JavaExec>("runVolumeConfirmedTrendParity") {
+    group = "verification"
+    description = "Replays the frozen volume-confirmed trend protocol through the Kotlin core."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.yaklede.bybittrader.app.research.VolumeConfirmedTrendParityMainKt")
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation(project(":modules:bot-api"))
     implementation(project(":modules:bot-alerts"))
@@ -43,6 +51,7 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.server.cio)
     implementation(libs.sqldelight.sqlite.driver)
+    implementation(libs.sqlite.jdbc)
     implementation(libs.logback.classic)
 
     testImplementation(libs.kotest.runner.junit5)

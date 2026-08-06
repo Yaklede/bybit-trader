@@ -311,8 +311,7 @@ object VolumeConfirmedTrendSimulator {
         var firstActiveAt: Instant? = null
         val trades = mutableListOf<VolumeConfirmedTrendTrade>()
 
-        fun markEquity(price: Double): Double =
-            cash + (position?.let { it.side.sign * it.quantity * (price - it.entryPrice) } ?: 0.0)
+        fun markEquity(price: Double): Double = cash + (position?.let { it.side.sign * it.quantity * (price - it.entryPrice) } ?: 0.0)
 
         fun closePosition(
             referencePrice: Double,
