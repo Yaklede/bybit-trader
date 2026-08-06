@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-multi-asset-delta-neutral-funding-carry-external-result-v2",
+  "programStatus": "REJECTED_MULTI_ASSET_EXTERNAL_VALIDATION",
+  "protocol": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-external-v2.json",
+    "sha256": "563c30e593688d38ff4747f8bf21627f9d623161c8856102885e92635a17f24a"
+  },
+  "replayFreeze": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-external-replay-freeze-v2.json",
+    "sha256": "5c78d598e49856a5d9e598f636ad2eebcedd115f49ca245d50e2ce8a40904f63"
+  },
+  "acquisitionReceiptSha256": "561ed7a3c95f695d47063b510a4aefcfde037564060c97470576cefc4165f991",
+  "resultReportSha256": "121058a34ccb16bc390ef1f69cb4aea7397dd024e51883d906d29f610a43234d",
+  "tradesSha256": "68c6107c4790424bfbfe92cfbeef15cc9c38ad726230f2905eaab1fbbffb9d10",
+  "candidate": {
+    "id": "multi_asset_delta_neutral_carry_04",
+    "sha256": "2b46f1abe6caef9fb31eb6ad85de2ff4973985e52d76a1f377cc8ef2e6d974e9"
+  },
+  "metrics": {
+    "startingEquityUsdt": 660,
+    "endingEquityUsdt": 659.65699882,
+    "netReturnPct": -0.05196988,
+    "compoundDailyReturnPct": -0.00014242,
+    "tradeCount": 9,
+    "activeCalendarDays": 86,
+    "capturedFundingSettlements": 332,
+    "profitFactor": 0.69183308,
+    "winRatePct": 33.33333333,
+    "maximumDrawdownPct": 0.18913231,
+    "liquidationCount": 0,
+    "positiveBlockCount": 1,
+    "totalBlockCount": 4,
+    "bootstrapLowerMeanDailyReturnPct": -0.00091924,
+    "costStressNetReturnPct": -0.36436683,
+    "secondLegDelayStressNetReturnPct": -0.2613492,
+    "fundingPnlUsdt": 2.94703468,
+    "feeAndSlippageCostUsdt": 4.15461325,
+    "positivePositionProfitConcentration": 0.45408012,
+    "positiveAssetProfitConcentration": 0.63054607
+  },
+  "gate": {
+    "passed": false,
+    "failedChecks": [
+      "minimumClosedPositions",
+      "minimumActiveCalendarDays",
+      "minimumCapturedFundingSettlements",
+      "minimumPositiveBlockCount",
+      "minimumNetReturnPct",
+      "minimumProfitFactor",
+      "minimumMeanDailyReturnPct",
+      "minimumBootstrapLowerMeanDailyReturnPct",
+      "maximumPositivePositionProfitConcentration",
+      "maximumPositiveAssetProfitConcentration",
+      "costStressMinimumNetReturnPct",
+      "secondLegDelayStressMinimumNetReturnPct"
+    ]
+  },
+  "diagnosis": {
+    "fundingDidNotRecoverRoundTripCosts": true,
+    "economicExpectedValueFailed": true,
+    "sampleSufficiencyFailed": true,
+    "diversificationFailed": true,
+    "gateRelaxationWouldNotMakeCostsPositive": true
+  },
+  "decision": {
+    "v2CandidateRejected": true,
+    "v2GateMayBeRelaxedAfterOutcome": false,
+    "v2CandidateMayBeRetunedAfterOutcome": false,
+    "v2Sealed2026AcquisitionAllowed": false,
+    "successorResearchMayUse2023Through2025AsDisclosedDevelopmentEvidence": true
+  },
+  "evidenceBoundary": {
+    "development2023Read": true,
+    "development2024Read": true,
+    "external2025Read": true,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
