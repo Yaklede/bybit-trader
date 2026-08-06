@@ -13,6 +13,7 @@ import dev.yaklede.bybittrader.api.backtest.FileVolumeFlowCompositeCurrentConfig
 import dev.yaklede.bybittrader.api.configureApi
 import dev.yaklede.bybittrader.api.operations.SmokeAlertDeliveryResponse
 import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
+import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendApprovalArtifactExportResponse
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.ControlAction
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
@@ -101,7 +102,7 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} makerShadow={} trendShadow={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} makerShadow={} trendShadow={} trendLive={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
@@ -113,6 +114,7 @@ fun main() {
         config.forwardMarketCapture.rawArchiveEnabled,
         config.makerShadow.enabled,
         config.volumeConfirmedTrendShadow.enabled,
+        config.volumeConfirmedTrendLive.enabled,
         config.marketData.symbol.value,
         config.marketData.timeframes.joinToString(",") { it.name },
     )
@@ -409,6 +411,14 @@ fun main() {
             forwardPolicy = trendApprovalDefinition.forwardPolicy,
             shadowReportProvider = { trendShadowService?.report(100_000) },
         )
+    val trendApprovalArtifactWriter =
+        trendShadowService?.let { shadowService ->
+            VolumeConfirmedTrendApprovalArtifactWriter(
+                outputDirectory = Path.of(config.volumeConfirmedTrendLive.approvalExportDirectory),
+                shadowReportProvider = { shadowService.report(100_000) },
+                approvalReportProvider = trendApprovalService::evaluate,
+            )
+        }
     logger.info(
         "volume-confirmed trend approval evidence loaded protocolId={} policyId={} automaticExecution=false liveExecution=false",
         trendApprovalDefinition.historicalEvidence.protocolId,
@@ -641,6 +651,25 @@ fun main() {
                 strategyProfileService = strategyProfileService,
                 volumeConfirmedTrendShadowReportProvider = trendShadowService?.let { service -> service::report },
                 volumeConfirmedTrendApprovalReportProvider = trendApprovalService::evaluate,
+                volumeConfirmedTrendApprovalArtifactExportProvider =
+                    trendApprovalArtifactWriter?.let { writer ->
+                        {
+                            writer.export().let { exported ->
+                                VolumeConfirmedTrendApprovalArtifactExportResponse(
+                                    available = true,
+                                    exportDirectory = exported.exportDirectory.toString(),
+                                    shadowEvidencePath = exported.shadowEvidencePath.toString(),
+                                    shadowEvidenceSha256 = exported.shadowEvidenceSha256,
+                                    approvalReportPath = exported.approvalReportPath.toString(),
+                                    approvalReportSha256 = exported.approvalReportSha256,
+                                    manifestPath = exported.manifestPath.toString(),
+                                    sessionId = exported.sessionId,
+                                    evaluatedAt = exported.evaluatedAt.toString(),
+                                    liveExecutionAllowed = false,
+                                )
+                            }
+                        }
+                    },
                 runtimeMode = config.runtimeMode.name,
                 forwardMarketCaptureStatusService =
                     ForwardMarketCaptureStatusService(

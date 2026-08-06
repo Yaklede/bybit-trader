@@ -38,8 +38,10 @@ test("on-prem deployment defaults cannot enable private execution", () => {
   assert.match(workflow, /BOT_PRIVATE_EXECUTION_ENABLED: \$\{\{ vars\.BOT_PRIVATE_EXECUTION_ENABLED \|\| 'false' \}\}/);
   assert.match(workflow, /BOT_EXECUTION_LOOP_ENABLED: \$\{\{ vars\.BOT_EXECUTION_LOOP_ENABLED \|\| 'false' \}\}/);
   assert.match(workflow, /BOT_EXECUTION_RECONCILIATION_ENABLED: \$\{\{ vars\.BOT_EXECUTION_RECONCILIATION_ENABLED \|\| 'false' \}\}/);
+  assert.match(workflow, /BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: \$\{\{ vars\.BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED \|\| 'false' \}\}/);
   assert.match(workflow, /policy\.decision\?\.liveExecutionAllowed !== true/);
   assert.match(workflow, /Automatic execution is blocked/);
+  assert.match(workflow, /packaged human approval receipt is incomplete or not approved/);
   assert.match(workflow, /process\.env\.BYBIT_API_KEY = ""/);
   assert.match(workflow, /Trend Shadow requires an isolated PAPER runtime/);
 });
@@ -93,6 +95,57 @@ test("trend Shadow rejects mixed private and paper execution", () => {
   assert.match(result.stderr, /BOT_PAPER_LOOP_ENABLED/);
 });
 
+test("trend live execution rejects the repository's default unapproved receipt", () => {
+  const result = runRuntimeEnvScript({
+    BOT_MODE: "TESTNET",
+    BOT_CONTROL_TOKEN: "control-test-value",
+    BYBIT_API_KEY: "api-key",
+    BYBIT_API_SECRET: "api-secret",
+    BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+    BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "true",
+    BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH:
+      "/opt/bybit-trader/config/volume-confirmed-trend-live-approval.json",
+    BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH:
+      "/data/trend-approval/session/shadow-evidence.json",
+    BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH:
+      "/data/trend-approval/session/approval-report.json",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /packaged human approval receipt is incomplete or not approved/);
+});
+
+test("trend live execution preserves an explicitly approved isolated runtime", () => {
+  const result = runRuntimeEnvScript(
+    {
+      BOT_MODE: "TESTNET",
+      BOT_CONTROL_TOKEN: "control-test-value",
+      BYBIT_API_KEY: "api-key",
+      BYBIT_API_SECRET: "api-secret",
+      BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+      BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "true",
+      BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH:
+        "/opt/bybit-trader/config/volume-confirmed-trend-live-approval.json",
+      BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH:
+        "/data/trend-approval/session/shadow-evidence.json",
+      BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH:
+        "/data/trend-approval/session/approval-report.json",
+      BOT_PRIVATE_EXECUTION_ENABLED: "false",
+      BOT_PRIVATE_EXECUTION_STREAM_ENABLED: "false",
+      BOT_EXECUTION_LOOP_ENABLED: "false",
+      BOT_EXECUTION_RECONCILIATION_ENABLED: "false",
+    },
+    approvedReceipt(),
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.runtimeEnv, /^BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=true$/m);
+  assert.match(
+    result.runtimeEnv,
+    /^BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH=\/data\/trend-approval\/session\/shadow-evidence\.json$/m,
+  );
+});
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -103,7 +156,7 @@ function extractRuntimeEnvScript(source) {
   return match[1].replace(/^ {10}/gm, "");
 }
 
-function runRuntimeEnvScript(environment) {
+function runRuntimeEnvScript(environment, approvalReceipt = defaultApprovalReceipt()) {
   const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bybit-deploy-env-"));
   try {
     fs.mkdirSync(path.join(tempDirectory, "config"), { recursive: true });
@@ -111,6 +164,10 @@ function runRuntimeEnvScript(environment) {
     fs.writeFileSync(
       path.join(tempDirectory, "config", "volume-confirmed-trend-ensemble-v1-forward-policy.json"),
       JSON.stringify({ decision: { liveExecutionAllowed: false } }),
+    );
+    fs.writeFileSync(
+      path.join(tempDirectory, "config", "volume-confirmed-trend-live-approval.json"),
+      JSON.stringify(approvalReceipt),
     );
     const result = spawnSync(process.execPath, ["-e", runtimeEnvScript], {
       cwd: tempDirectory,
@@ -126,4 +183,27 @@ function runRuntimeEnvScript(environment) {
   } finally {
     fs.rmSync(tempDirectory, { recursive: true, force: true });
   }
+}
+
+function defaultApprovalReceipt() {
+  return {
+    status: "NOT_APPROVED",
+    liveExecutionAllowed: false,
+  };
+}
+
+function approvedReceipt() {
+  const sha256 = "a".repeat(64);
+  return {
+    status: "APPROVED",
+    approvalId: "approval-001",
+    protocol: { sha256 },
+    forwardPolicy: { sha256 },
+    shadowSessionId: "shadow-session-001",
+    shadowEvidenceSha256: sha256,
+    approvalReportSha256: sha256,
+    approvedAt: "2026-08-06T00:00:00Z",
+    approvedBy: "human-owner",
+    liveExecutionAllowed: true,
+  };
 }

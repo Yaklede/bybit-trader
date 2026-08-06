@@ -19,6 +19,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -108,11 +109,46 @@ class VolumeConfirmedTrendShadowRoutesTest :
                 }
             }
         }
+
+        "approval artifact export is authenticated and never grants live execution" {
+            testApplication {
+                applicationWithShadowProvider(
+                    provider = { sampleReport() },
+                    approvalProvider = { sampleApprovalReport() },
+                    exportProvider = {
+                        VolumeConfirmedTrendApprovalArtifactExportResponse(
+                            available = true,
+                            exportDirectory = "/data/trend-approval/shadow-session-2",
+                            shadowEvidencePath = "/data/trend-approval/shadow-session-2/shadow-evidence.json",
+                            shadowEvidenceSha256 = "a".repeat(64),
+                            approvalReportPath = "/data/trend-approval/shadow-session-2/approval-report.json",
+                            approvalReportSha256 = "b".repeat(64),
+                            manifestPath = "/data/trend-approval/shadow-session-2/manifest.json",
+                            sessionId = "shadow-session-2",
+                            evaluatedAt = "2026-11-07T00:00:00Z",
+                            liveExecutionAllowed = false,
+                        )
+                    },
+                )
+
+                client.post(EXPORT_PATH).status shouldBe HttpStatusCode.Unauthorized
+                val response = client.post(EXPORT_PATH) { bearerAuth(CREDENTIAL) }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText().also { body ->
+                    body shouldContain "\"available\":true"
+                    body shouldContain "\"shadowEvidenceSha256\":\"${"a".repeat(64)}\""
+                    body shouldContain "\"approvalReportSha256\":\"${"b".repeat(64)}\""
+                    body shouldContain "\"liveExecutionAllowed\":false"
+                }
+            }
+        }
     })
 
 private fun io.ktor.server.testing.ApplicationTestBuilder.applicationWithShadowProvider(
     provider: VolumeConfirmedTrendShadowReportProvider?,
     approvalProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
+    exportProvider: VolumeConfirmedTrendApprovalArtifactExportProvider? = null,
 ) {
     application {
         install(ContentNegotiation) { json() }
@@ -120,7 +156,7 @@ private fun io.ktor.server.testing.ApplicationTestBuilder.applicationWithShadowP
             exception<IllegalArgumentException> { call, _ -> call.respond(HttpStatusCode.BadRequest) }
         }
         configureControlAuthentication(CREDENTIAL)
-        routing { configureVolumeConfirmedTrendShadowRoutes(provider, approvalProvider) }
+        routing { configureVolumeConfirmedTrendShadowRoutes(provider, approvalProvider, exportProvider) }
     }
 }
 
@@ -226,4 +262,5 @@ private fun sampleEvent(state: VolumeConfirmedTrendShadowState): VolumeConfirmed
 
 private const val SHADOW_PATH = "/strategy/volume-confirmed-trend/shadow"
 private const val APPROVAL_PATH = "/strategy/volume-confirmed-trend/approval"
+private const val EXPORT_PATH = "/strategy/volume-confirmed-trend/approval/export"
 private const val CREDENTIAL = "test-control-credential"

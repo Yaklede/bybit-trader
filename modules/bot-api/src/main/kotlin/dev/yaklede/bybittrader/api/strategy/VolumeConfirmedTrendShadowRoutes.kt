@@ -5,18 +5,22 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalRepor
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 
 typealias VolumeConfirmedTrendShadowReportProvider = suspend (Int) -> VolumeConfirmedTrendShadowReport
 typealias VolumeConfirmedTrendApprovalReportProvider = suspend () -> VolumeConfirmedTrendApprovalReport
+typealias VolumeConfirmedTrendApprovalArtifactExportProvider = suspend () -> VolumeConfirmedTrendApprovalArtifactExportResponse
 
 fun Route.configureVolumeConfirmedTrendShadowRoutes(
     reportProvider: VolumeConfirmedTrendShadowReportProvider?,
     approvalReportProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
+    approvalArtifactExportProvider: VolumeConfirmedTrendApprovalArtifactExportProvider? = null,
 ) {
     authenticate("control") {
         get("/strategy/volume-confirmed-trend/shadow") {
@@ -30,6 +34,47 @@ fun Route.configureVolumeConfirmedTrendShadowRoutes(
             val report = approvalReportProvider?.invoke()
             call.respond(report?.toResponse() ?: VolumeConfirmedTrendApprovalResponse.unavailable())
         }
+        post("/strategy/volume-confirmed-trend/approval/export") {
+            val provider = approvalArtifactExportProvider
+            if (provider == null) {
+                call.respond(
+                    HttpStatusCode.Conflict,
+                    VolumeConfirmedTrendApprovalArtifactExportResponse.unavailable(),
+                )
+            } else {
+                call.respond(provider())
+            }
+        }
+    }
+}
+
+@Serializable
+data class VolumeConfirmedTrendApprovalArtifactExportResponse(
+    val available: Boolean,
+    val exportDirectory: String?,
+    val shadowEvidencePath: String?,
+    val shadowEvidenceSha256: String?,
+    val approvalReportPath: String?,
+    val approvalReportSha256: String?,
+    val manifestPath: String?,
+    val sessionId: String?,
+    val evaluatedAt: String?,
+    val liveExecutionAllowed: Boolean,
+) {
+    companion object {
+        fun unavailable(): VolumeConfirmedTrendApprovalArtifactExportResponse =
+            VolumeConfirmedTrendApprovalArtifactExportResponse(
+                available = false,
+                exportDirectory = null,
+                shadowEvidencePath = null,
+                shadowEvidenceSha256 = null,
+                approvalReportPath = null,
+                approvalReportSha256 = null,
+                manifestPath = null,
+                sessionId = null,
+                evaluatedAt = null,
+                liveExecutionAllowed = false,
+            )
     }
 }
 

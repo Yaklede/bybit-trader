@@ -28,6 +28,16 @@ class AppConfigTest :
             config.volumeConfirmedTrendShadow.maximumObservationDelay.seconds shouldBe 1200
             config.volumeConfirmedTrendShadow.boundaryDelay.seconds shouldBe 10
             config.volumeConfirmedTrendShadow.failureRetryDelay.seconds shouldBe 60
+            config.volumeConfirmedTrendLive.enabled shouldBe false
+            config.volumeConfirmedTrendLive.approvalExportDirectory shouldBe "data/trend-approval"
+            config.volumeConfirmedTrendLive.approvalReceiptPath shouldBe
+                "config/volume-confirmed-trend-live-approval.json"
+            config.volumeConfirmedTrendLive.shadowEvidencePath shouldBe
+                "data/trend-approval/pending/shadow-evidence.json"
+            config.volumeConfirmedTrendLive.approvalReportPath shouldBe
+                "data/trend-approval/pending/approval-report.json"
+            config.volumeConfirmedTrendLive.reconciliationInterval.seconds shouldBe 15
+            config.volumeConfirmedTrendLive.maximumSignalAge.seconds shouldBe 1200
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
             config.bybitPrivate.privateWebSocketUrl shouldBe "wss://stream.bybit.com/v5/private"
@@ -69,6 +79,80 @@ class AppConfigTest :
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(mapOf("BOT_MODE" to "TESTNET"))
             }
+        }
+
+        "trend live executor is fail-closed and isolated from legacy execution" {
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED" to "true",
+                        "BOT_VOLUME_CONFIRMED_TREND_APPROVAL_EXPORT_DIR" to "/approval/exports",
+                    ),
+                )
+            }
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "LIVE",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED" to "true",
+                    ),
+                )
+            }
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "LIVE",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                        "BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED" to "true",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED" to "true",
+                        "BOT_PRIVATE_EXECUTION_ENABLED" to "true",
+                    ),
+                )
+            }
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "LIVE",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                        "BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED" to "true",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED" to "true",
+                        "BOT_PAPER_LOOP_ENABLED" to "true",
+                    ),
+                )
+            }
+
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_MODE" to "LIVE",
+                        "BYBIT_API_KEY" to "test-key",
+                        "BYBIT_API_SECRET" to "test-secret",
+                        "BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED" to "true",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED" to "true",
+                        "BOT_VOLUME_CONFIRMED_TREND_APPROVAL_EXPORT_DIR" to "/approval/exports",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH" to "/approval/receipt.json",
+                        "BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH" to "/approval/shadow.json",
+                        "BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH" to "/approval/report.json",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_RECONCILIATION_SECONDS" to "20",
+                        "BOT_VOLUME_CONFIRMED_TREND_LIVE_MAX_SIGNAL_AGE_SECONDS" to "900",
+                    ),
+                )
+
+            config.volumeConfirmedTrendLive.enabled shouldBe true
+            config.volumeConfirmedTrendLive.approvalExportDirectory shouldBe "/approval/exports"
+            config.volumeConfirmedTrendLive.approvalReceiptPath shouldBe "/approval/receipt.json"
+            config.volumeConfirmedTrendLive.shadowEvidencePath shouldBe "/approval/shadow.json"
+            config.volumeConfirmedTrendLive.approvalReportPath shouldBe "/approval/report.json"
+            config.volumeConfirmedTrendLive.reconciliationInterval.seconds shouldBe 20
+            config.volumeConfirmedTrendLive.maximumSignalAge.seconds shouldBe 900
+            config.execution.enabled shouldBe false
+            config.executionLoop.enabled shouldBe false
+            config.executionReconciliation.enabled shouldBe false
+            config.bybitPrivate.privateExecutionStreamEnabled shouldBe false
         }
 
         "private execution requires testnet or live mode" {

@@ -15,6 +15,7 @@ data class AppConfig(
     val forwardMarketCapture: ForwardMarketCaptureSettings,
     val makerShadow: MakerShadowSettings,
     val volumeConfirmedTrendShadow: VolumeConfirmedTrendShadowSettings,
+    val volumeConfirmedTrendLive: VolumeConfirmedTrendLiveSettings,
     val bybitPrivate: BybitPrivateSettings,
     val api: ApiConfig,
     val database: DatabaseConfig,
@@ -36,6 +37,8 @@ data class AppConfig(
                     ?: RuntimeMode.PAPER
 
             val privateExecutionEnabled = environment["BOT_PRIVATE_EXECUTION_ENABLED"].toBooleanStrictOrFalse()
+            val volumeConfirmedTrendLiveEnabled =
+                environment["BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED"].toBooleanStrictOrFalse()
             val privateExecutionStreamEnabled =
                 environment["BOT_PRIVATE_EXECUTION_STREAM_ENABLED"]
                     ?.toBooleanStrictOrFalse()
@@ -44,7 +47,8 @@ data class AppConfig(
             if (runtimeMode.requiresPrivateExchangeAccess() ||
                 privateExecutionEnabled ||
                 privateExecutionStreamEnabled ||
-                executionLoopEnabled
+                executionLoopEnabled ||
+                volumeConfirmedTrendLiveEnabled
             ) {
                 require(!environment["BYBIT_API_KEY"].isNullOrBlank()) {
                     "Bybit key is required for private exchange access."
@@ -57,6 +61,12 @@ data class AppConfig(
             val marketData = MarketDataConfig.fromEnvironment(environment)
             val forwardMarketCapture = ForwardMarketCaptureSettings.fromEnvironment(environment, runtimeMode)
             val makerShadow = MakerShadowSettings.fromEnvironment(environment)
+            val volumeConfirmedTrendShadow = VolumeConfirmedTrendShadowSettings.fromEnvironment(environment)
+            val volumeConfirmedTrendLive =
+                VolumeConfirmedTrendLiveSettings.fromEnvironment(
+                    environment = environment,
+                    enabled = volumeConfirmedTrendLiveEnabled,
+                )
             require(!makerShadow.enabled || forwardMarketCapture.enabled) {
                 "BOT_FORWARD_MARKET_CAPTURE_ENABLED=true is required when maker shadow is enabled."
             }
@@ -64,6 +74,7 @@ data class AppConfig(
                 "BOT_FORWARD_RAW_ARCHIVE_ENABLED=true is required when maker shadow is enabled."
             }
             val paperStrategy = PaperStrategyKind.fromEnvironment(environment)
+            val paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first(), paperStrategy)
             val execution = ExecutionSettings.fromEnvironment(environment)
             val executionLoop = ExecutionLoopSettings.fromEnvironment(environment, Timeframe.M5)
             val executionReconciliation =
@@ -118,18 +129,45 @@ data class AppConfig(
             require(runtimeMode != RuntimeMode.LIVE || !executionLoop.enabled || execution.maxNotional != null) {
                 "BOT_EXECUTION_MAX_NOTIONAL is required for live automatic execution."
             }
+            val bybitPrivate =
+                BybitPrivateSettings.fromEnvironment(
+                    environment = environment,
+                    runtimeMode = runtimeMode,
+                    defaultExecutionStreamEnabled = privateExecutionStreamEnabled,
+                )
+            require(!volumeConfirmedTrendLive.enabled || runtimeMode != RuntimeMode.PAPER) {
+                "BOT_MODE=TESTNET or LIVE is required when the volume-confirmed trend live executor is enabled."
+            }
+            require(!volumeConfirmedTrendLive.enabled || volumeConfirmedTrendShadow.enabled) {
+                "BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED=true is required for the trend live signal source."
+            }
+            require(
+                !volumeConfirmedTrendLive.enabled ||
+                    (
+                        !paperLoop.enabled &&
+                            !makerShadow.enabled &&
+                            !execution.enabled &&
+                            !executionLoop.enabled &&
+                            !executionReconciliation.enabled &&
+                            !privateExecutionStreamEnabled
+                    ),
+            ) {
+                "Paper, maker shadow, and legacy private execution loops must be disabled for the trend live executor."
+            }
+            require(!volumeConfirmedTrendLive.enabled || bybitPrivate.positionIdx == 0) {
+                "BYBIT_POSITION_IDX=0 is required for the one-way trend live executor."
+            }
+            require(!volumeConfirmedTrendLive.enabled || bybitPrivate.accountType == "UNIFIED") {
+                "BYBIT_ACCOUNT_TYPE=UNIFIED is required for the trend live executor."
+            }
             return AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,
                 forwardMarketCapture = forwardMarketCapture,
                 makerShadow = makerShadow,
-                volumeConfirmedTrendShadow = VolumeConfirmedTrendShadowSettings.fromEnvironment(environment),
-                bybitPrivate =
-                    BybitPrivateSettings.fromEnvironment(
-                        environment = environment,
-                        runtimeMode = runtimeMode,
-                        defaultExecutionStreamEnabled = privateExecutionStreamEnabled,
-                    ),
+                volumeConfirmedTrendShadow = volumeConfirmedTrendShadow,
+                volumeConfirmedTrendLive = volumeConfirmedTrendLive,
+                bybitPrivate = bybitPrivate,
                 api =
                     ApiConfig(
                         host = environment["BOT_API_HOST"] ?: "127.0.0.1",
@@ -141,7 +179,7 @@ data class AppConfig(
                         path = environment["BOT_DATABASE_PATH"] ?: "data/bybit-trader.sqlite",
                     ),
                 alerts = AlertsConfig.fromEnvironment(environment),
-                paperLoop = PaperLoopSettings.fromEnvironment(environment, marketData.timeframes.first(), paperStrategy),
+                paperLoop = paperLoop,
                 paperTrading = PaperTradingSettings.fromEnvironment(environment, paperStrategy),
                 executionLoop = executionLoop,
                 executionReconciliation = executionReconciliation,
@@ -449,6 +487,66 @@ data class VolumeConfirmedTrendShadowSettings(
                 failureRetryDelay =
                     Duration.ofSeconds(
                         environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_RETRY_SECONDS"]?.toLongOrNull() ?: 60,
+                    ),
+            )
+    }
+}
+
+data class VolumeConfirmedTrendLiveSettings(
+    val enabled: Boolean,
+    val approvalExportDirectory: String,
+    val approvalReceiptPath: String,
+    val shadowEvidencePath: String,
+    val approvalReportPath: String,
+    val reconciliationInterval: Duration,
+    val maximumSignalAge: Duration,
+) {
+    init {
+        require(
+            approvalExportDirectory.isNotBlank() &&
+                approvalReceiptPath.isNotBlank() &&
+                shadowEvidencePath.isNotBlank() &&
+                approvalReportPath.isNotBlank(),
+        ) {
+            "Trend live approval artifact paths must not be blank."
+        }
+        require(!reconciliationInterval.isNegative && !reconciliationInterval.isZero) {
+            "Trend live reconciliation interval must be positive."
+        }
+        require(!maximumSignalAge.isNegative && !maximumSignalAge.isZero) {
+            "Trend live maximum signal age must be positive."
+        }
+        require(reconciliationInterval <= maximumSignalAge) {
+            "Trend live reconciliation interval must not exceed maximum signal age."
+        }
+    }
+
+    companion object {
+        fun fromEnvironment(
+            environment: Map<String, String>,
+            enabled: Boolean = environment["BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED"].toBooleanStrictOrFalse(),
+        ): VolumeConfirmedTrendLiveSettings =
+            VolumeConfirmedTrendLiveSettings(
+                enabled = enabled,
+                approvalExportDirectory =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_APPROVAL_EXPORT_DIR"]
+                        ?: "data/trend-approval",
+                approvalReceiptPath =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH"]
+                        ?: "config/volume-confirmed-trend-live-approval.json",
+                shadowEvidencePath =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH"]
+                        ?: "data/trend-approval/pending/shadow-evidence.json",
+                approvalReportPath =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH"]
+                        ?: "data/trend-approval/pending/approval-report.json",
+                reconciliationInterval =
+                    Duration.ofSeconds(
+                        environment["BOT_VOLUME_CONFIRMED_TREND_LIVE_RECONCILIATION_SECONDS"]?.toLongOrNull() ?: 15,
+                    ),
+                maximumSignalAge =
+                    Duration.ofSeconds(
+                        environment["BOT_VOLUME_CONFIRMED_TREND_LIVE_MAX_SIGNAL_AGE_SECONDS"]?.toLongOrNull() ?: 1_200,
                     ),
             )
     }

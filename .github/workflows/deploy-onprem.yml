@@ -105,6 +105,13 @@ jobs:
           BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_HISTORY_REQUESTS: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_HISTORY_REQUESTS || '1000' }}
           BOT_VOLUME_CONFIRMED_TREND_SHADOW_BOUNDARY_DELAY_SECONDS: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_SHADOW_BOUNDARY_DELAY_SECONDS || '10' }}
           BOT_VOLUME_CONFIRMED_TREND_SHADOW_RETRY_SECONDS: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_SHADOW_RETRY_SECONDS || '60' }}
+          BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED || 'false' }}
+          BOT_VOLUME_CONFIRMED_TREND_APPROVAL_EXPORT_DIR: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_APPROVAL_EXPORT_DIR || '/data/trend-approval' }}
+          BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH || '/opt/bybit-trader/config/volume-confirmed-trend-live-approval.json' }}
+          BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH || '/data/trend-approval/pending/shadow-evidence.json' }}
+          BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH || '/data/trend-approval/pending/approval-report.json' }}
+          BOT_VOLUME_CONFIRMED_TREND_LIVE_RECONCILIATION_SECONDS: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_LIVE_RECONCILIATION_SECONDS || '15' }}
+          BOT_VOLUME_CONFIRMED_TREND_LIVE_MAX_SIGNAL_AGE_SECONDS: ${{ vars.BOT_VOLUME_CONFIRMED_TREND_LIVE_MAX_SIGNAL_AGE_SECONDS || '1200' }}
           "BYBIT_API_KEY": ${{ secrets.BYBIT_API_KEY }}
           "BYBIT_API_SECRET": ${{ secrets.BYBIT_API_SECRET }}
           BYBIT_PRIVATE_BASE_URL: ${{ vars.BYBIT_PRIVATE_BASE_URL }}
@@ -152,6 +159,7 @@ jobs:
           const isEnabled = (key) => String(process.env[key] || "").trim().toLowerCase() === "true";
           const executionLoopEnabled = isEnabled("BOT_EXECUTION_LOOP_ENABLED");
           const trendShadowEnabled = isEnabled("BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED");
+          const trendLiveEnabled = isEnabled("BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED");
 
           if (executionLoopEnabled) {
             const policy = JSON.parse(
@@ -171,6 +179,7 @@ jobs:
               "BOT_PRIVATE_EXECUTION_STREAM_ENABLED",
               "BOT_EXECUTION_LOOP_ENABLED",
               "BOT_EXECUTION_RECONCILIATION_ENABLED",
+              "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED",
             ].filter(isEnabled);
             if (incompatiblePrivateSettings.length > 0) {
               console.error(
@@ -182,7 +191,7 @@ jobs:
             process.env.BYBIT_API_SECRET = "";
           }
 
-          if (trendShadowEnabled) {
+          if (trendShadowEnabled && !trendLiveEnabled) {
             const incompatibleShadowSettings = [
               ...(mode === "PAPER" ? [] : ["BOT_MODE"]),
               "BOT_PAPER_LOOP_ENABLED",
@@ -195,6 +204,78 @@ jobs:
             if (incompatibleShadowSettings.length > 0) {
               console.error(
                 `Trend Shadow requires an isolated PAPER runtime: ${incompatibleShadowSettings.join(", ")}`,
+              );
+              process.exit(1);
+            }
+          }
+
+          if (trendLiveEnabled) {
+            if (mode !== "TESTNET" && mode !== "LIVE") {
+              console.error("Trend live execution requires BOT_MODE=TESTNET or LIVE.");
+              process.exit(1);
+            }
+            if (!trendShadowEnabled) {
+              console.error(
+                "Trend live execution requires BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED=true.",
+              );
+              process.exit(1);
+            }
+            const incompatibleTrendLiveSettings = [
+              "BOT_PAPER_LOOP_ENABLED",
+              "BOT_MAKER_SHADOW_ENABLED",
+              "BOT_PRIVATE_EXECUTION_ENABLED",
+              "BOT_PRIVATE_EXECUTION_STREAM_ENABLED",
+              "BOT_EXECUTION_LOOP_ENABLED",
+              "BOT_EXECUTION_RECONCILIATION_ENABLED",
+            ].filter(isEnabled);
+            if (incompatibleTrendLiveSettings.length > 0) {
+              console.error(
+                `Trend live execution must be isolated from other trading loops: ${incompatibleTrendLiveSettings.join(", ")}`,
+              );
+              process.exit(1);
+            }
+            if (String(process.env.BYBIT_POSITION_IDX || "0").trim() !== "0") {
+              console.error("Trend live execution requires BYBIT_POSITION_IDX=0.");
+              process.exit(1);
+            }
+            if (String(process.env.BYBIT_ACCOUNT_TYPE || "UNIFIED").trim().toUpperCase() !== "UNIFIED") {
+              console.error("Trend live execution requires BYBIT_ACCOUNT_TYPE=UNIFIED.");
+              process.exit(1);
+            }
+            const approvalPath = String(process.env.BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH || "").trim();
+            const packagedApprovalPath = "/opt/bybit-trader/config/volume-confirmed-trend-live-approval.json";
+            if (approvalPath !== packagedApprovalPath) {
+              console.error(
+                `Trend live execution requires the packaged approval receipt path: ${packagedApprovalPath}.`,
+              );
+              process.exit(1);
+            }
+            const evidencePath = String(process.env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH || "").trim();
+            const reportPath = String(process.env.BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH || "").trim();
+            if (!evidencePath || !reportPath || evidencePath.includes("/pending/") || reportPath.includes("/pending/")) {
+              console.error(
+                "Trend live execution requires explicit frozen Shadow evidence and approval report paths.",
+              );
+              process.exit(1);
+            }
+            const receipt = JSON.parse(
+              fs.readFileSync("config/volume-confirmed-trend-live-approval.json", "utf8"),
+            );
+            const isSha256 = (value) => /^[0-9a-f]{64}$/.test(String(value || ""));
+            const receiptIsComplete =
+              receipt.status === "APPROVED" &&
+              receipt.liveExecutionAllowed === true &&
+              String(receipt.approvalId || "").trim().length > 0 &&
+              String(receipt.shadowSessionId || "").trim().length > 0 &&
+              String(receipt.approvedAt || "").trim().length > 0 &&
+              String(receipt.approvedBy || "").trim().length > 0 &&
+              isSha256(receipt.protocol?.sha256) &&
+              isSha256(receipt.forwardPolicy?.sha256) &&
+              isSha256(receipt.shadowEvidenceSha256) &&
+              isSha256(receipt.approvalReportSha256);
+            if (!receiptIsComplete) {
+              console.error(
+                "Trend live execution is blocked: the packaged human approval receipt is incomplete or not approved.",
               );
               process.exit(1);
             }
@@ -267,6 +348,13 @@ jobs:
             "BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_HISTORY_REQUESTS",
             "BOT_VOLUME_CONFIRMED_TREND_SHADOW_BOUNDARY_DELAY_SECONDS",
             "BOT_VOLUME_CONFIRMED_TREND_SHADOW_RETRY_SECONDS",
+            "BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED",
+            "BOT_VOLUME_CONFIRMED_TREND_APPROVAL_EXPORT_DIR",
+            "BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH",
+            "BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH",
+            "BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH",
+            "BOT_VOLUME_CONFIRMED_TREND_LIVE_RECONCILIATION_SECONDS",
+            "BOT_VOLUME_CONFIRMED_TREND_LIVE_MAX_SIGNAL_AGE_SECONDS",
             "BYBIT_API_KEY",
             "BYBIT_API_SECRET",
             "BYBIT_PRIVATE_BASE_URL",
