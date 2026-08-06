@@ -35,3 +35,6 @@ jobs:
 
       - name: Build Docker image
         run: docker build --tag bybit-trader:ci .
+
+      - name: Build dashboard Docker image
+        run: docker build --file apps/dashboard/Dockerfile --tag bybit-trader-dashboard:ci apps/dashboard
