@@ -126,10 +126,23 @@ fun Route.configureDashboardRoutes(
                         },
                     livePerformance =
                         DashboardMobileLivePerformanceResponse(
+                            mode = livePerformance?.mode?.name ?: runtimeMode ?: "LIVE",
+                            window = "all",
                             tradeCount = livePerformance?.tradeCount ?: 0,
                             netPnl = livePerformance?.netPnl?.toPlainString() ?: "0",
                             winRatePct = livePerformance?.winRatePct?.toPlainString() ?: "0",
+                            grossProfit = livePerformance?.grossProfit?.toPlainString() ?: "0",
+                            grossLoss = livePerformance?.grossLoss?.toPlainString() ?: "0",
+                            fees = livePerformance?.fees?.toPlainString() ?: "0",
+                            profitFactor = livePerformance?.profitFactor?.toPlainString(),
+                            expectancy = livePerformance?.expectancy?.toPlainString(),
                             maxClosedTradeDrawdownPct = livePerformance?.maxClosedTradeDrawdownPct?.toPlainString() ?: "0",
+                            lastClosedAt = livePerformance?.lastClosedAt?.toString(),
+                            capturedAt = livePerformance?.capturedAt?.toString() ?: Instant.EPOCH.toString(),
+                            accountEquity = livePerformance?.accountEquity?.toPlainString(),
+                            accountPeakEquity = livePerformance?.accountPeakEquity?.toPlainString(),
+                            maxAccountDrawdownPct = livePerformance?.maxAccountDrawdownPct?.toPlainString(),
+                            accountEquityCapturedAt = livePerformance?.accountEquityCapturedAt?.toString(),
                         ),
                     riskReadiness = riskReadiness?.toResponse(),
                     recentClosedTrades = recentClosedTrades.map(ExecutionTradeClosure::toMobileResponse),
@@ -451,10 +464,23 @@ data class DashboardMobileMarketSyncResponse(
 
 @Serializable
 data class DashboardMobileLivePerformanceResponse(
+    val mode: String,
+    val window: String,
     val tradeCount: Int,
     val netPnl: String,
     val winRatePct: String,
+    val grossProfit: String,
+    val grossLoss: String,
+    val fees: String,
+    val profitFactor: String?,
+    val expectancy: String?,
     val maxClosedTradeDrawdownPct: String,
+    val lastClosedAt: String?,
+    val capturedAt: String,
+    val accountEquity: String?,
+    val accountPeakEquity: String?,
+    val maxAccountDrawdownPct: String?,
+    val accountEquityCapturedAt: String?,
 )
 
 @Serializable

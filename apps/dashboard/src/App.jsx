@@ -41,7 +41,6 @@ const CONNECTION_SETTINGS_TITLE = "연결 설정";
 const ATTENTION_DATA_STATE = "error";
 const SMOKE_ATTENTION_STATUS = "FAIL";
 const SYNC_STOPPED_STATUS = "FAILED";
-const PERFORMANCE_REFRESH_MS = 60000;
 const ACTIVITY_SUMMARY_REFRESH_MS = 60000;
 const CLOSED_TRADES_REFRESH_MS = 30000;
 const SYNC_STATUS_REFRESH_MS = 30000;
@@ -117,7 +116,6 @@ function App() {
   const [trendApproval, setTrendApproval] = useState(EMPTY_TREND_APPROVAL);
   const [trendShadow, setTrendShadow] = useState(EMPTY_TREND_SHADOW);
   const [mobileSummary, setMobileSummary] = useState(EMPTY_MOBILE_SUMMARY);
-  const [livePerformance, setLivePerformance] = useState(false);
   const [closedTrades, setClosedTrades] = useState([]);
   const [closedTradeCursor, setClosedTradeCursor] = useState("");
   const [syncStatus, setSyncStatus] = useState([]);
@@ -201,9 +199,6 @@ function App() {
           ...(value || {}),
           bot: { ...EMPTY_MOBILE_SUMMARY.bot, ...(value?.bot || {}) },
         });
-      } else if (scope === "performance") {
-        value = await client.request("/performance/live/summary?window=all");
-        setLivePerformance(value || false);
       } else if (scope === "closedTrades") {
         value = await client.request(`/execution/closed-trades?symbol=${encodeURIComponent(symbol)}&limit=20`);
         setClosedTrades(value?.items || []);
@@ -301,9 +296,6 @@ function App() {
     }
     if (activeView === "overview" && scopeIsDue(lastFetchedAtRef.current, "summary", OVERVIEW_SUMMARY_REFRESH_MS)) {
       scopes.push("summary");
-    }
-    if (activeView === "overview" && scopeIsDue(lastFetchedAtRef.current, "performance", PERFORMANCE_REFRESH_MS)) {
-      scopes.push("performance");
     }
     if (
       (activeView === "overview" || activeView === "trading") &&
@@ -471,10 +463,7 @@ function App() {
   const manualExchangeEnabled = isManualRuntime(runtimeMode) && summary.executionAvailable;
 
   const primarySync = mobileSummary.marketSync || syncStatus[0] || false;
-  const primaryPerformance =
-    livePerformance || mobileSummary.livePerformance
-      ? { ...(livePerformance || {}), ...(mobileSummary.livePerformance || {}) }
-      : false;
+  const primaryPerformance = mobileSummary.livePerformance || false;
   const riskReadiness = mostRecentRiskReadiness(summary.riskReadiness, mobileSummary.riskReadiness);
   const latestSignal = activitySignals[0];
   const lastCapturedAt = mobileSummary.capturedAt || account?.capturedAt || summary.bot?.updatedAt;
@@ -1645,7 +1634,7 @@ function manualRefreshScopes(activeView) {
   if (activeView === "trading") return ["summary", "mobile", "profiles"];
   if (activeView === "activity") return ["mobile", "closedTrades", "summary"];
   if (activeView === "settings") return ["sync"];
-  return ["mobile", "performance", "summary", "profiles", "trendApproval", "trendShadow"];
+  return ["mobile", "summary", "profiles", "trendApproval", "trendShadow"];
 }
 
 function pollingScopes(activeView, lastFetchedAt) {
@@ -1663,7 +1652,6 @@ function pollingScopes(activeView, lastFetchedAt) {
   return [
     "mobile",
     ...(scopeIsDue(lastFetchedAt, "summary", OVERVIEW_SUMMARY_REFRESH_MS) ? ["summary"] : []),
-    ...(scopeIsDue(lastFetchedAt, "performance", PERFORMANCE_REFRESH_MS) ? ["performance"] : []),
     ...(scopeIsDue(lastFetchedAt, "trendApproval", TREND_REVIEW_REFRESH_MS) ? ["trendApproval"] : []),
     ...(scopeIsDue(lastFetchedAt, "trendShadow", TREND_REVIEW_REFRESH_MS) ? ["trendShadow"] : []),
   ];

@@ -1101,6 +1101,9 @@ class ApiModuleTest :
                     .also { body ->
                         body shouldContain """"recentClosedTrades":[{"""
                         body shouldContain """"riskReadiness":{"runtimeMode":"LIVE""""
+                        body shouldContain """"fees":"0.12""""
+                        body shouldContain """"expectancy":"5.00000000""""
+                        body shouldContain """"lastClosedAt":"2026-06-30T00:10:00Z""""
                     }
             }
         }
