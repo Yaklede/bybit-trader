@@ -32,16 +32,21 @@ import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
 import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
+import dev.yaklede.bybittrader.engine.paper.PaperOpenPosition
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
+import dev.yaklede.bybittrader.engine.paper.PaperRuntimePhase
+import dev.yaklede.bybittrader.engine.paper.PaperRuntimeState
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
+import dev.yaklede.bybittrader.engine.position.CausalPositionState
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 
 class SqlDelightLedgerTest :
@@ -729,8 +734,21 @@ class SqlDelightLedgerTest :
                     "fundingRates",
                     "executionLifecycleEvents",
                     "executionAccountSnapshots",
+                    "paperRuntimeStates",
                 ),
             ) shouldBe true
+        }
+
+        "paper runtime state round trips an open causal position" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val state = samplePaperRuntimeState()
+
+            ledger.upsertPaperRuntimeState(state)
+            val restored = ledger.paperRuntimeState(state.strategy, state.symbol, state.timeframe)
+
+            restored shouldBe state
         }
     })
 
@@ -740,6 +758,57 @@ private data class StoredClosureAlertState(
     val attemptCount: Long,
     val lastAttemptAt: String?,
 )
+
+private fun samplePaperRuntimeState(): PaperRuntimeState =
+    PaperRuntimeState(
+        strategy = "paper-runtime-test",
+        symbol = Symbol("BTCUSDT"),
+        timeframe = Timeframe.M15,
+        phase = PaperRuntimePhase.OPEN,
+        lastProcessedCandleAt = Instant.parse("2026-06-30T00:15:00Z"),
+        equity = 10_100.0,
+        peakEquity = 10_200.0,
+        maxDrawdownPct = 0.9803921568627451,
+        grossProfit = 200.0,
+        grossLoss = 100.0,
+        sumReturnR = 1.25,
+        closedTrades = 2,
+        entryCountDate = LocalDate.parse("2026-06-30"),
+        entryCount = 1,
+        pendingEntry = null,
+        openPosition =
+            PaperOpenPosition(
+                signalId = 7,
+                signalAt = Instant.parse("2026-06-30T00:00:00Z"),
+                entryOrderId = 9,
+                entryFee = 0.6,
+                riskAmount = 100.0,
+                policyState =
+                    CausalPositionState(
+                        side = Side.BUY,
+                        entryAt = Instant.parse("2026-06-30T00:15:00Z"),
+                        entryPrice = 100.0,
+                        initialStopPrice = 95.0,
+                        currentStopPrice = 100.0,
+                        riskPerUnit = 5.0,
+                        expectedR = 3.0,
+                        initialQuantity = 20.0,
+                        remainingQuantity = 10.0,
+                        fullTargetPrice = 115.0,
+                        partialTargetPrice = 105.0,
+                        bestHigh = 110.0,
+                        bestLow = 96.0,
+                        processedCandles = 2,
+                        partialTaken = true,
+                        partialTakeProfitAt = Instant.parse("2026-06-30T00:15:00Z"),
+                        partialExitPrice = 105.0,
+                        partialQuantity = 10.0,
+                        partialGrossPnl = 50.0,
+                        partialFees = 0.63,
+                    ),
+            ),
+        updatedAt = Instant.parse("2026-06-30T00:30:00Z"),
+    )
 
 private fun executionClosureColumnDefaults(driver: JdbcSqliteDriver): Map<String, String?> {
     val connection = driver.getConnection()

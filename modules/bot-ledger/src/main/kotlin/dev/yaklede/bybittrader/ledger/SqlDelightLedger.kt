@@ -44,6 +44,8 @@ import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
+import dev.yaklede.bybittrader.engine.paper.PaperRuntimeState
+import dev.yaklede.bybittrader.engine.paper.PaperRuntimeStateStore
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
@@ -88,7 +90,8 @@ class SqlDelightLedger(
     ForwardMarketCaptureStore,
     ExecutionProjectionStore,
     ExecutionLifecycleStore,
-    PaperTradingStore {
+    PaperTradingStore,
+    PaperRuntimeStateStore {
     override suspend fun current(): BotRuntimeStatus {
         val row = database.ledgerQueries.selectBotState().executeAsOneOrNull()
         if (row != null) {
@@ -621,6 +624,32 @@ class SqlDelightLedger(
             .selectRecentTrades(limit.toLong())
             .executeAsList()
             .map(SelectRecentTrades::toPaperTradeRecord)
+    }
+
+    override suspend fun paperRuntimeState(
+        strategy: String,
+        symbol: Symbol,
+        timeframe: Timeframe,
+    ): PaperRuntimeState? {
+        require(strategy.isNotBlank()) { "Strategy must not be blank." }
+        return database.ledgerQueries
+            .selectPaperRuntimeState(
+                strategy = strategy,
+                symbol = symbol.value,
+                timeframe = timeframe.name,
+            ).executeAsOneOrNull()
+            ?.toPaperRuntimeState()
+    }
+
+    override suspend fun upsertPaperRuntimeState(state: PaperRuntimeState) {
+        database.ledgerQueries.upsertPaperRuntimeState(
+            strategy = state.strategy,
+            symbol = state.symbol.value,
+            timeframe = state.timeframe.name,
+            phase = state.phase.name,
+            state_payload = state.toStatePayload(),
+            updated_at = state.updatedAt.toString(),
+        )
     }
 
     override suspend fun upsertCheckpoint(checkpoint: MarketSyncCheckpoint) {

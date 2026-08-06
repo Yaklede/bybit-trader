@@ -187,6 +187,16 @@ CREATE TABLE performanceSnapshots (
   captured_at TEXT NOT NULL
 );
 
+CREATE TABLE paperRuntimeStates (
+  strategy TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  state_payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (strategy, symbol, timeframe)
+);
+
 CREATE TABLE marketSyncCheckpoints (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL,
@@ -446,6 +456,22 @@ FROM orders
 LEFT JOIN fills ON fills.order_id = orders.id
 ORDER BY orders.id DESC
 LIMIT ?;
+
+upsertPaperRuntimeState:
+INSERT OR REPLACE INTO paperRuntimeStates(
+  strategy,
+  symbol,
+  timeframe,
+  phase,
+  state_payload,
+  updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectPaperRuntimeState:
+SELECT strategy, symbol, timeframe, phase, state_payload, updated_at
+FROM paperRuntimeStates
+WHERE strategy = ? AND symbol = ? AND timeframe = ?;
 
 upsertMarketCandle:
 INSERT OR REPLACE INTO marketCandles(

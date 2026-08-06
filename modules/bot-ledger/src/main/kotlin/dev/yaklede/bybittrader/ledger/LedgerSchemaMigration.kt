@@ -200,6 +200,17 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         """.trimIndent(),
         "CREATE UNIQUE INDEX IF NOT EXISTS fundingRates_symbol_timestamp_idx ON fundingRates(symbol, timestamp)",
         """
+        CREATE TABLE IF NOT EXISTS paperRuntimeStates (
+          strategy TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          timeframe TEXT NOT NULL,
+          phase TEXT NOT NULL,
+          state_payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (strategy, symbol, timeframe)
+        )
+        """.trimIndent(),
+        """
         CREATE TABLE IF NOT EXISTS marketSyncCheckpoints (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           symbol TEXT NOT NULL,
