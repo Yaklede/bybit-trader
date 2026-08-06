@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "bybit-multi-asset-delta-neutral-funding-carry-development-v1",
+  "status": "PREDECLARED_BEFORE_BULK_MULTI_ASSET_DEVELOPMENT_ACQUISITION",
+  "declaredAt": "2026-08-06",
+  "parentResult": {
+    "path": "config/bybit-delta-neutral-funding-carry-internal-result-v1.json",
+    "sha256": "6e3163198e0e2873c7cfa400a5c87f99f97f49071c2a385f93b77812a69f1ee4",
+    "requiredProgramStatus": "CLOSED_NO_APPROVABLE_DELTA_NEUTRAL_FUNDING_CARRY_V1"
+  },
+  "researchBoundary": {
+    "kind": "MULTI_ASSET_SPOT_PERPETUAL_DELTA_NEUTRAL_POSITIVE_FUNDING_CARRY",
+    "singleAssetBtcDevelopmentAndInternalOutcomesPreviouslyObserved": true,
+    "singleAssetOutcomeMayRetuneRejectedCandidate": false,
+    "availabilityProbeReadBeforeDeclaration": true,
+    "availabilityProbeStart": "2023-06-01T00:00:00Z",
+    "availabilityProbeEndExclusive": "2023-06-02T00:00:00Z",
+    "availabilityProbeMaximumRowsPerSeries": 3,
+    "availabilityProbePurpose": "ENDPOINT_SCHEMA_AND_MINIMUM_ORDER_AVAILABILITY_ONLY",
+    "bulkMultiAssetDevelopmentPayloadsReadBeforeDeclaration": false,
+    "developmentUses2023Only": true,
+    "internalValidation2024RemainsUnreadForMultiAssetFamily": true,
+    "external2025RemainsLocked": true,
+    "sealed2026RemainsLocked": true,
+    "freshForwardSealRequiredBeforeLive": true
+  },
+  "trialAccounting": {
+    "priorObservedCandidates": 311,
+    "newCandidateBudget": 24,
+    "cumulativeCandidateCountAfterReplay": 335,
+    "candidateBudgetMayIncreaseAfterOutcomes": false
+  },
+  "sourceData": {
+    "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+    "researchDatabase": "build/research/bybit-multi-asset-delta-neutral-funding-carry-development-v1.sqlite",
+    "provider": "BYBIT_V5_PUBLIC_REST",
+    "baseUrl": "https://api.bybit.com",
+    "spotKlineEndpoint": "/v5/market/kline?category=spot",
+    "perpetualKlineEndpoint": "/v5/market/kline?category=linear",
+    "markKlineEndpoint": "/v5/market/mark-price-kline?category=linear",
+    "indexKlineEndpoint": "/v5/market/index-price-kline?category=linear",
+    "fundingEndpoint": "/v5/market/funding/history?category=linear",
+    "instrumentEndpoint": "/v5/market/instruments-info",
+    "klineInterval": "5",
+    "requestLimit": {"kline": 1000, "funding": 200},
+    "developmentStart": "2023-01-01T00:00:00Z",
+    "developmentEndExclusive": "2024-01-01T00:00:00Z",
+    "requiredSeriesPerSymbol": ["SPOT_LAST", "PERPETUAL_LAST", "PERPETUAL_MARK", "PERPETUAL_INDEX", "FUNDING"]
+  },
+  "observedInstrumentRules": {
+    "observedAt": "2026-08-06",
+    "BTCUSDT": {
+      "spot": {"minimumOrderAmountUsdt": 5, "minimumOrderQuantityBase": 0.000001, "basePrecision": 0.000001, "tickSizeUsdt": 0.1},
+      "perpetual": {"launchTime": "2020-03-15T00:00:00Z", "minimumOrderQuantityBase": 0.001, "quantityStepBase": 0.001, "minimumNotionalUsdt": 5, "minimumLeverage": 1, "fundingIntervalMinutes": 480, "tickSizeUsdt": 0.1},
+      "maximumNetHedgeMismatchBase": 0.000001
+    },
+    "ETHUSDT": {
+      "spot": {"minimumOrderAmountUsdt": 5, "minimumOrderQuantityBase": 0.00001, "basePrecision": 0.00001, "tickSizeUsdt": 0.01},
+      "perpetual": {"launchTime": "2021-03-15T00:00:00Z", "minimumOrderQuantityBase": 0.01, "quantityStepBase": 0.01, "minimumNotionalUsdt": 5, "minimumLeverage": 1, "fundingIntervalMinutes": 480, "tickSizeUsdt": 0.01},
+      "maximumNetHedgeMismatchBase": 0.00001
+    },
+    "SOLUSDT": {
+      "spot": {"minimumOrderAmountUsdt": 5, "minimumOrderQuantityBase": 0.0001, "basePrecision": 0.0001, "tickSizeUsdt": 0.01},
+      "perpetual": {"launchTime": "2021-10-15T00:00:00Z", "minimumOrderQuantityBase": 0.1, "quantityStepBase": 0.1, "minimumNotionalUsdt": 5, "minimumLeverage": 1, "fundingIntervalMinutes": 480, "tickSizeUsdt": 0.01},
+      "maximumNetHedgeMismatchBase": 0.0001
+    },
+    "runtimePolicy": "REFRESH_PRIVATE_FEES_AND_PUBLIC_INSTRUMENT_RULES_BEFORE_EVERY_LIVE_START"
+  },
+  "evidenceSchedule": {
+    "developmentBlocks": [
+      {"id":"D01","era":"2023Q1","startAt":"2023-01-01T00:00:00Z","endAt":"2023-04-01T00:00:00Z"},
+      {"id":"D02","era":"2023Q2","startAt":"2023-04-01T00:00:00Z","endAt":"2023-07-01T00:00:00Z"},
+      {"id":"D03","era":"2023Q3","startAt":"2023-07-01T00:00:00Z","endAt":"2023-10-01T00:00:00Z"},
+      {"id":"D04","era":"2023Q4","startAt":"2023-10-01T00:00:00Z","endAt":"2024-01-01T00:00:00Z"}
+    ],
+    "internalValidationBlocks": [
+      {"id":"I01","era":"2024Q1","startAt":"2024-01-01T00:00:00Z","endAt":"2024-04-01T00:00:00Z"},
+      {"id":"I02","era":"2024Q2","startAt":"2024-04-01T00:00:00Z","endAt":"2024-07-01T00:00:00Z"},
+      {"id":"I03","era":"2024Q3","startAt":"2024-07-01T00:00:00Z","endAt":"2024-10-01T00:00:00Z"},
+      {"id":"I04","era":"2024Q4","startAt":"2024-10-01T00:00:00Z","endAt":"2025-01-01T00:00:00Z"}
+    ],
+    "lockedExternal2025BlockIds": ["E01", "E02", "E03", "E04"],
+    "lockedSealed2026BlockIds": ["S01", "S02", "S03", "S04"],
+    "freshForwardSeal": "REQUIRED_AFTER_ALL_HISTORICAL_APPROVALS"
+  },
+  "featureContract": {
+    "decision": "AFTER_EACH_SYMBOL_SETTLED_FUNDING_AND_ALL_MATCHING_M5_BARS_ARE_CLOSED",
+    "fundingSignal": {
+      "direction": "POSITIVE_ONLY",
+      "history": "CONSECUTIVE_SETTLED_RATES_ENDING_AT_CURRENT_SETTLEMENT_PER_SYMBOL",
+      "summary": "MEDIAN_OF_REQUIRED_POSITIVE_STREAK",
+      "currentRateAvailableOnlyAtOrAfterSettlement": true
+    },
+    "basisSignal": {
+      "formula": "PERPETUAL_LAST_CLOSE_DIVIDED_BY_SPOT_LAST_CLOSE_MINUS_ONE",
+      "source": "LATEST_MATCHING_CLOSED_M5_BAR_AT_OR_BEFORE_SETTLEMENT_PER_SYMBOL",
+      "minimumEntryBasisPct": 0,
+      "maximumEntryBasisPct": 0.03,
+      "maximumAbsoluteMarkIndexPremiumPct": 0.01
+    },
+    "ranking": {
+      "formula": "MEDIAN_FUNDING_RATE_TIMES_90_PLUS_MAX_ENTRY_BASIS_ZERO_MINUS_BASE_ROUND_TRIP_COST_RATE",
+      "order": "DESCENDING_SCORE_THEN_ASCENDING_SYMBOL",
+      "nonPositiveScoreIsIneligible": true
+    },
+    "position": "LONG_SPOT_AND_SHORT_EQUAL_NET_BASE_QUANTITY_PER_SYMBOL",
+    "economicMechanism": "DIVERSIFIED_POSITIVE_FUNDING_RECEIPT_PLUS_NONNEGATIVE_BASIS_CONVERGENCE_AFTER_FOUR_LEG_COSTS"
+  },
+  "candidateDefinition": {
+    "family": "MULTI_ASSET_DELTA_NEUTRAL_POSITIVE_FUNDING_CARRY",
+    "fixed": {
+      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "entryDelayMinutes": 5,
+      "maximumHoldingDays": 30,
+      "minimumEntryBasisPct": 0,
+      "maximumEntryBasisPct": 0.03,
+      "maximumAbsoluteMarkIndexPremiumPct": 0.01,
+      "basisDivergenceStopPctFromEntry": 0.03,
+      "reentryCooldownHours": 8,
+      "projectedCarryHorizonSettlements": 90,
+      "minimumProjectedNetCarryScore": 0
+    },
+    "grid": {
+      "minimumPositiveFundingStreak": [3, 6],
+      "minimumTrailingMedianFundingRate": [0.0001, 0.0002, 0.0003],
+      "maximumConcurrentPairs": [1, 2],
+      "exitConsecutiveNonPositiveFundingCount": [1, 2]
+    },
+    "candidateCount": 24
+  },
+  "candidateDefinitionSha256": "b49417ec8fd931d58305cfd5225d03e233e23edc09198621e6ed0f070ea6f778",
+  "executionContract": {
+    "entryDecision": "CLOSED_SETTLEMENT_SNAPSHOT_ONLY",
+    "baseEntry": "BOTH_LEGS_AT_NEXT_CONTIGUOUS_M5_OPEN_AT_LEAST_FIVE_MINUTES_AFTER_SETTLEMENT",
+    "baseExit": "BOTH_LEGS_AT_NEXT_CONTIGUOUS_M5_OPEN_AFTER_EXIT_DECISION",
+    "legOrder": "PERPETUAL_SHORT_FIRST_THEN_SPOT_LONG",
+    "secondLegFailure": "IMMEDIATE_REDUCE_ONLY_FLATTEN_AND_DISABLE_NEW_ENTRIES",
+    "partialFill": "HEDGE_FILLED_NET_BASE_QUANTITY_ONLY_AND_CANCEL_REMAINDER",
+    "spotBuyFeeAsset": "BASE_ASSET_WITH_GROSS_BUY_QUANTITY_ADJUSTED_TO_TARGET_NET_BASE_QUANTITY",
+    "spotTakerFeeRate": 0.001,
+    "perpetualTakerFeeRate": 0.00055,
+    "spotSlippageRatePerLeg": 0.0003,
+    "perpetualSlippageRatePerLeg": 0.0002,
+    "baseRoundTripCostRateOnMatchedNotional": 0.0041,
+    "costStressMultiplier": 1.5,
+    "secondLegDelayStressBars": 1,
+    "startingEquityUsdt": 660,
+    "maximumTotalMatchedNotionalFractionOfEquity": 0.4,
+    "perPairMatchedNotionalFractionFormula": "MAXIMUM_TOTAL_MATCHED_NOTIONAL_FRACTION_DIVIDED_BY_MAXIMUM_CONCURRENT_PAIRS",
+    "absoluteMaximumConcurrentPairs": 2,
+    "perpetualLeverage": 1,
+    "minimumUncommittedEquityFraction": 0.2,
+    "perpetualMaintenanceMarginRate": 0.005,
+    "conservativeLiquidationPriceMultiple": 1.98,
+    "markToMarket": "SPOT_LAST_AND_PERPETUAL_MARK_PER_SYMBOL_ON_EVERY_MATCHING_M5_BAR",
+    "basisStopConflict": "LIQUIDATION_THEN_BASIS_STOP_THEN_SCHEDULED_EXIT",
+    "funding": "ACTUAL_SUBSEQUENT_SETTLED_RATES_AT_MATCHING_MARK_PRICE_ONLY",
+    "minimumQuantityPolicy": "FLOOR_TO_PERPETUAL_STEP_AND_NO_TRADE_WHEN_MINIMUM_QUANTITY_OR_RESERVE_FAILS",
+    "oneHundredUsdtPolicy": "NO_TRADE_PER_SYMBOL_WHEN_EQUAL_MINIMUM_PERPETUAL_QUANTITY_CANNOT_BE_FUNDED_WITH_RESERVE"
+  },
+  "developmentGate": {
+    "minimumClosedPositions": 20,
+    "minimumActiveCalendarDays": 180,
+    "minimumCapturedFundingSettlements": 60,
+    "minimumTradedAssetCount": 3,
+    "minimumPositiveAssetCount": 2,
+    "minimumPositiveBlockCount": 3,
+    "totalBlockCount": 4,
+    "minimumNetReturnPct": 0,
+    "minimumProfitFactor": 1.1,
+    "minimumMeanDailyReturnPct": 0,
+    "minimumBootstrapLowerMeanDailyReturnPct": 0,
+    "maximumDrawdownPct": 15,
+    "maximumLiquidationCount": 0,
+    "maximumPositivePositionProfitConcentration": 0.25,
+    "maximumPositiveAssetProfitConcentration": 0.6,
+    "maximumNetHedgeMismatchBySymbol": {"BTCUSDT": 0.000001, "ETHUSDT": 0.00001, "SOLUSDT": 0.0001},
+    "costStressMinimumNetReturnPct": 0,
+    "secondLegDelayStressMinimumNetReturnPct": 0
+  },
+  "internalValidationGate": {
+    "minimumClosedPositions": 20,
+    "minimumActiveCalendarDays": 180,
+    "minimumCapturedFundingSettlements": 60,
+    "minimumTradedAssetCount": 3,
+    "minimumPositiveAssetCount": 2,
+    "minimumPositiveBlockCount": 3,
+    "totalBlockCount": 4,
+    "minimumNetReturnPct": 0,
+    "minimumProfitFactor": 1.1,
+    "minimumMeanDailyReturnPct": 0,
+    "minimumBootstrapLowerMeanDailyReturnPct": 0,
+    "maximumDrawdownPct": 15,
+    "maximumLiquidationCount": 0,
+    "maximumPositivePositionProfitConcentration": 0.25,
+    "maximumPositiveAssetProfitConcentration": 0.6,
+    "maximumNetHedgeMismatchBySymbol": {"BTCUSDT": 0.000001, "ETHUSDT": 0.00001, "SOLUSDT": 0.0001},
+    "costStressMultiplier": 1.5,
+    "costStressMinimumNetReturnPct": 0,
+    "secondLegDelayStressMinimumNetReturnPct": 0
+  },
+  "statistics": {
+    "bootstrapKind": "MOVING_BLOCK_BOOTSTRAP_DAILY_PORTFOLIO_MARK_TO_MARKET_RETURN",
+    "bootstrapSamples": 10000,
+    "bootstrapConfidence": 0.95,
+    "bootstrapBlockDays": 7,
+    "randomSeed": "bybit-multi-asset-delta-neutral-funding-carry-development-v1|20260806",
+    "compoundDailyReturnIsSelectionObjective": false
+  },
+  "outcomePolicy": {
+    "oneCandidateMaximum": true,
+    "retuneFromDevelopment": false,
+    "internalValidationMayBeAcquiredOnlyAfterDevelopmentPass": true,
+    "retuneFromInternalValidation": false,
+    "external2025MayBeAcquiredOnlyAfterInternalPass": true,
+    "sealed2026MayBeAcquiredOnlyAfterExternal2025PassAndRefreeze": true,
+    "freshForwardShadowAndPaperRequiredBeforeLive": true,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
