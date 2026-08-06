@@ -90,6 +90,8 @@ DSR은 다중 시험과 수익률 비정규성을 함께 보정하고, PBO는 �
 - `macro-donchian-sealed-windows-v1`
 - `multi-horizon-momentum-validation-v1`
 
+기존 연구 종료 시각 뒤에 새로 축적된 `2026-07-02T05:45:00Z`부터 `2026-08-06T00:15:00Z`까지의 연속 M1/M5/M15 캔들은 `fresh-sealed-validation-2026-08-v1`로 별도 예약했다. 이 프로토콜만 현재 `AVAILABLE`이며, 후보 fingerprint와 실험 manifest가 고정된 뒤 한 번만 재생할 수 있다.
+
 새 실험은 `AVAILABLE` 상태의 프로토콜만 봉인할 수 있다. 재생 결과에는 프로토콜 파일 hash, 후보 fingerprint, 재생 시각을 포함한 영수증이 있어야 한다. 실행 후 레지스트리가 동일 실험의 `CONSUMED_REJECTED` 또는 `CONSUMED_APPROVED`로 바뀌어도 기존 증거는 재검증할 수 있지만, 다른 실험은 이를 사용할 수 없다.
 
 ## 실행 방법

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "fresh-sealed-validation-2026-08-v1",
+  "status": "SEALED_BEFORE_REPLAY",
+  "sourceData": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframes": ["M1", "M5", "M15"],
+    "previousResearchClosedThroughExclusive": "2026-07-02T05:45:00Z",
+    "closedThroughExclusive": "2026-08-06T00:15:00Z",
+    "continuityRequiredPct": 100.0
+  },
+  "generation": {
+    "algorithm": "FIRST_CONTIGUOUS_CAPTURE_AFTER_PREVIOUS_RESEARCH_CUTOFF",
+    "selectedAt": "2026-08-06T00:00:00+09:00",
+    "tuningAllowed": false,
+    "candidateMayBeSelectedAfterWindowInspection": false
+  },
+  "windowsSha256": "4781c24da1d9e328c659d7ae325aa1bdbe6b52d9529de072feaa39e6492354f6",
+  "windows": [
+    {
+      "id": "S01",
+      "purpose": "fresh-sealed-validation",
+      "replayStartAt": "2026-07-02T05:45:00Z",
+      "replayEndAt": "2026-08-06T00:15:00Z"
+    }
+  ],
+  "consumptionPolicy": {
+    "candidateFingerprintRequired": true,
+    "experimentManifestFingerprintRequired": true,
+    "singleExperimentOnly": true,
+    "registryMustTransitionAfterReplay": true
+  }
+}

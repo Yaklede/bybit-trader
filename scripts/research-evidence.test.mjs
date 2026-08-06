@@ -33,7 +33,8 @@ test("approval policy and consumed sealed registry are fail-closed", async () =>
   assert.equal(validateSealedRegistry(registry), registry);
   assert.equal(policy.selectionPolicy.dailyCompoundReturnIsSearchObjective, false);
   assert.equal(policy.selectionPolicy.automaticLivePromotionAllowed, false);
-  assert.ok(registry.protocols.every((protocol) => protocol.status === "CONSUMED_REJECTED"));
+  assert.equal(registry.protocols.filter((protocol) => protocol.status === "CONSUMED_REJECTED").length, 3);
+  assert.equal(registry.protocols.filter((protocol) => protocol.status === "AVAILABLE").length, 1);
 });
 
 test("experiment definitions require a frozen candidate and bounded trial ledger", () => {
