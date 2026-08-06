@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-event-flow-development-result-v3",
+  "status": "REJECTED_INSUFFICIENT_SELECTION_SAMPLE",
+  "protocolId": "bybit-event-flow-development-v1",
+  "protocolSha256": "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d",
+  "analysisId": "bybit-event-flow-development-analysis-v3",
+  "analysisContractSha256": "81133d5659e41b26bee5318d7e33ba5690276f9f8264f243928061c6664a7203",
+  "implementationSha256": "daa7dd15f3cc12bf84427253abda63ffed6b07bc5f57c71e37df4744eef6e715",
+  "developmentSourceFingerprintSha256": "a4de3485e49a81ee3cd23a03ece58abecd339d389f90fcdb20bc41eb597ad047",
+  "researchDatabaseSha256": "054e55a07629e17a50131e06c444b044089de70a9d6511f6256e55d63278500d",
+  "resultArtifactSha256": "a7fc55ac0260364338987234c59461049837ced3c149039b4af572f0ae44d684",
+  "generatedAt": "2026-08-06T08:37:46.036Z",
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 124,
+    "stageCandidates": 16,
+    "cumulativeCandidates": 140,
+    "maximumCumulativeCandidates": 192
+  },
+  "candidateTradeCountRange": {
+    "minimum": 4,
+    "maximum": 13
+  },
+  "positiveMeanCandidateCount": 12,
+  "bestObservedCandidate": {
+    "candidateId": "car_ti0p4_cw5_ci0p1_ob0p05",
+    "selectionEligible": false,
+    "allDevelopment": {
+      "observedDays": 24,
+      "tradeCount": 9,
+      "winRatePct": 55.55555556,
+      "netReturnPct": 2.23174995,
+      "compoundDailyReturnPct": 0.09200942,
+      "meanNetR": 0.49381939,
+      "profitFactor": 2.88100124,
+      "maxDrawdownPct": 0.71160969,
+      "bootstrapLowerMeanNetR": 0.13333207,
+      "bootstrapUpperMeanNetR": 0.78426586
+    },
+    "selection2023": {
+      "observedDays": 12,
+      "tradeCount": 6,
+      "minimumRequiredTrades": 15,
+      "winRatePct": 50,
+      "netReturnPct": 1.12801843,
+      "meanNetR": 0.37637159,
+      "profitFactor": 2.65708701,
+      "bootstrapLowerMeanNetR": -0.28974593,
+      "bootstrapUpperMeanNetR": 1.04248912
+    },
+    "observed2024H1": {
+      "tradeCount": 1,
+      "netReturnPct": 0.79653625
+    },
+    "observed2024H2": {
+      "tradeCount": 2,
+      "netReturnPct": 0.29255356,
+      "bootstrapLowerMeanNetR": -1,
+      "bootstrapUpperMeanNetR": 1.59307249
+    },
+    "exitCounts": {
+      "TAKE_PROFIT": 4,
+      "STOP_LOSS": 1,
+      "TIME_EXIT": 4
+    }
+  },
+  "gate": {
+    "selectedCandidateExists": false,
+    "minimumPooledTrades": false,
+    "minimumPositiveEraCount": false,
+    "minimumProfitFactor": false,
+    "minimumMeanNetR": false,
+    "minimumBootstrapLowerMeanNetR": false,
+    "maximumDrawdownPct": true,
+    "maximumLiquidationCount": true
+  },
+  "diagnosis": [
+    "CONFIRMATION_REDUCED_FALSE_ENTRIES_BUT_LEFT_ONLY_FOUR_TO_THIRTEEN_TRADES_PER_CANDIDATE",
+    "NO_CANDIDATE_REACHED_THE_PREDECLARED_FIFTEEN_TRADE_2023_SELECTION_FLOOR",
+    "THE_BEST_OBSERVED_CANDIDATE_HAS_ONLY_THREE_2024_TRADES",
+    "POSITIVE_FULL_SAMPLE_BOOTSTRAP_IS_NOT_INDEPENDENT_BECAUSE_THE_CANDIDATE_WAS_IDENTIFIED_FROM_THE_SAME_SAMPLE"
+  ],
+  "nextStageBoundary": {
+    "allowed": "PREDECLARE_ONE_NON_PROMOTING_FIXED_CANDIDATE_SAMPLE_EXTENSION_ON_UNTOUCHED_PRE_2025_DATES",
+    "notAllowed": [
+      "PROMOTE_ANY_V3_CANDIDATE",
+      "LOWER_THE_PREDECLARED_SAMPLE_OR_STATISTICAL_GATES",
+      "RETUNE_THE_FIXED_CANDIDATE_FROM_EXTENSION_OUTCOMES",
+      "ACQUIRE_VALIDATION_EXTERNAL_OR_FRESH_SEALED_DATA"
+    ]
+  },
+  "validationDataRead": false,
+  "externalDataRead": false,
+  "freshSealedDataRead": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
