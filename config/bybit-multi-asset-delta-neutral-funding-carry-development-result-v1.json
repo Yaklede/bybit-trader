@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-multi-asset-delta-neutral-funding-carry-development-result-v1",
+  "programStatus": "DEVELOPMENT_CANDIDATE_FROZEN_FOR_INTERNAL_VALIDATION",
+  "protocolId": "bybit-multi-asset-delta-neutral-funding-carry-development-v1",
+  "protocolSha256": "42e9a485e747cc12d50263fee26f20318c50e04108efeeed6fa1171811625479",
+  "replayFreezeSha256": "fc95b1da82d8d07121c31349116c86cfe0ba347045728693ad1981649b31f5cf",
+  "parentResultSha256": "6e3163198e0e2873c7cfa400a5c87f99f97f49071c2a385f93b77812a69f1ee4",
+  "acquisitionReceiptSha256": "30dbad593918e8ad557a35222415b971dc36ada5b8749c420334ac605e5dd9cb",
+  "developmentSnapshotSha256": "c4d1166f0f92f6a342b8e39a5c36680060c0036481fd1f1f6d02105af2c5622f",
+  "normalizedEvidenceSha256": "78aef58b12bb522cef8edc5fa673b3a09a178735ca7c71d889bfc810d60ba0cf",
+  "implementation": {
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "replaySha256": "2ad95318b59e283b5d43980fc81c8f35deb1d604a813183d09f2b6ac459026e3",
+    "compositeSha256": "0625a786d2d69438070f2f40008ff7d997880fa18115283ff2bf96a470ec6c7d"
+  },
+  "developmentArtifacts": {
+    "reportSha256": "6cf469a5f937fe19658d272deb097f57a54a35cd769af6db862d9634961c6247",
+    "rankedCandidatesSha256": "106c0348d60c69757c9d8c42754a670a5a89f5c98b98f0c5101f1b629c5ae478",
+    "bestCandidateTradesSha256": "cc413e4a2afe586fc4fed79e446011e26c1c6d2e122d98fd99c270bc9a54fda2"
+  },
+  "trialAccounting": {
+    "priorObservedCandidates": 311,
+    "evaluatedCandidates": 24,
+    "passedCandidates": 2,
+    "selectedCandidates": 1,
+    "cumulativeObservedCandidates": 335
+  },
+  "selectedCandidate": {
+    "candidateSha256": "2b46f1abe6caef9fb31eb6ad85de2ff4973985e52d76a1f377cc8ef2e6d974e9",
+    "candidate": {
+      "id": "multi_asset_delta_neutral_carry_04",
+      "family": "MULTI_ASSET_DELTA_NEUTRAL_POSITIVE_FUNDING_CARRY",
+      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "entryDelayMinutes": 5,
+      "maximumHoldingDays": 30,
+      "minimumEntryBasisPct": 0,
+      "maximumEntryBasisPct": 0.03,
+      "maximumAbsoluteMarkIndexPremiumPct": 0.01,
+      "basisDivergenceStopPctFromEntry": 0.03,
+      "reentryCooldownHours": 8,
+      "projectedCarryHorizonSettlements": 90,
+      "minimumProjectedNetCarryScore": 0,
+      "minimumPositiveFundingStreak": 3,
+      "minimumTrailingMedianFundingRate": 0.0001,
+      "maximumConcurrentPairs": 2,
+      "exitConsecutiveNonPositiveFundingCount": 2
+    }
+  },
+  "development2023": {
+    "tradeCount": 24,
+    "activeCalendarDays": 287,
+    "capturedFundingSettlements": 1375,
+    "tradedAssetCount": 3,
+    "positiveAssetCount": 3,
+    "startingEquityUsdt": 660,
+    "endingEquityUsdt": 670.07441333,
+    "netReturnPct": 1.52642626,
+    "compoundDailyReturnPct": 0.00415048,
+    "meanDailyReturnPct": 0.00415337,
+    "bootstrapLowerMeanDailyReturnPct": 0.00137152,
+    "bootstrapUpperMeanDailyReturnPct": 0.00710171,
+    "profitFactor": 6.63559287,
+    "winRatePct": 66.66666667,
+    "maximumDrawdownPct": 0.44111425,
+    "positiveBlockCount": 4,
+    "totalBlockCount": 4,
+    "fundingPnlUsdt": 21.56825428,
+    "pricePnlUsdt": 1.2471682,
+    "feeCostUsdt": 9.63421612,
+    "slippageCostUsdt": 3.10679305,
+    "costStressNetReturnPct": 0.5603174,
+    "secondLegDelayStressNetReturnPct": 0.29878357,
+    "liquidationCount": 0,
+    "maximumConcurrentPositionCount": 2,
+    "maximumTotalMatchedNotionalFraction": 0.39366805,
+    "maximumNetHedgeMismatchBySymbol": {
+      "BTCUSDT": 0.000000996,
+      "ETHUSDT": 0.00000993,
+      "SOLUSDT": 0.0000987
+    },
+    "positivePositionProfitConcentration": 0.15261439,
+    "positiveAssetProfitConcentration": 0.45818984,
+    "assetNetPnlUsdt": {
+      "BTCUSDT": 1.81538969,
+      "ETHUSDT": 3.64302978,
+      "SOLUSDT": 4.61599386
+    },
+    "passed": true,
+    "failedGateChecks": []
+  },
+  "evidenceBoundary": {
+    "development2023Read": true,
+    "internalValidation2024Read": false,
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "internalValidation": {
+    "acquisitionAllowed": true,
+    "candidateMayBeRetuned": false,
+    "gateMayBeChanged": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
