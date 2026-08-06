@@ -225,7 +225,7 @@ export async function acquireBinanceTrendEvidence({
       db.exec("ROLLBACK");
       throw error;
     }
-    const audit = auditBinanceTrendEvidence(db, protocol, archives.length);
+    const audit = auditBinanceTrendEvidence(db, protocol, archives.length, protocolSha256);
     db.close();
     await fs.rename(temporaryDatabasePath, databasePath);
     return {
@@ -258,9 +258,12 @@ export async function acquireBinanceTrendEvidence({
   }
 }
 
-export function auditBinanceTrendEvidence(db, protocol, expectedArchiveCount) {
+export function auditBinanceTrendEvidence(db, protocol, expectedArchiveCount, expectedProtocolSha256 = null) {
   const metadata = db.prepare("SELECT * FROM binanceEvidenceMetadata WHERE singleton=1").get();
-  if (metadata == null || metadata.protocol_id !== protocol.protocolId) throw new Error("Binance metadata mismatch.");
+  if (metadata == null || metadata.protocol_id !== protocol.protocolId ||
+      (expectedProtocolSha256 != null && metadata.protocol_sha256 !== expectedProtocolSha256)) {
+    throw new Error("Binance metadata mismatch.");
+  }
   const start = parseInstant(protocol.externalEvidence.startInclusive);
   const end = parseInstant(protocol.externalEvidence.endExclusive);
   const candles = db.prepare(`

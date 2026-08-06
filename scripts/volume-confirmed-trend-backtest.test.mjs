@@ -3,10 +3,16 @@ import test from "node:test";
 import {
   aggregateM15ToH4,
   buildTrendCommands,
+  canonicalInstantString,
   calculateTrendQuantity,
+  normalizeH4Evidence,
   simulateTrendRun,
   validateTrendProtocol,
 } from "./lib/volume-confirmed-trend-research.mjs";
+
+test("canonicalizes SQL range instants with milliseconds", () => {
+  assert.equal(canonicalInstantString("2020-01-01T00:00:00Z"), "2020-01-01T00:00:00.000Z");
+});
 
 test("M15 evidence aggregates into one strict H4 bar", () => {
   const start = Date.UTC(2026, 0, 1);
@@ -42,6 +48,17 @@ test("internal incomplete H4 evidence fails closed", () => {
     volume: 1,
   })).filter((_, index) => index !== 20);
   assert.throws(() => aggregateM15ToH4(rows), /Incomplete internal H4 bucket/);
+});
+
+test("native H4 evidence must be ordered, contiguous, and on boundary", () => {
+  const start = Date.UTC(2026, 0, 1);
+  const rows = [fixtureBar(start, 100, 101), fixtureBar(start + 4 * 60 * 60 * 1_000, 101, 102)];
+  assert.equal(normalizeH4Evidence(rows).length, 2);
+  assert.throws(
+    () => normalizeH4Evidence([rows[0], fixtureBar(start + 8 * 60 * 60 * 1_000, 102, 103)]),
+    /H4 evidence gap/,
+  );
+  assert.throws(() => normalizeH4Evidence([fixtureBar(start + 1, 100, 101)]), /off boundary/);
 });
 
 test("trend direction change executes only on the next bar after volume confirmation", () => {

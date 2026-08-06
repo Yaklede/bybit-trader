@@ -47,6 +47,10 @@ export function validateTrendProtocol(protocol) {
   return protocol;
 }
 
+export function canonicalInstantString(value) {
+  return new Date(instantMillis(value)).toISOString();
+}
+
 export function aggregateM15ToH4(rows, requiredBars = 16) {
   if (!Array.isArray(rows) || rows.length === 0) throw new Error("M15 evidence is empty.");
   const groups = new Map();
@@ -92,6 +96,36 @@ export function aggregateM15ToH4(rows, requiredBars = 16) {
     });
   });
   if (bars.length === 0) throw new Error("M15 evidence contains no complete H4 bars.");
+  for (let index = 1; index < bars.length; index += 1) {
+    if (bars[index].openedAt - bars[index - 1].openedAt !== H4_MILLIS) {
+      throw new Error(`H4 evidence gap before ${new Date(bars[index].openedAt).toISOString()}.`);
+    }
+  }
+  return bars;
+}
+
+export function normalizeH4Evidence(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error("H4 evidence is empty.");
+  const bars = rows.map((source) => {
+    const openedAt = instantMillis(source.openedAt ?? source.opened_at);
+    if (openedAt % H4_MILLIS !== 0) {
+      throw new Error(`H4 evidence is off boundary at ${new Date(openedAt).toISOString()}.`);
+    }
+    const bar = {
+      openedAt,
+      open: decimal(source.open),
+      high: decimal(source.high),
+      low: decimal(source.low),
+      close: decimal(source.close),
+      volume: decimal(source.volume),
+      sourceBarCount: 1,
+    };
+    if (bar.low > Math.min(bar.open, bar.close) || bar.high < Math.max(bar.open, bar.close) ||
+        bar.low > bar.high || bar.volume < 0) {
+      throw new Error(`H4 evidence OHLCV is invalid at ${new Date(openedAt).toISOString()}.`);
+    }
+    return bar;
+  });
   for (let index = 1; index < bars.length; index += 1) {
     if (bars[index].openedAt - bars[index - 1].openedAt !== H4_MILLIS) {
       throw new Error(`H4 evidence gap before ${new Date(bars[index].openedAt).toISOString()}.`);
@@ -388,6 +422,14 @@ export function summarizeTrendRun(run, protocol) {
 }
 
 export function evaluateTrendDevelopment(protocol, bars, fundingRates) {
+  return evaluateTrendEvidence(protocol, bars, fundingRates, "DEVELOPMENT");
+}
+
+export function evaluateTrendExternal(protocol, bars, fundingRates) {
+  return evaluateTrendEvidence(protocol, bars, fundingRates, "EXTERNAL");
+}
+
+function evaluateTrendEvidence(protocol, bars, fundingRates, phase) {
   validateTrendProtocol(protocol);
   const commands = buildTrendCommands(bars, protocol.strategy, protocol.market.warmupDecisionBars);
   const runs = [];
@@ -440,11 +482,14 @@ export function evaluateTrendDevelopment(protocol, bars, fundingRates) {
     freshShadowPass: false,
     paperReplayParity: false,
   };
-  const developmentPassed = Object.entries(gates)
+  const evidencePassed = Object.entries(gates)
     .filter(([name]) => !["externalVenuePass", "freshShadowPass", "paperReplayParity"].includes(name))
     .every(([, passed]) => passed);
+  if (phase === "EXTERNAL") gates.externalVenuePass = evidencePassed;
   return {
-    status: developmentPassed ? "DEVELOPMENT_PASS_EXTERNAL_REQUIRED" : "REJECTED_DEVELOPMENT_GATES",
+    status: phase === "EXTERNAL"
+      ? evidencePassed ? "HISTORICALLY_VALIDATED_SHADOW_REQUIRED" : "REJECTED_EXTERNAL_GATES"
+      : evidencePassed ? "DEVELOPMENT_PASS_EXTERNAL_REQUIRED" : "REJECTED_DEVELOPMENT_GATES",
     automaticExecutionAllowed: false,
     liveExecutionAllowed: false,
     evidence: {
