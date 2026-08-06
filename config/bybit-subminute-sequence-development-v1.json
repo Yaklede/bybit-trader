@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "bybit-subminute-sequence-development-v1",
+  "status": "PREDECLARED_BEFORE_SUBMINUTE_SOURCE_REPLAY",
+  "declaredAt": "2026-08-06",
+  "parentResult": {
+    "resultId": "bybit-event-flow-pullback-result-v1",
+    "resultReceiptSha256": "454d747ac8092ff8d3145805b7c21c4a18bdc834439e83ec16bd83ebf4365cfe",
+    "requiredProgramStatus": "CLOSED_NO_APPROVABLE_EVENT_FLOW_STRATEGY"
+  },
+  "researchBoundary": {
+    "kind": "NEW_SUBMINUTE_FEATURE_CONTRACT",
+    "priorMinuteAggregateOutcomesMayInformHypothesisClassOnly": true,
+    "priorMinuteAggregateOutcomesMaySelectThresholds": false,
+    "subminuteSourcePayloadsReadBeforeDeclaration": false,
+    "selectionUses2023Only": true,
+    "internalValidationUses2024Only": true,
+    "locked2025And2026DataMayBeAcquiredBeforeInternalPass": false
+  },
+  "trialAccounting": {
+    "priorClosedProgramCandidates": 191,
+    "newProgramCandidateBudget": 32,
+    "absorptionReversalCandidates": 16,
+    "depletionContinuationCandidates": 16,
+    "candidateBudgetMayIncreaseAfterOutcomes": false
+  },
+  "sourceData": {
+    "symbol": "BTCUSDT",
+    "canonicalCandleDatabase": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "canonicalCandleDatabaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+    "aggregateEvidenceDatabase": "build/research/bybit-event-flow-fixed-extension-v1.sqlite",
+    "aggregateEvidenceDatabaseSha256": "44724180f0150ac935d90514e98f09562632b5653e9ad76480519e71e37fe923",
+    "aggregateAcquisitionReceiptSha256": "61ec8dfb8192ad27e03b0359a728f6ece78001639ad3ce69531b981169463b0a",
+    "researchDatabase": "build/research/bybit-subminute-sequence-development-v1.sqlite",
+    "orderBookProvider": "BYBIT_OFFICIAL_CONTRACT_ORDERBOOK_ARCHIVE",
+    "tradeProvider": "BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE",
+    "derivativesProvider": "BYBIT_V5_PUBLIC_REST",
+    "retainedOrderBookDepth": 50,
+    "bucketMillis": 5000,
+    "bucketsPerUtcDay": 17280,
+    "bookEventTimestamp": "MATCHING_ENGINE_CTS_FALLBACK_TS_ONLY_WHEN_ARCHIVE_LACKS_CTS",
+    "tradeEventTimestamp": "PUBLIC_TRADE_EXCHANGE_TIMESTAMP",
+    "openInterestInterval": "M5",
+    "fundingTimestampPolicy": "LATEST_SETTLED_AT_OR_BEFORE_DECISION"
+  },
+  "acquisition": {
+    "selectionBlocks": [
+      {"id":"S01","era":"2023Q1","sourceStartDate":"2023-02-07","sourceEndDate":"2023-02-13","replayStartAt":"2023-02-08T00:00:00Z","replayEndAt":"2023-02-14T00:00:00Z"},
+      {"id":"S02","era":"2023Q2","sourceStartDate":"2023-05-10","sourceEndDate":"2023-05-16","replayStartAt":"2023-05-11T00:00:00Z","replayEndAt":"2023-05-17T00:00:00Z"},
+      {"id":"S03","era":"2023Q3","sourceStartDate":"2023-07-06","sourceEndDate":"2023-07-12","replayStartAt":"2023-07-07T00:00:00Z","replayEndAt":"2023-07-13T00:00:00Z"},
+      {"id":"S04","era":"2023Q4","sourceStartDate":"2023-10-02","sourceEndDate":"2023-10-08","replayStartAt":"2023-10-03T00:00:00Z","replayEndAt":"2023-10-09T00:00:00Z"}
+    ],
+    "internalValidationBlocks": [
+      {"id":"I01","era":"2024Q1","sourceStartDate":"2024-01-17","sourceEndDate":"2024-01-23","replayStartAt":"2024-01-18T00:00:00Z","replayEndAt":"2024-01-24T00:00:00Z"},
+      {"id":"I02","era":"2024Q2","sourceStartDate":"2024-04-01","sourceEndDate":"2024-04-07","replayStartAt":"2024-04-02T00:00:00Z","replayEndAt":"2024-04-08T00:00:00Z"},
+      {"id":"I03","era":"2024Q3","sourceStartDate":"2024-08-14","sourceEndDate":"2024-08-20","replayStartAt":"2024-08-15T00:00:00Z","replayEndAt":"2024-08-21T00:00:00Z"},
+      {"id":"I04","era":"2024Q4","sourceStartDate":"2024-10-11","sourceEndDate":"2024-10-17","replayStartAt":"2024-10-12T00:00:00Z","replayEndAt":"2024-10-18T00:00:00Z"}
+    ],
+    "lockedExpansionBlockIds": ["X02", "X04", "X06", "X08", "X10", "X12", "X14", "X16"],
+    "lockedValidationBlockIds": ["V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08"],
+    "lockedExternalBlockIds": ["E01", "E02", "E03", "E04", "E05", "E06", "E07", "E08"],
+    "sourceDays": 56,
+    "selectionEvaluationDays": 24,
+    "internalValidationEvaluationDays": 24,
+    "warmupDaysPerBlock": 1
+  },
+  "featureContract": {
+    "bookSlices": {
+      "bucket": "HALF_OPEN_UTC_5_SECOND",
+      "processingOrder": "ARCHIVE_LINE_ORDER_WITH_NON_DECREASING_CTS",
+      "snapshotPolicy": "RESET_BOOK_AND_START_NEW_EPOCH",
+      "missingBucketPolicy": "CARRY_LAST_CAUSALLY_OBSERVED_BOOK_AND_MARK_CARRIED_FORWARD",
+      "requiredFields": [
+        "messageCount", "snapshotCount", "bestBid", "bestAsk", "openMid", "highMid", "lowMid", "closeMid",
+        "startTop5Imbalance", "endTop5Imbalance", "minTop5Imbalance", "maxTop5Imbalance",
+        "meanMicropriceEdgeBps", "bidAddedTop5Notional", "bidRemovedTop5Notional",
+        "askAddedTop5Notional", "askRemovedTop5Notional"
+      ]
+    },
+    "tradeSlices": {
+      "bucket": "HALF_OPEN_UTC_5_SECOND",
+      "emptyBucketPolicy": "EXPLICIT_ZERO_FLOW_WITHOUT_SYNTHETIC_TRADE_PRICE",
+      "requiredFields": [
+        "tradeCount", "buyNotional", "sellNotional", "buyCount", "sellCount",
+        "openPrice", "highPrice", "lowPrice", "closePrice", "firstTradeAt", "lastTradeAt"
+      ]
+    },
+    "relativeFlowBaseline": {
+      "kind": "MEDIAN_PRIOR_CLOSED_BUCKET_NOTIONAL",
+      "lookbackBuckets": 360,
+      "minimumObservedBuckets": 300,
+      "currentBucketExcluded": true
+    },
+    "openInterestChange": {
+      "lookbackMinutes": 15,
+      "latestObservationMustBeAtOrBeforeDecision": true,
+      "maximumStalenessMinutes": 10
+    },
+    "m15Regime": {
+      "kind": "EMA_20_50_AND_CLOSE_ALIGNMENT",
+      "closedCandlesOnly": true,
+      "minimumWarmupCandles": 60
+    },
+    "liquidationFeature": {
+      "historicalSourceStatus": "ABSENT_NOT_ZERO",
+      "candidateUseAllowed": false,
+      "simulatedAccountLiquidationStillRequired": true
+    }
+  },
+  "hypotheses": [
+    {
+      "family": "SUBMINUTE_ABSORPTION_REVERSAL",
+      "statement": "A shock against the closed M15 regime reverses when price impact stalls, the consumed side replenishes, open interest contracts, and opposite flow plus microprice confirms absorption.",
+      "fixed": {
+        "minimumAbsoluteTakerImbalance": 0.5,
+        "minimumRelativeTakerNotional": 3.0,
+        "confirmationWindowSeconds": 30,
+        "minimumConfirmationAbsoluteTakerImbalance": 0.2,
+        "minimumOpposingMicropriceEdgeBps": 0.05,
+        "shockMustOpposeClosedM15Regime": true
+      },
+      "grid": {
+        "shockWindowSeconds": [10, 20],
+        "maximumDirectionalPriceImpactBps": [2.0, 5.0],
+        "minimumConsumedSideReplenishmentRatio": [0.75, 1.25],
+        "maximumOpenInterestChangePct": [-0.001, -0.003]
+      },
+      "candidateCount": 16
+    },
+    {
+      "family": "SUBMINUTE_DEPLETION_CONTINUATION",
+      "statement": "A shock aligned with the closed M15 regime continues when price impact expands, opposing liquidity is depleted without replenishment, open interest expands, and same-side flow plus microprice confirms continuation.",
+      "fixed": {
+        "minimumAbsoluteTakerImbalance": 0.5,
+        "minimumRelativeTakerNotional": 3.0,
+        "confirmationWindowSeconds": 30,
+        "minimumConfirmationAbsoluteTakerImbalance": 0.2,
+        "minimumAlignedMicropriceEdgeBps": 0.05,
+        "shockMustAlignWithClosedM15Regime": true
+      },
+      "grid": {
+        "shockWindowSeconds": [10, 20],
+        "minimumDirectionalPriceImpactBps": [2.0, 5.0],
+        "maximumConsumedSideReplenishmentRatio": [0.5, 0.8],
+        "minimumOpenInterestChangePct": [0.001, 0.003]
+      },
+      "candidateCount": 16
+    }
+  ],
+  "hypothesisSha256": "5459ad198ea5432e4abe76c7dedfee45069a207dc24bb5905a2883aba0978547",
+  "executionContract": {
+    "decision": "AFTER_COMPLETE_5_SECOND_BUCKET_AND_CONFIRMATION",
+    "entry": "FIRST_CAUSALLY_OBSERVED_BOOK_AFTER_DECISION_WITH_MARKET_TAKER_SLIPPAGE",
+    "maximumEntryDelaySeconds": 10,
+    "sameSliceConflict": "STOP_FIRST",
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002,
+    "initialStopAtrMultiple": 1.25,
+    "minimumEffectiveStopPct": 0.004,
+    "targetR": 3.0,
+    "maximumHoldingMinutes": 60,
+    "maximumTradesPerUtcDay": 5,
+    "cooldownAfterExitMinutes": 30,
+    "overlappingPositionsAllowed": false,
+    "startingEquityUsdt": 100,
+    "riskFractionPerTrade": 0.01,
+    "minimumQuantityBtc": 0.001,
+    "quantityStepBtc": 0.001,
+    "maximumNotionalUsdt": 100,
+    "maximumLeverage": 15,
+    "liquidationBufferPct": 0.6,
+    "funding": "ACTUAL_SETTLED_RATE_ONLY_WHEN_POSITION_CROSSES_SETTLEMENT"
+  },
+  "selection2023": {
+    "selectionMode": "ONE_CANDIDATE_PER_FAMILY_MAXIMUM",
+    "minimumTrades": 24,
+    "minimumLongTrades": 8,
+    "minimumShortTrades": 8,
+    "minimumPositiveQuarterCount": 3,
+    "totalQuarterCount": 4,
+    "minimumProfitFactor": 1.15,
+    "minimumMeanNetR": 0,
+    "minimumBootstrapLowerMeanNetR": 0,
+    "maximumDrawdownPct": 15,
+    "maximumLiquidationCount": 0,
+    "maximumWinnerProfitConcentration": 0.35
+  },
+  "internalValidation2024": {
+    "minimumTrades": 20,
+    "minimumLongTrades": 6,
+    "minimumShortTrades": 6,
+    "minimumPositiveQuarterCount": 3,
+    "totalQuarterCount": 4,
+    "minimumProfitFactor": 1.15,
+    "minimumMeanNetR": 0,
+    "minimumBootstrapLowerMeanNetR": 0,
+    "maximumDrawdownPct": 15,
+    "maximumLiquidationCount": 0,
+    "maximumWinnerProfitConcentration": 0.35,
+    "costStressMultiplier": 1.5,
+    "costStressMinimumMeanNetR": 0
+  },
+  "statistics": {
+    "bootstrapKind": "MOVING_BLOCK_BOOTSTRAP_DAILY_NET_R",
+    "bootstrapSamples": 5000,
+    "bootstrapConfidence": 0.95,
+    "bootstrapBlockDays": 3,
+    "randomSeed": "bybit-subminute-sequence-development-v1|20260806",
+    "reportCompoundDailyReturnPct": true,
+    "compoundDailyReturnIsSelectionObjective": false
+  },
+  "outcomePolicy": {
+    "retuneFromInternalValidation": false,
+    "lockedExpansionMayBeAcquiredOnlyAfterInternalPass": true,
+    "validation2025MayBeAcquiredOnlyAfterExpansionPass": true,
+    "external2026MayBeAcquiredOnlyAfterValidationPassAndRefreeze": true,
+    "freshSealedMayBeAcquiredOnlyAfterExternalPassAndRefreeze": true,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
