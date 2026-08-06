@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.engine.market
 
+import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
@@ -259,16 +260,15 @@ class MarketDataSyncService(
             if (windowEndInclusive.isBefore(windowStart)) break
 
             val candles =
-                marketDataFeed
-                    .fetchCandles(
-                        symbol = symbol,
-                        timeframe = timeframe,
-                        startAt = windowStart,
-                        endAt = windowEndInclusive,
-                        limit = pageLimit,
-                    ).filter { candle ->
-                        !candle.openedAt.isBefore(startAt) && candle.openedAt.isBefore(endAt)
-                    }.sortedBy { it.openedAt }
+                fetchHistoryPage(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    startAt = windowStart,
+                    endAt = windowEndInclusive,
+                    limit = pageLimit,
+                ).filter { candle ->
+                    !candle.openedAt.isBefore(startAt) && candle.openedAt.isBefore(endAt)
+                }.sortedBy { it.openedAt }
 
             if (candles.isEmpty()) {
                 cursorEndExclusive = windowStart
@@ -287,6 +287,33 @@ class MarketDataSyncService(
             earliestOpenedAt = earliestOpenedAt,
             latestOpenedAt = latestOpenedAt,
         )
+    }
+
+    private suspend fun fetchHistoryPage(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> {
+        var attempt = 0
+        while (true) {
+            try {
+                return marketDataFeed.fetchCandles(symbol, timeframe, startAt, endAt, limit)
+            } catch (error: MarketDataException) {
+                if (!error.isRateLimitLike() || attempt >= MAX_HISTORY_PAGE_RETRIES) throw error
+                attempt += 1
+                val delayMillis = backoffMillis(attempt)
+                logger.warn(
+                    "market-data history page rate limited symbol={} timeframe={} attempt={} retryDelayMillis={}",
+                    symbol.value,
+                    timeframe.name,
+                    attempt,
+                    delayMillis,
+                )
+                retryDelay(delayMillis)
+            }
+        }
     }
 
     private suspend fun syncClosedTimeframe(
@@ -428,6 +455,8 @@ private fun floorToTimeframe(
 }
 
 private fun backoffMillis(attempt: Int): Long = (250L shl (attempt - 1)).coerceAtMost(4_000L)
+
+private const val MAX_HISTORY_PAGE_RETRIES = 5
 
 private fun MarketDataException.isRateLimitLike(): Boolean =
     message.orEmpty().contains("10006") ||

@@ -358,6 +358,11 @@ enum class PaperStrategyKind(
     val defaultCandleLimit: Int,
     val defaultIntervalSeconds: Long,
 ) {
+    MULTI_HORIZON_MOMENTUM(
+        configValue = "multi-horizon-momentum",
+        defaultCandleLimit = 12_000,
+        defaultIntervalSeconds = 300,
+    ),
     VOLUME_FLOW_AGGRESSIVE(
         configValue = "volume-flow-aggressive",
         defaultCandleLimit = 18_000,
@@ -372,6 +377,7 @@ enum class PaperStrategyKind(
 
     fun defaultTimeframe(fallback: Timeframe): Timeframe =
         when (this) {
+            MULTI_HORIZON_MOMENTUM -> Timeframe.M5
             VOLUME_FLOW_AGGRESSIVE -> Timeframe.M5
             MEAN_REVERSION -> fallback
         }
@@ -385,7 +391,7 @@ enum class PaperStrategyKind(
                     entries.firstOrNull { it.configValue == value || it.name.lowercase() == value }
                         ?: throw IllegalArgumentException("Unsupported paper strategy: $value.")
                 }
-                ?: VOLUME_FLOW_AGGRESSIVE
+                ?: MULTI_HORIZON_MOMENTUM
     }
 }
 
@@ -396,8 +402,8 @@ data class PaperTradingSettings(
 ) {
     init {
         require(initialEquity > BigDecimal.ZERO) { "Paper initial equity must be positive." }
-        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.20")) {
-            "Paper risk fraction must be between 0 and 0.20."
+        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.05")) {
+            "Paper risk fraction must be between 0 and 0.05."
         }
         require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
             "Paper fee rate must be between 0 and 0.01."
@@ -578,7 +584,8 @@ fun ExecutionSettings.toAggressiveExecutionContract(): VolumeFlowAggressiveExecu
 
 private fun PaperStrategyKind.defaultRiskFraction(): BigDecimal =
     when (this) {
-        PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE -> BigDecimal("0.055")
+        PaperStrategyKind.MULTI_HORIZON_MOMENTUM -> BigDecimal("0.01")
+        PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE -> BigDecimal("0.05")
         PaperStrategyKind.MEAN_REVERSION -> BigDecimal("0.005")
     }
 

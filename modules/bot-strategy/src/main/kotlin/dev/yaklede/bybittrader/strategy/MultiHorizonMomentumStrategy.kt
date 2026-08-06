@@ -13,7 +13,7 @@ import kotlin.math.max
 class MultiHorizonMomentumStrategy(
     private val parameters: MultiHorizonMomentumParameters = MultiHorizonMomentumParameters(),
 ) : TradingStrategy {
-    override val name: String = "multi-horizon-momentum-research-v1"
+    override val name: String = "multi-horizon-momentum-development-v2"
     override val warmupCandles: Int = parameters.minimumCandles
 
     override fun evaluate(candles: List<Candle>): StrategyDecision {

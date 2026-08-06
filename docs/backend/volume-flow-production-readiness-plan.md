@@ -1,5 +1,10 @@
 # Volume Flow Production Readiness Plan
 
+> 2026-08-06 update: the aggressive profile remains `REJECTED`. The current
+> Paper-only forward candidate is `multi-horizon-momentum-development-v2` with
+> `UNVERIFIED` status. It has execution parity but has not passed external or
+> sealed profitability gates.
+
 ## Goal
 
 Turn a replay-validated BTCUSDT strategy into an on-prem operated bot that can
@@ -20,9 +25,10 @@ drawdown gates.
   `VolumeFlowAggressiveBacktestService`.
 - Operators can run the current aggressive profile through:
   `POST /backtests/volume-flow/aggressive/current/run`.
-- The paper loop can run `VolumeFlowAggressiveStrategy` through
-  `BOT_PAPER_STRATEGY=volume-flow-aggressive`, using stored M5 history for the
-  60-day side-regime rules and syncing the latest 1000 public candles per loop.
+- The paper loop defaults to `multi-horizon-momentum`, uses its M5 causal
+  execution contract, restores persistent runtime state, and automatically
+  warms missing public history. The aggressive strategy remains available only
+  as a rejected audit baseline.
 - `scripts/bot-preflight.mjs` checks the on-prem paper deployment environment
   before startup.
 - Bybit V5 private execution client is implemented for linear futures order
@@ -35,37 +41,37 @@ drawdown gates.
 
 ### M1. Kotlin Strategy Parity
 
-Objective: prove the Kotlin service reproduces the raw M5 feature-discovery
-strategy closely enough to become the production source of truth.
+Objective: prove the Kotlin engine reproduces the predeclared research engine
+under the same causal entry and position contract.
 
 Acceptance criteria:
 
-- `absa_final_us_v1` parameters are represented in typed Kotlin config.
-- The endpoint can replay arbitrary date windows over stored M5 candles.
-- Script result and Kotlin result are compared for known windows:
-  - `2021-08-01..2022-07-01`
-  - `2024-05-07..2024-06-11`
-  - `2026-01-01..2026-07-02`
-  - the latest 20 random replay windows.
-- Any difference in trade count, entry time, side, exit reason, or final equity
-  is either fixed or documented.
+- The candidate has a versioned profile and execution-contract fingerprint.
+- Node and Kotlin compare trade count, signal/entry/exit time, side, exit reason,
+  prices, quantity, PnL, return R, and post-trade equity.
+- Fixed real-data parity has zero mismatch within the declared tolerance.
+- A parity pass is never reported as profitability approval.
+
+Status: implemented for `multi-horizon-momentum-development-v2`.
 
 ### M2. Paper Strategy Loop
 
-Objective: run live Bybit public candles through the aggressive strategy without
-private exchange order calls.
+Objective: run closed public candles through the causal candidate without
+private exchange order calls or historical signal backfill.
 
 Acceptance criteria:
 
-- Paper loop uses the aggressive M5 profile, not the mean-reversion strategy.
-- Signals, paper orders, fills, positions, and performance snapshots are linked.
-- Pause/resume blocks or allows new aggressive entries.
+- Paper loop uses the `UNVERIFIED` M5 candidate and cannot enable private execution.
+- Signals, pending entries, orders, fills, positions, exits, performance, and
+  persistent runtime state are linked.
+- Pause/resume blocks new entries while existing Paper positions keep their exit policy.
 - Telegram/Discord alerts cover startup, shutdown, paper fills, paper
-  rejections, control actions, and loop failures.
-- Duplicate paper entries for the same `ENTRY_AT_*` signal are skipped.
+  rejections, closures, control actions, and loop failures.
+- Incremental Paper execution matches batch backtest PnL and final equity for
+  the same deterministic replay fixture.
 
-Status: implemented for paper/shadow operation. Daily summary events remain a
-future reporting enhancement, not a blocker for on-prem paper deployment.
+Status: implemented for causal paper operation. Atomic multi-record writes and
+crash reconciliation remain part of the ledger milestone and block live use.
 
 ### M3. Testnet Execution
 

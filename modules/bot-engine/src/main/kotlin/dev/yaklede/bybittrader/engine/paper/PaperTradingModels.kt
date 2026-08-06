@@ -12,17 +12,58 @@ data class PaperTradingConfig(
     val initialEquity: BigDecimal = BigDecimal("10000"),
     val riskFraction: BigDecimal = BigDecimal("0.005"),
     val feeRate: BigDecimal = BigDecimal("0.0006"),
-    val duplicateSignalLookback: Int = 50,
+    val entrySlippageRate: BigDecimal = BigDecimal("0.0002"),
+    val exitSlippageRate: BigDecimal = entrySlippageRate,
+    val fundingRatePer8h: BigDecimal = BigDecimal.ZERO,
+    val partialTakeProfitR: BigDecimal = BigDecimal.ONE,
+    val partialTakeProfitFraction: BigDecimal = BigDecimal("0.5"),
+    val breakevenAfterPartialTakeProfit: Boolean = true,
+    val atrTrailingPeriod: Int = 14,
+    val atrTrailingMultiplier: BigDecimal = BigDecimal.ZERO,
+    val fixedTargetEnabled: Boolean = true,
+    val maxHoldCandles: Int = 16,
+    val maxTradesPerUtcDay: Int? = null,
+    val minimumEntryRiskFraction: BigDecimal? = null,
+    val maximumEntryRiskFraction: BigDecimal? = null,
 ) {
     init {
         require(initialEquity > BigDecimal.ZERO) { "Initial equity must be positive." }
-        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.20")) {
-            "Risk fraction must be between 0 and 0.20."
+        require(riskFraction > BigDecimal.ZERO && riskFraction <= BigDecimal("0.05")) {
+            "Risk fraction must be between 0 and 0.05."
         }
         require(feeRate >= BigDecimal.ZERO && feeRate <= BigDecimal("0.01")) {
             "Fee rate must be between 0 and 0.01."
         }
-        require(duplicateSignalLookback in 1..100) { "Duplicate signal lookback must be between 1 and 100." }
+        require(entrySlippageRate >= BigDecimal.ZERO && entrySlippageRate <= BigDecimal("0.01")) {
+            "Entry slippage rate must be between 0 and 0.01."
+        }
+        require(exitSlippageRate >= BigDecimal.ZERO && exitSlippageRate <= BigDecimal("0.01")) {
+            "Exit slippage rate must be between 0 and 0.01."
+        }
+        require(fundingRatePer8h.abs() <= BigDecimal("0.01")) {
+            "Funding rate per 8h must be between -0.01 and 0.01."
+        }
+        require(partialTakeProfitR > BigDecimal.ZERO) { "Partial take-profit R must be positive." }
+        require(partialTakeProfitFraction >= BigDecimal.ZERO && partialTakeProfitFraction < BigDecimal.ONE) {
+            "Partial take-profit fraction must be between 0 inclusive and 1 exclusive."
+        }
+        require(atrTrailingPeriod > 1) { "ATR trailing period must be greater than one." }
+        require(atrTrailingMultiplier >= BigDecimal.ZERO) { "ATR trailing multiplier must not be negative." }
+        require(maxHoldCandles > 0) { "Maximum hold candles must be positive." }
+        require(maxTradesPerUtcDay == null || maxTradesPerUtcDay > 0) {
+            "Maximum daily trades must be positive when configured."
+        }
+        require(minimumEntryRiskFraction == null || minimumEntryRiskFraction > BigDecimal.ZERO) {
+            "Minimum entry risk must be positive when configured."
+        }
+        require(maximumEntryRiskFraction == null || maximumEntryRiskFraction > BigDecimal.ZERO) {
+            "Maximum entry risk must be positive when configured."
+        }
+        require(
+            minimumEntryRiskFraction == null ||
+                maximumEntryRiskFraction == null ||
+                minimumEntryRiskFraction <= maximumEntryRiskFraction,
+        ) { "Minimum entry risk must not exceed maximum entry risk." }
     }
 }
 
@@ -111,13 +152,20 @@ data class PaperEvaluationResult(
     val fillPrice: BigDecimal?,
     val quantity: BigDecimal?,
     val fee: BigDecimal?,
+    val phase: PaperRuntimePhase = PaperRuntimePhase.FLAT,
+    val exitReason: String? = null,
+    val realizedPnl: BigDecimal? = null,
+    val equity: BigDecimal? = null,
 )
 
 enum class PaperEvaluationStatus {
     SKIPPED_BY_MODE,
     NO_TRADE,
+    ENTRY_PENDING,
     REJECTED,
     FILLED,
+    POSITION_UPDATED,
+    CLOSED,
 }
 
 interface PaperTradingReportStore {

@@ -8,10 +8,16 @@ const env = process.env;
 const checks = [];
 
 const mode = (env.BOT_MODE || "PAPER").toUpperCase();
-const paperStrategy = (env.BOT_PAPER_STRATEGY || "volume-flow-aggressive").toLowerCase();
+const paperStrategy = (env.BOT_PAPER_STRATEGY || "multi-horizon-momentum").toLowerCase();
 const paperLoopEnabled = parseBool(env.BOT_PAPER_LOOP_ENABLED);
-const paperTimeframe = (env.BOT_PAPER_TIMEFRAME || (paperStrategy === "volume-flow-aggressive" ? "M5" : "M1")).toUpperCase();
-const paperCandleLimit = Number(env.BOT_PAPER_CANDLE_LIMIT || (paperStrategy === "volume-flow-aggressive" ? "18000" : "200"));
+const paperTimeframe = (
+  env.BOT_PAPER_TIMEFRAME ||
+  (paperStrategy === "multi-horizon-momentum" ? "M5" : paperStrategy === "volume-flow-aggressive" ? "M5" : "M1")
+).toUpperCase();
+const paperCandleLimit = Number(
+  env.BOT_PAPER_CANDLE_LIMIT ||
+  (paperStrategy === "multi-horizon-momentum" ? "12000" : paperStrategy === "volume-flow-aggressive" ? "18000" : "200"),
+);
 const paperSyncLimit = Number(env.BOT_PAPER_SYNC_LIMIT || "1000");
 const privateExecutionEnabled = parseBool(env.BOT_PRIVATE_EXECUTION_ENABLED);
 const privateExecutionStreamEnabled =
@@ -57,7 +63,11 @@ const discordEnabled = parseBool(env.DISCORD_ALERTS_ENABLED);
 
 check("BOT_MODE is supported", ["PAPER", "TESTNET", "LIVE"].includes(mode), `mode=${mode}`);
 check("BOT_CONTROL_TOKEN is set", isLongEnough(env.BOT_CONTROL_TOKEN, 16), "set a private operator token with 16+ chars");
-check("paper strategy is supported", ["volume-flow-aggressive", "mean-reversion"].includes(paperStrategy), paperStrategy);
+check(
+  "paper strategy is supported",
+  ["multi-horizon-momentum", "volume-flow-aggressive", "mean-reversion"].includes(paperStrategy),
+  paperStrategy,
+);
 check(
   "private execution stream requires private execution",
   !privateExecutionStreamEnabled || privateExecutionEnabled,
@@ -90,7 +100,14 @@ if (mode === "PAPER") {
   check("paper loop is enabled", paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=true for paper operation");
 }
 
-if (mode === "PAPER" && paperStrategy === "volume-flow-aggressive") {
+if (mode === "PAPER" && paperStrategy === "multi-horizon-momentum") {
+  check("multi-horizon paper timeframe is M5", paperTimeframe === "M5", `timeframe=${paperTimeframe}`);
+  check(
+    "multi-horizon paper candle limit covers causal warmup",
+    Number.isInteger(paperCandleLimit) && paperCandleLimit >= 8642,
+    `candleLimit=${paperCandleLimit}`,
+  );
+} else if (mode === "PAPER" && paperStrategy === "volume-flow-aggressive") {
   check("aggressive paper timeframe is M5", paperTimeframe === "M5", `timeframe=${paperTimeframe}`);
   check("aggressive paper candle limit covers 60d regime rules", Number.isInteger(paperCandleLimit) && paperCandleLimit >= 17281, `candleLimit=${paperCandleLimit}`);
   checkM5History(databasePath, paperCandleLimit);

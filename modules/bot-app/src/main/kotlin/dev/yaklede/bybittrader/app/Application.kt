@@ -18,6 +18,7 @@ import dev.yaklede.bybittrader.domain.ControlAction
 import dev.yaklede.bybittrader.engine.backtest.BacktestRunner
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
+import dev.yaklede.bybittrader.engine.backtest.MultiHorizonMomentumResearchProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowBacktestService
@@ -146,13 +147,9 @@ fun main() {
             stateStore = ledger,
             candleStore = ledger,
             paperTradingStore = ledger,
+            runtimeStateStore = ledger,
             strategy = createPaperStrategy(config.paperLoop.strategy),
-            config =
-                PaperTradingConfig(
-                    initialEquity = config.paperTrading.initialEquity,
-                    riskFraction = config.paperTrading.riskFraction,
-                    feeRate = config.paperTrading.feeRate,
-                ),
+            config = createPaperTradingConfig(config),
         )
     val executionService =
         if (config.bybitPrivate.credentialsAvailable) {
@@ -501,9 +498,40 @@ private fun createAlertSink(
 
 private fun createPaperStrategy(strategy: PaperStrategyKind): TradingStrategy =
     when (strategy) {
+        PaperStrategyKind.MULTI_HORIZON_MOMENTUM -> MultiHorizonMomentumResearchProfiles.current().strategy()
         PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE -> VolumeFlowAggressiveStrategy()
         PaperStrategyKind.MEAN_REVERSION -> MeanReversionStrategy()
     }
+
+private fun createPaperTradingConfig(config: AppConfig): PaperTradingConfig {
+    val settings = config.paperTrading
+    if (config.paperLoop.strategy != PaperStrategyKind.MULTI_HORIZON_MOMENTUM) {
+        return PaperTradingConfig(
+            initialEquity = settings.initialEquity,
+            riskFraction = settings.riskFraction,
+            feeRate = settings.feeRate,
+        )
+    }
+    val backtest = MultiHorizonMomentumResearchProfiles.current().backtestConfig()
+    return PaperTradingConfig(
+        initialEquity = settings.initialEquity,
+        riskFraction = settings.riskFraction,
+        feeRate = settings.feeRate,
+        entrySlippageRate = BigDecimal.valueOf(backtest.slippageRate),
+        exitSlippageRate = BigDecimal.valueOf(backtest.exitSlippageRate),
+        fundingRatePer8h = BigDecimal.valueOf(backtest.fundingRatePer8h),
+        partialTakeProfitR = BigDecimal.valueOf(backtest.partialTakeProfitR),
+        partialTakeProfitFraction = BigDecimal.valueOf(backtest.partialTakeProfitFraction),
+        breakevenAfterPartialTakeProfit = backtest.breakevenAfterPartialTakeProfit,
+        atrTrailingPeriod = backtest.atrTrailingPeriod,
+        atrTrailingMultiplier = BigDecimal.valueOf(backtest.atrTrailingMultiplier),
+        fixedTargetEnabled = backtest.fixedTargetEnabled,
+        maxHoldCandles = backtest.maxHoldCandles,
+        maxTradesPerUtcDay = backtest.maxTradesPerUtcDay,
+        minimumEntryRiskFraction = backtest.minimumEntryRiskFraction?.let(BigDecimal::valueOf),
+        maximumEntryRiskFraction = backtest.maximumEntryRiskFraction?.let(BigDecimal::valueOf),
+    )
+}
 
 private suspend fun AlertingService.sendControlResult(result: ControlResult) {
     send(
@@ -564,6 +592,25 @@ private suspend fun AlertingService.sendPaperLoopResult(result: PaperEvaluationR
                 ),
             )
 
+        PaperEvaluationStatus.CLOSED ->
+            send(
+                AlertMessage(
+                    severity =
+                        if ((result.realizedPnl ?: BigDecimal.ZERO) >= BigDecimal.ZERO) {
+                            AlertSeverity.INFO
+                        } else {
+                            AlertSeverity.WARNING
+                        },
+                    title = "모의 포지션 종료",
+                    body =
+                        "${result.symbol.value} ${result.timeframe.name} 모의 포지션이 종료됐어요. " +
+                            "종료 사유: ${result.exitReason}, 순손익: ${result.realizedPnl?.toPlainString()}, " +
+                            "잔고: ${result.equity?.toPlainString()}",
+                ),
+            )
+
+        PaperEvaluationStatus.ENTRY_PENDING,
+        PaperEvaluationStatus.POSITION_UPDATED,
         PaperEvaluationStatus.SKIPPED_BY_MODE,
         PaperEvaluationStatus.NO_TRADE,
         -> Unit

@@ -24,13 +24,13 @@ class AppConfigTest :
             config.api.host shouldBe "127.0.0.1"
             config.api.port shouldBe 8080
             config.paperLoop.enabled shouldBe false
-            config.paperLoop.strategy shouldBe PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE
+            config.paperLoop.strategy shouldBe PaperStrategyKind.MULTI_HORIZON_MOMENTUM
             config.paperLoop.timeframe.name shouldBe "M5"
-            config.paperLoop.candleLimit shouldBe 18000
+            config.paperLoop.candleLimit shouldBe 12000
             config.paperLoop.syncLimit shouldBe 1000
             config.paperLoop.intervalSeconds shouldBe 300
             config.paperTrading.initialEquity.toPlainString() shouldBe "1000000"
-            config.paperTrading.riskFraction.toPlainString() shouldBe "0.055"
+            config.paperTrading.riskFraction.toPlainString() shouldBe "0.01"
             config.execution.enabled shouldBe false
             config.execution.allowUnverifiedProfile shouldBe false
             config.execution.useLiveAccountEquity shouldBe false
@@ -281,7 +281,7 @@ class AppConfigTest :
                 )
 
             config.paperLoop.enabled shouldBe true
-            config.paperLoop.strategy shouldBe PaperStrategyKind.VOLUME_FLOW_AGGRESSIVE
+            config.paperLoop.strategy shouldBe PaperStrategyKind.MULTI_HORIZON_MOMENTUM
             config.paperLoop.timeframe.name shouldBe "H1"
             config.paperLoop.candleLimit shouldBe 300
             config.paperLoop.syncLimit shouldBe 400

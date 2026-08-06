@@ -22,8 +22,10 @@ Initial public repository placeholder for a Bybit trading automation project.
 > The preceding multi-horizon momentum grid also passed the `0.2%` CDR target
 > in `0/108` candidates. Its best long-only row stayed profitable in all four
 > pre-2024 folds but reached only `0.01392%` to `0.08627%` CDR and failed one
-> fold under 2x costs. Both experiments remain research-only and are absent
-> from the Kotlin runtime and automatic execution.
+> fold under 2x costs. That `v1` profile is rejected. A corrected `v2` variant
+> now has trade-level parity between the Node researcher and Kotlin engine and
+> can run in causal paper mode, but it remains `UNVERIFIED`, is not approved for
+> automatic exchange execution, and has no profitability claim.
 
 Milestone 1 is the operational backend shell:
 
@@ -36,8 +38,10 @@ Milestone 1 is the operational backend shell:
   take-profit, breakeven stop, ATR trailing, drawdown, expectancy, no-trade
   reasons, compounding score, return-to-drawdown ratio, and estimated return
   metrics.
-- Paper evaluation endpoint that records strategy signals, paper market orders,
-  fills, positions, and performance snapshots without private Bybit order calls.
+- Causal paper engine that persists `FLAT`, `ENTRY_PENDING`, and `OPEN` state,
+  enters only at the next contiguous candle open, applies the same entry and
+  position policy as the batch backtest, and records signals, orders, fills,
+  positions, exits, and compounding performance without private Bybit calls.
 - Private Bybit V5 execution endpoint and loop for `TESTNET`/`LIVE` modes:
   market order create with TP/SL, cancel order, open-order query, position
   query, and execution query. Order-create responses are persisted as
@@ -45,9 +49,9 @@ Milestone 1 is the operational backend shell:
 - Docker deployment assets: multi-stage `Dockerfile`, `compose.yaml`, Docker
   env template, healthcheck, and Twingate-backed GitHub Actions deployment that
   uploads a Docker image tarball to the on-prem host.
-- Aggressive M5 paper loop support for the current `absa_final_us_v1` profile,
-  using stored M5 history for 60-day regime rules and syncing the latest public
-  Bybit candles on each loop.
+- M5 paper loop support for the `multi-horizon-momentum-development-v2`
+  forward candidate. The loop automatically warms missing public history,
+  evaluates closed candles only, and remains isolated from private execution.
 - Volume-flow composite backtest endpoint that replays multiple strategy legs on
   one equity curve with overlap, daily stop, trade-count controls, and monthly
   and walk-forward performance summaries. Volume-flow responses include
@@ -112,21 +116,24 @@ export BOT_SYMBOL="BTCUSDT"
 export BOT_TIMEFRAMES="M1,M5,M15"
 export BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH="$PWD/config/volume-flow-composite-current.json"
 export BOT_PAPER_LOOP_ENABLED="true"
-export BOT_PAPER_STRATEGY="volume-flow-aggressive"
+export BOT_PAPER_STRATEGY="multi-horizon-momentum"
 export BOT_PAPER_TIMEFRAME="M5"
-export BOT_PAPER_CANDLE_LIMIT="18000"
+export BOT_PAPER_CANDLE_LIMIT="12000"
 export BOT_PAPER_SYNC_LIMIT="1000"
 export BOT_PAPER_INTERVAL_SECONDS="300"
 export BOT_PAPER_INITIAL_EQUITY="1000000"
-export BOT_PAPER_RISK_FRACTION="0.055"
+export BOT_PAPER_RISK_FRACTION="0.01"
+export BOT_PAPER_FEE_RATE="0.0006"
 ./gradlew :modules:bot-app:run
 ```
 
-The default paper strategy is `volume-flow-aggressive`. Set
-`BOT_PAPER_STRATEGY=mean-reversion` only when testing the older baseline.
-Aggressive paper mode needs at least `17281` stored BTCUSDT M5 candles; sync
-about 90 days of M5 history before enabling the loop. Run
-`node scripts/bot-preflight.mjs` before on-prem deployment.
+The default paper strategy is `multi-horizon-momentum`. It is an `UNVERIFIED`
+forward candidate for shadow/paper evidence collection, not a live-approved
+strategy. Its horizon parameters are defined in M5 candles, and the loop
+fetches missing M5 history before evaluation. The rejected
+`volume-flow-aggressive` and older `mean-reversion` profiles remain selectable
+for audit comparison only. Run `node scripts/bot-preflight.mjs` before on-prem
+deployment.
 
 For Docker live execution, use `BOT_MODE=LIVE`, set `BYBIT_API_KEY` and
 `BYBIT_API_SECRET`, and enable `BOT_PRIVATE_EXECUTION_ENABLED`. Keep

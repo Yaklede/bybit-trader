@@ -59,6 +59,8 @@ import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
+import dev.yaklede.bybittrader.engine.paper.PaperRuntimeState
+import dev.yaklede.bybittrader.engine.paper.PaperRuntimeStateStore
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
@@ -777,7 +779,7 @@ class ApiModuleTest :
             }
         }
 
-        "authorized paper evaluate request records a paper fill" {
+        "authorized paper evaluate request records a pending causal signal" {
             testApplication {
                 val stateStore = InMemoryStateStore()
                 val paperStore = InMemoryPaperTradingStore()
@@ -794,8 +796,9 @@ class ApiModuleTest :
                                 stateStore = stateStore,
                                 candleStore = InMemoryMarketCandleStore(backtestCandles()),
                                 paperTradingStore = paperStore,
+                                runtimeStateStore = paperStore,
                                 strategy = AlwaysBuyApiStrategy(),
-                                clock = Clock.fixed(Instant.parse("2026-06-30T00:10:00Z"), ZoneOffset.UTC),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T10:00:00Z"), ZoneOffset.UTC),
                             ),
                         paperTradingReportStore = paperStore,
                         controlCredential = "test-control-credential",
@@ -809,8 +812,9 @@ class ApiModuleTest :
                         setBody("""{"symbol":"BTCUSDT","timeframe":"M15","candleLimit":30}""")
                     }.status shouldBe HttpStatusCode.OK
 
-                paperStore.orders.size shouldBe 1
-                paperStore.fills.size shouldBe 1
+                paperStore.signals.size shouldBe 1
+                paperStore.orders.size shouldBe 0
+                paperStore.fills.size shouldBe 0
                 client
                     .get("/signals/recent?limit=5") {
                         bearerAuth("test-control-credential")
@@ -1534,6 +1538,7 @@ private class FailingMarketDataFeed : MarketDataFeed {
 
 private class InMemoryPaperTradingStore :
     PaperTradingStore,
+    PaperRuntimeStateStore,
     ExecutionProjectionStore,
     ExecutionLifecycleStore {
     val signals = mutableListOf<PaperSignalRecord>()
@@ -1547,6 +1552,7 @@ private class InMemoryPaperTradingStore :
     val suppressedClosureAlerts = mutableSetOf<Long>()
     val deliveredClosureAlerts = mutableSetOf<Long>()
     val closureAlertAttempts = mutableMapOf<Long, Int>()
+    private val runtimeStates = mutableMapOf<Triple<String, Symbol, Timeframe>, PaperRuntimeState>()
 
     override suspend fun recordSignal(signal: PaperSignalRecord): Long {
         val id = signals.size + 1L
@@ -1604,6 +1610,16 @@ private class InMemoryPaperTradingStore :
                     filledAt = fill?.filledAt,
                 )
             }
+
+    override suspend fun paperRuntimeState(
+        strategy: String,
+        symbol: Symbol,
+        timeframe: Timeframe,
+    ): PaperRuntimeState? = runtimeStates[Triple(strategy, symbol, timeframe)]
+
+    override suspend fun upsertPaperRuntimeState(state: PaperRuntimeState) {
+        runtimeStates[Triple(state.strategy, state.symbol, state.timeframe)] = state
+    }
 
     override suspend fun recordLifecycleEvent(event: ExecutionLifecycleEvent): Long? {
         if (lifecycleRecords.any {

@@ -34,6 +34,7 @@ class PaperTradingLoopTest :
                     stateStore = LoopStateStore(),
                     candleStore = store,
                     paperTradingStore = store,
+                    runtimeStateStore = store,
                     strategy = LoopAlwaysBuyStrategy(),
                     clock = fixedLoopClock(),
                 )
@@ -58,10 +59,10 @@ class PaperTradingLoopTest :
 
             val result = loop.runOnce()
 
-            result.status shouldBe PaperEvaluationStatus.FILLED
+            result.status shouldBe PaperEvaluationStatus.ENTRY_PENDING
             store.savedCandles shouldHaveSize 30
-            store.orders shouldHaveSize 1
-            resultEvents.single().status shouldBe PaperEvaluationStatus.FILLED
+            store.orders shouldHaveSize 0
+            resultEvents.single().status shouldBe PaperEvaluationStatus.ENTRY_PENDING
         }
     })
 
@@ -91,16 +92,23 @@ private class LoopMarketDataFeed(
 
 private class LoopPaperStore :
     MarketCandleStore,
-    PaperTradingStore {
+    PaperTradingStore,
+    PaperRuntimeStateStore {
     val savedCandles = mutableListOf<Candle>()
     val signals = mutableListOf<PaperSignalRecord>()
     val orders = mutableListOf<PaperOrderRecord>()
     val fills = mutableListOf<PaperFillRecord>()
     val positions = mutableListOf<PaperPositionRecord>()
     val performanceSnapshots = mutableListOf<PaperPerformanceSnapshot>()
+    private val runtimeStates = mutableMapOf<Triple<String, Symbol, Timeframe>, PaperRuntimeState>()
 
     override suspend fun upsert(candles: List<Candle>) {
-        savedCandles += candles
+        candles.forEach { candle ->
+            savedCandles.removeAll {
+                it.symbol == candle.symbol && it.timeframe == candle.timeframe && it.openedAt == candle.openedAt
+            }
+            savedCandles += candle
+        }
     }
 
     override suspend fun recentCandles(
@@ -148,6 +156,16 @@ private class LoopPaperStore :
     override suspend fun recentSignals(limit: Int): List<PaperSignalRecord> = signals.asReversed().take(limit)
 
     override suspend fun recentTrades(limit: Int): List<PaperTradeRecord> = emptyList()
+
+    override suspend fun paperRuntimeState(
+        strategy: String,
+        symbol: Symbol,
+        timeframe: Timeframe,
+    ): PaperRuntimeState? = runtimeStates[Triple(strategy, symbol, timeframe)]
+
+    override suspend fun upsertPaperRuntimeState(state: PaperRuntimeState) {
+        runtimeStates[Triple(state.strategy, state.symbol, state.timeframe)] = state
+    }
 }
 
 private class LoopAlwaysBuyStrategy : TradingStrategy {
@@ -186,4 +204,4 @@ private fun loopCandles(): List<Candle> =
         )
     }
 
-private fun fixedLoopClock(): Clock = Clock.fixed(Instant.parse("2026-06-30T01:00:00Z"), ZoneOffset.UTC)
+private fun fixedLoopClock(): Clock = Clock.fixed(Instant.parse("2026-06-30T07:30:00Z"), ZoneOffset.UTC)

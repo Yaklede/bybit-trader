@@ -23,6 +23,11 @@ class PaperTradingLoop(
     private val logger = LoggerFactory.getLogger(PaperTradingLoop::class.java)
 
     suspend fun runOnce(): PaperEvaluationResult {
+        marketDataSyncService.ensureRecentHistory(
+            symbol = config.symbol,
+            timeframe = config.timeframe,
+            requiredCandles = paperTradingService.requiredCandleCount,
+        )
         marketDataSyncService.sync(
             symbol = config.symbol,
             timeframes = listOf(config.timeframe),

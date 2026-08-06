@@ -157,6 +157,33 @@ class MarketDataSyncServiceTest :
             feed.historyRequests shouldBe emptyList()
         }
 
+        "history sync retries rate-limited pages with exponential backoff" {
+            val feed = HistoryRateLimitThenSuccessFeed(failuresBeforeSuccess = 2)
+            val retryDelays = mutableListOf<Long>()
+            val service =
+                MarketDataSyncService(
+                    marketDataFeed = feed,
+                    candleStore = RecordingMarketCandleStore(),
+                    clock = Clock.fixed(Instant.parse("2026-06-30T00:05:00Z"), ZoneOffset.UTC),
+                    retryDelay = retryDelays::add,
+                )
+
+            val result =
+                service.syncHistory(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframes = listOf(Timeframe.M5),
+                    startAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    endAt = Instant.parse("2026-06-30T00:05:00Z"),
+                    daysBack = 1,
+                    pageLimit = 1,
+                    maxRequestsPerTimeframe = 1,
+                )
+
+            feed.attempts shouldBe 3
+            retryDelays.shouldContainExactly(250L, 500L)
+            result.totalFetchedCandles shouldBe 1
+        }
+
         "closed candle sync drops the still-open candle and records checkpoint" {
             val symbol = Symbol("BTCUSDT")
             val store = RecordingMarketCandleStore()
@@ -282,6 +309,32 @@ private class RateLimitThenSuccessFeed(
         attempts += 1
         if (attempts <= failuresBeforeSuccess) throw MarketDataException("Bybit kline request failed with code 10006 rate limit")
         return listOf(sampleCandle(symbol, timeframe, Instant.parse("2026-06-30T00:00:00Z")))
+    }
+}
+
+private class HistoryRateLimitThenSuccessFeed(
+    private val failuresBeforeSuccess: Int,
+) : MarketDataFeed {
+    var attempts = 0
+
+    override suspend fun fetchRecentCandles(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        limit: Int,
+    ): List<Candle> = emptyList()
+
+    override suspend fun fetchCandles(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int,
+    ): List<Candle> {
+        attempts += 1
+        if (attempts <= failuresBeforeSuccess) {
+            throw MarketDataException("Bybit kline request failed with code 10006 rate limit")
+        }
+        return listOf(sampleCandle(symbol, timeframe, startAt))
     }
 }
 

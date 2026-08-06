@@ -142,10 +142,11 @@ class CausalPositionPolicy(
             )
         if (config.atrTrailingMultiplier > 0.0 && trailingAtr != null) {
             require(trailingAtr >= 0.0) { "Trailing ATR must not be negative." }
+            val trailingDistance = trailingAtr * config.atrTrailingMultiplier
             val candidate =
                 when (updated.side) {
-                    Side.BUY -> updated.bestHigh - (trailingAtr * config.atrTrailingMultiplier)
-                    Side.SELL -> updated.bestLow + (trailingAtr * config.atrTrailingMultiplier)
+                    Side.BUY -> updated.bestHigh - trailingDistance
+                    Side.SELL -> updated.bestLow.plus(trailingDistance)
                 }
             updated =
                 updated.copy(
@@ -158,7 +159,7 @@ class CausalPositionPolicy(
         }
 
         val elapsedCandles = updated.processedCandles
-        updated = updated.copy(processedCandles = elapsedCandles + 1)
+        updated = updated.copy(processedCandles = elapsedCandles.inc())
         val timeExit =
             if (elapsedCandles >= config.maxHoldCandles) {
                 CausalPositionExit(

@@ -58,6 +58,15 @@ jobs:
           BOT_TIMEFRAMES: ${{ vars.BOT_TIMEFRAMES || 'M1,M5,M15' }}
           BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH: ${{ vars.BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH || '/opt/bybit-trader/config/volume-flow-composite-current.json' }}
           BOT_STRATEGY_PROFILE_STATE_PATH: ${{ vars.BOT_STRATEGY_PROFILE_STATE_PATH || '/data/strategy-profile-current.txt' }}
+          BOT_PAPER_LOOP_ENABLED: ${{ vars.BOT_PAPER_LOOP_ENABLED || 'false' }}
+          BOT_PAPER_STRATEGY: ${{ vars.BOT_PAPER_STRATEGY || 'multi-horizon-momentum' }}
+          BOT_PAPER_TIMEFRAME: ${{ vars.BOT_PAPER_TIMEFRAME || 'M5' }}
+          BOT_PAPER_CANDLE_LIMIT: ${{ vars.BOT_PAPER_CANDLE_LIMIT || '12000' }}
+          BOT_PAPER_SYNC_LIMIT: ${{ vars.BOT_PAPER_SYNC_LIMIT || '1000' }}
+          BOT_PAPER_INTERVAL_SECONDS: ${{ vars.BOT_PAPER_INTERVAL_SECONDS || '300' }}
+          BOT_PAPER_INITIAL_EQUITY: ${{ vars.BOT_PAPER_INITIAL_EQUITY || '1000000' }}
+          BOT_PAPER_RISK_FRACTION: ${{ vars.BOT_PAPER_RISK_FRACTION || '0.01' }}
+          BOT_PAPER_FEE_RATE: ${{ vars.BOT_PAPER_FEE_RATE || '0.0006' }}
           BOT_FORWARD_MARKET_CAPTURE_ENABLED: ${{ vars.BOT_FORWARD_MARKET_CAPTURE_ENABLED || 'false' }}
           BYBIT_PUBLIC_WEBSOCKET_URL: ${{ vars.BYBIT_PUBLIC_WEBSOCKET_URL }}
           BOT_FORWARD_ORDER_BOOK_DEPTH: ${{ vars.BOT_FORWARD_ORDER_BOOK_DEPTH || '50' }}
@@ -102,7 +111,11 @@ jobs:
           mkdir -p deploy-package/env
           node <<'NODE'
           const fs = require("node:fs");
-          const required = ["BOT_CONTROL_TOKEN", "BYBIT_API_KEY", "BYBIT_API_SECRET"];
+          const mode = String(process.env.BOT_MODE || "PAPER").toUpperCase();
+          const required = [
+            "BOT_CONTROL_TOKEN",
+            ...(mode === "PAPER" ? [] : ["BYBIT_API_KEY", "BYBIT_API_SECRET"]),
+          ];
           const missing = required.filter((key) => !String(process.env[key] || "").trim());
           if (missing.length > 0) {
             console.error(`Missing required runtime environment values: ${missing.join(", ")}`);
@@ -128,6 +141,15 @@ jobs:
             "BOT_TIMEFRAMES",
             "BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH",
             "BOT_STRATEGY_PROFILE_STATE_PATH",
+            "BOT_PAPER_LOOP_ENABLED",
+            "BOT_PAPER_STRATEGY",
+            "BOT_PAPER_TIMEFRAME",
+            "BOT_PAPER_CANDLE_LIMIT",
+            "BOT_PAPER_SYNC_LIMIT",
+            "BOT_PAPER_INTERVAL_SECONDS",
+            "BOT_PAPER_INITIAL_EQUITY",
+            "BOT_PAPER_RISK_FRACTION",
+            "BOT_PAPER_FEE_RATE",
             "BOT_FORWARD_MARKET_CAPTURE_ENABLED",
             "BYBIT_PUBLIC_WEBSOCKET_URL",
             "BOT_FORWARD_ORDER_BOOK_DEPTH",

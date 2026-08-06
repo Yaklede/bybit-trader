@@ -61,6 +61,10 @@ data class PaperEvaluationResponse(
     val fillPrice: String?,
     val quantity: String?,
     val fee: String?,
+    val phase: String,
+    val exitReason: String?,
+    val realizedPnl: String?,
+    val equity: String?,
 )
 
 private fun PaperEvaluationResult.toResponse(): PaperEvaluationResponse =
@@ -77,4 +81,8 @@ private fun PaperEvaluationResult.toResponse(): PaperEvaluationResponse =
         fillPrice = fillPrice?.toPlainString(),
         quantity = quantity?.toPlainString(),
         fee = fee?.toPlainString(),
+        phase = phase.name,
+        exitReason = exitReason,
+        realizedPnl = realizedPnl?.toPlainString(),
+        equity = equity?.toPlainString(),
     )

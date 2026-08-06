@@ -3,8 +3,10 @@
 ## Scope
 
 This runbook prepares the bot for Docker-based on-prem operation behind
-Twingate. `PAPER` mode runs public Bybit candles through the aggressive
-`absa_final_us_v1` strategy and records paper signals/orders/fills/positions.
+Twingate. `PAPER` mode runs closed public Bybit M5 candles through the
+`multi-horizon-momentum-development-v2` candidate and records persistent paper
+signals, pending entries, orders, fills, positions, exits, and equity. This
+candidate is `UNVERIFIED` and cannot submit private orders.
 `LIVE` and `TESTNET` modes can submit private Bybit V5 linear futures market
 orders with TP/SL, reconcile open orders/positions/executions, send alerts, and
 accept authenticated control commands.
@@ -76,6 +78,29 @@ so monitor the Docker volume and archive completed segments externally.
 When the stream or minute-bar flush fails, Discord receives `시장 흐름 수집
 점검 필요`; repeated alerts are limited to one every 15 minutes.
 
+For causal paper operation, use:
+
+```bash
+export BOT_MODE="PAPER"
+export BOT_PAPER_LOOP_ENABLED="true"
+export BOT_PAPER_STRATEGY="multi-horizon-momentum"
+export BOT_PAPER_TIMEFRAME="M5"
+export BOT_PAPER_CANDLE_LIMIT="12000"
+export BOT_PAPER_SYNC_LIMIT="1000"
+export BOT_PAPER_INTERVAL_SECONDS="300"
+export BOT_PAPER_INITIAL_EQUITY="1000000"
+export BOT_PAPER_RISK_FRACTION="0.01"
+export BOT_PAPER_FEE_RATE="0.0006"
+export BOT_PRIVATE_EXECUTION_ENABLED="false"
+export BOT_PRIVATE_EXECUTION_STREAM_ENABLED="false"
+export BOT_EXECUTION_LOOP_ENABLED="false"
+export BOT_EXECUTION_RECONCILIATION_ENABLED="false"
+```
+
+The loop automatically warms the minimum required M5 history before evaluation.
+It does not reconstruct historical paper trades on first boot; it begins with
+the latest closed candle and waits for the next contiguous candle before a fill.
+
 For private Bybit live execution, add:
 
 ```bash
@@ -143,13 +168,14 @@ docker compose --env-file .env -f compose.yaml up -d
 docker compose --env-file .env -f compose.yaml ps
 ```
 
-3. Sync enough M5 history for the aggressive 60-day regime rules:
+3. The Paper loop automatically warms required M5 history. To pre-warm it
+   manually before starting the loop, run:
 
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","timeframes":["M5"],"daysBack":90,"pageLimit":1000,"maxRequestsPerTimeframe":1000}' \
+  --data '{"symbol":"BTCUSDT","timeframes":["M5"],"daysBack":45,"pageLimit":1000,"maxRequestsPerTimeframe":1000}' \
   http://127.0.0.1:8080/market-data/history/sync
 ```
 
@@ -166,7 +192,7 @@ ONPREM_DEPLOY_DIR=/opt/bybit-trader node scripts/docker-preflight.mjs
 curl -X POST \
   -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
-  --data '{"symbol":"BTCUSDT","timeframe":"M5","candleLimit":18000}' \
+  --data '{"symbol":"BTCUSDT","timeframe":"M5","candleLimit":12000}' \
   http://127.0.0.1:8080/paper/evaluate
 ```
 
@@ -211,8 +237,10 @@ curl -X POST \
   `/execution/*`, and backtest endpoints require `BOT_CONTROL_TOKEN`.
 - `pause-all`, `resume`, and `emergency-stop` write control events and emit
   alerts when an alert sink is configured.
-- Paper loop duplicate signals are skipped when the same `ENTRY_AT_*` signal
-  key has already been accepted.
+- Paper runtime state prevents a closed candle from being evaluated twice and
+  restores pending/open positions after restart.
+- A signal is persisted as `ENTRY_PENDING` and can fill only at the next
+  contiguous M5 open. Paper exits and compounded equity are exposed by the API.
 - Private execution is blocked unless `BOT_MODE=TESTNET` or `BOT_MODE=LIVE`,
   Bybit credentials are present, and `BOT_PRIVATE_EXECUTION_ENABLED=true`.
 - The order create response is treated as submitted only. Use
@@ -230,10 +258,9 @@ curl -X POST \
   process start as the first-deploy baseline. After that baseline exists,
   restarts enqueue newly discovered downtime closures instead of suppressing
   them.
-- Aggressive replay fills at next-candle open plus slippage, while live sizing
-  and TP/SL use the closed signal candle close as the pre-fill estimate. This is
-  a documented approximation; operators should not expect post-fill TP/SL
-  replacement in this release.
+- Private execution recalculates TP/SL from reconciled actual fills and verifies
+  exchange protection. The Paper candidate is not connected to private
+  execution, so Paper evidence cannot be treated as live approval.
 
 ## Stop Condition Before Tokens
 
