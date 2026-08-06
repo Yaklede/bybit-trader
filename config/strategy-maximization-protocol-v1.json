@@ -26,10 +26,10 @@
   },
   "currentResearchProfile": {
     "profileId": "multi-horizon-momentum-development-v2",
-    "executionContract": "causal-next-contiguous-open-v2",
+    "executionContract": "causal-next-contiguous-open-v3",
     "validationStatus": "UNVERIFIED",
     "automaticExecutionAllowed": false,
-    "tradeParityEvidence": "build/multi-horizon-momentum-parity-v2/parity-report.json"
+    "tradeParityEvidence": "build/multi-horizon-momentum-parity-v3/parity-report.json"
   },
   "selectionPolicy": {
     "dailyCompoundReturnIsSearchObjective": false,
@@ -45,6 +45,7 @@
     "decisionUsesClosedCandlesOnly": true,
     "entryFill": "NEXT_CONTIGUOUS_CANDLE_OPEN_WITH_ADVERSE_SLIPPAGE",
     "sameCandleStopAndTarget": "STOP_FIRST",
+    "trailingStopBeyondClosedPrice": "EXIT_AT_OBSERVABLE_CLOSE",
     "missingEntryCandle": "NO_TRADE",
     "feesAndSlippageAppliedToBothSides": true,
     "runtimeAndBacktestContractMustMatch": true

@@ -2965,6 +2965,9 @@ function simulateTrailingExit(candidate, setup, endIndex) {
         const nextTrailingStop = Math.max(trailingStop, bestHigh - atr * candidate.trailAtr);
         trailingMoved ||= nextTrailingStop > trailingStop;
         trailingStop = nextTrailingStop;
+        if (trailingStop >= candle.close) {
+          return { exitIndex: index, exitPrice: candle.close, reason: "TRAILING_STOP" };
+        }
       }
     } else {
       if (candle.high >= trailingStop) {
@@ -2976,6 +2979,9 @@ function simulateTrailingExit(candidate, setup, endIndex) {
         const nextTrailingStop = Math.min(trailingStop, bestLow + atr * candidate.trailAtr);
         trailingMoved ||= nextTrailingStop < trailingStop;
         trailingStop = nextTrailingStop;
+        if (trailingStop <= candle.close) {
+          return { exitIndex: index, exitPrice: candle.close, reason: "TRAILING_STOP" };
+        }
       }
     }
   }

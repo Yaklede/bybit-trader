@@ -26,7 +26,8 @@ Paper와 batch backtest는 다음 공통 컴포넌트를 사용한다.
 - `CausalEntryPlanner`: 현재 복리 잔고 기준 위험 금액, 다음 시가 진입,
   구조적/ATR 손절, 최소·최대 위험 거리, UTC 일 진입 제한
 - `CausalPositionPolicy`: 동일 봉 손절 우선, 부분 익절, 본전 손절,
-  이전 정보로 계산한 ATR trailing, 고정 목표, 최대 보유 봉 종료
+  이전 정보로 계산한 ATR trailing, 고정 목표, 최대 보유 봉 종료. 새 trailing
+  stop이 닫힌 봉의 종가를 넘으면 다음 봉까지 미루지 않고 관측 종가로 종료한다.
 
 현재 후보 기본 계약은 거래당 잔고의 1%, 진입·종료 각각 0.02% 슬리피지,
 각 체결 0.06% 수수료, UTC 하루 최대 1건, 고정 목표와 부분 익절 비활성화,
@@ -47,6 +48,21 @@ FLAT -> ENTRY_PENDING -> OPEN -> FLAT
 - 루프는 평가 전에 부족한 공개 M5 이력을 자동으로 채운다. 과거 데이터 페이지가
   Bybit `10006` rate limit을 받으면 최대 5회 지수 backoff 후 fail-closed한다.
 
+### 거래소 포지션 관리 경로
+
+- 거래소 주문 응답 가격이 아니라 reconciliation에서 확인한 실제 체결 시각,
+  포지션 평균 진입가와 실제 수량으로 `CausalPositionPolicy` 상태를 초기화한다.
+- 현재 stop과 마지막 처리 봉을 SQLite에 저장해 재시작 후에도 trailing을 초기
+  stop으로 되돌리지 않는다.
+- 새로 닫힌 연속 봉이 정확히 1개일 때만 정책을 전진시킨다. 두 개 이상을 놓친
+  상태에서는 과거에 알 수 없었던 trailing 보호를 소급 적용하지 않고 reduce-only
+  종료를 제출한다.
+- trailing stop 변경은 Bybit에 제출한 뒤 포지션을 다시 조회해 TP/SL이 일치할
+  때만 런타임 checkpoint를 저장한다.
+- 정책 종료, 상태 불일치, candle gap, 보호 주문 검증 실패는 모두 reduce-only
+  종료로 fail-closed한다. 제출된 종료 주문은 유예 시간 동안 확인하고, 확인되지
+  않으면 다시 reduce-only 종료를 제출한다.
+
 ## 기록과 API
 
 신호, 주문, 체결, 포지션 스냅샷, 성과 스냅샷과 런타임 상태를 기록한다.
@@ -66,7 +82,7 @@ FLAT -> ENTRY_PENDING -> OPEN -> FLAT
 - 신호 봉 중복 평가, 정지 모드, 다음 봉 체결, 손절 종료, 재시작 상태 복원을
   회귀 테스트로 고정한다.
 - 실데이터 Node/Kotlin 패리티는
-  [multi-horizon-momentum-execution-parity-v2-2026-08-06.md](multi-horizon-momentum-execution-parity-v2-2026-08-06.md)를 따른다.
+  [multi-horizon-momentum-execution-parity-v3-2026-08-06.md](multi-horizon-momentum-execution-parity-v3-2026-08-06.md)를 따른다.
 
 ## 남은 제한
 
@@ -74,7 +90,10 @@ FLAT -> ENTRY_PENDING -> OPEN -> FLAT
   묶이지 않았다. 쓰기 중 프로세스가 종료되면 다음 부팅에서 대사가 필요하다.
 - Paper의 OHLC 경로는 봉 내부의 실제 체결 순서를 알 수 없다. TP와 SL이 같은
   봉에서 모두 닿으면 보수적으로 손절을 우선한다.
-- 이 단계는 Paper/backtest 정합성만 다룬다. Bybit 실제 부분 체결, 지연,
-  주문 거절과 보호 주문 상태 머신의 완전한 공통화는 다음 단계다.
+- 초기 진입, 고정 stop/target, 닫힌 봉 trailing, 시간 종료와 재시작 checkpoint는
+  공통 인과 정책을 사용한다. Bybit 부분 체결별 보호 수량 조정과 부분 익절 실행은
+  아직 지원하지 않으며, 해당 정책은 서비스 시작 시 거부한다.
+- 거래소 REST 조회 지연과 주문 거절은 fail-closed하지만 실제 event timestamp와
+  receive timestamp를 반영한 지연 분포는 아직 수익성 시뮬레이터에 포함되지 않았다.
 - 현재 후보의 외부·봉인 수익성 게이트는 통과하지 않았다. 따라서 LIVE 자동
   실행 연결, 위험 한도 확대, 수익률 표시는 금지한다.

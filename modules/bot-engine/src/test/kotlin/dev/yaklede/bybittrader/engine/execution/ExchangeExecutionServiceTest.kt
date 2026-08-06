@@ -23,6 +23,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperPositionRecord
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
+import dev.yaklede.bybittrader.engine.position.CausalPositionState
 import dev.yaklede.bybittrader.strategy.StrategyDecision
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import io.kotest.assertions.throwables.shouldThrow
@@ -393,7 +394,18 @@ class ExchangeExecutionServiceTest :
                             ),
                         ),
                 )
-            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy =
+                        AutomaticPositionPolicy(
+                            timeframe = Timeframe.M5,
+                            maxHoldCandles = 36,
+                            maxTradesPerUtcDay = 1,
+                        ),
+                )
 
             service.reconcile(Symbol("BTCUSDT")).persistedClosures shouldBe emptyList()
             store.closedTrades(null, null, 10, null) shouldBe emptyList()
@@ -841,7 +853,6 @@ class ExchangeExecutionServiceTest :
                     reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
                 ),
             )
-
             val result =
                 testService(
                     store = store,
@@ -918,7 +929,18 @@ class ExchangeExecutionServiceTest :
                             ),
                         ),
                 )
-            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy =
+                        AutomaticPositionPolicy(
+                            timeframe = Timeframe.M5,
+                            maxHoldCandles = 36,
+                            maxTradesPerUtcDay = 1,
+                        ),
+                )
 
             val report = service.persistExchangeState(symbol)
 
@@ -927,6 +949,145 @@ class ExchangeExecutionServiceTest :
             report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
             report.lifecycleEvent?.fillVwap shouldBe BigDecimal("106")
             report.lifecycleEvent?.reasonCode shouldBe "ACTUAL_FILL_PROTECTION_VERIFIED"
+            val runtime = store.executionPositionRuntimeState(ExecutionRuntimeMode.TESTNET, symbol)
+            runtime?.lifecycleId shouldBe "client-entry-1"
+            runtime?.policyState?.entryPrice shouldBe 106.0
+            runtime?.policyState?.currentStopPrice shouldBe 100.0
+            runtime?.policyState?.fullTargetPrice shouldBe 115.0
+        }
+
+        "automatic position applies one newly closed candle and verifies its trailing stop" {
+            val symbol = Symbol("BTCUSDT")
+            val entryAt = Instant.parse("2024-06-29T23:54:30Z")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(occurredAt = entryAt).copy(
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("100"),
+                    structuralStopPrice = BigDecimal("90"),
+                    expectedR = BigDecimal("2"),
+                    protectionDeadlineAt = Instant.parse("2024-06-29T23:56:30Z"),
+                    fixedTargetEnabled = false,
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal.ONE,
+                                openedAt = entryAt,
+                                entryPrice = BigDecimal("100"),
+                                markPrice = BigDecimal("109"),
+                                unrealizedPnl = BigDecimal("9"),
+                                updatedAt = entryAt,
+                                takeProfit = null,
+                                stopLoss = BigDecimal("90"),
+                            ),
+                        ),
+                    executions =
+                        listOf(
+                            ExchangeExecutionFill(
+                                exchangeOrderId = "exchange-entry-1",
+                                clientOrderId = "client-entry-1",
+                                symbol = symbol,
+                                side = Side.BUY,
+                                price = BigDecimal("100"),
+                                quantity = BigDecimal.ONE,
+                                fee = BigDecimal("0.06"),
+                                executedAt = entryAt,
+                                executionId = "entry-fill-1",
+                            ),
+                        ),
+                )
+            val service =
+                testService(
+                    candleStore = ListCandleStore(causalPositionCandles(symbol)),
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy =
+                        AutomaticPositionPolicy(
+                            timeframe = Timeframe.M5,
+                            maxHoldCandles = 36,
+                            maxTradesPerUtcDay = 1,
+                            atrTrailingPeriod = 2,
+                            atrTrailingMultiplier = 1.0,
+                            fixedTargetEnabled = false,
+                        ),
+                )
+
+            service.persistExchangeState(symbol)
+            val result = service.evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldContainExactly listOf("POSITION_POLICY_CLOSED_CANDLE_APPLIED")
+            gateway.protectionRequests.single().stopLoss shouldBe BigDecimal("108.0")
+            val runtime = store.executionPositionRuntimeState(ExecutionRuntimeMode.TESTNET, symbol)
+            runtime?.lastProcessedCandleAt shouldBe Instant.parse("2024-06-29T23:55:00Z")
+            runtime?.policyState?.currentStopPrice shouldBe 108.0
+            store.lifecycleRecords.last().stopLoss shouldBe BigDecimal("108.0")
+
+            service.persistExchangeState(symbol)
+            gateway.protectionRequests.size shouldBe 1
+            store
+                .executionPositionRuntimeState(ExecutionRuntimeMode.TESTNET, symbol)
+                ?.policyState
+                ?.currentStopPrice shouldBe 108.0
+        }
+
+        "automatic position fails closed when more than one causal candle was missed" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(testLifecycleEvent(state = ExecutionLifecycleState.OPEN_PROTECTED))
+            store.upsertExecutionPositionRuntimeState(testExecutionPositionRuntimeState())
+            val gateway = RecordingExecutionGateway(positions = listOf(testManagedPosition(symbol)))
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy = testAutomaticPositionPolicy(),
+                )
+
+            val result = service.evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.EXIT_SUBMITTED
+            result.reasonCodes shouldContainExactly listOf("POSITION_POLICY_CANDLE_GAP")
+            gateway.placedOrders.single().reduceOnly shouldBe true
+            gateway.placedOrders.single().side shouldBe Side.SELL
+            gateway.placedOrders.single().quantity shouldBe BigDecimal.ONE
+        }
+
+        "automatic position retries a reduce-only exit after confirmation timeout" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(
+                    state = ExecutionLifecycleState.EXIT_SUBMITTED,
+                    occurredAt = Instant.parse("2024-06-29T23:55:00Z"),
+                ).copy(
+                    exchangeOrderId = "exchange-exit-1",
+                    clientOrderId = "policy-BTCUSDT-exit-1",
+                ),
+            )
+            store.upsertExecutionPositionRuntimeState(testExecutionPositionRuntimeState())
+            val gateway = RecordingExecutionGateway(positions = listOf(testManagedPosition(symbol)))
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy = testAutomaticPositionPolicy(),
+                )
+
+            val result = service.evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.EXIT_SUBMITTED
+            result.reasonCodes shouldContainExactly listOf("POSITION_EXIT_CONFIRMATION_TIMEOUT")
+            gateway.placedOrders.single().reduceOnly shouldBe true
         }
 
         "exchange reconciliation closes a position whose actual-fill risk exceeds its budget" {
@@ -1135,6 +1296,44 @@ class ExchangeExecutionServiceTest :
             store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)?.state shouldBe ExecutionLifecycleState.EXIT_SUBMITTED
         }
 
+        "exchange reconciliation allows an acknowledged exit time to appear before flagging an error" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(
+                    state = ExecutionLifecycleState.EXIT_SUBMITTED,
+                    occurredAt = Instant.parse("2024-06-29T23:59:30Z"),
+                ).copy(
+                    exchangeOrderId = "exchange-exit-1",
+                    clientOrderId = "policy-BTCUSDT-exit-1",
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal.ONE,
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("100"),
+                                markPrice = BigDecimal("105"),
+                                unrealizedPnl = BigDecimal("5"),
+                                updatedAt = Instant.parse("2024-06-29T23:59:30Z"),
+                                takeProfit = BigDecimal("112.5"),
+                                stopLoss = BigDecimal("90"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            report.lifecycleEvent shouldBe null
+            store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)?.state shouldBe ExecutionLifecycleState.EXIT_SUBMITTED
+        }
+
         "exchange reconciliation records partial entry fills without claiming an open position" {
             val symbol = Symbol("BTCUSDT")
             val store = InMemoryTradingStore()
@@ -1321,6 +1520,7 @@ class ExchangeExecutionServiceTest :
                     occurredAt = Instant.parse("2024-06-29T23:20:00Z"),
                 ),
             )
+            store.upsertExecutionPositionRuntimeState(testExecutionPositionRuntimeState())
             val gateway =
                 RecordingExecutionGateway(
                     closedPnls =
@@ -1340,6 +1540,7 @@ class ExchangeExecutionServiceTest :
             latest?.reasonCode shouldBe "TAKE_PROFIT"
             latest?.exchangeOrderId shouldBe "exchange-exit-1"
             latest?.fillVwap shouldBe BigDecimal("105")
+            store.executionPositionRuntimeState(ExecutionRuntimeMode.TESTNET, symbol) shouldBe null
         }
 
         "exchange reconciliation classifies the close from Bybit execution metadata" {
@@ -1523,12 +1724,14 @@ private class FailingSyncMarketDataFeed : MarketDataFeed {
 private class InMemoryTradingStore :
     PaperTradingStore,
     ExecutionProjectionStore,
-    ExecutionLifecycleStore {
+    ExecutionLifecycleStore,
+    ExecutionPositionRuntimeStateStore {
     val signals = mutableListOf<PaperSignalRecord>()
     val orders = mutableListOf<PaperOrderRecord>()
     val closures = mutableListOf<ExecutionTradeClosure>()
     val fillEvents = mutableListOf<ExecutionFillEvent>()
     val lifecycleRecords = mutableListOf<ExecutionLifecycleEvent>()
+    val positionRuntimeStates = mutableMapOf<Pair<ExecutionRuntimeMode, Symbol>, ExecutionPositionRuntimeState>()
     val performance = mutableListOf<LivePerformanceSnapshot>()
     val accountSnapshots = mutableListOf<ExecutionAccountSnapshot>()
     val suppressedAt = mutableMapOf<Long, Instant>()
@@ -1625,6 +1828,22 @@ private class InMemoryTradingStore :
                 (mode == null || event.mode == mode) && (symbol == null || event.symbol == symbol)
             }.sortedByDescending(ExecutionLifecycleEvent::id)
             .take(limit)
+
+    override suspend fun executionPositionRuntimeState(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): ExecutionPositionRuntimeState? = positionRuntimeStates[mode to symbol]
+
+    override suspend fun upsertExecutionPositionRuntimeState(state: ExecutionPositionRuntimeState) {
+        positionRuntimeStates[state.mode to state.symbol] = state
+    }
+
+    override suspend fun deleteExecutionPositionRuntimeState(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ) {
+        positionRuntimeStates.remove(mode to symbol)
+    }
 
     override suspend fun recordTradeClosure(
         closure: ExecutionTradeClosure,
@@ -1905,6 +2124,26 @@ private fun executionCandle(
         volume = BigDecimal("100"),
     )
 
+private fun causalPositionCandles(symbol: Symbol): List<Candle> =
+    listOf(
+        "2024-06-29T23:40:00Z",
+        "2024-06-29T23:45:00Z",
+        "2024-06-29T23:50:00Z",
+        "2024-06-29T23:55:00Z",
+    ).mapIndexed { index, openedAt ->
+        val isLast = index == 3
+        Candle(
+            symbol = symbol,
+            timeframe = Timeframe.M5,
+            openedAt = Instant.parse(openedAt),
+            open = BigDecimal("100"),
+            high = if (isLast) BigDecimal("110") else BigDecimal("102"),
+            low = if (isLast) BigDecimal("99") else BigDecimal("100"),
+            close = if (isLast) BigDecimal("109") else BigDecimal("101"),
+            volume = BigDecimal("100"),
+        )
+    }
+
 private fun testClosedPnl(
     exchangeOrderId: String,
     closedAt: Instant = Instant.parse("2024-06-29T23:30:00Z"),
@@ -1945,6 +2184,57 @@ private fun testLifecycleEvent(
         clientOrderId = "client-entry-1",
         reasonCode = "TEST_LIFECYCLE",
         occurredAt = occurredAt,
+    )
+
+private fun testExecutionPositionRuntimeState(): ExecutionPositionRuntimeState =
+    ExecutionPositionRuntimeState(
+        mode = ExecutionRuntimeMode.TESTNET,
+        lifecycleId = "client-entry-1",
+        symbol = Symbol("BTCUSDT"),
+        timeframe = Timeframe.M5,
+        lastProcessedCandleAt = Instant.parse("2024-06-29T23:15:00Z"),
+        policyState =
+            CausalPositionState(
+                side = Side.BUY,
+                entryAt = Instant.parse("2024-06-29T23:00:00Z"),
+                entryPrice = 100.0,
+                initialStopPrice = 90.0,
+                currentStopPrice = 95.0,
+                riskPerUnit = 10.0,
+                expectedR = 2.0,
+                initialQuantity = 1.0,
+                remainingQuantity = 1.0,
+                fullTargetPrice = null,
+                partialTargetPrice = 110.0,
+                bestHigh = 105.0,
+                bestLow = 99.0,
+                processedCandles = 3,
+            ),
+        updatedAt = Instant.parse("2024-06-29T23:20:00Z"),
+    )
+
+private fun testManagedPosition(symbol: Symbol): ExchangePosition =
+    ExchangePosition(
+        symbol = symbol,
+        side = Side.BUY,
+        size = BigDecimal.ONE,
+        openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+        entryPrice = BigDecimal("100"),
+        markPrice = BigDecimal("105"),
+        unrealizedPnl = BigDecimal("5"),
+        updatedAt = Instant.parse("2024-06-29T23:55:00Z"),
+        takeProfit = null,
+        stopLoss = BigDecimal("95"),
+    )
+
+private fun testAutomaticPositionPolicy(): AutomaticPositionPolicy =
+    AutomaticPositionPolicy(
+        timeframe = Timeframe.M5,
+        maxHoldCandles = 36,
+        maxTradesPerUtcDay = 1,
+        atrTrailingPeriod = 2,
+        atrTrailingMultiplier = 1.0,
+        fixedTargetEnabled = false,
     )
 
 private fun testOrderUpdate(

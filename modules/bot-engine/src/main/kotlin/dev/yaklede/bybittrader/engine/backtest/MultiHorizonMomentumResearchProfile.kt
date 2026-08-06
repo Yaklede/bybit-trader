@@ -4,7 +4,7 @@ import dev.yaklede.bybittrader.strategy.MultiHorizonMomentumParameters
 import dev.yaklede.bybittrader.strategy.MultiHorizonMomentumStrategy
 
 const val MULTI_HORIZON_MOMENTUM_PROFILE_ID = "multi-horizon-momentum-development-v2"
-const val MULTI_HORIZON_MOMENTUM_EXECUTION_CONTRACT = "causal-next-contiguous-open-v2"
+const val MULTI_HORIZON_MOMENTUM_EXECUTION_CONTRACT = "causal-next-contiguous-open-v3"
 
 /** The research profile is intentionally not wired into live execution. */
 data class MultiHorizonMomentumResearchProfile(

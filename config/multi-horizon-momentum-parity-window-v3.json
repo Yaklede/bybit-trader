@@ -1,0 +1,9 @@
+[
+  {
+    "id": "P01",
+    "durationMonths": 1,
+    "replayStartAt": "2020-05-30T00:00:00Z",
+    "replayEndAt": "2020-06-20T00:00:00Z",
+    "historyStartAt": "2020-04-30T00:00:00Z"
+  }
+]

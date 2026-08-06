@@ -148,14 +148,32 @@ class CausalPositionPolicy(
                     Side.BUY -> updated.bestHigh - trailingDistance
                     Side.SELL -> updated.bestLow.plus(trailingDistance)
                 }
-            updated =
-                updated.copy(
-                    currentStopPrice =
-                        when (updated.side) {
-                            Side.BUY -> maxOf(updated.currentStopPrice, candidate)
-                            Side.SELL -> minOf(updated.currentStopPrice, candidate)
-                        },
+            val nextStop =
+                when (updated.side) {
+                    Side.BUY -> maxOf(updated.currentStopPrice, candidate)
+                    Side.SELL -> minOf(updated.currentStopPrice, candidate)
+                }
+            updated = updated.copy(currentStopPrice = nextStop)
+            val close = candle.close.toDouble()
+            val trailingStopReachedAtClose =
+                when (updated.side) {
+                    Side.BUY -> nextStop >= close
+                    Side.SELL -> nextStop <= close
+                }
+            if (trailingStopReachedAtClose) {
+                updated = updated.copy(processedCandles = updated.processedCandles.inc())
+                return CausalPositionStep(
+                    state = updated,
+                    partialExit = partialFill,
+                    exit =
+                        CausalPositionExit(
+                            exitedAt = candle.openedAt,
+                            triggerPrice = close,
+                            reason = CausalPositionExitReason.TRAILING_STOP,
+                            remainingQuantity = updated.remainingQuantity,
+                        ),
                 )
+            }
         }
 
         val elapsedCandles = updated.processedCandles

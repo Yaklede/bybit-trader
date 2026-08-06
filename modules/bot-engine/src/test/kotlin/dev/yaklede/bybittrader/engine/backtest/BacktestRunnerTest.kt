@@ -273,8 +273,8 @@ private fun trailingCandles(): List<Candle> =
         candleAt(0, 100.0, 101.0, 99.0, 100.0),
         candleAt(1, 100.0, 101.0, 99.0, 100.0),
         candleAt(2, 100.0, 101.0, 99.0, 100.0),
-        candleAt(3, 100.0, 120.0, 95.0, 118.0),
-        candleAt(4, 118.0, 119.0, 117.0, 118.0),
+        candleAt(3, 100.0, 120.0, 95.0, 119.0),
+        candleAt(4, 119.0, 119.0, 117.0, 118.0),
     )
 
 private fun candleAt(

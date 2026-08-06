@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.execution
 
 import dev.yaklede.bybittrader.domain.BotMode
+import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.ResearchCandleLimits
@@ -35,6 +36,7 @@ class ExchangeExecutionService(
     private val config: ExchangeExecutionConfig = ExchangeExecutionConfig(),
     private val projectionStore: ExecutionProjectionStore? = tradingStore as? ExecutionProjectionStore,
     private val lifecycleStore: ExecutionLifecycleStore? = tradingStore as? ExecutionLifecycleStore,
+    private val positionRuntimeStore: ExecutionPositionRuntimeStateStore? = tradingStore as? ExecutionPositionRuntimeStateStore,
     private val runtimeMode: ExecutionRuntimeMode = ExecutionRuntimeMode.TESTNET,
     private val positionPolicy: AutomaticPositionPolicy? = null,
     private val clock: Clock = Clock.systemUTC(),
@@ -43,6 +45,8 @@ class ExchangeExecutionService(
     private val sessionStartedAt = Instant.now(clock)
     private val evaluationMutex = Mutex()
     private val lifecycleMutex = Mutex()
+    private val automaticPositionPolicyEngine =
+        positionPolicy?.let { policy -> AutomaticPositionPolicyEngine(policy, config.feeRate, config.priceTick) }
 
     suspend fun evaluateAndSubmit(
         symbol: Symbol,
@@ -102,6 +106,16 @@ class ExchangeExecutionService(
             } else {
                 null
             }
+        val activeManagedPosition = managedPositions?.firstOrNull { position -> position.size > BigDecimal.ZERO }
+        if (activeManagedPosition != null && activePositionPolicy != null) {
+            manageAutomaticPosition(
+                position = activeManagedPosition,
+                timeframe = timeframe,
+                candleLimit = candleLimit,
+                mode = mode,
+                evaluatedAt = now,
+            )?.let { return it }
+        }
         val expiredPosition =
             managedPositions
                 ?.firstOrNull { position ->
@@ -760,18 +774,21 @@ class ExchangeExecutionService(
                         .maxByOrNull(ExchangeClosedPnl::closedAt)
                 }
         if (latest != null && observedClosure != null) {
-            return recordObservedLifecycle(
-                latest.copy(
-                    id = 0,
-                    state = ExecutionLifecycleState.CLOSED,
-                    filledQuantity = observedClosure.quantity,
-                    fillVwap = observedClosure.exitPrice,
-                    exchangeOrderId = observedClosure.exchangeOrderId,
-                    clientOrderId = observedClosure.clientOrderId,
-                    reasonCode = observedClosure.exitReason ?: "UNKNOWN",
-                    occurredAt = observedClosure.closedAt,
-                ),
-            )
+            val recorded =
+                recordObservedLifecycle(
+                    latest.copy(
+                        id = 0,
+                        state = ExecutionLifecycleState.CLOSED,
+                        filledQuantity = observedClosure.quantity,
+                        fillVwap = observedClosure.exitPrice,
+                        exchangeOrderId = observedClosure.exchangeOrderId,
+                        clientOrderId = observedClosure.clientOrderId,
+                        reasonCode = observedClosure.exitReason ?: "UNKNOWN",
+                        occurredAt = observedClosure.closedAt,
+                    ),
+                )
+            positionRuntimeStore?.deleteExecutionPositionRuntimeState(runtimeMode, report.symbol)
+            return recorded
         }
         val relatedOpenOrder =
             latest?.let { event ->
@@ -792,7 +809,11 @@ class ExchangeExecutionService(
                     ?: recoveredLifecycleEvent(activePosition, report.reconciledAt)
             return observeActivePositionProtection(report, activePosition, base)
         }
-        if (latest == null || latest.state == ExecutionLifecycleState.CLOSED) return null
+        if (latest == null) return null
+        if (latest.state == ExecutionLifecycleState.CLOSED) {
+            positionRuntimeStore?.deleteExecutionPositionRuntimeState(runtimeMode, report.symbol)
+            return null
+        }
         if (latest.state.isUnfilledTerminalEntry()) {
             return null
         }
@@ -849,6 +870,7 @@ class ExchangeExecutionService(
         base: ExecutionLifecycleEvent,
     ): ExecutionLifecycleEvent? {
         if (base.state == ExecutionLifecycleState.EXIT_SUBMITTED) {
+            if (report.reconciledAt.isBefore(base.occurredAt.plus(config.protectionGracePeriod))) return null
             return recordObservedLifecycle(
                 base.copy(
                     id = 0,
@@ -863,8 +885,19 @@ class ExchangeExecutionService(
             )
         }
 
-        val desiredProtection = base.desiredProtection(activePosition)
-        val actualRisk = desiredProtection?.let { plan -> actualPositionRisk(activePosition, plan) }
+        val managedRuntime =
+            positionRuntimeStore
+                ?.executionPositionRuntimeState(runtimeMode, activePosition.symbol)
+                ?.takeIf { runtime ->
+                    runtime.lifecycleId == base.lifecycleId && runtime.policyState.side == activePosition.side
+                }
+        val desiredProtection = managedRuntime?.toProtectionPlan() ?: base.desiredProtection(activePosition)
+        val actualRisk =
+            if (managedRuntime == null) {
+                desiredProtection?.let { plan -> actualPositionRisk(activePosition, plan) }
+            } else {
+                null
+            }
         val maximumActualRisk =
             base.intendedRisk?.multiply(
                 BigDecimal.ONE.add(config.maximumActualRiskOverrunFraction),
@@ -945,6 +978,17 @@ class ExchangeExecutionService(
                 occurredAt = observedPosition.updatedAt ?: report.reconciledAt,
             )
         val recordedObservation = recordObservedLifecycle(observation)
+        if (protected && base.protectionRequired) {
+            when (initializeAutomaticPositionRuntime(report, observedPosition, base, requireNotNull(desiredProtection))) {
+                PositionRuntimeInitialization.FAILED ->
+                    return failClosedPositionPolicyState(report, observedPosition, observation) ?: recordedObservation
+
+                PositionRuntimeInitialization.PENDING,
+                PositionRuntimeInitialization.READY,
+                PositionRuntimeInitialization.NOT_REQUIRED,
+                -> Unit
+            }
+        }
         val deadline = base.protectionDeadlineAt
         if (
             protected ||
@@ -957,6 +1001,93 @@ class ExchangeExecutionService(
 
         return failClosedUnprotectedPosition(report, observedPosition, observation) ?: recordedObservation
     }
+
+    private suspend fun initializeAutomaticPositionRuntime(
+        report: ExchangeReconciliationReport,
+        position: ExchangePosition,
+        lifecycle: ExecutionLifecycleEvent,
+        protection: ExecutionProtectionPlan,
+    ): PositionRuntimeInitialization {
+        val engine = automaticPositionPolicyEngine ?: return PositionRuntimeInitialization.NOT_REQUIRED
+        val store = positionRuntimeStore ?: return PositionRuntimeInitialization.FAILED
+        val existing = store.executionPositionRuntimeState(runtimeMode, position.symbol)
+        if (existing?.lifecycleId == lifecycle.lifecycleId) return PositionRuntimeInitialization.READY
+        if (report.openOrders.any { order -> order.status.isActive() && order.matches(lifecycle) }) {
+            return PositionRuntimeInitialization.PENDING
+        }
+        val entryAt =
+            report.executions
+                .filter { fill -> fill.matches(lifecycle) && fill.side == position.side }
+                .minOfOrNull(ExchangeExecutionFill::executedAt)
+                ?: position.openedAt
+                ?: return PositionRuntimeInitialization.FAILED
+        return try {
+            val runtime =
+                engine.open(
+                    lifecycle = lifecycle,
+                    position = position,
+                    entryAt = entryAt,
+                    protection = protection,
+                    updatedAt = report.reconciledAt,
+                )
+            store.upsertExecutionPositionRuntimeState(runtime)
+            logger.info(
+                "execution causal position state initialized symbol={} lifecycleId={} entryAt={} entryPrice={} qty={}",
+                position.symbol.value,
+                lifecycle.lifecycleId,
+                entryAt,
+                position.entryPrice,
+                position.size.toPlainString(),
+            )
+            PositionRuntimeInitialization.READY
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.error(
+                "execution causal position state initialization failed symbol={} lifecycleId={} message={}",
+                position.symbol.value,
+                lifecycle.lifecycleId,
+                error.message,
+                error,
+            )
+            PositionRuntimeInitialization.FAILED
+        }
+    }
+
+    private suspend fun failClosedPositionPolicyState(
+        report: ExchangeReconciliationReport,
+        position: ExchangePosition,
+        lifecycle: ExecutionLifecycleEvent,
+    ): ExecutionLifecycleEvent? =
+        try {
+            submitManualOrder(
+                symbol = position.symbol,
+                side = position.side.opposite(),
+                quantity = position.size,
+                reduceOnly = true,
+                strategyName = "automatic-position-policy-fail-closed",
+                reasonCode = "POSITION_POLICY_STATE_UNAVAILABLE",
+                clientOrderPrefix = "policy",
+            )
+            lifecycleStore?.latestLifecycleEvent(runtimeMode, position.symbol)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.error(
+                "execution causal position state fail-closed exit failed symbol={} lifecycleId={}",
+                position.symbol.value,
+                lifecycle.lifecycleId,
+                error,
+            )
+            recordObservedLifecycle(
+                lifecycle.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.ERROR,
+                    reasonCode = "POSITION_POLICY_STATE_EXIT_FAILED",
+                    occurredAt = report.reconciledAt,
+                ),
+            )
+        }
 
     private fun actualPositionRisk(
         position: ExchangePosition,
@@ -1097,6 +1228,13 @@ class ExchangeExecutionService(
             fixedTargetEnabled = fixedTargetEnabled,
         )
     }
+
+    private fun ExecutionPositionRuntimeState.toProtectionPlan(): ExecutionProtectionPlan =
+        ExecutionProtectionPlan(
+            takeProfit = policyState.fullTargetPrice?.let(BigDecimal::valueOf),
+            stopLoss = BigDecimal.valueOf(policyState.currentStopPrice),
+            riskPerUnit = BigDecimal.valueOf(policyState.riskPerUnit),
+        )
 
     private fun ExchangePosition.matches(
         desired: ExecutionProtectionPlan,
@@ -1402,6 +1540,270 @@ class ExchangeExecutionService(
             strategyName = "manual-close-position",
             reasonCode = "MANUAL_CLOSE_POSITION",
             clientOrderPrefix = "close",
+        )
+
+    private suspend fun manageAutomaticPosition(
+        position: ExchangePosition,
+        timeframe: Timeframe,
+        candleLimit: Int,
+        mode: BotMode,
+        evaluatedAt: Instant,
+    ): ExchangeEvaluationResult? {
+        val runtimeStore = positionRuntimeStore ?: return null
+        val engine = automaticPositionPolicyEngine ?: return null
+        val runtime = runtimeStore.executionPositionRuntimeState(runtimeMode, position.symbol) ?: return null
+        val lifecycle = lifecycleStore?.latestLifecycleEvent(runtimeMode, position.symbol)
+        if (
+            lifecycle == null ||
+            lifecycle.lifecycleId != runtime.lifecycleId ||
+            lifecycle.state !in
+            setOf(
+                ExecutionLifecycleState.OPEN_UNPROTECTED,
+                ExecutionLifecycleState.OPEN_PROTECTED,
+                ExecutionLifecycleState.EXIT_SUBMITTED,
+            ) ||
+            runtime.timeframe != timeframe ||
+            runtime.policyState.side != position.side ||
+            !position.size.matchesQuantity(runtime.policyState.remainingQuantity, config.quantityStep) ||
+            !position.entryPrice.isNear(BigDecimal.valueOf(runtime.policyState.entryPrice), config.priceTick)
+        ) {
+            return submitPolicyFailureExit(
+                position = position,
+                timeframe = timeframe,
+                mode = mode,
+                evaluatedAt = evaluatedAt,
+                reasonCode = "POSITION_POLICY_STATE_MISMATCH",
+            )
+        }
+        if (lifecycle.state == ExecutionLifecycleState.EXIT_SUBMITTED) {
+            val activeExit =
+                gateway
+                    .openOrders(position.symbol)
+                    .firstOrNull { order ->
+                        order.status.isActive() && order.matches(lifecycle)
+                    }
+            if (activeExit == null && !evaluatedAt.isBefore(lifecycle.occurredAt.plus(config.protectionGracePeriod))) {
+                return submitPolicyFailureExit(
+                    position,
+                    timeframe,
+                    mode,
+                    evaluatedAt,
+                    "POSITION_EXIT_CONFIRMATION_TIMEOUT",
+                )
+            }
+            return positionPolicyResult(
+                position = position,
+                timeframe = timeframe,
+                mode = mode,
+                evaluatedAt = evaluatedAt,
+                status = ExchangeEvaluationStatus.NO_TRADE,
+                reasonCode = "POSITION_EXIT_CONFIRMATION_PENDING",
+                exchangeOrderId = activeExit?.exchangeOrderId ?: lifecycle.exchangeOrderId,
+                clientOrderId = activeExit?.clientOrderId ?: lifecycle.clientOrderId,
+            )
+        }
+
+        val closedBefore = closedCandleBoundary(evaluatedAt, timeframe)
+        val candles =
+            candleStore
+                .recentCandles(position.symbol, timeframe, candleLimit)
+                .filter { candle -> candle.openedAt.isBefore(closedBefore) }
+                .sortedBy(Candle::openedAt)
+        return when (val decision = engine.advance(runtime, candles, closedBefore)) {
+            is AutomaticPositionPolicyDecision.Waiting ->
+                positionPolicyResult(position, timeframe, mode, evaluatedAt, ExchangeEvaluationStatus.NO_TRADE, decision.reasonCode)
+
+            is AutomaticPositionPolicyDecision.Failure ->
+                submitPolicyFailureExit(position, timeframe, mode, evaluatedAt, decision.reasonCode)
+
+            is AutomaticPositionPolicyDecision.Exit -> {
+                runtimeStore.upsertExecutionPositionRuntimeState(decision.state)
+                submitPolicyExit(
+                    position = position,
+                    timeframe = timeframe,
+                    mode = mode,
+                    evaluatedAt = evaluatedAt,
+                    reasonCode = "POSITION_POLICY_${decision.reason.name}",
+                )
+            }
+
+            is AutomaticPositionPolicyDecision.Update ->
+                applyAutomaticPositionUpdate(
+                    position = position,
+                    lifecycle = lifecycle,
+                    decision = decision,
+                    timeframe = timeframe,
+                    mode = mode,
+                    evaluatedAt = evaluatedAt,
+                )
+        }
+    }
+
+    private suspend fun applyAutomaticPositionUpdate(
+        position: ExchangePosition,
+        lifecycle: ExecutionLifecycleEvent,
+        decision: AutomaticPositionPolicyDecision.Update,
+        timeframe: Timeframe,
+        mode: BotMode,
+        evaluatedAt: Instant,
+    ): ExchangeEvaluationResult {
+        val desired =
+            ExecutionProtectionPlan(
+                takeProfit = decision.takeProfit,
+                stopLoss = decision.stopLoss,
+                riskPerUnit = BigDecimal.valueOf(decision.state.policyState.riskPerUnit),
+            )
+        var observed = position
+        if (!observed.matches(desired, config.priceTick)) {
+            try {
+                gateway.setPositionProtection(
+                    ExchangePositionProtectionRequest(
+                        symbol = position.symbol,
+                        takeProfit = desired.takeProfit,
+                        stopLoss = desired.stopLoss,
+                    ),
+                )
+                observed =
+                    gateway
+                        .positions(position.symbol)
+                        .firstOrNull { candidate -> candidate.size > BigDecimal.ZERO && candidate.side == position.side }
+                        ?: return submitPolicyFailureExit(
+                            position,
+                            timeframe,
+                            mode,
+                            evaluatedAt,
+                            "POSITION_POLICY_POSITION_MISSING_AFTER_UPDATE",
+                        )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.error(
+                    "execution causal position protection update failed symbol={} lifecycleId={} message={}",
+                    position.symbol.value,
+                    lifecycle.lifecycleId,
+                    error.message,
+                    error,
+                )
+                return submitPolicyFailureExit(
+                    position,
+                    timeframe,
+                    mode,
+                    evaluatedAt,
+                    "POSITION_POLICY_PROTECTION_UPDATE_FAILED",
+                )
+            }
+        }
+        if (!observed.matches(desired, config.priceTick)) {
+            return submitPolicyFailureExit(
+                observed,
+                timeframe,
+                mode,
+                evaluatedAt,
+                "POSITION_POLICY_PROTECTION_VERIFICATION_FAILED",
+            )
+        }
+        requireNotNull(positionRuntimeStore).upsertExecutionPositionRuntimeState(decision.state)
+        recordObservedLifecycle(
+            lifecycle.copy(
+                id = 0,
+                state = ExecutionLifecycleState.OPEN_PROTECTED,
+                filledQuantity = observed.size,
+                fillVwap = observed.entryPrice,
+                takeProfit = observed.takeProfit,
+                stopLoss = observed.stopLoss,
+                reasonCode = "POSITION_POLICY_CLOSED_CANDLE_APPLIED",
+                occurredAt = evaluatedAt,
+            ),
+        )
+        return positionPolicyResult(
+            observed,
+            timeframe,
+            mode,
+            evaluatedAt,
+            ExchangeEvaluationStatus.NO_TRADE,
+            "POSITION_POLICY_CLOSED_CANDLE_APPLIED",
+        )
+    }
+
+    private suspend fun submitPolicyFailureExit(
+        position: ExchangePosition,
+        timeframe: Timeframe,
+        mode: BotMode,
+        evaluatedAt: Instant,
+        reasonCode: String,
+    ): ExchangeEvaluationResult {
+        logger.error(
+            "execution causal position policy failed closed symbol={} reasonCode={}",
+            position.symbol.value,
+            reasonCode,
+        )
+        return submitPolicyExit(
+            position = position,
+            timeframe = timeframe,
+            mode = mode,
+            evaluatedAt = evaluatedAt,
+            reasonCode = reasonCode,
+        )
+    }
+
+    private suspend fun submitPolicyExit(
+        position: ExchangePosition,
+        timeframe: Timeframe,
+        mode: BotMode,
+        evaluatedAt: Instant,
+        reasonCode: String,
+    ): ExchangeEvaluationResult {
+        val exitOrder =
+            submitManualOrder(
+                symbol = position.symbol,
+                side = position.side.opposite(),
+                quantity = position.size,
+                reduceOnly = true,
+                strategyName = "automatic-causal-position-policy",
+                reasonCode = reasonCode,
+                clientOrderPrefix = "policy",
+            )
+        return positionPolicyResult(
+            position = position,
+            timeframe = timeframe,
+            mode = mode,
+            evaluatedAt = evaluatedAt,
+            status = ExchangeEvaluationStatus.EXIT_SUBMITTED,
+            reasonCode = reasonCode,
+            orderId = exitOrder.orderId,
+            exchangeOrderId = exitOrder.exchangeOrderId,
+            clientOrderId = exitOrder.clientOrderId,
+        )
+    }
+
+    private fun positionPolicyResult(
+        position: ExchangePosition,
+        timeframe: Timeframe,
+        mode: BotMode,
+        evaluatedAt: Instant,
+        status: ExchangeEvaluationStatus,
+        reasonCode: String,
+        orderId: Long? = null,
+        exchangeOrderId: String? = null,
+        clientOrderId: String? = null,
+    ): ExchangeEvaluationResult =
+        ExchangeEvaluationResult(
+            symbol = position.symbol,
+            timeframe = timeframe,
+            mode = mode.name,
+            status = status,
+            evaluatedAt = evaluatedAt,
+            candleCount = 0,
+            reasonCodes = listOf(reasonCode),
+            signalId = null,
+            orderId = orderId,
+            exchangeOrderId = exchangeOrderId,
+            clientOrderId = clientOrderId,
+            entryPrice = position.entryPrice,
+            takeProfit = position.takeProfit,
+            stopLoss = position.stopLoss,
+            quantity = position.size,
+            intendedRisk = null,
         )
 
     private suspend fun submitPolicyTimeExit(
@@ -1746,6 +2148,13 @@ private fun OrderStatus.isActive(): Boolean = this == OrderStatus.SUBMITTED || t
 private fun ExecutionLifecycleState.isUnfilledTerminalEntry(): Boolean =
     this == ExecutionLifecycleState.ENTRY_CANCELLED || this == ExecutionLifecycleState.ENTRY_REJECTED
 
+private enum class PositionRuntimeInitialization {
+    NOT_REQUIRED,
+    PENDING,
+    READY,
+    FAILED,
+}
+
 private fun ExchangeOpenOrder.matches(event: ExecutionLifecycleEvent): Boolean =
     (!exchangeOrderId.isNullOrBlank() && exchangeOrderId == event.exchangeOrderId) ||
         (!clientOrderId.isNullOrBlank() && clientOrderId == event.clientOrderId)
@@ -1774,6 +2183,11 @@ private fun BigDecimal?.matchesOptional(
     expected: BigDecimal?,
     tolerance: BigDecimal,
 ): Boolean = if (expected == null) this == null || compareTo(BigDecimal.ZERO) == 0 else isNear(expected, tolerance)
+
+private fun BigDecimal.matchesQuantity(
+    expected: Double,
+    quantityStep: BigDecimal,
+): Boolean = subtract(BigDecimal.valueOf(expected)).abs() <= quantityStep.divide(BigDecimal("2"), MathContext.DECIMAL64)
 
 private fun automaticEntryLimitPrice(
     side: Side,

@@ -9,7 +9,7 @@ class MultiHorizonMomentumResearchProfileTest :
             val profile = MultiHorizonMomentumResearchProfiles.current()
 
             profile.profileId shouldBe "multi-horizon-momentum-development-v2"
-            profile.executionContract shouldBe "causal-next-contiguous-open-v2"
+            profile.executionContract shouldBe "causal-next-contiguous-open-v3"
             profile.validationStatus shouldBe StrategyValidationStatus.UNVERIFIED
             profile.automaticExecutionAllowed shouldBe false
             profile.backtestConfig().maxHoldCandles shouldBe 4_032

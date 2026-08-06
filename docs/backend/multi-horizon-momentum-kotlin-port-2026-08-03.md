@@ -1,6 +1,6 @@
 # 멀티 호라이즌 모멘텀 Kotlin 기준선
 
-> 2026-08-06 갱신: 이 문서의 `v1` 포트는 외부 검증에서 `REJECTED`되었다. 현재 교차 엔진 기준선은 `multi-horizon-momentum-development-v2`이며, 상세 근거는 `multi-horizon-momentum-execution-parity-v2-2026-08-06.md`에 있다.
+> 2026-08-06 갱신: 이 문서의 `v1` 포트는 외부 검증에서 `REJECTED`되었다. 현재 교차 엔진 기준선은 `multi-horizon-momentum-development-v2`와 `causal-next-contiguous-open-v3` 계약이며, 상세 근거는 `multi-horizon-momentum-execution-parity-v3-2026-08-06.md`에 있다.
 
 ## 상태
 

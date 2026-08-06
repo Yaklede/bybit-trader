@@ -6,8 +6,8 @@ import { execFileSync } from "node:child_process";
 
 const args = parseArgs(process.argv.slice(2));
 const dbPath = args.db ?? "build/runtime-test/bybit-trader-full-history.sqlite";
-const windowsPath = args.windows ?? "config/multi-horizon-momentum-parity-window-v2.json";
-const outDir = args.out ?? "build/multi-horizon-momentum-parity-v2";
+const windowsPath = args.windows ?? "config/multi-horizon-momentum-parity-window-v3.json";
+const outDir = args.out ?? "build/multi-horizon-momentum-parity-v3";
 const candidateId = args.candidateId ?? "multi_momentum_scale0.75_votes3_stop8_trail16_long_only";
 
 const windows = JSON.parse(await fs.readFile(windowsPath, "utf8"));

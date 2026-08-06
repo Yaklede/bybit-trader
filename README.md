@@ -45,7 +45,11 @@ Milestone 1 is the operational backend shell:
 - Private Bybit V5 execution endpoint and loop for `TESTNET`/`LIVE` modes:
   market order create with TP/SL, cancel order, open-order query, position
   query, and execution query. Order-create responses are persisted as
-  `SUBMITTED`; fills must be verified through reconciliation.
+  `SUBMITTED`; fills must be verified through reconciliation. Protected
+  automatic positions persist their actual-fill causal state, advance trailing
+  protection only on one newly closed contiguous candle, verify the exchange
+  readback, and submit a reduce-only exit when state or protection cannot be
+  proven.
 - Docker deployment assets: multi-stage `Dockerfile`, `compose.yaml`, Docker
   env template, healthcheck, and Twingate-backed GitHub Actions deployment that
   uploads a Docker image tarball to the on-prem host.

@@ -1,5 +1,7 @@
 # 멀티 호라이즌 모멘텀 실행 패리티 v2
 
+> 이 계약은 trailing stop이 닫힌 봉의 종가를 넘어선 경우를 다음 봉까지 보유할 수 있어 무효화됐다. 현재 계약은 [v3 패리티](multi-horizon-momentum-execution-parity-v3-2026-08-06.md)다.
+
 ## 판정
 
 `multi-horizon-momentum-development-v2`의 Node 연구기와 Kotlin 공통 백테스트 엔진은 고정된 실제 BTCUSDT M5 구간에서 거래 단위 패리티를 통과했다. 이 판정은 **실행 결과가 같다는 뜻일 뿐 수익성이 검증됐다는 뜻이 아니다.** 프로필 상태는 `UNVERIFIED`, 자동 실행은 `false`다.

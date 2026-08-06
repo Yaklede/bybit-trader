@@ -14,7 +14,7 @@ test("strategy maximization protocol treats 0.2 percent as an evaluation gate", 
   assert.equal(protocol.baseline.automaticExecutionAllowed, false);
   assert.equal(protocol.currentResearchProfile.validationStatus, "UNVERIFIED");
   assert.equal(protocol.currentResearchProfile.automaticExecutionAllowed, false);
-  assert.equal(protocol.currentResearchProfile.executionContract, "causal-next-contiguous-open-v2");
+  assert.equal(protocol.currentResearchProfile.executionContract, "causal-next-contiguous-open-v3");
   assert.equal(protocol.approvalGates.minimumExternalPositiveFoldRatio, 0.75);
   assert.equal(protocol.approvalGates.maximumLiquidationCount, 0);
 });
@@ -26,6 +26,7 @@ test("causal execution contract is fail-closed for ambiguous or missing data", a
   assert.equal(execution.decisionUsesClosedCandlesOnly, true);
   assert.equal(execution.entryFill, "NEXT_CONTIGUOUS_CANDLE_OPEN_WITH_ADVERSE_SLIPPAGE");
   assert.equal(execution.sameCandleStopAndTarget, "STOP_FIRST");
+  assert.equal(execution.trailingStopBeyondClosedPrice, "EXIT_AT_OBSERVABLE_CLOSE");
   assert.equal(execution.missingEntryCandle, "NO_TRADE");
   assert.equal(execution.runtimeAndBacktestContractMustMatch, true);
 });

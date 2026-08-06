@@ -28,7 +28,8 @@ data class AutomaticPositionPolicy(
         require(atrTrailingMultiplier >= 0.0) { "ATR trailing multiplier must not be negative." }
     }
 
-    val maxHoldingDuration: Duration = timeframe.duration.multipliedBy(maxHoldCandles.toLong())
+    val candleDuration: Duration = timeframe.executionDuration
+    val maxHoldingDuration: Duration = candleDuration.multipliedBy(maxHoldCandles.toLong())
 
     fun isExpired(
         openedAt: Instant,
@@ -47,7 +48,7 @@ data class AutomaticPositionPolicy(
         )
 }
 
-private val Timeframe.duration: Duration
+internal val Timeframe.executionDuration: Duration
     get() =
         when (this) {
             Timeframe.M1 -> Duration.ofMinutes(1)

@@ -45,13 +45,23 @@ class CausalPositionPolicyTest :
             val policy = policy(fixedTargetEnabled = false, atrTrailingMultiplier = 1.0)
             val opened = policy.open(openRequest())
 
-            val advanced = policy.onCandle(opened, candleAt(0, high = 120.0, low = 95.0), trailingAtr = 2.0)
+            val advanced = policy.onCandle(opened, candleAt(0, high = 120.0, low = 95.0, close = 119.0), trailingAtr = 2.0)
             val stopped = policy.onCandle(advanced.state, candleAt(1, high = 119.0, low = 117.0), trailingAtr = 2.0)
 
             advanced.exit shouldBe null
             advanced.state.currentStopPrice shouldBe (118.0 plusOrMinus 0.000001)
             stopped.exit?.reason shouldBe CausalPositionExitReason.TRAILING_STOP
             stopped.exit?.triggerPrice shouldBe (118.0 plusOrMinus 0.000001)
+        }
+
+        "trailing stop beyond the closed price exits at the observable close" {
+            val policy = policy(fixedTargetEnabled = false, atrTrailingMultiplier = 1.0)
+            val opened = policy.open(openRequest())
+
+            val reversed = policy.onCandle(opened, candleAt(0, high = 120.0, low = 95.0, close = 100.0), trailingAtr = 2.0)
+
+            reversed.exit?.reason shouldBe CausalPositionExitReason.TRAILING_STOP
+            reversed.exit?.triggerPrice shouldBe (100.0 plusOrMinus 0.000001)
         }
 
         "maximum hold duration counts from the entry candle without an early forced close" {
