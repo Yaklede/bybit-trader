@@ -69,3 +69,14 @@
 ## 단계 종료
 
 두 가족이 모두 실패하면 예약된 `fresh-sealed-validation-2026-08-v1`을 열지 않고 `REJECTED` 결과를 남긴다. 하나 이상 통과하면 전체 2024년 이전 데이터에서 사전 순위 규칙으로 가족당 최대 한 후보를 선택하고, 코드와 파라미터 fingerprint를 커밋한 다음에만 다음 검증 단계로 이동한다.
+
+## 재현 명령
+
+```bash
+node --max-old-space-size=4096 scripts/volume-impact-state-research.mjs \
+  --protocol config/volume-impact-state-development-v1.json \
+  --db build/runtime-test/bybit-trader-full-history.sqlite \
+  --out build/research/volume-impact-state-development-v1
+```
+
+명령은 SQL 종료 시각을 프로토콜의 `2024-01-01T00:00:00Z`로 강제한다. M1은 스트리밍하고 M5/M15는 연속성을 먼저 검사한다. 결과는 자동 실행을 허용하지 않으며 `nested-walk-forward.json`의 가족별 게이트를 통해서만 다음 단계 진행 여부를 결정한다.
