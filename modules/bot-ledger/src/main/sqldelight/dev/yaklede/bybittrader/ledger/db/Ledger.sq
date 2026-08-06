@@ -245,6 +245,12 @@ CREATE TABLE executionLifecycleEvents (
   client_order_id TEXT,
   reason_code TEXT NOT NULL,
   occurred_at TEXT NOT NULL,
+  protection_required INTEGER NOT NULL DEFAULT 0,
+  planned_entry_price TEXT,
+  structural_stop_price TEXT,
+  entry_anchored_stop_distance TEXT,
+  expected_r TEXT,
+  protection_deadline_at TEXT,
   identity_key TEXT NOT NULL
 );
 
@@ -845,13 +851,21 @@ INSERT OR IGNORE INTO executionLifecycleEvents(
   client_order_id,
   reason_code,
   occurred_at,
+  protection_required,
+  planned_entry_price,
+  structural_stop_price,
+  entry_anchored_stop_distance,
+  expected_r,
+  protection_deadline_at,
   identity_key
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectLatestExecutionLifecycleEvent:
 SELECT id, mode, lifecycle_id, symbol, state, side, requested_quantity, filled_quantity, fill_vwap,
-  take_profit, stop_loss, exchange_order_id, client_order_id, reason_code, occurred_at, identity_key
+  take_profit, stop_loss, exchange_order_id, client_order_id, reason_code, occurred_at,
+  protection_required, planned_entry_price, structural_stop_price, entry_anchored_stop_distance,
+  expected_r, protection_deadline_at, identity_key
 FROM executionLifecycleEvents
 WHERE mode = :mode
   AND symbol = :symbol
@@ -860,7 +874,9 @@ LIMIT 1;
 
 selectExecutionLifecycleEvents:
 SELECT id, mode, lifecycle_id, symbol, state, side, requested_quantity, filled_quantity, fill_vwap,
-  take_profit, stop_loss, exchange_order_id, client_order_id, reason_code, occurred_at, identity_key
+  take_profit, stop_loss, exchange_order_id, client_order_id, reason_code, occurred_at,
+  protection_required, planned_entry_price, structural_stop_price, entry_anchored_stop_distance,
+  expected_r, protection_deadline_at, identity_key
 FROM executionLifecycleEvents
 WHERE (:mode IS NULL OR mode = :mode)
   AND (:symbol IS NULL OR symbol = :symbol)

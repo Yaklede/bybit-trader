@@ -542,6 +542,12 @@ class SqlDelightLedgerTest :
                     clientOrderId = "client-1",
                     reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
                     occurredAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("64000"),
+                    structuralStopPrice = BigDecimal("62000"),
+                    entryAnchoredStopDistance = BigDecimal("2000"),
+                    expectedR = BigDecimal("1.5"),
+                    protectionDeadlineAt = Instant.parse("2026-06-30T00:02:00Z"),
                 )
 
             ledger.recordLifecycleEvent(event) shouldBe 1L
@@ -551,7 +557,51 @@ class SqlDelightLedgerTest :
             stored?.id shouldBe 1L
             stored?.state shouldBe ExecutionLifecycleState.ENTRY_SUBMITTED
             stored?.takeProfit shouldBe BigDecimal("65000")
+            stored?.protectionRequired shouldBe true
+            stored?.plannedEntryPrice shouldBe BigDecimal("64000")
+            stored?.protectionDeadlineAt shouldBe Instant.parse("2026-06-30T00:02:00Z")
             ledger.lifecycleEvents(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), 10).size shouldBe 1
+        }
+
+        "additive migration adds actual-fill protection metadata to a legacy lifecycle table" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            driver.execute(
+                null,
+                """
+                CREATE TABLE executionLifecycleEvents (
+                  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                  mode TEXT NOT NULL,
+                  lifecycle_id TEXT NOT NULL,
+                  symbol TEXT NOT NULL,
+                  state TEXT NOT NULL,
+                  side TEXT NOT NULL,
+                  requested_quantity TEXT NOT NULL,
+                  filled_quantity TEXT,
+                  fill_vwap TEXT,
+                  take_profit TEXT,
+                  stop_loss TEXT,
+                  exchange_order_id TEXT,
+                  client_order_id TEXT,
+                  reason_code TEXT NOT NULL,
+                  occurred_at TEXT NOT NULL,
+                  identity_key TEXT NOT NULL
+                )
+                """.trimIndent(),
+                0,
+            )
+
+            ensureAdditiveLedgerSchema(driver)
+
+            tableColumnNames(driver, "executionLifecycleEvents").containsAll(
+                setOf(
+                    "protection_required",
+                    "planned_entry_price",
+                    "structural_stop_price",
+                    "entry_anchored_stop_distance",
+                    "expected_r",
+                    "protection_deadline_at",
+                ),
+            ) shouldBe true
         }
 
         "performance closure query is not capped by API page size" {
@@ -700,6 +750,24 @@ private fun executionClosureColumnDefaults(driver: JdbcSqliteDriver): Map<String
                     while (rows.next()) {
                         put(rows.getString("name"), rows.getString("dflt_value"))
                     }
+                }
+            }
+        }
+    } finally {
+        driver.closeConnection(connection)
+    }
+}
+
+private fun tableColumnNames(
+    driver: JdbcSqliteDriver,
+    table: String,
+): Set<String> {
+    val connection = driver.getConnection()
+    try {
+        return connection.createStatement().use { statement ->
+            statement.executeQuery("PRAGMA table_info($table)").use { rows ->
+                buildSet {
+                    while (rows.next()) add(rows.getString("name"))
                 }
             }
         }

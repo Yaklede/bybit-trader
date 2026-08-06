@@ -17,7 +17,62 @@ internal data class ExecutionSizing(
     val quantity: BigDecimal,
 )
 
+internal data class ExecutionProtectionPlan(
+    val takeProfit: BigDecimal,
+    val stopLoss: BigDecimal,
+    val riskPerUnit: BigDecimal,
+)
+
 internal object ExecutionTradePlanCalculator {
+    fun calculateProtection(
+        side: Side,
+        entryPrice: BigDecimal,
+        structuralStopPrice: BigDecimal,
+        entryAnchoredStopDistance: BigDecimal?,
+        expectedR: BigDecimal,
+        priceTick: BigDecimal,
+    ): ExecutionProtectionPlan? {
+        if (
+            entryPrice <= BigDecimal.ZERO ||
+            structuralStopPrice <= BigDecimal.ZERO ||
+            expectedR <= BigDecimal.ZERO ||
+            priceTick <= BigDecimal.ZERO
+        ) {
+            return null
+        }
+        val stopPrice =
+            when (side) {
+                Side.BUY ->
+                    entryAnchoredStopDistance
+                        ?.let { distance -> minOf(structuralStopPrice, entryPrice.subtract(distance)) }
+                        ?: structuralStopPrice
+                Side.SELL ->
+                    entryAnchoredStopDistance
+                        ?.let { distance -> maxOf(structuralStopPrice, entryPrice.add(distance)) }
+                        ?: structuralStopPrice
+            }.normalizeProtectionPrice(side = side, priceTick = priceTick, isStop = true)
+        val directionalStopIsValid =
+            when (side) {
+                Side.BUY -> stopPrice > BigDecimal.ZERO && stopPrice < entryPrice
+                Side.SELL -> stopPrice > entryPrice
+            }
+        if (!directionalStopIsValid) return null
+        val riskPerUnit = entryPrice.subtract(stopPrice).abs()
+        val takeProfit =
+            calculateTakeProfit(side, entryPrice, riskPerUnit, expectedR)
+                .normalizeProtectionPrice(side = side, priceTick = priceTick, isStop = false)
+        val directionalTargetIsValid =
+            when (side) {
+                Side.BUY -> takeProfit > entryPrice
+                Side.SELL -> takeProfit > BigDecimal.ZERO && takeProfit < entryPrice
+            }
+        return if (directionalTargetIsValid) {
+            ExecutionProtectionPlan(takeProfit = takeProfit, stopLoss = stopPrice, riskPerUnit = riskPerUnit)
+        } else {
+            null
+        }
+    }
+
     fun calculateSizing(
         entryPrice: BigDecimal,
         riskPerUnit: BigDecimal,
@@ -150,6 +205,25 @@ internal fun ExchangeExecutionConfig.sizingConstraints(): ExecutionSizingConstra
 internal fun BigDecimal.floorToStep(step: BigDecimal): BigDecimal {
     val units = divide(step, 0, RoundingMode.DOWN)
     return units.multiply(step).stripTrailingZeros()
+}
+
+internal fun BigDecimal.ceilToStep(step: BigDecimal): BigDecimal {
+    val units = divide(step, 0, RoundingMode.UP)
+    return units.multiply(step).stripTrailingZeros()
+}
+
+private fun BigDecimal.normalizeProtectionPrice(
+    side: Side,
+    priceTick: BigDecimal,
+    isStop: Boolean,
+): BigDecimal {
+    if (remainder(priceTick).compareTo(BigDecimal.ZERO) == 0) return this
+    return when {
+        side == Side.BUY && isStop -> floorToStep(priceTick)
+        side == Side.BUY -> floorToStep(priceTick)
+        side == Side.SELL && isStop -> ceilToStep(priceTick)
+        else -> ceilToStep(priceTick)
+    }
 }
 
 private fun BigDecimal.normalizeToStep(step: BigDecimal?): BigDecimal = if (step == null) this else floorToStep(step)

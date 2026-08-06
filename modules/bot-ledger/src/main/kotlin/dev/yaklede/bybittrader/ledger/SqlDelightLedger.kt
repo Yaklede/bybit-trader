@@ -772,6 +772,12 @@ class SqlDelightLedger(
                 client_order_id = event.clientOrderId,
                 reason_code = event.reasonCode,
                 occurred_at = event.occurredAt.toString(),
+                protection_required = if (event.protectionRequired) 1L else 0L,
+                planned_entry_price = event.plannedEntryPrice?.toPlainString(),
+                structural_stop_price = event.structuralStopPrice?.toPlainString(),
+                entry_anchored_stop_distance = event.entryAnchoredStopDistance?.toPlainString(),
+                expected_r = event.expectedR?.toPlainString(),
+                protection_deadline_at = event.protectionDeadlineAt?.toString(),
                 identity_key = event.identityKey(),
             )
             if (database.ledgerQueries.selectChanges().executeAsOne() == 0L) {
@@ -926,6 +932,12 @@ private fun ExecutionLifecycleEvents.toExecutionLifecycleEvent(): ExecutionLifec
         clientOrderId = client_order_id,
         reasonCode = reason_code,
         occurredAt = Instant.parse(occurred_at),
+        protectionRequired = protection_required != 0L,
+        plannedEntryPrice = planned_entry_price?.let(::BigDecimal),
+        structuralStopPrice = structural_stop_price?.let(::BigDecimal),
+        entryAnchoredStopDistance = entry_anchored_stop_distance?.let(::BigDecimal),
+        expectedR = expected_r?.let(::BigDecimal),
+        protectionDeadlineAt = protection_deadline_at?.let(Instant::parse),
     )
 
 private fun SelectRecentMarketCandles.toCandle(): Candle =

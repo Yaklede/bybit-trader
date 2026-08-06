@@ -84,6 +84,8 @@ class AppConfigTest :
                         "BOT_EXECUTION_LEVERAGE" to "15",
                         "BOT_EXECUTION_LIQUIDATION_BUFFER_PCT" to "0.8",
                         "BOT_EXECUTION_MIN_NET_RR" to "1.25",
+                        "BOT_EXECUTION_PRICE_TICK" to "0.5",
+                        "BOT_EXECUTION_PROTECTION_GRACE_SECONDS" to "45",
                     ),
                 )
 
@@ -103,6 +105,8 @@ class AppConfigTest :
             config.execution.useLiveAccountEquity shouldBe true
             config.execution.riskFraction.toPlainString() shouldBe "0.03"
             config.execution.quantityStep.toPlainString() shouldBe "0.01"
+            config.execution.priceTick.toPlainString() shouldBe "0.5"
+            config.execution.protectionGracePeriod.seconds shouldBe 45
             config.execution.maxQuantity?.toPlainString() shouldBe "5"
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"

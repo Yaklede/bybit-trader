@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.engine.backtest.StrategyValidationStatus
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveExecutionContract
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveProfiles
 import java.math.BigDecimal
+import java.time.Duration
 
 data class AppConfig(
     val runtimeMode: RuntimeMode,
@@ -496,6 +497,8 @@ data class ExecutionSettings(
     val leverage: BigDecimal?,
     val liquidationBufferPct: BigDecimal,
     val minimumNetRiskReward: BigDecimal,
+    val priceTick: BigDecimal,
+    val protectionGracePeriod: Duration,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -521,6 +524,10 @@ data class ExecutionSettings(
         require(minimumNetRiskReward > BigDecimal.ZERO) {
             "Execution minimum net risk reward must be positive."
         }
+        require(priceTick > BigDecimal.ZERO) { "Execution price tick must be positive." }
+        require(!protectionGracePeriod.isNegative && !protectionGracePeriod.isZero) {
+            "Execution protection grace period must be positive."
+        }
     }
 
     companion object {
@@ -544,6 +551,11 @@ data class ExecutionSettings(
                     environment["BOT_EXECUTION_LIQUIDATION_BUFFER_PCT"]?.let(::BigDecimal) ?: BigDecimal("0.6"),
                 minimumNetRiskReward =
                     environment["BOT_EXECUTION_MIN_NET_RR"]?.let(::BigDecimal) ?: BigDecimal("1.0"),
+                priceTick = environment["BOT_EXECUTION_PRICE_TICK"]?.let(::BigDecimal) ?: BigDecimal("0.1"),
+                protectionGracePeriod =
+                    Duration.ofSeconds(
+                        environment["BOT_EXECUTION_PROTECTION_GRACE_SECONDS"]?.toLongOrNull() ?: 120,
+                    ),
             )
     }
 }

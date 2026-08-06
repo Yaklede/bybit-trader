@@ -16,6 +16,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -102,6 +103,28 @@ class BybitPrivateClient(
             clientOrderId = result.orderLinkId ?: request.clientOrderId,
             status = OrderStatus.SUBMITTED,
         )
+    }
+
+    override suspend fun setPositionProtection(request: ExchangePositionProtectionRequest) {
+        val body =
+            privateJson.encodeToString(
+                BybitSetTradingStopBody(
+                    category = config.category.apiValue,
+                    symbol = request.symbol.value,
+                    takeProfit = request.takeProfit.toPlainString(),
+                    stopLoss = request.stopLoss.toPlainString(),
+                    tpslMode = "Full",
+                    tpTriggerBy = "LastPrice",
+                    slTriggerBy = "LastPrice",
+                    positionIdx = config.positionIdx,
+                ),
+            )
+        val response =
+            signedPost<BybitSetTradingStopResponse>(
+                path = "/v5/position/trading-stop",
+                body = body,
+            )
+        response.requireSuccess("set position protection")
     }
 
     override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult {
@@ -497,6 +520,18 @@ private data class BybitSetLeverageBody(
 )
 
 @Serializable
+private data class BybitSetTradingStopBody(
+    val category: String,
+    val symbol: String,
+    val takeProfit: String,
+    val stopLoss: String,
+    val tpslMode: String,
+    val tpTriggerBy: String,
+    val slTriggerBy: String,
+    val positionIdx: Int,
+)
+
+@Serializable
 private data class BybitPlaceOrderBody(
     val category: String,
     val symbol: String,
@@ -536,6 +571,12 @@ private data class BybitCancelOrderResponse(
 
 @Serializable
 private data class BybitSetLeverageResponse(
+    override val retCode: Int,
+    override val retMsg: String,
+) : BybitOrderResponse
+
+@Serializable
+private data class BybitSetTradingStopResponse(
     override val retCode: Int,
     override val retMsg: String,
 ) : BybitOrderResponse

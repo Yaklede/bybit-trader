@@ -706,10 +706,14 @@ class ExchangeExecutionServiceTest :
             val symbol = Symbol("BTCUSDT")
             val store = InMemoryTradingStore()
             repeat(5) { index ->
-                store.recordTradeClosure(
-                    testClosure(
+                store.recordLifecycleEvent(
+                    testLifecycleEvent(
+                        occurredAt = Instant.parse("2024-06-30T00:10:00Z").plusSeconds(index * 60L),
+                    ).copy(
+                        lifecycleId = "automatic-entry-$index",
                         exchangeOrderId = "today-$index",
-                        closedAt = Instant.parse("2024-06-30T00:10:00Z").plusSeconds(index * 60L),
+                        clientOrderId = "automatic-entry-$index",
+                        reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
                     ),
                 )
             }
@@ -727,6 +731,30 @@ class ExchangeExecutionServiceTest :
             result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
             result.reasonCodes shouldContainExactly listOf("DAILY_TRADE_LIMIT_REACHED")
             gateway.placedOrders shouldBe emptyList()
+        }
+
+        "daily trade limit counts submitted entries before they close" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(occurredAt = Instant.parse("2024-06-30T00:10:00Z")).copy(
+                    lifecycleId = "still-open-entry",
+                    clientOrderId = "still-open-entry",
+                    reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
+                ),
+            )
+
+            val result =
+                testService(
+                    store = store,
+                    gateway = RecordingExecutionGateway(),
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy = AutomaticPositionPolicy(Timeframe.M5, maxHoldCandles = 36, maxTradesPerUtcDay = 1),
+                    clock = Clock.fixed(Instant.parse("2024-06-30T01:00:00Z"), ZoneOffset.UTC),
+                ).evaluateAndSubmit(symbol, Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldContainExactly listOf("DAILY_TRADE_LIMIT_REACHED")
         }
 
         "exchange reconciliation advances an entry to a protected open position" {
@@ -760,6 +788,87 @@ class ExchangeExecutionServiceTest :
             latest?.filledQuantity shouldBe BigDecimal("1")
             latest?.fillVwap shouldBe BigDecimal("100")
             latest?.reasonCode shouldBe "PROTECTED_POSITION_OBSERVED"
+        }
+
+        "exchange reconciliation recalculates and verifies protection from actual fill price" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent().copy(
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("105"),
+                    structuralStopPrice = BigDecimal("100"),
+                    expectedR = BigDecimal("1.5"),
+                    protectionDeadlineAt = Instant.parse("2024-06-30T00:02:00Z"),
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("106"),
+                                markPrice = BigDecimal("106"),
+                                unrealizedPnl = BigDecimal.ZERO,
+                                updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                                takeProfit = BigDecimal("112.5"),
+                                stopLoss = BigDecimal("100"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            gateway.protectionRequests.single().takeProfit shouldBe BigDecimal("115.0")
+            gateway.protectionRequests.single().stopLoss shouldBe BigDecimal("100")
+            report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
+            report.lifecycleEvent?.fillVwap shouldBe BigDecimal("106")
+            report.lifecycleEvent?.reasonCode shouldBe "ACTUAL_FILL_PROTECTION_VERIFIED"
+        }
+
+        "automatic unprotected position is closed after its protection deadline" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent().copy(
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("105"),
+                    structuralStopPrice = BigDecimal("100"),
+                    expectedR = BigDecimal("1.5"),
+                    protectionDeadlineAt = Instant.parse("2024-06-29T23:11:00Z"),
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("106"),
+                                markPrice = BigDecimal("106"),
+                                unrealizedPnl = BigDecimal.ZERO,
+                                updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                            ),
+                        ),
+                    protectionFailure = ExchangeExecutionException("protection rejected"),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_UNPROTECTED
+            gateway.placedOrders.single().reduceOnly shouldBe true
+            gateway.placedOrders.single().side shouldBe Side.SELL
+            store.lifecycleRecords.last().state shouldBe ExecutionLifecycleState.EXIT_SUBMITTED
+            store.lifecycleRecords.last().reasonCode shouldBe "UNPROTECTED_POSITION_TIMEOUT"
         }
 
         "exchange reconciliation recovers and flags an unprotected position" {
@@ -1284,9 +1393,10 @@ private class InMemoryTradingStore :
 
 private class RecordingExecutionGateway(
     private val openOrders: List<ExchangeOpenOrder> = emptyList(),
-    private val positions: List<ExchangePosition> = emptyList(),
+    positions: List<ExchangePosition> = emptyList(),
     private val executions: List<ExchangeExecutionFill> = emptyList(),
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
+    private val protectionFailure: Throwable? = null,
     private val accountBalance: ExchangeAccountBalance =
         ExchangeAccountBalance(
             accountType = "UNIFIED",
@@ -1301,8 +1411,10 @@ private class RecordingExecutionGateway(
             capturedAt = Instant.parse("2024-06-30T00:00:00Z"),
         ),
 ) : ExchangeExecutionGateway {
+    private var currentPositions = positions
     val leverageRequests = mutableListOf<Pair<Symbol, BigDecimal>>()
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
+    val protectionRequests = mutableListOf<ExchangePositionProtectionRequest>()
     var openOrderRequests: Int = 0
     var positionRequests: Int = 0
     var executionRequests: Int = 0
@@ -1324,6 +1436,19 @@ private class RecordingExecutionGateway(
         )
     }
 
+    override suspend fun setPositionProtection(request: ExchangePositionProtectionRequest) {
+        protectionRequests += request
+        protectionFailure?.let { throw it }
+        currentPositions =
+            currentPositions.map { position ->
+                if (position.symbol == request.symbol && position.size > BigDecimal.ZERO) {
+                    position.copy(takeProfit = request.takeProfit, stopLoss = request.stopLoss)
+                } else {
+                    position
+                }
+            }
+    }
+
     override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
         ExchangeCancelResult(
             exchangeOrderId = request.exchangeOrderId,
@@ -1337,7 +1462,7 @@ private class RecordingExecutionGateway(
 
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> {
         positionRequests += 1
-        return positions
+        return currentPositions
     }
 
     override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> {

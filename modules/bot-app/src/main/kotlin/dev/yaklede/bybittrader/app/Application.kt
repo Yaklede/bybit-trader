@@ -196,6 +196,8 @@ fun main() {
                         leverage = config.execution.leverage,
                         liquidationBufferPct = config.execution.liquidationBufferPct,
                         minimumNetRiskReward = config.execution.minimumNetRiskReward,
+                        priceTick = config.execution.priceTick,
+                        protectionGracePeriod = config.execution.protectionGracePeriod,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                 positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),
@@ -270,9 +272,9 @@ fun main() {
                         webSocketUrl = config.bybitPrivate.privateWebSocketUrl,
                     ),
                 onExecution = { execution ->
-                    if (execution.symbol == config.marketData.symbol && execution.closedSize?.signum() == 1) {
+                    if (execution.symbol == config.marketData.symbol) {
                         logger.info(
-                            "private execution close observed; requesting immediate reconciliation symbol={} executionId={} closedSize={}",
+                            "private execution observed; requesting immediate reconciliation symbol={} executionId={} closedSize={}",
                             execution.symbol.value,
                             execution.executionId,
                             execution.closedSize?.toPlainString(),

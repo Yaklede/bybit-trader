@@ -153,8 +153,8 @@ class ExchangeExecutionService(
             return result
         }
         if (activePositionPolicy != null) {
-            val completedTradesToday = completedTradeCountForUtcDay(symbol, now)
-            if (completedTradesToday >= activePositionPolicy.maxTradesPerUtcDay) {
+            val submittedEntriesToday = automaticEntryCountForUtcDay(symbol, now)
+            if (submittedEntriesToday >= activePositionPolicy.maxTradesPerUtcDay) {
                 return ExchangeEvaluationResult(
                     symbol = symbol,
                     timeframe = timeframe,
@@ -260,7 +260,45 @@ class ExchangeExecutionService(
         }
 
         val entryPrice = candles.last().close
-        val riskPerUnit = entryPrice.subtract(signal.invalidationPrice.value).abs()
+        val protectionPlan =
+            ExecutionTradePlanCalculator.calculateProtection(
+                side = signal.side,
+                entryPrice = entryPrice,
+                structuralStopPrice = signal.invalidationPrice.value,
+                entryAnchoredStopDistance = signal.entryAnchoredStopDistance,
+                expectedR = signal.expectedR,
+                priceTick = config.priceTick,
+            )
+        if (protectionPlan == null) {
+            val rejectionReason = "INVALID_TARGET_STOP_GEOMETRY"
+            val rejectedSignalId =
+                tradingStore.recordSignal(
+                    signal.toRecord(
+                        accepted = false,
+                        rejectionReason = rejectionReason,
+                        createdAt = now,
+                    ),
+                )
+            return ExchangeEvaluationResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                mode = mode.name,
+                status = ExchangeEvaluationStatus.REJECTED,
+                evaluatedAt = now,
+                candleCount = candles.size,
+                reasonCodes = listOf(rejectionReason),
+                signalId = rejectedSignalId,
+                orderId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+                entryPrice = entryPrice,
+                takeProfit = null,
+                stopLoss = signal.invalidationPrice.value,
+                quantity = null,
+                intendedRisk = null,
+            )
+        }
+        val riskPerUnit = protectionPlan.riskPerUnit
         val accountEquity = executionAccountEquity()
         val intendedRisk = accountEquity.multiply(config.riskFraction, MathContext.DECIMAL64)
         val costAdjustedRiskPerUnit =
@@ -303,7 +341,7 @@ class ExchangeExecutionService(
                     clientOrderId = null,
                     entryPrice = entryPrice,
                     takeProfit = null,
-                    stopLoss = signal.invalidationPrice.value,
+                    stopLoss = protectionPlan.stopLoss,
                     quantity = null,
                     intendedRisk = intendedRisk,
                 )
@@ -311,19 +349,14 @@ class ExchangeExecutionService(
             return result
         }
 
-        val takeProfit =
-            ExecutionTradePlanCalculator.calculateTakeProfit(
-                side = signal.side,
-                entryPrice = entryPrice,
-                riskPerUnit = riskPerUnit,
-                expectedR = signal.expectedR,
-            )
+        val takeProfit = protectionPlan.takeProfit
+        val stopLoss = protectionPlan.stopLoss
         val targetStopRejection =
             ExecutionTradePlanCalculator.targetStopRejection(
                 side = signal.side,
                 entryPrice = entryPrice,
                 takeProfit = takeProfit,
-                stopLoss = signal.invalidationPrice.value,
+                stopLoss = stopLoss,
                 feeRate = config.feeRate,
                 slippageBufferRate = config.slippageBufferRate,
                 minimumNetRiskReward = config.minimumNetRiskReward,
@@ -331,7 +364,7 @@ class ExchangeExecutionService(
             ) ?: ExecutionTradePlanCalculator.leverageStopRejection(
                 side = signal.side,
                 entryPrice = entryPrice,
-                stopLoss = signal.invalidationPrice.value,
+                stopLoss = stopLoss,
                 leverage = config.leverage,
                 liquidationBufferPct = config.liquidationBufferPct,
             )
@@ -358,7 +391,7 @@ class ExchangeExecutionService(
                 clientOrderId = null,
                 entryPrice = entryPrice,
                 takeProfit = takeProfit,
-                stopLoss = signal.invalidationPrice.value,
+                stopLoss = stopLoss,
                 quantity = sizing.quantity,
                 intendedRisk = intendedRisk,
             )
@@ -393,7 +426,7 @@ class ExchangeExecutionService(
                 clientOrderId = null,
                 entryPrice = entryPrice,
                 takeProfit = takeProfit,
-                stopLoss = signal.invalidationPrice.value,
+                stopLoss = protectionPlan.stopLoss,
                 quantity = sizing.quantity,
                 intendedRisk = intendedRisk,
             )
@@ -417,7 +450,7 @@ class ExchangeExecutionService(
                     quantity = sizing.quantity,
                     clientOrderId = clientOrderId,
                     takeProfit = takeProfit,
-                    stopLoss = signal.invalidationPrice.value,
+                    stopLoss = stopLoss,
                 ),
             )
         val orderId =
@@ -440,11 +473,17 @@ class ExchangeExecutionService(
             side = signal.side,
             requestedQuantity = sizing.quantity,
             takeProfit = takeProfit,
-            stopLoss = signal.invalidationPrice.value,
+            stopLoss = stopLoss,
             exchangeOrderId = orderResult.exchangeOrderId,
             clientOrderId = clientOrderId,
             reasonCode = "AUTOMATIC_ENTRY_SUBMITTED",
             occurredAt = now,
+            protectionRequired = true,
+            plannedEntryPrice = entryPrice,
+            structuralStopPrice = signal.invalidationPrice.value,
+            entryAnchoredStopDistance = signal.entryAnchoredStopDistance,
+            expectedR = signal.expectedR,
+            protectionDeadlineAt = now.plus(config.protectionGracePeriod),
         )
 
         val result =
@@ -462,7 +501,7 @@ class ExchangeExecutionService(
                 clientOrderId = clientOrderId,
                 entryPrice = entryPrice,
                 takeProfit = takeProfit,
-                stopLoss = signal.invalidationPrice.value,
+                stopLoss = stopLoss,
                 quantity = sizing.quantity,
                 intendedRisk = intendedRisk,
             )
@@ -569,30 +608,7 @@ class ExchangeExecutionService(
             val base =
                 latest?.takeIf { event -> event.state != ExecutionLifecycleState.CLOSED }
                     ?: recoveredLifecycleEvent(activePosition, report.reconciledAt)
-            val protected = activePosition.takeProfit != null && activePosition.stopLoss != null
-            return recordObservedLifecycle(
-                base.copy(
-                    id = 0,
-                    state =
-                        if (protected) {
-                            ExecutionLifecycleState.OPEN_PROTECTED
-                        } else {
-                            ExecutionLifecycleState.OPEN_UNPROTECTED
-                        },
-                    side = activePosition.side,
-                    filledQuantity = activePosition.size,
-                    fillVwap = activePosition.entryPrice,
-                    takeProfit = activePosition.takeProfit,
-                    stopLoss = activePosition.stopLoss,
-                    reasonCode =
-                        if (protected) {
-                            "PROTECTED_POSITION_OBSERVED"
-                        } else {
-                            "UNPROTECTED_POSITION_OBSERVED"
-                        },
-                    occurredAt = activePosition.updatedAt ?: report.reconciledAt,
-                ),
-            )
+            return observeActivePositionProtection(report, activePosition, base)
         }
         if (latest == null || latest.state == ExecutionLifecycleState.CLOSED) return null
         if (relatedOpenOrder != null && latest.state == ExecutionLifecycleState.EXIT_SUBMITTED) {
@@ -617,6 +633,187 @@ class ExchangeExecutionService(
         }
         return null
     }
+
+    private suspend fun observeActivePositionProtection(
+        report: ExchangeReconciliationReport,
+        activePosition: ExchangePosition,
+        base: ExecutionLifecycleEvent,
+    ): ExecutionLifecycleEvent? {
+        if (base.state == ExecutionLifecycleState.EXIT_SUBMITTED) {
+            return recordObservedLifecycle(
+                base.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.ERROR,
+                    filledQuantity = activePosition.size,
+                    fillVwap = activePosition.entryPrice,
+                    takeProfit = activePosition.takeProfit,
+                    stopLoss = activePosition.stopLoss,
+                    reasonCode = "EXIT_SUBMITTED_POSITION_STILL_OPEN",
+                    occurredAt = report.reconciledAt,
+                ),
+            )
+        }
+
+        val desiredProtection = base.desiredProtection(activePosition)
+        var observedPosition = activePosition
+        var protectionUpdateFailed = false
+        if (
+            base.protectionRequired &&
+            desiredProtection != null &&
+            !activePosition.matches(desiredProtection, config.priceTick)
+        ) {
+            try {
+                gateway.setPositionProtection(
+                    ExchangePositionProtectionRequest(
+                        symbol = activePosition.symbol,
+                        takeProfit = desiredProtection.takeProfit,
+                        stopLoss = desiredProtection.stopLoss,
+                    ),
+                )
+                observedPosition =
+                    gateway
+                        .positions(activePosition.symbol)
+                        .firstOrNull { position -> position.size > BigDecimal.ZERO && position.side == activePosition.side }
+                        ?: return null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                protectionUpdateFailed = true
+                logger.error(
+                    "execution position protection update failed symbol={} lifecycleId={} errorType={} message={}",
+                    activePosition.symbol.value,
+                    base.lifecycleId,
+                    error::class.simpleName,
+                    error.message,
+                    error,
+                )
+            }
+        }
+
+        val protected =
+            if (base.protectionRequired) {
+                desiredProtection != null && observedPosition.matches(desiredProtection, config.priceTick)
+            } else {
+                observedPosition.takeProfit != null && observedPosition.stopLoss != null
+            }
+        val observation =
+            base.copy(
+                id = 0,
+                state =
+                    if (protected) {
+                        ExecutionLifecycleState.OPEN_PROTECTED
+                    } else {
+                        ExecutionLifecycleState.OPEN_UNPROTECTED
+                    },
+                side = observedPosition.side,
+                filledQuantity = observedPosition.size,
+                fillVwap = observedPosition.entryPrice,
+                takeProfit = observedPosition.takeProfit,
+                stopLoss = observedPosition.stopLoss,
+                reasonCode =
+                    when {
+                        protected && base.protectionRequired -> "ACTUAL_FILL_PROTECTION_VERIFIED"
+                        protected -> "PROTECTED_POSITION_OBSERVED"
+                        protectionUpdateFailed -> "POSITION_PROTECTION_UPDATE_FAILED"
+                        base.protectionRequired && desiredProtection == null -> "POSITION_PROTECTION_PLAN_UNAVAILABLE"
+                        else -> "UNPROTECTED_POSITION_OBSERVED"
+                    },
+                occurredAt = observedPosition.updatedAt ?: report.reconciledAt,
+            )
+        val recordedObservation = recordObservedLifecycle(observation)
+        val deadline = base.protectionDeadlineAt
+        if (
+            protected ||
+            !base.protectionRequired ||
+            deadline == null ||
+            report.reconciledAt.isBefore(deadline)
+        ) {
+            return recordedObservation
+        }
+
+        return failClosedUnprotectedPosition(report, observedPosition, observation) ?: recordedObservation
+    }
+
+    private suspend fun failClosedUnprotectedPosition(
+        report: ExchangeReconciliationReport,
+        position: ExchangePosition,
+        lifecycle: ExecutionLifecycleEvent,
+    ): ExecutionLifecycleEvent? {
+        report.openOrders
+            .filter { order -> order.status.isActive() && order.matches(lifecycle) }
+            .forEach { order ->
+                try {
+                    gateway.cancelOrder(
+                        ExchangeCancelRequest(
+                            symbol = order.symbol,
+                            exchangeOrderId = order.exchangeOrderId,
+                            clientOrderId = order.clientOrderId,
+                        ),
+                    )
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    logger.error(
+                        "execution unprotected entry cancellation failed symbol={} lifecycleId={} exchangeOrderId={}",
+                        position.symbol.value,
+                        lifecycle.lifecycleId,
+                        order.exchangeOrderId,
+                        error,
+                    )
+                }
+            }
+        return try {
+            submitManualOrder(
+                symbol = position.symbol,
+                side = position.side.opposite(),
+                quantity = position.size,
+                reduceOnly = true,
+                strategyName = "automatic-protection-fail-closed",
+                reasonCode = "UNPROTECTED_POSITION_TIMEOUT",
+                clientOrderPrefix = "protect",
+            )
+            lifecycle
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.error(
+                "execution unprotected position fail-closed exit failed symbol={} lifecycleId={}",
+                position.symbol.value,
+                lifecycle.lifecycleId,
+                error,
+            )
+            recordObservedLifecycle(
+                lifecycle.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.ERROR,
+                    reasonCode = "UNPROTECTED_POSITION_EXIT_FAILED",
+                    occurredAt = report.reconciledAt,
+                ),
+            )
+        }
+    }
+
+    private fun ExecutionLifecycleEvent.desiredProtection(position: ExchangePosition): ExecutionProtectionPlan? {
+        if (!protectionRequired) return null
+        val entryPrice = position.entryPrice ?: return null
+        val structuralStop = structuralStopPrice ?: return null
+        val targetR = expectedR ?: return null
+        return ExecutionTradePlanCalculator.calculateProtection(
+            side = position.side,
+            entryPrice = entryPrice,
+            structuralStopPrice = structuralStop,
+            entryAnchoredStopDistance = entryAnchoredStopDistance,
+            expectedR = targetR,
+            priceTick = config.priceTick,
+        )
+    }
+
+    private fun ExchangePosition.matches(
+        desired: ExecutionProtectionPlan,
+        tolerance: BigDecimal,
+    ): Boolean =
+        takeProfit.isNear(desired.takeProfit, tolerance) &&
+            stopLoss.isNear(desired.stopLoss, tolerance)
 
     private suspend fun recordObservedLifecycle(event: ExecutionLifecycleEvent): ExecutionLifecycleEvent? {
         val store = lifecycleStore ?: return null
@@ -741,7 +938,7 @@ class ExchangeExecutionService(
         }
     }
 
-    private suspend fun completedTradeCountForUtcDay(
+    private suspend fun automaticEntryCountForUtcDay(
         symbol: Symbol,
         evaluatedAt: Instant,
     ): Int {
@@ -751,9 +948,19 @@ class ExchangeExecutionService(
                 .toLocalDate()
                 .atStartOfDay(ZoneOffset.UTC)
                 .toInstant()
-        val closures =
-            projectionStore?.performanceClosures(runtimeMode, dayStart)
-                ?: gateway.closedPnls(symbol).map { closedPnl -> closedPnl.toTradeClosure(runtimeMode) }
+        val store = lifecycleStore
+        if (store != null) {
+            return store
+                .lifecycleEvents(runtimeMode, symbol, DAILY_ENTRY_EVENT_QUERY_LIMIT)
+                .filter { event ->
+                    event.state == ExecutionLifecycleState.ENTRY_SUBMITTED &&
+                        event.reasonCode == "AUTOMATIC_ENTRY_SUBMITTED" &&
+                        !event.occurredAt.isBefore(dayStart)
+                }.distinctBy(ExecutionLifecycleEvent::lifecycleId)
+                .size
+        }
+
+        val closures = gateway.closedPnls(symbol).map { closedPnl -> closedPnl.toTradeClosure(runtimeMode) }
         return closures.count { closure ->
             closure.symbol == symbol && !closure.openedAt.isBefore(dayStart)
         }
@@ -1056,6 +1263,12 @@ class ExchangeExecutionService(
             occurredAt = now,
             filledQuantity = latestLifecycle?.filledQuantity,
             fillVwap = latestLifecycle?.fillVwap,
+            protectionRequired = latestLifecycle?.protectionRequired ?: false,
+            plannedEntryPrice = latestLifecycle?.plannedEntryPrice,
+            structuralStopPrice = latestLifecycle?.structuralStopPrice,
+            entryAnchoredStopDistance = latestLifecycle?.entryAnchoredStopDistance,
+            expectedR = latestLifecycle?.expectedR,
+            protectionDeadlineAt = latestLifecycle?.protectionDeadlineAt,
         )
         logger.warn(
             "execution manual market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={} reduceOnly={}",
@@ -1093,6 +1306,12 @@ class ExchangeExecutionService(
         occurredAt: Instant,
         filledQuantity: BigDecimal? = null,
         fillVwap: BigDecimal? = null,
+        protectionRequired: Boolean = false,
+        plannedEntryPrice: BigDecimal? = null,
+        structuralStopPrice: BigDecimal? = null,
+        entryAnchoredStopDistance: BigDecimal? = null,
+        expectedR: BigDecimal? = null,
+        protectionDeadlineAt: Instant? = null,
     ) {
         val store = lifecycleStore ?: return
         val latest = store.latestLifecycleEvent(runtimeMode, symbol)
@@ -1117,6 +1336,12 @@ class ExchangeExecutionService(
                 clientOrderId = clientOrderId,
                 reasonCode = reasonCode,
                 occurredAt = occurredAt,
+                protectionRequired = protectionRequired,
+                plannedEntryPrice = plannedEntryPrice,
+                structuralStopPrice = structuralStopPrice,
+                entryAnchoredStopDistance = entryAnchoredStopDistance,
+                expectedR = expectedR,
+                protectionDeadlineAt = protectionDeadlineAt,
             ),
         )
     }
@@ -1239,6 +1464,11 @@ private fun List<ExchangeExecutionFill>.weightedVwap(): BigDecimal {
     val notional = fold(BigDecimal.ZERO) { total, fill -> total + fill.price.multiply(fill.quantity) }
     return notional.divide(totalQuantity, MathContext.DECIMAL128)
 }
+
+private fun BigDecimal?.isNear(
+    expected: BigDecimal,
+    tolerance: BigDecimal,
+): Boolean = this != null && subtract(expected).abs() <= tolerance
 
 private fun closedCandleBoundary(
     instant: Instant,
@@ -1540,3 +1770,4 @@ private object EmptyExecutionProjectionStore : ExecutionProjectionStore {
 }
 
 private const val SIGNAL_KEY_PREFIX = "SIGNAL_AT_"
+private const val DAILY_ENTRY_EVENT_QUERY_LIMIT = 1000

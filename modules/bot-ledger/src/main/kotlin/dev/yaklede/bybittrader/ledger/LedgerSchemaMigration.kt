@@ -54,6 +54,20 @@ fun ensureAdditiveLedgerSchema(driver: JdbcSqliteDriver) {
                         statement.execute("ALTER TABLE livePerformanceSnapshots ADD COLUMN $column $type")
                     }
                 }
+                val executionLifecycleColumns =
+                    listOf(
+                        "protection_required" to "INTEGER NOT NULL DEFAULT 0",
+                        "planned_entry_price" to "TEXT",
+                        "structural_stop_price" to "TEXT",
+                        "entry_anchored_stop_distance" to "TEXT",
+                        "expected_r" to "TEXT",
+                        "protection_deadline_at" to "TEXT",
+                    )
+                executionLifecycleColumns.forEach { (column, type) ->
+                    if (!connection.hasColumn("executionLifecycleEvents", column)) {
+                        statement.execute("ALTER TABLE executionLifecycleEvents ADD COLUMN $column $type")
+                    }
+                }
                 statement.execute(EXECUTION_CLOSURE_IDENTITY_BACKFILL)
                 statement.execute(EXECUTION_CLOSURE_DUPLICATE_CLEANUP)
                 statement.execute(
@@ -239,6 +253,12 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
           client_order_id TEXT,
           reason_code TEXT NOT NULL,
           occurred_at TEXT NOT NULL,
+          protection_required INTEGER NOT NULL DEFAULT 0,
+          planned_entry_price TEXT,
+          structural_stop_price TEXT,
+          entry_anchored_stop_distance TEXT,
+          expected_r TEXT,
+          protection_deadline_at TEXT,
           identity_key TEXT NOT NULL
         )
         """.trimIndent(),

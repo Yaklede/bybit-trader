@@ -67,6 +67,46 @@ class ExecutionTradePlanCalculatorTest :
             shortTarget shouldBe BigDecimal("95.6")
         }
 
+        "recalculates protection from actual fill while preserving structural invalidation" {
+            val protection =
+                ExecutionTradePlanCalculator.calculateProtection(
+                    side = Side.BUY,
+                    entryPrice = BigDecimal("106"),
+                    structuralStopPrice = BigDecimal("100"),
+                    entryAnchoredStopDistance = null,
+                    expectedR = BigDecimal("1.5"),
+                    priceTick = BigDecimal("0.1"),
+                )
+
+            protection?.stopLoss shouldBe BigDecimal("100")
+            protection?.riskPerUnit shouldBe BigDecimal("6")
+            protection?.takeProfit shouldBe BigDecimal("115.0")
+        }
+
+        "entry anchored stop can only widen the structural stop distance" {
+            val longProtection =
+                ExecutionTradePlanCalculator.calculateProtection(
+                    side = Side.BUY,
+                    entryPrice = BigDecimal("106"),
+                    structuralStopPrice = BigDecimal("102"),
+                    entryAnchoredStopDistance = BigDecimal("5"),
+                    expectedR = BigDecimal("2"),
+                    priceTick = BigDecimal("0.1"),
+                )
+            val shortProtection =
+                ExecutionTradePlanCalculator.calculateProtection(
+                    side = Side.SELL,
+                    entryPrice = BigDecimal("94"),
+                    structuralStopPrice = BigDecimal("98"),
+                    entryAnchoredStopDistance = BigDecimal("5"),
+                    expectedR = BigDecimal("2"),
+                    priceTick = BigDecimal("0.1"),
+                )
+
+            longProtection?.stopLoss shouldBe BigDecimal("101")
+            shortProtection?.stopLoss shouldBe BigDecimal("99")
+        }
+
         "rejects targets that cannot cover configured costs" {
             val rejection =
                 ExecutionTradePlanCalculator.targetStopRejection(

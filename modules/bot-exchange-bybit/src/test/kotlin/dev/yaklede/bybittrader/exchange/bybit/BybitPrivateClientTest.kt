@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -146,6 +147,29 @@ class BybitPrivateClientTest :
             val client = testPrivateClient(engine)
 
             client.setLeverage(Symbol("BTCUSDT"), BigDecimal("15"))
+        }
+
+        "setPositionProtection amends full-position TP and SL" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/position/trading-stop"
+                    request.bodyAsText() shouldBe
+                        """{"category":"linear","symbol":"BTCUSDT","takeProfit":"72000","stopLoss":"68000","tpslMode":"Full","tpTriggerBy":"LastPrice","slTriggerBy":"LastPrice","positionIdx":0}"""
+                    respond(
+                        content = """{"retCode":0,"retMsg":"OK"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            client.setPositionProtection(
+                ExchangePositionProtectionRequest(
+                    symbol = Symbol("BTCUSDT"),
+                    takeProfit = BigDecimal("72000"),
+                    stopLoss = BigDecimal("68000"),
+                ),
+            )
         }
 
         "reconcile methods map Bybit open orders positions and executions" {

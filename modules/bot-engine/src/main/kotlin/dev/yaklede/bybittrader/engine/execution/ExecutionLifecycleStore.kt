@@ -31,6 +31,12 @@ data class ExecutionLifecycleEvent(
     val clientOrderId: String?,
     val reasonCode: String,
     val occurredAt: Instant,
+    val protectionRequired: Boolean = false,
+    val plannedEntryPrice: BigDecimal? = null,
+    val structuralStopPrice: BigDecimal? = null,
+    val entryAnchoredStopDistance: BigDecimal? = null,
+    val expectedR: BigDecimal? = null,
+    val protectionDeadlineAt: Instant? = null,
 ) {
     init {
         require(lifecycleId.isNotBlank()) { "Execution lifecycle id must not be blank." }
@@ -40,6 +46,19 @@ data class ExecutionLifecycleEvent(
         }
         require(fillVwap == null || fillVwap > BigDecimal.ZERO) { "Execution fill VWAP must be positive." }
         require(reasonCode.isNotBlank()) { "Execution lifecycle reason code must not be blank." }
+        require(plannedEntryPrice == null || plannedEntryPrice > BigDecimal.ZERO) {
+            "Planned execution entry price must be positive."
+        }
+        require(structuralStopPrice == null || structuralStopPrice > BigDecimal.ZERO) {
+            "Structural execution stop price must be positive."
+        }
+        require(entryAnchoredStopDistance == null || entryAnchoredStopDistance > BigDecimal.ZERO) {
+            "Entry-anchored execution stop distance must be positive."
+        }
+        require(expectedR == null || expectedR > BigDecimal.ZERO) { "Execution expected R must be positive." }
+        require(!protectionRequired || protectionDeadlineAt != null) {
+            "Protection-required execution lifecycle needs a deadline."
+        }
     }
 }
 

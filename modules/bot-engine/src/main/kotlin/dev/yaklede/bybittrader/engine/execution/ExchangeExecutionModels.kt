@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import java.math.BigDecimal
+import java.time.Duration
 import java.time.Instant
 
 data class ExchangeExecutionConfig(
@@ -23,6 +24,8 @@ data class ExchangeExecutionConfig(
     val liquidationBufferPct: BigDecimal = BigDecimal("0.6"),
     val minimumNetRiskReward: BigDecimal = BigDecimal("1.0"),
     val duplicateSignalLookback: Int = 50,
+    val priceTick: BigDecimal = BigDecimal("0.1"),
+    val protectionGracePeriod: Duration = Duration.ofSeconds(120),
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -49,6 +52,10 @@ data class ExchangeExecutionConfig(
             "Execution minimum net risk reward must be positive."
         }
         require(duplicateSignalLookback in 1..100) { "Duplicate signal lookback must be between 1 and 100." }
+        require(priceTick > BigDecimal.ZERO) { "Execution price tick must be positive." }
+        require(!protectionGracePeriod.isNegative && !protectionGracePeriod.isZero) {
+            "Execution protection grace period must be positive."
+        }
     }
 }
 
@@ -115,6 +122,17 @@ data class ExchangePosition(
     val takeProfit: BigDecimal? = null,
     val stopLoss: BigDecimal? = null,
 )
+
+data class ExchangePositionProtectionRequest(
+    val symbol: Symbol,
+    val takeProfit: BigDecimal,
+    val stopLoss: BigDecimal,
+) {
+    init {
+        require(takeProfit > BigDecimal.ZERO) { "Position take profit must be positive." }
+        require(stopLoss > BigDecimal.ZERO) { "Position stop loss must be positive." }
+    }
+}
 
 data class ExchangeExecutionFill(
     val exchangeOrderId: String?,
@@ -240,6 +258,9 @@ interface ExchangeExecutionGateway {
     )
 
     suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult
+
+    suspend fun setPositionProtection(request: ExchangePositionProtectionRequest): Unit =
+        throw ExchangeExecutionException("Exchange position protection is unavailable.")
 
     suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult
 

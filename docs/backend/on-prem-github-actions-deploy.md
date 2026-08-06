@@ -98,6 +98,11 @@ override:
 - `BOT_EXECUTION_MAX_QTY`: unset by default.
 - `BOT_EXECUTION_MAX_NOTIONAL`: default `100` during live observation.
 - `BOT_EXECUTION_LEVERAGE`: default `15`.
+- `BOT_EXECUTION_PRICE_TICK`: default `0.1` for BTCUSDT protection-price normalization.
+- `BOT_EXECUTION_PROTECTION_GRACE_SECONDS`: default `120`; an automatic
+  position whose actual-fill TP/SL cannot be verified by this deadline is
+  submitted for reduce-only closure. Manual and smoke-test positions are not
+  included in this automatic fail-closed rule.
 - `TELEGRAM_ALERTS_ENABLED`: default `false`.
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.
