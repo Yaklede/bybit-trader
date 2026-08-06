@@ -108,6 +108,15 @@ data class FundingRateSnapshot(
         get() = timestamp
 }
 
+interface FundingRateFeed {
+    suspend fun fetchFundingRateSnapshots(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+        limit: Int = 200,
+    ): List<FundingRateSnapshot>
+}
+
 interface FlowMarketDataStore {
     suspend fun upsertTakerFlowBars(bars: List<TakerFlowBar>)
 

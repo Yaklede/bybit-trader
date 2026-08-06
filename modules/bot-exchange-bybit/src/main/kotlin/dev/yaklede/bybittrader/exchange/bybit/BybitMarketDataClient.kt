@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.engine.market.MarketDataFeed
 import dev.yaklede.bybittrader.engine.market.MarketTicker
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateFeed
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
@@ -24,7 +25,8 @@ class BybitMarketDataClient(
     private val httpClient: HttpClient,
     private val baseUrl: String = "https://api.bybit.com",
     private val category: BybitMarketCategory = BybitMarketCategory.LINEAR,
-) : MarketDataFeed {
+) : MarketDataFeed,
+    FundingRateFeed {
     init {
         require(baseUrl.isNotBlank()) { "Bybit public base URL must not be blank." }
     }
@@ -245,11 +247,11 @@ class BybitMarketDataClient(
             .sortedBy { bar -> bar.openedAt }
     }
 
-    suspend fun fetchFundingRateSnapshots(
+    override suspend fun fetchFundingRateSnapshots(
         symbol: Symbol,
         startAt: Instant,
         endAt: Instant,
-        limit: Int = BYBIT_FUNDING_MAX_LIMIT,
+        limit: Int,
     ): List<FundingRateSnapshot> {
         require(!startAt.isAfter(endAt)) { "Start time must be before or equal to end time." }
         require(limit in 1..BYBIT_FUNDING_MAX_LIMIT) { "Funding rate limit must be between 1 and $BYBIT_FUNDING_MAX_LIMIT." }
