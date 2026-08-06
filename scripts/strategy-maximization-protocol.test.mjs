@@ -36,3 +36,16 @@ test("new experiments have a bounded search budget and a fresh sealed window", a
   assert.equal(protocol.selectionPolicy.sealedWindowMayBeInspectedBeforeApproval, false);
   assert.equal(protocol.promotion.requiredRuntimeFingerprintMatch, true);
 });
+
+test("research candle metadata ends at one shared closed-candle boundary", async () => {
+  const protocol = JSON.parse(await fs.readFile(protocolPath, "utf8"));
+  const source = protocol.sourceData;
+  const closedThrough = Date.parse(source.closedThroughExclusive);
+  const timeframeMinutes = { M1: 1, M5: 5, M15: 15 };
+
+  assert.deepEqual(source.timeframes, Object.keys(timeframeMinutes));
+  assert.ok(Number.isFinite(closedThrough));
+  for (const [timeframe, minutes] of Object.entries(timeframeMinutes)) {
+    assert.equal(Date.parse(source.latestCandleAt[timeframe]) + minutes * 60_000, closedThrough);
+  }
+});
