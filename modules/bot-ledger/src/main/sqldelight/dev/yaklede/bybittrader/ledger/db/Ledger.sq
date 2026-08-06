@@ -339,7 +339,14 @@ CREATE TABLE executionRiskStates (
   latest_equity TEXT NOT NULL,
   consecutive_losses INTEGER NOT NULL,
   last_closure_id INTEGER,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  nav_status TEXT NOT NULL,
+  strategy_units TEXT NOT NULL,
+  latest_unitized_nav TEXT NOT NULL,
+  peak_unitized_nav TEXT NOT NULL,
+  day_start_unitized_nav TEXT NOT NULL,
+  cumulative_external_cash_flow TEXT NOT NULL,
+  last_account_transaction_id INTEGER
 );
 
 CREATE TABLE executionAccountTransactions (
@@ -1145,13 +1152,22 @@ INSERT OR REPLACE INTO executionRiskStates(
   latest_equity,
   consecutive_losses,
   last_closure_id,
-  updated_at
+  updated_at,
+  nav_status,
+  strategy_units,
+  latest_unitized_nav,
+  peak_unitized_nav,
+  day_start_unitized_nav,
+  cumulative_external_cash_flow,
+  last_account_transaction_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectExecutionRiskState:
 SELECT mode, peak_equity, utc_day_started_at, day_start_equity, latest_equity,
-  consecutive_losses, last_closure_id, updated_at
+  consecutive_losses, last_closure_id, updated_at, nav_status, strategy_units,
+  latest_unitized_nav, peak_unitized_nav, day_start_unitized_nav,
+  cumulative_external_cash_flow, last_account_transaction_id
 FROM executionRiskStates
 WHERE mode = ?;
 
@@ -1204,6 +1220,18 @@ FROM executionAccountTransactions
 WHERE mode = :mode AND currency = :currency
 ORDER BY transaction_at DESC, id DESC
 LIMIT 1;
+
+selectExecutionAccountTransactionsAfterId:
+SELECT id, mode, transaction_id, symbol, category, side, transaction_at, transaction_type,
+  transaction_subtype, quantity, size, currency, trade_price, funding, fee, cash_flow,
+  balance_change, cash_balance, fee_rate, trade_id, exchange_order_id, client_order_id,
+  received_at, identity_key
+FROM executionAccountTransactions
+WHERE mode = :mode
+  AND currency = :currency
+  AND (:afterId IS NULL OR id > :afterId)
+  AND transaction_at <= :transactionAtOrBefore
+ORDER BY id ASC;
 
 upsertExecutionWalletReconciliationState:
 INSERT OR REPLACE INTO executionWalletReconciliationStates(

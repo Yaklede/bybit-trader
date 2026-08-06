@@ -665,7 +665,9 @@ class ExchangeExecutionService(
                 ?: AccountTransactionSyncResult(succeeded = false)
         persistExecutionFills(report.executions)
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
-        accountSnapshot?.let { snapshot -> persistRiskState(snapshot, persistedClosures) }
+        if (accountSnapshot != null && (!config.walletReconciliationEnabled || transactionSync.succeeded)) {
+            persistRiskState(accountSnapshot, persistedClosures)
+        }
         if (accountSnapshot != null && config.walletReconciliationEnabled) {
             persistWalletReconciliation(accountSnapshot, transactionSync.succeeded)
         }
@@ -1556,7 +1558,7 @@ class ExchangeExecutionService(
         val store = projectionStore ?: return ExecutionRiskDecision(listOf("RISK_STATE_STORE_UNAVAILABLE"))
         var state = store.executionRiskState(runtimeMode)
         var decision = config.evaluateRiskState(state, now)
-        if (decision.reasonCodes.any(RISK_STATE_REFRESH_REASON_CODES::contains)) {
+        if (!config.walletReconciliationEnabled && decision.reasonCodes.any(RISK_STATE_REFRESH_REASON_CODES::contains)) {
             val snapshot = persistAccountSnapshot()
             if (snapshot != null) {
                 state = persistRiskState(snapshot, recentClosuresAfter(state?.lastClosureId))
@@ -1583,7 +1585,24 @@ class ExchangeExecutionService(
     ): ExecutionRiskState? {
         val store = projectionStore ?: return null
         val previous = store.executionRiskState(runtimeMode)
-        val state = ExecutionRiskCircuitBreaker.update(previous, snapshot, newClosures) ?: return null
+        val pendingClosures =
+            (newClosures + recentClosuresAfter(previous?.lastClosureId))
+                .distinctBy(ExecutionTradeClosure::id)
+                .sortedBy(ExecutionTradeClosure::id)
+        val accountTransactions =
+            store.accountTransactionsAfterId(
+                mode = runtimeMode,
+                currency = ACCOUNT_LEDGER_CURRENCY,
+                afterId = previous?.lastAccountTransactionId,
+                transactionAtOrBefore = snapshot.capturedAt,
+            )
+        val state =
+            ExecutionRiskCircuitBreaker.update(
+                previous = previous,
+                snapshot = snapshot,
+                newClosures = pendingClosures,
+                accountTransactions = accountTransactions,
+            ) ?: return null
         store.upsertExecutionRiskState(state)
         return state
     }
@@ -2807,6 +2826,7 @@ private fun ExchangeExecutionConfig.evaluateRiskState(
         maximumDailyLossFraction = maximumDailyLossFraction,
         maximumAccountDrawdownFraction = maximumAccountDrawdownFraction,
         maximumConsecutiveLosses = maximumConsecutiveLosses,
+        useUnitizedNav = walletReconciliationEnabled,
     )
 
 private data class AccountTransactionSyncResult(

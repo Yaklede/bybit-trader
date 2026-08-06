@@ -30,6 +30,9 @@ more of these reason codes:
 - `RISK_STATE_UNAVAILABLE`
 - `RISK_STATE_STALE`
 - `RISK_STATE_CLOCK_SKEW`
+- `RISK_NAV_UNAVAILABLE`
+- `RISK_NAV_BASELINE_PENDING`
+- `RISK_NAV_INVALID`
 - `DAILY_EQUITY_LOSS_LIMIT_REACHED`
 - `ACCOUNT_DRAWDOWN_LIMIT_REACHED`
 - `CONSECUTIVE_LOSS_LIMIT_REACHED`
@@ -47,6 +50,13 @@ the breaker cannot strand an existing position. Wallet reconciliation compares
 the observed USDT wallet-balance delta with persisted Bybit transaction `change`
 values. Its first snapshot is a blocking baseline; only a fresh `MATCHED` state
 allows a new entry.
+
+When wallet reconciliation is enabled, daily loss and account drawdown use a
+unitized strategy NAV rather than raw account equity. Transaction-log changes
+outside `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`, `FEE_REFUND`,
+and `INTEREST` are treated as external capital flows. Deposits and withdrawals
+therefore change strategy units without resetting or fabricating strategy
+returns. A new or migrated NAV state blocks entries for one baseline interval.
 The gross target move must exceed configured round-trip fees plus
 `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`; otherwise the signal is rejected before
 any private order call.

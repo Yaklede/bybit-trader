@@ -1846,6 +1846,67 @@ class ExchangeExecutionServiceTest :
             gateway.accountTransactionRequests shouldBe 2
             store.walletReconciliationStates[ExecutionRuntimeMode.TESTNET to "USDT"]?.status shouldBe
                 ExecutionWalletReconciliationStatus.MATCHED
+            store.executionRiskState(ExecutionRuntimeMode.TESTNET)?.navStatus shouldBe ExecutionRiskNavStatus.READY
+            store.executionRiskState(ExecutionRuntimeMode.TESTNET)?.latestUnitizedNav shouldBe BigDecimal.ONE
+        }
+
+        "transaction sync failure delays the unitized nav baseline without losing recovery" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            val accountBalance =
+                ExchangeAccountBalance(
+                    accountType = "UNIFIED",
+                    totalEquity = BigDecimal("100"),
+                    totalWalletBalance = BigDecimal("100"),
+                    totalMarginBalance = BigDecimal("100"),
+                    totalAvailableBalance = BigDecimal("100"),
+                    totalPerpUnrealizedPnl = BigDecimal.ZERO,
+                    totalInitialMargin = BigDecimal.ZERO,
+                    totalMaintenanceMargin = BigDecimal.ZERO,
+                    coins =
+                        listOf(
+                            ExchangeCoinBalance(
+                                coin = "USDT",
+                                equity = BigDecimal("100"),
+                                usdValue = BigDecimal("100"),
+                                walletBalance = BigDecimal("100"),
+                                locked = BigDecimal.ZERO,
+                                unrealizedPnl = BigDecimal.ZERO,
+                            ),
+                        ),
+                    capturedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                )
+            val gateway =
+                RecordingExecutionGateway(
+                    accountTransactions =
+                        listOf(
+                            testAccountTransaction().copy(
+                                type = "TRANSFER_IN",
+                                cashFlow = BigDecimal("100"),
+                                change = BigDecimal("100"),
+                            ),
+                        ),
+                    accountTransactionFailure = IllegalStateException("transaction sync unavailable"),
+                    accountBalance = accountBalance,
+                )
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, walletReconciliationEnabled = true),
+                )
+
+            service.persistExchangeState(symbol)
+            store.executionRiskState(ExecutionRuntimeMode.TESTNET) shouldBe null
+            store.walletReconciliationState(ExecutionRuntimeMode.TESTNET, "USDT")?.status shouldBe
+                ExecutionWalletReconciliationStatus.SYNC_ERROR
+
+            gateway.accountTransactionFailure = null
+            service.persistExchangeState(symbol)
+            store.executionRiskState(ExecutionRuntimeMode.TESTNET)?.navStatus shouldBe ExecutionRiskNavStatus.BASELINE
+            service.persistExchangeState(symbol)
+            store.executionRiskState(ExecutionRuntimeMode.TESTNET)?.navStatus shouldBe ExecutionRiskNavStatus.READY
+            store.executionRiskState(ExecutionRuntimeMode.TESTNET)?.latestUnitizedNav shouldBe BigDecimal.ONE
         }
 
         "exchange reconciliation classifies the close from Bybit execution metadata" {
@@ -2303,6 +2364,20 @@ private class InMemoryTradingStore :
             .filter { event -> event.mode == mode && event.transaction.currency == currency }
             .maxByOrNull { event -> event.transaction.transactionAt }
 
+    override suspend fun accountTransactionsAfterId(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+        afterId: Long?,
+        transactionAtOrBefore: Instant,
+    ): List<ExecutionAccountTransactionEvent> =
+        accountTransactionEvents
+            .filter { event ->
+                event.mode == mode &&
+                    event.transaction.currency == currency &&
+                    (afterId == null || event.id > afterId) &&
+                    !event.transaction.transactionAt.isAfter(transactionAtOrBefore)
+            }.sortedBy(ExecutionAccountTransactionEvent::id)
+
     override suspend fun upsertWalletReconciliationState(state: ExecutionWalletReconciliationState) {
         walletReconciliationStates[state.mode to state.currency] = state
     }
@@ -2319,6 +2394,7 @@ private class RecordingExecutionGateway(
     private val executions: List<ExchangeExecutionFill> = emptyList(),
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
     private val accountTransactions: List<ExchangeAccountTransaction> = emptyList(),
+    var accountTransactionFailure: Throwable? = null,
     private val protectionFailure: Throwable? = null,
     private val closeImmediatelyOnReduceOnly: Boolean = false,
     private val accountBalance: ExchangeAccountBalance =
@@ -2418,6 +2494,7 @@ private class RecordingExecutionGateway(
         endAt: Instant,
     ): List<ExchangeAccountTransaction> {
         accountTransactionRequests += 1
+        accountTransactionFailure?.let { throw it }
         return accountTransactions.filter { transaction ->
             transaction.currency == currency &&
                 !transaction.transactionAt.isBefore(startAt) &&

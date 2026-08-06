@@ -85,6 +85,21 @@ fun ensureAdditiveLedgerSchema(driver: JdbcSqliteDriver) {
                         statement.execute("ALTER TABLE executionAccountSnapshots ADD COLUMN $column $type")
                     }
                 }
+                val executionRiskStateColumns =
+                    listOf(
+                        "nav_status" to "TEXT NOT NULL DEFAULT 'UNAVAILABLE'",
+                        "strategy_units" to "TEXT NOT NULL DEFAULT '0'",
+                        "latest_unitized_nav" to "TEXT NOT NULL DEFAULT '0'",
+                        "peak_unitized_nav" to "TEXT NOT NULL DEFAULT '0'",
+                        "day_start_unitized_nav" to "TEXT NOT NULL DEFAULT '0'",
+                        "cumulative_external_cash_flow" to "TEXT NOT NULL DEFAULT '0'",
+                        "last_account_transaction_id" to "INTEGER",
+                    )
+                executionRiskStateColumns.forEach { (column, type) ->
+                    if (!connection.hasColumn("executionRiskStates", column)) {
+                        statement.execute("ALTER TABLE executionRiskStates ADD COLUMN $column $type")
+                    }
+                }
                 statement.execute(EXECUTION_CLOSURE_IDENTITY_BACKFILL)
                 statement.execute(EXECUTION_CLOSURE_DUPLICATE_CLEANUP)
                 statement.execute(
@@ -357,7 +372,14 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
           latest_equity TEXT NOT NULL,
           consecutive_losses INTEGER NOT NULL,
           last_closure_id INTEGER,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          nav_status TEXT NOT NULL,
+          strategy_units TEXT NOT NULL,
+          latest_unitized_nav TEXT NOT NULL,
+          peak_unitized_nav TEXT NOT NULL,
+          day_start_unitized_nav TEXT NOT NULL,
+          cumulative_external_cash_flow TEXT NOT NULL,
+          last_account_transaction_id INTEGER
         )
         """.trimIndent(),
         """

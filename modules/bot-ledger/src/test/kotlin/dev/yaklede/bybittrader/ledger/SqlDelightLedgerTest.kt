@@ -21,6 +21,7 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskNavStatus
 import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
@@ -565,6 +566,21 @@ class SqlDelightLedgerTest :
                     transactionAtOrAfter = Instant.parse("2026-06-30T00:10:00Z"),
                     transactionAtOrBefore = Instant.parse("2026-06-30T00:11:00Z"),
                 ).size shouldBe 1
+            ledger
+                .accountTransactionsAfterId(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    currency = "USDT",
+                    afterId = null,
+                    transactionAtOrBefore = Instant.parse("2026-06-30T00:11:00Z"),
+                ).single()
+                .id shouldBe 1L
+            ledger
+                .accountTransactionsAfterId(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    currency = "USDT",
+                    afterId = 1,
+                    transactionAtOrBefore = Instant.parse("2026-06-30T00:11:00Z"),
+                ) shouldBe emptyList()
 
             val reconciliationState =
                 ExecutionWalletReconciliationState(
@@ -736,6 +752,35 @@ class SqlDelightLedgerTest :
                 """.trimIndent(),
                 0,
             )
+            driver.execute(
+                null,
+                """
+                CREATE TABLE executionRiskStates (
+                  mode TEXT NOT NULL PRIMARY KEY,
+                  peak_equity TEXT NOT NULL,
+                  utc_day_started_at TEXT NOT NULL,
+                  day_start_equity TEXT NOT NULL,
+                  latest_equity TEXT NOT NULL,
+                  consecutive_losses INTEGER NOT NULL,
+                  last_closure_id INTEGER,
+                  updated_at TEXT NOT NULL
+                )
+                """.trimIndent(),
+                0,
+            )
+            driver.execute(
+                null,
+                """
+                INSERT INTO executionRiskStates(
+                  mode, peak_equity, utc_day_started_at, day_start_equity, latest_equity,
+                  consecutive_losses, last_closure_id, updated_at
+                ) VALUES (
+                  'LIVE', '110', '2026-06-30T00:00:00Z', '100', '95', 2, 7,
+                  '2026-06-30T00:10:00Z'
+                )
+                """.trimIndent(),
+                0,
+            )
 
             ensureAdditiveLedgerSchema(driver)
 
@@ -754,6 +799,20 @@ class SqlDelightLedgerTest :
             tableColumnNames(driver, "executionFillEvents").containsAll(
                 setOf("execution_id", "executed_at", "received_at", "identity_key"),
             ) shouldBe true
+            tableColumnNames(driver, "executionRiskStates").containsAll(
+                setOf(
+                    "nav_status",
+                    "strategy_units",
+                    "latest_unitized_nav",
+                    "peak_unitized_nav",
+                    "day_start_unitized_nav",
+                    "cumulative_external_cash_flow",
+                    "last_account_transaction_id",
+                ),
+            ) shouldBe true
+            val migratedRisk = SqlDelightLedger(createLedgerDatabase(driver)).executionRiskState(ExecutionRuntimeMode.LIVE)
+            migratedRisk?.navStatus shouldBe ExecutionRiskNavStatus.UNAVAILABLE
+            migratedRisk?.latestEquity shouldBe BigDecimal("95")
         }
 
         "performance closure query is not capped by API page size" {

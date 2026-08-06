@@ -178,6 +178,13 @@ interface ExecutionProjectionStore {
         currency: String,
     ): ExecutionAccountTransactionEvent? = null
 
+    suspend fun accountTransactionsAfterId(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+        afterId: Long?,
+        transactionAtOrBefore: Instant,
+    ): List<ExecutionAccountTransactionEvent> = emptyList()
+
     suspend fun upsertWalletReconciliationState(state: ExecutionWalletReconciliationState) = Unit
 
     suspend fun walletReconciliationState(

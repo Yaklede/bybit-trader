@@ -26,6 +26,7 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
 import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeStateStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskNavStatus
 import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
@@ -1019,6 +1020,13 @@ class SqlDelightLedger(
             consecutive_losses = state.consecutiveLosses.toLong(),
             last_closure_id = state.lastClosureId,
             updated_at = state.updatedAt.toString(),
+            nav_status = state.navStatus.name,
+            strategy_units = state.strategyUnits.toPlainString(),
+            latest_unitized_nav = state.latestUnitizedNav.toPlainString(),
+            peak_unitized_nav = state.peakUnitizedNav.toPlainString(),
+            day_start_unitized_nav = state.dayStartUnitizedNav.toPlainString(),
+            cumulative_external_cash_flow = state.cumulativeExternalCashFlow.toPlainString(),
+            last_account_transaction_id = state.lastAccountTransactionId,
         )
     }
 
@@ -1086,6 +1094,21 @@ class SqlDelightLedger(
             .selectLatestExecutionAccountTransaction(mode.name, currency)
             .executeAsOneOrNull()
             ?.toExecutionAccountTransactionEvent()
+
+    override suspend fun accountTransactionsAfterId(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+        afterId: Long?,
+        transactionAtOrBefore: Instant,
+    ): List<ExecutionAccountTransactionEvent> =
+        database.ledgerQueries
+            .selectExecutionAccountTransactionsAfterId(
+                mode = mode.name,
+                currency = currency,
+                afterId = afterId,
+                transactionAtOrBefore = transactionAtOrBefore.toString(),
+            ).executeAsList()
+            .map(ExecutionAccountTransactions::toExecutionAccountTransactionEvent)
 
     override suspend fun upsertWalletReconciliationState(state: ExecutionWalletReconciliationState) {
         database.ledgerQueries.upsertExecutionWalletReconciliationState(
@@ -1539,6 +1562,13 @@ private fun ExecutionRiskStates.toExecutionRiskState(): ExecutionRiskState =
         consecutiveLosses = consecutive_losses.toInt(),
         lastClosureId = last_closure_id,
         updatedAt = Instant.parse(updated_at),
+        navStatus = ExecutionRiskNavStatus.valueOf(nav_status),
+        strategyUnits = BigDecimal(strategy_units),
+        latestUnitizedNav = BigDecimal(latest_unitized_nav),
+        peakUnitizedNav = BigDecimal(peak_unitized_nav),
+        dayStartUnitizedNav = BigDecimal(day_start_unitized_nav),
+        cumulativeExternalCashFlow = BigDecimal(cumulative_external_cash_flow),
+        lastAccountTransactionId = last_account_transaction_id,
     )
 
 private fun ExecutionWalletReconciliationStates.toWalletReconciliationState(): ExecutionWalletReconciliationState =

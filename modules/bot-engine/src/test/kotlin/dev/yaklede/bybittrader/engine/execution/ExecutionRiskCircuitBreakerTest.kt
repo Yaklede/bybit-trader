@@ -104,7 +104,134 @@ class ExecutionRiskCircuitBreakerTest :
                 now = now,
             ).allowsEntry shouldBe true
         }
+
+        "unitizes deposits and withdrawals without changing strategy nav" {
+            val baselineAt = Instant.parse("2026-08-06T00:00:00Z")
+            val baseline =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = null,
+                    snapshot = riskSnapshot("100", baselineAt.toString()),
+                    newClosures = emptyList(),
+                    accountTransactions = emptyList(),
+                )!!
+            val deposit =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = baseline,
+                    snapshot = riskSnapshot("200", baselineAt.plusSeconds(60).toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(
+                            riskTransaction(
+                                id = 1,
+                                type = "TRANSFER_IN",
+                                change = "100",
+                                transactionAt = baselineAt.plusSeconds(30),
+                            ),
+                        ),
+                )!!
+            val withdrawal =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = deposit,
+                    snapshot = riskSnapshot("150", baselineAt.plusSeconds(120).toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(
+                            riskTransaction(
+                                id = 2,
+                                type = "TRANSFER_OUT",
+                                change = "-50",
+                                transactionAt = baselineAt.plusSeconds(90),
+                            ),
+                        ),
+                )!!
+
+            baseline.navStatus shouldBe ExecutionRiskNavStatus.BASELINE
+            deposit.navStatus shouldBe ExecutionRiskNavStatus.READY
+            deposit.latestUnitizedNav shouldBe BigDecimal.ONE
+            deposit.strategyUnits shouldBe BigDecimal("200")
+            withdrawal.latestUnitizedNav.compareTo(BigDecimal.ONE) shouldBe 0
+            withdrawal.cumulativeExternalCashFlow shouldBe BigDecimal("50")
+            walletRiskDecision(withdrawal, baselineAt.plusSeconds(120)).allowsEntry shouldBe true
+        }
+
+        "detects a trading loss after a deposit from unitized nav" {
+            val now = Instant.parse("2026-08-06T00:00:00Z")
+            val baseline =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = null,
+                    snapshot = riskSnapshot("100", now.toString()),
+                    newClosures = emptyList(),
+                )!!
+            val funded =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = baseline,
+                    snapshot = riskSnapshot("200", now.plusSeconds(60).toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(riskTransaction(1, "TRANSFER_IN", "100", now.plusSeconds(30))),
+                )!!
+            val loss =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = funded,
+                    snapshot = riskSnapshot("180", now.plusSeconds(120).toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(riskTransaction(2, "TRADE", "-20", now.plusSeconds(90))),
+                )!!
+
+            loss.latestUnitizedNav.compareTo(BigDecimal("0.9")) shouldBe 0
+            loss.peakUnitizedNav shouldBe BigDecimal.ONE
+            walletRiskDecision(loss, now.plusSeconds(120)).reasonCodes shouldBe
+                listOf("DAILY_EQUITY_LOSS_LIMIT_REACHED")
+        }
+
+        "uses transaction ids as an external cash flow checkpoint" {
+            val now = Instant.parse("2026-08-06T00:00:00Z")
+            val baseline =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = null,
+                    snapshot = riskSnapshot("100", now.toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(riskTransaction(7, "TRANSFER_IN", "100", now.minusSeconds(30))),
+                )!!
+            val replayed =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = baseline,
+                    snapshot = riskSnapshot("100", now.plusSeconds(60).toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(riskTransaction(7, "TRANSFER_IN", "100", now.minusSeconds(30))),
+                )!!
+
+            baseline.lastAccountTransactionId shouldBe 7L
+            replayed.cumulativeExternalCashFlow shouldBe BigDecimal.ZERO
+            replayed.latestUnitizedNav shouldBe BigDecimal.ONE
+        }
+
+        "blocks baseline and invalid unitized nav states" {
+            val now = Instant.parse("2026-08-06T12:00:00Z")
+            val baseline = riskState(updatedAt = now).copy(navStatus = ExecutionRiskNavStatus.BASELINE)
+            walletRiskDecision(baseline, now).reasonCodes shouldBe listOf("RISK_NAV_BASELINE_PENDING")
+            walletRiskDecision(
+                baseline.copy(navStatus = ExecutionRiskNavStatus.INVALID),
+                now,
+            ).reasonCodes shouldBe listOf("RISK_NAV_INVALID")
+        }
     })
+
+private fun walletRiskDecision(
+    state: ExecutionRiskState,
+    now: Instant,
+): ExecutionRiskDecision =
+    ExecutionRiskCircuitBreaker.evaluate(
+        state = state,
+        now = now,
+        maximumAge = Duration.ofSeconds(120),
+        maximumDailyLossFraction = BigDecimal("0.03"),
+        maximumAccountDrawdownFraction = BigDecimal("0.20"),
+        maximumConsecutiveLosses = 3,
+    )
 
 private fun riskDecision(
     state: ExecutionRiskState?,
@@ -172,4 +299,39 @@ private fun riskClosure(
         exitReason = "STOP_LOSS",
         exchangeOrderId = "exchange-$id",
         clientOrderId = "client-$id",
+    )
+
+private fun riskTransaction(
+    id: Long,
+    type: String,
+    change: String,
+    transactionAt: Instant,
+): ExecutionAccountTransactionEvent =
+    ExecutionAccountTransactionEvent(
+        id = id,
+        mode = ExecutionRuntimeMode.LIVE,
+        transaction =
+            ExchangeAccountTransaction(
+                transactionId = "transaction-$id",
+                symbol = Symbol("BTCUSDT"),
+                category = "linear",
+                side = Side.BUY,
+                transactionAt = transactionAt,
+                type = type,
+                subtype = null,
+                quantity = null,
+                size = null,
+                currency = "USDT",
+                tradePrice = null,
+                funding = BigDecimal.ZERO,
+                fee = BigDecimal.ZERO,
+                cashFlow = BigDecimal(change),
+                change = BigDecimal(change),
+                cashBalance = null,
+                feeRate = null,
+                tradeId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+            ),
+        receivedAt = transactionAt,
     )

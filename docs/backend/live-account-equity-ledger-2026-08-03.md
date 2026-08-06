@@ -41,10 +41,37 @@ funding - fee`이다.
 기존 포지션 관리와 reduce-only 종료는 이 게이트보다 먼저 실행된다.
 
 이 대사는 원장 누락을 탐지하는 장치다. 거래 내역 적재만으로 입출금을 전략
-수익에서 자동 분리했다고 간주하지 않는다.
+수익에서 자동 분리했다고 간주하지 않는다. 대사가 활성화된 운영 구성에서는
+별도의 단위화 NAV가 입출금 영향을 제거한다.
+
+## 현금흐름 조정 NAV
+
+위험 회로차단기는 raw `totalEquity`를 감사용으로 계속 저장하되, 일손실과
+계좌 낙폭은 unitized NAV로 평가한다. 최초 스냅샷에서 NAV `1`, units를 현재
+equity로 기준화한다. 이후 각 스냅샷 구간의 외부 현금흐름 `F`에 대해 다음
+순서로 갱신한다.
+
+```text
+preFlowEquity = currentEquity - F
+periodFactor  = preFlowEquity / previousEquity
+currentNAV    = previousNAV * periodFactor
+currentUnits  = previousUnits + F / currentNAV
+```
+
+Bybit 거래 유형 중 `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`,
+`FEE_REFUND`, `INTEREST`는 전략 성과로 포함한다. 그 밖의 USDT 잔고 변화는
+봇 외부의 자본 흐름으로 단위화한다. 거래 원장 row ID를 체크포인트로
+저장하므로 재조회·재시작 시 같은 현금흐름을 두 번 적용하지 않고, 늦게
+도착한 과거 시각의 거래도 더 큰 row ID로 다음 주기에 처리한다.
+
+스냅샷 간 현금흐름은 해당 짧은 구간의 끝에서 발생한 것으로 계산한다.
+reconciliation 기본 간격은 60초이므로 장기 성과 왜곡은 제한되지만, 이
+근사는 체결 단위 투자펀드 회계와 동일하지 않다. 봇 전용 Unified 계좌를
+사용하는 것이 전제다.
 
 Source: [Bybit Get Transaction Log](https://bybit-exchange.github.io/docs/v5/account/transaction-log),
-[Bybit Get Wallet Balance](https://bybit-exchange.github.io/docs/v5/account/wallet-balance).
+[Bybit Get Wallet Balance](https://bybit-exchange.github.io/docs/v5/account/wallet-balance),
+[Bybit Enums](https://bybit-exchange.github.io/docs/v5/enum).
 
 ## 성과 계약
 
@@ -70,3 +97,8 @@ Source: [Bybit Get Transaction Log](https://bybit-exchange.github.io/docs/v5/acc
 - 첫 wallet snapshot은 `BASELINE`, 변화량과 원장이 일치하는 다음 snapshot은 `MATCHED`가 된다.
 - 불일치, transaction sync 실패, stale reconciliation 상태에서는 신규 진입만 fail closed 된다.
 - 기존 SQLite는 wallet reconciliation 상태 테이블을 additive migration으로 보완한다.
+- 입금 후 raw equity가 증가해도 unitized NAV와 NAV MDD는 변하지 않는다.
+- 출금 후 raw equity가 감소해도 unitized NAV와 NAV MDD는 변하지 않는다.
+- 거래 손실은 입출금 뒤에도 unitized NAV 손실로 반영된다.
+- 거래 원장 ID checkpoint는 재처리된 외부 현금흐름의 중복 적용을 막는다.
+- 기존 risk state는 `UNAVAILABLE` NAV로 이관되고 새 기준점이 준비될 때까지 신규 진입을 차단한다.

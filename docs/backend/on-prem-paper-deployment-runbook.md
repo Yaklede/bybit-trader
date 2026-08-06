@@ -160,6 +160,12 @@ Wallet reconciliation is also enabled by default. After startup, wait for the
 first `BASELINE` and the following `MATCHED` reconciliation before considering
 any automatic entry. A missing/stale transaction sync or wallet-ledger mismatch
 blocks new entries while existing position management remains active.
+The same baseline initializes cash-flow-adjusted strategy NAV. Deposits and
+withdrawals change units, while daily loss and drawdown remain based on NAV.
+Use a dedicated Unified account; unrelated loans, earn products, conversions,
+and account transfers are treated as capital outside this strategy. Do not place
+manual trades in the same account because Bybit reports them as `TRADE`, which
+is indistinguishable from bot performance at the account-transaction layer.
 
 Enable at least one alert sink:
 
