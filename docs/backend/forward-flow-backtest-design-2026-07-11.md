@@ -128,6 +128,11 @@ provenance를 사용해야 하며, 이를 60개월 봉인 검증이나 실거래
 SHA-256이 있어야 한다. 따라서 누락 원천을 캔들 또는 수동 호가 행으로 채워도
 프로토콜을 생성할 수 없다.
 
+2026-08-06부터 archive importer V2는 분당 마지막 한 표본이 아니라 모든 유효 L2
+메시지를 live와 같은 top-50 event-weighted 계약으로 집계한다. 추가로 top-5
+추가·제거량과 microprice를 `orderBookEventFlowBars`에 저장한다. 과거 V1 manifest는
+새 이벤트 전략의 커버리지로 인정하지 않으며 V2로 다시 import해야 한다.
+
 ## 실패 처리와 검증
 
 - 저장소 부재는 `IllegalArgumentException`으로 중단한다.
