@@ -111,10 +111,10 @@ class BybitPrivateClient(
                 BybitSetTradingStopBody(
                     category = config.category.apiValue,
                     symbol = request.symbol.value,
-                    takeProfit = request.takeProfit.toPlainString(),
+                    takeProfit = request.takeProfit?.toPlainString() ?: "0",
                     stopLoss = request.stopLoss.toPlainString(),
                     tpslMode = "Full",
-                    tpTriggerBy = "LastPrice",
+                    tpTriggerBy = request.takeProfit?.let { "LastPrice" },
                     slTriggerBy = "LastPrice",
                     positionIdx = config.positionIdx,
                 ),
@@ -526,7 +526,7 @@ private data class BybitSetTradingStopBody(
     val takeProfit: String,
     val stopLoss: String,
     val tpslMode: String,
-    val tpTriggerBy: String,
+    val tpTriggerBy: String? = null,
     val slTriggerBy: String,
     val positionIdx: Int,
 )

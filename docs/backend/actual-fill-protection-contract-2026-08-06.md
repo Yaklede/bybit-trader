@@ -56,6 +56,13 @@ are never treated as bot-owned fail-closed positions without ownership data.
 - `BOT_EXECUTION_PRICE_TICK`, default `0.1` for BTCUSDT
 - `BOT_EXECUTION_PROTECTION_GRACE_SECONDS`, default `120`
 
+The protection model permits a nullable fixed take-profit. A stop-only policy
+sends `takeProfit=0` when amending the position so an existing target is
+explicitly removed, then verifies that no target remains and that the stop
+matches the actual-fill plan. This follows Bybit V5's independent TP/SL fields
+and zero-value cancellation contract:
+<https://bybit-exchange.github.io/docs/v5/position/trading-stop>.
+
 The exchange instrument metadata remains the preferred future source for price
 and quantity steps. These settings are explicit until that metadata is wired
 into the execution gateway.

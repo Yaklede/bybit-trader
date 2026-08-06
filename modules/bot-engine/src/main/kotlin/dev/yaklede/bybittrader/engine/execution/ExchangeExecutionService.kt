@@ -323,6 +323,7 @@ class ExchangeExecutionService(
                 entryAnchoredStopDistance = signal.entryAnchoredStopDistance,
                 expectedR = signal.expectedR,
                 priceTick = config.priceTick,
+                fixedTargetEnabled = activePositionPolicy?.fixedTargetEnabled ?: true,
             )
         if (protectionPlan == null) {
             val rejectionReason = "INVALID_TARGET_STOP_GEOMETRY"
@@ -409,16 +410,18 @@ class ExchangeExecutionService(
         val takeProfit = protectionPlan.takeProfit
         val stopLoss = protectionPlan.stopLoss
         val targetStopRejection =
-            ExecutionTradePlanCalculator.targetStopRejection(
-                side = signal.side,
-                entryPrice = entryPrice,
-                takeProfit = takeProfit,
-                stopLoss = stopLoss,
-                feeRate = config.feeRate,
-                slippageBufferRate = config.slippageBufferRate,
-                minimumNetRiskReward = config.minimumNetRiskReward,
-                exitSlippageRate = config.slippageBufferRate,
-            ) ?: ExecutionTradePlanCalculator.leverageStopRejection(
+            takeProfit?.let { targetPrice ->
+                ExecutionTradePlanCalculator.targetStopRejection(
+                    side = signal.side,
+                    entryPrice = entryPrice,
+                    takeProfit = targetPrice,
+                    stopLoss = stopLoss,
+                    feeRate = config.feeRate,
+                    slippageBufferRate = config.slippageBufferRate,
+                    minimumNetRiskReward = config.minimumNetRiskReward,
+                    exitSlippageRate = config.slippageBufferRate,
+                )
+            } ?: ExecutionTradePlanCalculator.leverageStopRejection(
                 side = signal.side,
                 entryPrice = entryPrice,
                 stopLoss = stopLoss,
@@ -544,6 +547,7 @@ class ExchangeExecutionService(
             entryAnchoredStopDistance = signal.entryAnchoredStopDistance,
             expectedR = signal.expectedR,
             protectionDeadlineAt = now.plus(config.protectionGracePeriod),
+            fixedTargetEnabled = activePositionPolicy?.fixedTargetEnabled ?: true,
         )
 
         val result =
@@ -865,6 +869,7 @@ class ExchangeExecutionService(
             entryAnchoredStopDistance = entryAnchoredStopDistance,
             expectedR = targetR,
             priceTick = config.priceTick,
+            fixedTargetEnabled = fixedTargetEnabled,
         )
     }
 
@@ -872,7 +877,7 @@ class ExchangeExecutionService(
         desired: ExecutionProtectionPlan,
         tolerance: BigDecimal,
     ): Boolean =
-        takeProfit.isNear(desired.takeProfit, tolerance) &&
+        takeProfit.matchesOptional(desired.takeProfit, tolerance) &&
             stopLoss.isNear(desired.stopLoss, tolerance)
 
     private suspend fun recordObservedLifecycle(event: ExecutionLifecycleEvent): ExecutionLifecycleEvent? {
@@ -1329,6 +1334,7 @@ class ExchangeExecutionService(
             entryAnchoredStopDistance = latestLifecycle?.entryAnchoredStopDistance,
             expectedR = latestLifecycle?.expectedR,
             protectionDeadlineAt = latestLifecycle?.protectionDeadlineAt,
+            fixedTargetEnabled = latestLifecycle?.fixedTargetEnabled ?: true,
         )
         logger.warn(
             "execution manual market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={} reduceOnly={}",
@@ -1372,6 +1378,7 @@ class ExchangeExecutionService(
         entryAnchoredStopDistance: BigDecimal? = null,
         expectedR: BigDecimal? = null,
         protectionDeadlineAt: Instant? = null,
+        fixedTargetEnabled: Boolean = true,
     ) {
         val store = lifecycleStore ?: return
         val latest = store.latestLifecycleEvent(runtimeMode, symbol)
@@ -1402,6 +1409,7 @@ class ExchangeExecutionService(
                 entryAnchoredStopDistance = entryAnchoredStopDistance,
                 expectedR = expectedR,
                 protectionDeadlineAt = protectionDeadlineAt,
+                fixedTargetEnabled = fixedTargetEnabled,
             ),
         )
     }
@@ -1526,6 +1534,11 @@ private fun BigDecimal?.isNear(
     expected: BigDecimal,
     tolerance: BigDecimal,
 ): Boolean = this != null && subtract(expected).abs() <= tolerance
+
+private fun BigDecimal?.matchesOptional(
+    expected: BigDecimal?,
+    tolerance: BigDecimal,
+): Boolean = if (expected == null) this == null || compareTo(BigDecimal.ZERO) == 0 else isNear(expected, tolerance)
 
 private fun closedCandleBoundary(
     instant: Instant,

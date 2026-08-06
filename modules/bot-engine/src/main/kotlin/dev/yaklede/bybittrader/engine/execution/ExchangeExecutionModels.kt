@@ -129,11 +129,11 @@ data class ExchangePosition(
 
 data class ExchangePositionProtectionRequest(
     val symbol: Symbol,
-    val takeProfit: BigDecimal,
+    val takeProfit: BigDecimal?,
     val stopLoss: BigDecimal,
 ) {
     init {
-        require(takeProfit > BigDecimal.ZERO) { "Position take profit must be positive." }
+        require(takeProfit == null || takeProfit > BigDecimal.ZERO) { "Position take profit must be positive." }
         require(stopLoss > BigDecimal.ZERO) { "Position stop loss must be positive." }
     }
 }

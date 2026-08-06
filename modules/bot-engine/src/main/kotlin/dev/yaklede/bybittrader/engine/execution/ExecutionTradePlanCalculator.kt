@@ -18,7 +18,7 @@ internal data class ExecutionSizing(
 )
 
 internal data class ExecutionProtectionPlan(
-    val takeProfit: BigDecimal,
+    val takeProfit: BigDecimal?,
     val stopLoss: BigDecimal,
     val riskPerUnit: BigDecimal,
 )
@@ -31,6 +31,7 @@ internal object ExecutionTradePlanCalculator {
         entryAnchoredStopDistance: BigDecimal?,
         expectedR: BigDecimal,
         priceTick: BigDecimal,
+        fixedTargetEnabled: Boolean = true,
     ): ExecutionProtectionPlan? {
         if (
             entryPrice <= BigDecimal.ZERO ||
@@ -58,6 +59,9 @@ internal object ExecutionTradePlanCalculator {
             }
         if (!directionalStopIsValid) return null
         val riskPerUnit = entryPrice.subtract(stopPrice).abs()
+        if (!fixedTargetEnabled) {
+            return ExecutionProtectionPlan(takeProfit = null, stopLoss = stopPrice, riskPerUnit = riskPerUnit)
+        }
         val takeProfit =
             calculateTakeProfit(side, entryPrice, riskPerUnit, expectedR)
                 .normalizeProtectionPrice(side = side, priceTick = priceTick, isStop = false)

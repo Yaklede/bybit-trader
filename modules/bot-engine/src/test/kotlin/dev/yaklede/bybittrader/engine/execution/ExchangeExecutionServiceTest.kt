@@ -95,6 +95,33 @@ class ExchangeExecutionServiceTest :
             )
         }
 
+        "stop-only policy submits and persists no fixed take profit" {
+            val gateway = RecordingExecutionGateway()
+            val store = InMemoryTradingStore()
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy =
+                        AutomaticPositionPolicy(
+                            timeframe = Timeframe.M5,
+                            maxHoldCandles = 36,
+                            maxTradesPerUtcDay = 1,
+                            fixedTargetEnabled = false,
+                        ),
+                )
+
+            val result = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.SUBMITTED
+            result.takeProfit shouldBe null
+            gateway.placedOrders.single().takeProfit shouldBe null
+            gateway.placedOrders.single().stopLoss shouldBe BigDecimal("100")
+            store.lifecycleRecords.single().fixedTargetEnabled shouldBe false
+            store.lifecycleRecords.single().takeProfit shouldBe null
+        }
+
         "rejects a live order whose stop reaches the estimated liquidation boundary" {
             val gateway = RecordingExecutionGateway()
             val store = InMemoryTradingStore()
@@ -895,6 +922,48 @@ class ExchangeExecutionServiceTest :
             gateway.protectionRequests.single().stopLoss shouldBe BigDecimal("100")
             report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
             report.lifecycleEvent?.fillVwap shouldBe BigDecimal("106")
+            report.lifecycleEvent?.reasonCode shouldBe "ACTUAL_FILL_PROTECTION_VERIFIED"
+        }
+
+        "exchange reconciliation clears TP and verifies a stop-only actual-fill protection" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent().copy(
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("105"),
+                    structuralStopPrice = BigDecimal("100"),
+                    expectedR = BigDecimal("1.5"),
+                    protectionDeadlineAt = Instant.parse("2024-06-30T00:02:00Z"),
+                    fixedTargetEnabled = false,
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("106"),
+                                markPrice = BigDecimal("106"),
+                                unrealizedPnl = BigDecimal.ZERO,
+                                updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                                takeProfit = BigDecimal("112.5"),
+                                stopLoss = BigDecimal("100"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            gateway.protectionRequests.single().takeProfit shouldBe null
+            gateway.protectionRequests.single().stopLoss shouldBe BigDecimal("100")
+            report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
+            report.lifecycleEvent?.takeProfit shouldBe null
             report.lifecycleEvent?.reasonCode shouldBe "ACTUAL_FILL_PROTECTION_VERIFIED"
         }
 

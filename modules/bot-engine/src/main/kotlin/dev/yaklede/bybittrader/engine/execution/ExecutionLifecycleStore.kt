@@ -37,6 +37,7 @@ data class ExecutionLifecycleEvent(
     val entryAnchoredStopDistance: BigDecimal? = null,
     val expectedR: BigDecimal? = null,
     val protectionDeadlineAt: Instant? = null,
+    val fixedTargetEnabled: Boolean = true,
 ) {
     init {
         require(lifecycleId.isNotBlank()) { "Execution lifecycle id must not be blank." }

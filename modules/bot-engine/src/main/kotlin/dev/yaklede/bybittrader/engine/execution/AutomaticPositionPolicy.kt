@@ -8,6 +8,7 @@ data class AutomaticPositionPolicy(
     val timeframe: Timeframe,
     val maxHoldCandles: Int,
     val maxTradesPerUtcDay: Int,
+    val fixedTargetEnabled: Boolean = true,
 ) {
     init {
         require(maxHoldCandles > 0) { "Maximum hold candles must be positive." }

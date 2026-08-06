@@ -62,6 +62,7 @@ fun ensureAdditiveLedgerSchema(driver: JdbcSqliteDriver) {
                         "entry_anchored_stop_distance" to "TEXT",
                         "expected_r" to "TEXT",
                         "protection_deadline_at" to "TEXT",
+                        "fixed_target_enabled" to "INTEGER NOT NULL DEFAULT 1",
                     )
                 executionLifecycleColumns.forEach { (column, type) ->
                     if (!connection.hasColumn("executionLifecycleEvents", column)) {

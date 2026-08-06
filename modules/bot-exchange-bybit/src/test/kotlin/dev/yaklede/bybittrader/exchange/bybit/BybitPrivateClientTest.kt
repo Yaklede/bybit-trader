@@ -172,6 +172,29 @@ class BybitPrivateClientTest :
             )
         }
 
+        "setPositionProtection clears TP for a stop-only position" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/position/trading-stop"
+                    request.bodyAsText() shouldBe
+                        """{"category":"linear","symbol":"BTCUSDT","takeProfit":"0","stopLoss":"68000","tpslMode":"Full","slTriggerBy":"LastPrice","positionIdx":0}"""
+                    respond(
+                        content = """{"retCode":0,"retMsg":"OK"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            client.setPositionProtection(
+                ExchangePositionProtectionRequest(
+                    symbol = Symbol("BTCUSDT"),
+                    takeProfit = null,
+                    stopLoss = BigDecimal("68000"),
+                ),
+            )
+        }
+
         "reconcile methods map Bybit open orders positions and executions" {
             val requestedPaths = mutableListOf<String>()
             val engine =
