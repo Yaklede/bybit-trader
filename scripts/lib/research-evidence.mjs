@@ -339,7 +339,8 @@ export function movingBlockBootstrap(values, options) {
 
   const random = mulberry32(seed);
   const sampleMeans = new Array(iterations);
-  const effectiveBlockLength = Math.min(blockLength, values.length);
+  const maximumInformativeBlockLength = Math.max(1, Math.floor(values.length / 2));
+  const effectiveBlockLength = Math.min(blockLength, maximumInformativeBlockLength);
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     let sum = 0;
     let count = 0;

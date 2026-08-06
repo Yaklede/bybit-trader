@@ -60,6 +60,18 @@ test("moving block bootstrap is deterministic and separates positive from negati
   assert.ok(negative.upperBound < 0);
 });
 
+test("moving block bootstrap does not collapse small samples into one full circular block", () => {
+  const result = movingBlockBootstrap([2, -1, 0.5, -0.25, 1], {
+    iterations: 1000,
+    blockLength: 5,
+    confidenceLevel: 0.9,
+    seed: 42,
+  });
+  assert.equal(result.blockLength, 2);
+  assert.ok(result.lowerBound < result.sampleMean);
+  assert.ok(result.upperBound > result.sampleMean);
+});
+
 test("CSCV PBO detects a selection process whose in-sample winner reverses out of sample", () => {
   const stable = Array.from({ length: 16 }, (_, row) => [0.03 + row * 0.0001, 0.02, 0.01, -0.01]);
   const stableResult = probabilityBacktestOverfitting(stable, { slices: 8 });
