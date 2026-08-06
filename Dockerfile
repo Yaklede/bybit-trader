@@ -10,7 +10,10 @@ COPY modules modules
 RUN chmod +x ./gradlew && \
     ./gradlew --no-daemon test lint build :modules:bot-app:installDist && \
     mkdir -p modules/bot-app/build/install/bot-app/config && \
-    cp config/volume-flow-composite-current.json modules/bot-app/build/install/bot-app/config/
+    cp config/volume-flow-composite-current.json \
+       config/volume-confirmed-trend-ensemble-v1.json \
+       config/volume-confirmed-trend-ensemble-v1-bootstrap.json \
+       modules/bot-app/build/install/bot-app/config/
 
 FROM eclipse-temurin:17-jre-jammy
 
@@ -32,6 +35,8 @@ ENV BOT_API_HOST=0.0.0.0
 ENV BOT_API_PORT=8080
 ENV BOT_DATABASE_PATH=/data/bybit-trader.sqlite
 ENV BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH=/opt/bybit-trader/config/volume-flow-composite-current.json
+ENV BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH=/opt/bybit-trader/config/volume-confirmed-trend-ensemble-v1.json
+ENV BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH=/opt/bybit-trader/config/volume-confirmed-trend-ensemble-v1-bootstrap.json
 ENV BOT_STRATEGY_PROFILE_STATE_PATH=/data/strategy-profile-current.txt
 ENV BOT_FORWARD_RAW_ARCHIVE_PATH=/data/market-events
 

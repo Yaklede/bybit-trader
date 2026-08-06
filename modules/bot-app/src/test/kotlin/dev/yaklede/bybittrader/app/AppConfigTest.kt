@@ -20,6 +20,14 @@ class AppConfigTest :
             config.makerShadow.initialEquity.toPlainString() shouldBe "100"
             config.makerShadow.orderQuantity.toPlainString() shouldBe "0.001"
             config.makerShadow.queueMultiplier.toPlainString() shouldBe "1.5"
+            config.volumeConfirmedTrendShadow.enabled shouldBe false
+            config.volumeConfirmedTrendShadow.protocolPath shouldBe "config/volume-confirmed-trend-ensemble-v1.json"
+            config.volumeConfirmedTrendShadow.bootstrapPath shouldBe
+                "config/volume-confirmed-trend-ensemble-v1-bootstrap.json"
+            config.volumeConfirmedTrendShadow.initialEquity.toPlainString() shouldBe "660"
+            config.volumeConfirmedTrendShadow.maximumObservationDelay.seconds shouldBe 1200
+            config.volumeConfirmedTrendShadow.boundaryDelay.seconds shouldBe 10
+            config.volumeConfirmedTrendShadow.failureRetryDelay.seconds shouldBe 60
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
             config.bybitPrivate.privateWebSocketUrl shouldBe "wss://stream.bybit.com/v5/private"

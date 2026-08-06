@@ -14,6 +14,7 @@ data class AppConfig(
     val marketData: MarketDataConfig,
     val forwardMarketCapture: ForwardMarketCaptureSettings,
     val makerShadow: MakerShadowSettings,
+    val volumeConfirmedTrendShadow: VolumeConfirmedTrendShadowSettings,
     val bybitPrivate: BybitPrivateSettings,
     val api: ApiConfig,
     val database: DatabaseConfig,
@@ -122,6 +123,7 @@ data class AppConfig(
                 marketData = marketData,
                 forwardMarketCapture = forwardMarketCapture,
                 makerShadow = makerShadow,
+                volumeConfirmedTrendShadow = VolumeConfirmedTrendShadowSettings.fromEnvironment(environment),
                 bybitPrivate =
                     BybitPrivateSettings.fromEnvironment(
                         environment = environment,
@@ -379,6 +381,75 @@ data class MakerShadowSettings(
                     Duration.ofSeconds(environment["BOT_MAKER_SHADOW_MAX_HOLDING_SECONDS"]?.toLongOrNull() ?: 60),
                 maxEventDelay =
                     Duration.ofMillis(environment["BOT_MAKER_SHADOW_MAX_EVENT_DELAY_MILLIS"]?.toLongOrNull() ?: 1_000),
+            )
+    }
+}
+
+data class VolumeConfirmedTrendShadowSettings(
+    val enabled: Boolean,
+    val protocolPath: String,
+    val bootstrapPath: String,
+    val initialEquity: BigDecimal,
+    val maximumObservationDelay: Duration,
+    val recentSyncLimit: Int,
+    val historyPageLimit: Int,
+    val maximumHistoryRequests: Int,
+    val boundaryDelay: Duration,
+    val failureRetryDelay: Duration,
+) {
+    init {
+        require(protocolPath.isNotBlank() && bootstrapPath.isNotBlank()) {
+            "Trend shadow protocol and bootstrap paths must not be blank."
+        }
+        require(initialEquity > BigDecimal.ZERO) { "Trend shadow initial equity must be positive." }
+        require(!maximumObservationDelay.isNegative && !maximumObservationDelay.isZero) {
+            "Trend shadow maximum observation delay must be positive."
+        }
+        require(recentSyncLimit in 16..1000) { "Trend shadow recent sync limit must be between 16 and 1000." }
+        require(historyPageLimit in 1..1000) { "Trend shadow history page limit must be between 1 and 1000." }
+        require(maximumHistoryRequests in 1..ResearchCandleLimits.MAX_HISTORY_REQUESTS_PER_TIMEFRAME) {
+            "Trend shadow maximum history requests are outside the research limit."
+        }
+        require(!boundaryDelay.isNegative && boundaryDelay < Duration.ofMinutes(5)) {
+            "Trend shadow boundary delay must be between zero and five minutes."
+        }
+        require(!failureRetryDelay.isNegative && !failureRetryDelay.isZero) {
+            "Trend shadow failure retry delay must be positive."
+        }
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): VolumeConfirmedTrendShadowSettings =
+            VolumeConfirmedTrendShadowSettings(
+                enabled = environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED"].toBooleanStrictOrFalse(),
+                protocolPath =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH"]
+                        ?: "config/volume-confirmed-trend-ensemble-v1.json",
+                bootstrapPath =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH"]
+                        ?: "config/volume-confirmed-trend-ensemble-v1-bootstrap.json",
+                initialEquity =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_INITIAL_EQUITY"]
+                        ?.let(::BigDecimal)
+                        ?: BigDecimal("660"),
+                maximumObservationDelay =
+                    Duration.ofSeconds(
+                        environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_DELAY_SECONDS"]?.toLongOrNull() ?: 1_200,
+                    ),
+                recentSyncLimit =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_RECENT_SYNC_LIMIT"]?.toIntOrNull() ?: 1000,
+                historyPageLimit =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_HISTORY_PAGE_LIMIT"]?.toIntOrNull() ?: 1000,
+                maximumHistoryRequests =
+                    environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_HISTORY_REQUESTS"]?.toIntOrNull() ?: 1000,
+                boundaryDelay =
+                    Duration.ofSeconds(
+                        environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_BOUNDARY_DELAY_SECONDS"]?.toLongOrNull() ?: 10,
+                    ),
+                failureRetryDelay =
+                    Duration.ofSeconds(
+                        environment["BOT_VOLUME_CONFIRMED_TREND_SHADOW_RETRY_SECONDS"]?.toLongOrNull() ?: 60,
+                    ),
             )
     }
 }

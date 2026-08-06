@@ -46,6 +46,7 @@ import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureLoop
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureLoopConfig
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureService
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateSyncService
 import dev.yaklede.bybittrader.engine.market.maker.MakerShadowConfig
 import dev.yaklede.bybittrader.engine.market.maker.MakerShadowEngine
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
@@ -54,6 +55,11 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowConfig
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvaluationStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowLoop
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowLoopConfig
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowService
 import dev.yaklede.bybittrader.engine.strategy.VolumeFlowAggressiveStrategy
 import dev.yaklede.bybittrader.exchange.bybit.BybitMarketDataClient
 import dev.yaklede.bybittrader.exchange.bybit.BybitPrivateClient
@@ -94,7 +100,7 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} makerShadow={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} makerShadow={} trendShadow={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
@@ -105,6 +111,7 @@ fun main() {
         config.forwardMarketCapture.enabled,
         config.forwardMarketCapture.rawArchiveEnabled,
         config.makerShadow.enabled,
+        config.volumeConfirmedTrendShadow.enabled,
         config.marketData.symbol.value,
         config.marketData.timeframes.joinToString(",") { it.name },
     )
@@ -116,13 +123,14 @@ fun main() {
             sink = createAlertSink(config.alerts, httpClient),
             recorder = ledger,
         )
+    val publicMarketDataClient =
+        BybitMarketDataClient(
+            httpClient = httpClient,
+            baseUrl = config.marketData.bybitPublicBaseUrl,
+        )
     val marketDataSyncService =
         MarketDataSyncService(
-            marketDataFeed =
-                BybitMarketDataClient(
-                    httpClient = httpClient,
-                    baseUrl = config.marketData.bybitPublicBaseUrl,
-                ),
+            marketDataFeed = publicMarketDataClient,
             candleStore = ledger,
         )
     val controlService =
@@ -351,6 +359,100 @@ fun main() {
             logger.info("execution loop disabled")
             null
         }
+    val trendShadowScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val trendShadowAlertPolicy = VolumeConfirmedTrendShadowAlertPolicy()
+    val trendShadowJob =
+        if (config.volumeConfirmedTrendShadow.enabled) {
+            val settings = config.volumeConfirmedTrendShadow
+            val runtimeDefinition =
+                loadVolumeConfirmedTrendRuntimeDefinition(
+                    protocolPath = Path.of(settings.protocolPath),
+                    bootstrapPath = Path.of(settings.bootstrapPath),
+                )
+            require(runtimeDefinition.protocol.symbol == config.marketData.symbol) {
+                "Trend shadow protocol symbol does not match BOT_SYMBOL."
+            }
+            logger.info(
+                "volume-confirmed trend shadow enabled protocolId={} candidateId={} protocolSha256={} initialEquity={} bootstrapLastH4={}",
+                runtimeDefinition.protocol.protocolId,
+                runtimeDefinition.protocol.candidateId,
+                runtimeDefinition.protocol.protocolSha256,
+                settings.initialEquity,
+                runtimeDefinition.bootstrap.indicatorState.lastBarOpenedAt,
+            )
+            val shadowService =
+                VolumeConfirmedTrendShadowService(
+                    candleStore = ledger,
+                    flowStore = ledger,
+                    shadowStore = ledger,
+                    config =
+                        VolumeConfirmedTrendShadowConfig(
+                            symbol = config.marketData.symbol,
+                            bootstrap = runtimeDefinition.bootstrap,
+                            initialEquity = settings.initialEquity.toDouble(),
+                            parameters = runtimeDefinition.protocol.parameters,
+                            executionContract = runtimeDefinition.protocol.executionContract,
+                            maximumObservationDelay = settings.maximumObservationDelay,
+                        ),
+                )
+            VolumeConfirmedTrendShadowLoop(
+                marketDataSyncService = marketDataSyncService,
+                fundingRateSyncService =
+                    FundingRateSyncService(
+                        feed = publicMarketDataClient,
+                        store = ledger,
+                    ),
+                shadowService = shadowService,
+                config =
+                    VolumeConfirmedTrendShadowLoopConfig(
+                        symbol = config.marketData.symbol,
+                        recentSyncLimit = settings.recentSyncLimit,
+                        historyPageLimit = settings.historyPageLimit,
+                        maximumHistoryRequests = settings.maximumHistoryRequests,
+                        boundaryDelay = settings.boundaryDelay,
+                        failureRetryDelay = settings.failureRetryDelay,
+                    ),
+                onResult = { result ->
+                    logger.info(
+                        "volume-confirmed trend shadow evaluated status={} sessionId={} h4Bars={} events={} equity={} position={}",
+                        result.status.name,
+                        result.state.sessionId,
+                        result.evaluatedH4Bars,
+                        result.emittedEvents,
+                        result.state.equity,
+                        result.state.position
+                            ?.side
+                            ?.name ?: "FLAT",
+                    )
+                    if (result.status == VolumeConfirmedTrendShadowEvaluationStatus.SESSION_RESET) {
+                        alertingService.send(
+                            AlertMessage(
+                                severity = AlertSeverity.WARNING,
+                                title = "추세 검증 세션 재시작",
+                                body = "확정 H4 평가 공백이 감지되어 가상 포지션을 정리하고 검증 기간을 다시 시작했어요.",
+                            ),
+                        )
+                    }
+                    trendShadowAlertPolicy.recordSuccess()
+                },
+                onFailure = { error ->
+                    if (trendShadowAlertPolicy.shouldAlert(error)) {
+                        alertingService.send(
+                            AlertMessage(
+                                severity = AlertSeverity.WARNING,
+                                title = "추세 Shadow 점검 필요",
+                                body =
+                                    "가상 검증 루프가 안전하게 중단됐어요. " +
+                                        "오류: ${error::class.simpleName}. 원인: ${error.message ?: "상세 원인 없음"}",
+                            ),
+                        )
+                    }
+                },
+            ).start(trendShadowScope)
+        } else {
+            logger.info("volume-confirmed trend shadow disabled")
+            null
+        }
     val forwardMarketCaptureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val forwardMarketRawEventArchive =
         if (config.forwardMarketCapture.enabled && config.forwardMarketCapture.rawArchiveEnabled) {
@@ -442,6 +544,9 @@ fun main() {
                 require(!config.executionReconciliation.enabled || executionReconciliationJob?.isActive == true) {
                     "Execution reconciliation loop is not active."
                 }
+                require(!config.volumeConfirmedTrendShadow.enabled || trendShadowJob?.isActive == true) {
+                    "Volume-confirmed trend shadow loop is not active."
+                }
                 marketDataSyncService.ticker(config.marketData.symbol)
                 executionService?.accountBalance(DEFAULT_ACCOUNT_COIN)
                 executionService?.reconcile(config.marketData.symbol)
@@ -480,10 +585,12 @@ fun main() {
             paperLoopJob?.cancel()
             executionReconciliationJob?.cancel()
             executionLoopJob?.cancel()
+            trendShadowJob?.cancel()
             resumeReadinessJob.cancel()
             paperLoopScope.cancel()
             executionReconciliationScope.cancel()
             executionLoopScope.cancel()
+            trendShadowScope.cancel()
             privateExecutionStreamScope.cancel()
             forwardMarketCaptureScope.cancel()
             forwardMarketRawEventArchive?.close()

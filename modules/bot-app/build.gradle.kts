@@ -36,6 +36,14 @@ tasks.register<JavaExec>("runVolumeConfirmedTrendParity") {
     workingDir = rootProject.projectDir
 }
 
+tasks.register<JavaExec>("generateVolumeConfirmedTrendBootstrap") {
+    group = "verification"
+    description = "Builds the deterministic trend indicator bootstrap from frozen Bybit evidence."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.yaklede.bybittrader.app.research.VolumeConfirmedTrendBootstrapMainKt")
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation(project(":modules:bot-api"))
     implementation(project(":modules:bot-alerts"))
