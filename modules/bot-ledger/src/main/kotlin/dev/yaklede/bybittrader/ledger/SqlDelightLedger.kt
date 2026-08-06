@@ -61,6 +61,9 @@ import dev.yaklede.bybittrader.engine.paper.PaperRuntimeStateStore
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStore
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
@@ -93,6 +96,7 @@ import dev.yaklede.bybittrader.ledger.db.SelectRecentTrades
 import dev.yaklede.bybittrader.ledger.db.SelectTakerFlowBarsBefore
 import dev.yaklede.bybittrader.ledger.db.SelectTakerFlowBarsBetween
 import dev.yaklede.bybittrader.ledger.db.Signals
+import dev.yaklede.bybittrader.ledger.db.VolumeConfirmedTrendLiveEvents
 import dev.yaklede.bybittrader.ledger.db.VolumeConfirmedTrendShadowEvents
 import java.math.BigDecimal
 import java.time.Clock
@@ -115,7 +119,8 @@ class SqlDelightLedger(
     PaperTradingStore,
     PaperRuntimeStateStore,
     MakerShadowLedger,
-    VolumeConfirmedTrendShadowStore {
+    VolumeConfirmedTrendShadowStore,
+    VolumeConfirmedTrendLiveStore {
     override suspend fun current(): BotRuntimeStatus {
         val row = database.ledgerQueries.selectBotState().executeAsOneOrNull()
         if (row != null) {
@@ -241,6 +246,69 @@ class SqlDelightLedger(
                 value_ = limit.toLong(),
             ).executeAsList()
             .map(VolumeConfirmedTrendShadowEvents::toTrendShadowEvent)
+            .asReversed()
+    }
+
+    override suspend fun trendLiveState(
+        protocolId: String,
+        symbol: Symbol,
+    ): VolumeConfirmedTrendLiveState? {
+        require(protocolId.isNotBlank()) { "Trend live protocol ID must not be blank." }
+        return database.ledgerQueries
+            .selectVolumeConfirmedTrendLiveState(
+                protocol_id = protocolId,
+                symbol = symbol.value,
+            ).executeAsOneOrNull()
+            ?.toTrendLiveState()
+    }
+
+    override suspend fun commitTrendLive(
+        state: VolumeConfirmedTrendLiveState,
+        events: List<VolumeConfirmedTrendLiveEvent>,
+    ) {
+        require(events.all { it.protocolId == state.protocolId && it.protocolSha256 == state.protocolSha256 }) {
+            "Trend live events must match the persisted protocol."
+        }
+        require(events.all { it.symbol == state.symbol }) { "Trend live events must match the persisted symbol." }
+        database.ledgerQueries.transaction {
+            events.forEach { event ->
+                database.ledgerQueries.insertVolumeConfirmedTrendLiveEvent(
+                    event_id = event.eventId,
+                    protocol_id = event.protocolId,
+                    protocol_sha256 = event.protocolSha256,
+                    symbol = event.symbol.value,
+                    decision_key = event.decisionKey,
+                    event_type = event.type.name,
+                    event_payload = event.toTrendLiveEventPayload(),
+                    occurred_at = event.occurredAt.toString(),
+                )
+            }
+            database.ledgerQueries.upsertVolumeConfirmedTrendLiveState(
+                protocol_id = state.protocolId,
+                candidate_id = state.candidateId,
+                protocol_sha256 = state.protocolSha256,
+                symbol = state.symbol.value,
+                status = state.status.name,
+                state_payload = state.toTrendLiveStatePayload(),
+                updated_at = state.updatedAt.toString(),
+            )
+        }
+    }
+
+    override suspend fun trendLiveEvents(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): List<VolumeConfirmedTrendLiveEvent> {
+        require(protocolId.isNotBlank()) { "Trend live protocol ID must not be blank." }
+        require(limit in 1..100_000) { "Trend live event limit must be between 1 and 100000." }
+        return database.ledgerQueries
+            .selectVolumeConfirmedTrendLiveEvents(
+                protocol_id = protocolId,
+                symbol = symbol.value,
+                value_ = limit.toLong(),
+            ).executeAsList()
+            .map(VolumeConfirmedTrendLiveEvents::toTrendLiveEvent)
             .asReversed()
     }
 

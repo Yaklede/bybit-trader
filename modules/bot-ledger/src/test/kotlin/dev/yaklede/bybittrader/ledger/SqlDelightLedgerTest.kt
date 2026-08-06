@@ -54,6 +54,10 @@ import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.position.CausalPositionState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowPosition
@@ -987,6 +991,8 @@ class SqlDelightLedgerTest :
                     "makerShadowEvents",
                     "volumeConfirmedTrendShadowStates",
                     "volumeConfirmedTrendShadowEvents",
+                    "volumeConfirmedTrendLiveStates",
+                    "volumeConfirmedTrendLiveEvents",
                 ),
             ) shouldBe true
         }
@@ -1047,6 +1053,20 @@ class SqlDelightLedgerTest :
             ledger.trendShadowEvents(state.sessionId, 10) shouldBe listOf(event)
             ledger.trendShadowEvents(state.protocolId, state.symbol, 10) shouldBe listOf(previousEvent, event)
         }
+
+        "trend live state and idempotent events commit atomically" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val state = sampleTrendLiveState()
+            val event = sampleTrendLiveEvent(state)
+
+            ledger.commitTrendLive(state, listOf(event))
+            ledger.commitTrendLive(state, listOf(event))
+
+            ledger.trendLiveState(state.protocolId, state.symbol) shouldBe state
+            ledger.trendLiveEvents(state.protocolId, state.symbol, 10) shouldBe listOf(event)
+        }
     })
 
 private data class StoredClosureAlertState(
@@ -1055,6 +1075,45 @@ private data class StoredClosureAlertState(
     val attemptCount: Long,
     val lastAttemptAt: String?,
 )
+
+private fun sampleTrendLiveState(): VolumeConfirmedTrendLiveState =
+    VolumeConfirmedTrendLiveState(
+        protocolId = "volume-confirmed-trend-ensemble-v1",
+        candidateId = "vcte_4h_majority_001",
+        protocolSha256 = "a".repeat(64),
+        symbol = Symbol("BTCUSDT"),
+        status = VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
+        approvalId = "human-approval-test",
+        activeDecisionKey = "decision-2026-08-07T00:00:00Z-BUY",
+        pendingTargetSide = Side.BUY,
+        clientOrderId = "vct-e-b-1786060800-12345678",
+        exchangeOrderId = "exchange-order-1",
+        observedPositionSide = null,
+        observedPositionQuantity = null,
+        lastExecutionId = null,
+        haltedReasonCode = null,
+        updatedAt = Instant.parse("2026-08-07T00:00:02Z"),
+    )
+
+private fun sampleTrendLiveEvent(state: VolumeConfirmedTrendLiveState): VolumeConfirmedTrendLiveEvent =
+    VolumeConfirmedTrendLiveEvent(
+        eventId = "trend-live-event-1",
+        protocolId = state.protocolId,
+        protocolSha256 = state.protocolSha256,
+        symbol = state.symbol,
+        decisionKey = state.activeDecisionKey,
+        type = VolumeConfirmedTrendLiveEventType.ENTRY_SUBMITTED,
+        targetSide = Side.BUY,
+        orderSide = Side.BUY,
+        orderQuantity = BigDecimal("0.007"),
+        referencePrice = BigDecimal("60000"),
+        limitPrice = BigDecimal("60012"),
+        clientOrderId = state.clientOrderId,
+        exchangeOrderId = state.exchangeOrderId,
+        executionId = null,
+        reasonCode = "TARGET_POSITION_ENTRY_SUBMITTED",
+        occurredAt = state.updatedAt,
+    )
 
 private fun sampleTrendShadowState(): VolumeConfirmedTrendShadowState =
     VolumeConfirmedTrendShadowState(

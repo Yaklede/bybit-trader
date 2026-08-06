@@ -495,6 +495,32 @@ CREATE TABLE volumeConfirmedTrendShadowEvents (
 CREATE INDEX volumeConfirmedTrendShadowEvents_session_id_idx
 ON volumeConfirmedTrendShadowEvents(session_id, id);
 
+CREATE TABLE volumeConfirmedTrendLiveStates (
+  protocol_id TEXT NOT NULL,
+  candidate_id TEXT NOT NULL,
+  protocol_sha256 TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  status TEXT NOT NULL,
+  state_payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (protocol_id, symbol)
+);
+
+CREATE TABLE volumeConfirmedTrendLiveEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  protocol_id TEXT NOT NULL,
+  protocol_sha256 TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  decision_key TEXT,
+  event_type TEXT NOT NULL,
+  event_payload TEXT NOT NULL,
+  occurred_at TEXT NOT NULL
+);
+
+CREATE INDEX volumeConfirmedTrendLiveEvents_protocol_symbol_id_idx
+ON volumeConfirmedTrendLiveEvents(protocol_id, symbol, id);
+
 selectBotState:
 SELECT mode, updated_at, heartbeat_at
 FROM botState
@@ -1439,6 +1465,43 @@ SELECT id, event_id, session_id, protocol_id, protocol_sha256, symbol, event_typ
   event_at, observed_at, h4_opened_at, side, reference_price, fill_price, quantity,
   fee, slippage, funding_pnl, gross_pnl, net_pnl, cash, equity, reason
 FROM volumeConfirmedTrendShadowEvents
+WHERE protocol_id = ? AND symbol = ?
+ORDER BY id DESC
+LIMIT ?;
+
+upsertVolumeConfirmedTrendLiveState:
+INSERT OR REPLACE INTO volumeConfirmedTrendLiveStates(
+  protocol_id,
+  candidate_id,
+  protocol_sha256,
+  symbol,
+  status,
+  state_payload,
+  updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectVolumeConfirmedTrendLiveState:
+SELECT protocol_id, candidate_id, protocol_sha256, symbol, status, state_payload, updated_at
+FROM volumeConfirmedTrendLiveStates
+WHERE protocol_id = ? AND symbol = ?;
+
+insertVolumeConfirmedTrendLiveEvent:
+INSERT OR IGNORE INTO volumeConfirmedTrendLiveEvents(
+  event_id,
+  protocol_id,
+  protocol_sha256,
+  symbol,
+  decision_key,
+  event_type,
+  event_payload,
+  occurred_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectVolumeConfirmedTrendLiveEvents:
+SELECT id, event_id, protocol_id, protocol_sha256, symbol, decision_key, event_type, event_payload, occurred_at
+FROM volumeConfirmedTrendLiveEvents
 WHERE protocol_id = ? AND symbol = ?
 ORDER BY id DESC
 LIMIT ?;

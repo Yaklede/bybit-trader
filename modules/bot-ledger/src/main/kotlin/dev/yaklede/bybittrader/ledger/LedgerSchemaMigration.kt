@@ -527,6 +527,35 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         CREATE INDEX IF NOT EXISTS volumeConfirmedTrendShadowEvents_session_id_idx
         ON volumeConfirmedTrendShadowEvents(session_id, id)
         """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS volumeConfirmedTrendLiveStates (
+          protocol_id TEXT NOT NULL,
+          candidate_id TEXT NOT NULL,
+          protocol_sha256 TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          status TEXT NOT NULL,
+          state_payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (protocol_id, symbol)
+        )
+        """.trimIndent(),
+        """
+        CREATE TABLE IF NOT EXISTS volumeConfirmedTrendLiveEvents (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          event_id TEXT NOT NULL UNIQUE,
+          protocol_id TEXT NOT NULL,
+          protocol_sha256 TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          decision_key TEXT,
+          event_type TEXT NOT NULL,
+          event_payload TEXT NOT NULL,
+          occurred_at TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
+        CREATE INDEX IF NOT EXISTS volumeConfirmedTrendLiveEvents_protocol_symbol_id_idx
+        ON volumeConfirmedTrendLiveEvents(protocol_id, symbol, id)
+        """.trimIndent(),
     )
 
 private val EXECUTION_CLOSURE_IDENTITY_BACKFILL =
