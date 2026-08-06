@@ -18,6 +18,7 @@ import dev.yaklede.bybittrader.api.paper.configurePaperTradingRoutes
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
 import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
+import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendApprovalReportProvider
 import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendShadowReportProvider
 import dev.yaklede.bybittrader.api.strategy.configureStrategyProfileRoutes
 import dev.yaklede.bybittrader.api.strategy.configureVolumeConfirmedTrendShadowRoutes
@@ -72,6 +73,7 @@ fun Application.configureApi(
     controlSymbol: Symbol? = null,
     strategyProfileService: StrategyProfileService? = null,
     volumeConfirmedTrendShadowReportProvider: VolumeConfirmedTrendShadowReportProvider? = null,
+    volumeConfirmedTrendApprovalReportProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
     runtimeMode: String? = null,
     forwardMarketCaptureStatusService: ForwardMarketCaptureStatusService? = null,
     forwardMarketCaptureEnabled: Boolean = false,
@@ -156,7 +158,10 @@ fun Application.configureApi(
         )
         configureMarketDataRoutes(marketDataSyncService)
         strategyProfileService?.let(::configureStrategyProfileRoutes)
-        configureVolumeConfirmedTrendShadowRoutes(volumeConfirmedTrendShadowReportProvider)
+        configureVolumeConfirmedTrendShadowRoutes(
+            reportProvider = volumeConfirmedTrendShadowReportProvider,
+            approvalReportProvider = volumeConfirmedTrendApprovalReportProvider,
+        )
         configureOperationsSmokeRoutes(
             controlService = controlService,
             marketDataSyncService = marketDataSyncService,

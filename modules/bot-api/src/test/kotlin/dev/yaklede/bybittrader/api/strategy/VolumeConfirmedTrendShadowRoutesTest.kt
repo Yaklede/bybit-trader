@@ -3,6 +3,10 @@ package dev.yaklede.bybittrader.api.strategy
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
@@ -30,7 +34,7 @@ class VolumeConfirmedTrendShadowRoutesTest :
     StringSpec({
         "shadow status requires operator authentication" {
             testApplication {
-                applicationWithShadowProvider { sampleReport() }
+                applicationWithShadowProvider(provider = { sampleReport() })
 
                 client.get(ENDPOINT).status shouldBe HttpStatusCode.Unauthorized
             }
@@ -51,10 +55,12 @@ class VolumeConfirmedTrendShadowRoutesTest :
         "enabled shadow status exposes persisted performance risk and event data" {
             var requestedLimit = 0
             testApplication {
-                applicationWithShadowProvider { limit ->
-                    requestedLimit = limit
-                    sampleReport()
-                }
+                applicationWithShadowProvider(
+                    provider = { limit ->
+                        requestedLimit = limit
+                        sampleReport()
+                    },
+                )
 
                 val response = client.get("$ENDPOINT?limit=7") { bearerAuth(CREDENTIAL) }
 
@@ -74,16 +80,39 @@ class VolumeConfirmedTrendShadowRoutesTest :
 
         "invalid event limit is rejected" {
             testApplication {
-                applicationWithShadowProvider { sampleReport() }
+                applicationWithShadowProvider(provider = { sampleReport() })
 
                 client.get("$ENDPOINT?limit=invalid") { bearerAuth(CREDENTIAL) }.status shouldBe HttpStatusCode.BadRequest
                 client.get("$ENDPOINT?limit=101") { bearerAuth(CREDENTIAL) }.status shouldBe HttpStatusCode.BadRequest
+            }
+        }
+
+        "approval status exposes every blocker without granting execution" {
+            testApplication {
+                applicationWithShadowProvider(
+                    provider = { sampleReport() },
+                    approvalProvider = { sampleApprovalReport() },
+                )
+
+                val response = client.get(APPROVAL_ENDPOINT) { bearerAuth(CREDENTIAL) }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText().also { body ->
+                    body shouldContain "\"status\":\"SHADOW_COLLECTING\""
+                    body shouldContain "\"id\":\"FRESH_SHADOW_DAYS\""
+                    body shouldContain "\"actual\":\"12.5\""
+                    body shouldContain "\"required\":\">=90.0\""
+                    body shouldContain "\"readyForHumanReview\":false"
+                    body shouldContain "\"automaticExecutionAllowed\":false"
+                    body shouldContain "\"liveExecutionAllowed\":false"
+                }
             }
         }
     })
 
 private fun io.ktor.server.testing.ApplicationTestBuilder.applicationWithShadowProvider(
     provider: VolumeConfirmedTrendShadowReportProvider?,
+    approvalProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
 ) {
     application {
         install(ContentNegotiation) { json() }
@@ -91,9 +120,35 @@ private fun io.ktor.server.testing.ApplicationTestBuilder.applicationWithShadowP
             exception<IllegalArgumentException> { call, _ -> call.respond(HttpStatusCode.BadRequest) }
         }
         configureControlAuthentication(CREDENTIAL)
-        routing { configureVolumeConfirmedTrendShadowRoutes(provider) }
+        routing { configureVolumeConfirmedTrendShadowRoutes(provider, approvalProvider) }
     }
 }
+
+private fun sampleApprovalReport(): VolumeConfirmedTrendApprovalReport =
+    VolumeConfirmedTrendApprovalReport(
+        status = VolumeConfirmedTrendApprovalStatus.SHADOW_COLLECTING,
+        protocolId = "volume-confirmed-trend-ensemble-v1",
+        candidateId = "vcte_4h_majority_001",
+        protocolSha256 = "a".repeat(64),
+        policyId = "forward-policy",
+        policySha256 = "f".repeat(64),
+        evaluatedAt = Instant.parse("2026-08-07T00:00:00Z"),
+        sessionId = "shadow-session-2",
+        observedCalendarDays = 12.5,
+        sessionReturnPct = 1.5,
+        closedTradeProfitFactor = 1.2,
+        gates =
+            listOf(
+                VolumeConfirmedTrendApprovalGate(
+                    id = "FRESH_SHADOW_DAYS",
+                    status = VolumeConfirmedTrendApprovalGateStatus.PENDING,
+                    actual = "12.5",
+                    required = ">=90.0",
+                    reason = "Fresh shadow observation is incomplete.",
+                ),
+            ),
+        readyForHumanReview = false,
+    )
 
 private fun sampleReport(): VolumeConfirmedTrendShadowReport {
     val state = sampleState()
@@ -170,4 +225,5 @@ private fun sampleEvent(state: VolumeConfirmedTrendShadowState): VolumeConfirmed
     )
 
 private const val ENDPOINT = "/strategy/volume-confirmed-trend/shadow"
+private const val APPROVAL_ENDPOINT = "/strategy/volume-confirmed-trend/approval"
 private const val CREDENTIAL = "test-control-credential"

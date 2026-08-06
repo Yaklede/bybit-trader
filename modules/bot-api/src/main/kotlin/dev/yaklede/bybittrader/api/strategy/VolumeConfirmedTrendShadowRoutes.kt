@@ -1,5 +1,7 @@
 package dev.yaklede.bybittrader.api.strategy
 
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
@@ -10,8 +12,12 @@ import io.ktor.server.routing.get
 import kotlinx.serialization.Serializable
 
 typealias VolumeConfirmedTrendShadowReportProvider = suspend (Int) -> VolumeConfirmedTrendShadowReport
+typealias VolumeConfirmedTrendApprovalReportProvider = suspend () -> VolumeConfirmedTrendApprovalReport
 
-fun Route.configureVolumeConfirmedTrendShadowRoutes(reportProvider: VolumeConfirmedTrendShadowReportProvider?) {
+fun Route.configureVolumeConfirmedTrendShadowRoutes(
+    reportProvider: VolumeConfirmedTrendShadowReportProvider?,
+    approvalReportProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
+) {
     authenticate("control") {
         get("/strategy/volume-confirmed-trend/shadow") {
             val rawLimit = call.request.queryParameters["limit"]
@@ -20,8 +26,63 @@ fun Route.configureVolumeConfirmedTrendShadowRoutes(reportProvider: VolumeConfir
             val report = reportProvider?.invoke(limit)
             call.respond(report?.toResponse() ?: VolumeConfirmedTrendShadowResponse.disabled())
         }
+        get("/strategy/volume-confirmed-trend/approval") {
+            val report = approvalReportProvider?.invoke()
+            call.respond(report?.toResponse() ?: VolumeConfirmedTrendApprovalResponse.unavailable())
+        }
     }
 }
+
+@Serializable
+data class VolumeConfirmedTrendApprovalResponse(
+    val available: Boolean,
+    val status: String,
+    val protocolId: String?,
+    val candidateId: String?,
+    val protocolSha256: String?,
+    val policyId: String?,
+    val policySha256: String?,
+    val evaluatedAt: String?,
+    val sessionId: String?,
+    val observedCalendarDays: String?,
+    val sessionReturnPct: String?,
+    val closedTradeProfitFactor: String?,
+    val gates: List<VolumeConfirmedTrendApprovalGateResponse>,
+    val readyForHumanReview: Boolean,
+    val automaticExecutionAllowed: Boolean,
+    val liveExecutionAllowed: Boolean,
+) {
+    companion object {
+        fun unavailable(): VolumeConfirmedTrendApprovalResponse =
+            VolumeConfirmedTrendApprovalResponse(
+                available = false,
+                status = "UNAVAILABLE",
+                protocolId = null,
+                candidateId = null,
+                protocolSha256 = null,
+                policyId = null,
+                policySha256 = null,
+                evaluatedAt = null,
+                sessionId = null,
+                observedCalendarDays = null,
+                sessionReturnPct = null,
+                closedTradeProfitFactor = null,
+                gates = emptyList(),
+                readyForHumanReview = false,
+                automaticExecutionAllowed = false,
+                liveExecutionAllowed = false,
+            )
+    }
+}
+
+@Serializable
+data class VolumeConfirmedTrendApprovalGateResponse(
+    val id: String,
+    val status: String,
+    val actual: String,
+    val required: String,
+    val reason: String,
+)
 
 @Serializable
 data class VolumeConfirmedTrendShadowResponse(
@@ -115,6 +176,35 @@ private fun VolumeConfirmedTrendShadowReport.toResponse(): VolumeConfirmedTrendS
         symbol = symbol.value,
         state = state?.toResponse(),
         recentEvents = recentEvents.map(VolumeConfirmedTrendShadowEvent::toResponse),
+    )
+
+private fun VolumeConfirmedTrendApprovalReport.toResponse(): VolumeConfirmedTrendApprovalResponse =
+    VolumeConfirmedTrendApprovalResponse(
+        available = true,
+        status = status.name,
+        protocolId = protocolId,
+        candidateId = candidateId,
+        protocolSha256 = protocolSha256,
+        policyId = policyId,
+        policySha256 = policySha256,
+        evaluatedAt = evaluatedAt.toString(),
+        sessionId = sessionId,
+        observedCalendarDays = observedCalendarDays.toString(),
+        sessionReturnPct = sessionReturnPct?.toString(),
+        closedTradeProfitFactor = closedTradeProfitFactor?.toString(),
+        gates = gates.map(VolumeConfirmedTrendApprovalGate::toResponse),
+        readyForHumanReview = readyForHumanReview,
+        automaticExecutionAllowed = automaticExecutionAllowed,
+        liveExecutionAllowed = liveExecutionAllowed,
+    )
+
+private fun VolumeConfirmedTrendApprovalGate.toResponse(): VolumeConfirmedTrendApprovalGateResponse =
+    VolumeConfirmedTrendApprovalGateResponse(
+        id = id,
+        status = status.name,
+        actual = actual,
+        required = required,
+        reason = reason,
     )
 
 private fun VolumeConfirmedTrendShadowState.toResponse(): VolumeConfirmedTrendShadowStateResponse =

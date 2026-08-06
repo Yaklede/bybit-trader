@@ -55,6 +55,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvaluationStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowLoop
@@ -398,6 +399,21 @@ fun main() {
             logger.info("volume-confirmed trend shadow disabled")
             null
         }
+    val trendApprovalDefinition =
+        loadVolumeConfirmedTrendApprovalDefinition(
+            protocolPath = Path.of(config.volumeConfirmedTrendShadow.protocolPath),
+        )
+    val trendApprovalService =
+        VolumeConfirmedTrendApprovalService(
+            historicalEvidence = trendApprovalDefinition.historicalEvidence,
+            forwardPolicy = trendApprovalDefinition.forwardPolicy,
+            shadowReportProvider = { trendShadowService?.report(100_000) },
+        )
+    logger.info(
+        "volume-confirmed trend approval evidence loaded protocolId={} policyId={} automaticExecution=false liveExecution=false",
+        trendApprovalDefinition.historicalEvidence.protocolId,
+        trendApprovalDefinition.forwardPolicy.policyId,
+    )
     val trendShadowJob =
         trendShadowService?.let { shadowService ->
             val settings = config.volumeConfirmedTrendShadow
@@ -624,6 +640,7 @@ fun main() {
                 controlSymbol = config.marketData.symbol,
                 strategyProfileService = strategyProfileService,
                 volumeConfirmedTrendShadowReportProvider = trendShadowService?.let { service -> service::report },
+                volumeConfirmedTrendApprovalReportProvider = trendApprovalService::evaluate,
                 runtimeMode = config.runtimeMode.name,
                 forwardMarketCaptureStatusService =
                     ForwardMarketCaptureStatusService(

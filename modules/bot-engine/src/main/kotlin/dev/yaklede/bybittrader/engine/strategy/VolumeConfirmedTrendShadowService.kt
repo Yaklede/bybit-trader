@@ -219,7 +219,7 @@ class VolumeConfirmedTrendShadowService(
     suspend fun state(): VolumeConfirmedTrendShadowState? = shadowStore.trendShadowState(config.bootstrap.protocolId, config.symbol)
 
     suspend fun report(limit: Int): VolumeConfirmedTrendShadowReport {
-        require(limit in 1..100) { "Trend shadow report event limit must be between 1 and 100." }
+        require(limit in 1..100_000) { "Trend shadow report event limit must be between 1 and 100000." }
         return VolumeConfirmedTrendShadowReport(
             protocolId = config.bootstrap.protocolId,
             candidateId = config.bootstrap.candidateId,

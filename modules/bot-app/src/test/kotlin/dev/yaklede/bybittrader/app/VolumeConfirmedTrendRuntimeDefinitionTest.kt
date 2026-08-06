@@ -46,6 +46,33 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
                 )
             }.message shouldBe "Trend bootstrap fingerprint is not approved by this runtime."
         }
+
+        "loads only frozen historical parity and forward approval evidence" {
+            val approval =
+                loadVolumeConfirmedTrendApprovalDefinition(
+                    protocolPath = trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"),
+                )
+
+            approval.historicalEvidence.externalVenuePassed shouldBe true
+            approval.historicalEvidence.kotlinCoreParityPassed shouldBe true
+            approval.historicalEvidence.runtimeReplayParityPassed shouldBe true
+            approval.forwardPolicy.minimumCalendarDays shouldBe 90
+            approval.forwardPolicy.minimumClosedTrades shouldBe 5
+            approval.forwardPolicy.maximumDrawdownPct shouldBe 35.0
+        }
+
+        "rejects modified runtime parity evidence" {
+            val temporary = Files.createTempFile("trend-runtime-parity-tampered", ".json")
+            val source = Files.readString(trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1-runtime-parity-result.json"))
+            Files.writeString(temporary, source.replace("\"mismatchCount\": 0", "\"mismatchCount\": 1"))
+
+            shouldThrow<IllegalArgumentException> {
+                loadVolumeConfirmedTrendApprovalDefinition(
+                    protocolPath = trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"),
+                    runtimeParityResultPath = temporary,
+                )
+            }.message shouldBe "Frozen trend runtime parity result fingerprint mismatch."
+        }
     })
 
 private fun trendRepositoryFile(relativePath: String): Path =
