@@ -4,7 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { gzipSync } from "node:zlib";
 import {
   aggregateTradeArchive,
+  aggregateTradeArchiveBuckets,
   applyTrade,
+  bucketEpochMillis,
   completeTradeBarsForCandles,
   coverageReport,
   ensureSchema,
@@ -38,6 +40,26 @@ test("trade archive operation retries a terminated response without changing the
 test("minuteEpochMillis supports official decimal-second and epoch-millisecond timestamps", () => {
   assert.equal(minuteEpochMillis("1704067200.2353"), 1_704_067_200_000);
   assert.equal(minuteEpochMillis("1704067259999"), 1_704_067_200_000);
+});
+
+test("five-second trade buckets preserve event order and do not merge later flow", async () => {
+  assert.equal(bucketEpochMillis("1704067207.2353", 5_000), 1_704_067_205_000);
+  const csv = [
+    "timestamp,symbol,side,size,price",
+    "1704067200.100,BTCUSDT,Buy,0.1,40000",
+    "1704067204.900,BTCUSDT,Sell,0.2,40010",
+    "1704067205.010,BTCUSDT,Buy,0.3,40020",
+    "",
+  ].join("\n");
+  const result = await aggregateTradeArchiveBuckets(new Response(gzipSync(csv)).body, "BTCUSDT", 5_000);
+  const bars = [...result.bars.entries()];
+  assert.equal(bars.length, 2);
+  assert.equal(bars[0][1].buyCount, 1);
+  assert.equal(bars[0][1].sellCount, 1);
+  assert.equal(bars[0][1].firstTradeAt, 1_704_067_200_100);
+  assert.equal(bars[0][1].lastTradeAt, 1_704_067_204_900);
+  assert.equal(bars[1][1].buyCount, 1);
+  assert.equal(bars[1][1].sellCount, 0);
 });
 
 test("applyTrade aggregates taker sides without mixing counts", () => {

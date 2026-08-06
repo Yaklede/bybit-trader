@@ -144,6 +144,29 @@ test("archive aggregation uses matching-engine cts for the same minute boundary 
   assert.equal(result.firstEventAt, snapshot.cts);
 });
 
+test("five-second aggregation fills quiet buckets from the last causal book without inventing messages", async () => {
+  const lines = [
+    message("2024-01-01T00:00:00.010Z", "snapshot", [["100", "1"], ["99", "1"], ["98", "1"], ["97", "1"], ["96", "1"]], [["101", "1"], ["102", "1"], ["103", "1"], ["104", "1"], ["105", "1"]]),
+    message("2024-01-01T00:00:10.010Z", "delta", [["100", "2"]], []),
+  ].map((value) => `${JSON.stringify(value)}\n`);
+
+  const result = await aggregateArchiveLines(Readable.from(lines), {
+    sourceDate: "2024-01-01",
+    symbol: "BTCUSDT",
+    depth: 5,
+    bucketMillis: 5_000,
+    fillEmptyBuckets: true,
+  });
+
+  assert.equal(result.eventFlowBars.length, 17_280);
+  assert.equal(result.eventFlowBars[0].messageCount, 1);
+  assert.equal(result.eventFlowBars[1].messageCount, 0);
+  assert.equal(result.eventFlowBars[1].carriedForward, true);
+  assert.equal(result.eventFlowBars[1].closeBestBid, 100);
+  assert.equal(result.eventFlowBars[2].messageCount, 1);
+  assert.equal(result.eventFlowBars.at(-1).openedAt, Date.parse("2024-01-01T23:59:55Z"));
+});
+
 test("complete-day validation rejects gaps and accepts exactly contiguous minute bars", () => {
   const date = "2024-01-01";
   const dayStart = Date.parse(`${date}T00:00:00Z`);

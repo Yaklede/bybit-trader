@@ -63,14 +63,27 @@ export function parseArgs(argv) {
 }
 
 export function minuteEpochMillis(timestamp) {
+  return bucketEpochMillis(timestamp, 60_000);
+}
+
+export function bucketEpochMillis(timestamp, bucketMillis) {
   const numeric = Number(timestamp);
   if (!Number.isFinite(numeric) || numeric < 0) throw new Error(`Invalid trade timestamp: ${timestamp}`);
+  if (!Number.isInteger(bucketMillis) || bucketMillis <= 0 || 60_000 % bucketMillis !== 0) {
+    throw new Error("Trade bucketMillis must be a positive divisor of one minute.");
+  }
   const milliseconds = numeric >= 10_000_000_000 ? numeric : numeric * 1_000;
-  return Math.floor(milliseconds / 60_000) * 60_000;
+  return Math.floor(milliseconds / bucketMillis) * bucketMillis;
 }
 
 export function applyTrade(fields, columns, bars) {
-  const minute = minuteEpochMillis(fields[columns.timestamp]);
+  return applyTradeToBucket(fields, columns, bars, 60_000);
+}
+
+export function applyTradeToBucket(fields, columns, bars, bucketMillis) {
+  const eventTimestamp = Number(fields[columns.timestamp]);
+  const eventAt = eventTimestamp >= 10_000_000_000 ? eventTimestamp : eventTimestamp * 1_000;
+  const minute = bucketEpochMillis(eventTimestamp, bucketMillis);
   const side = fields[columns.side];
   const size = Number(fields[columns.size]);
   const price = Number(fields[columns.price]);
@@ -90,6 +103,8 @@ export function applyTrade(fields, columns, bars) {
     highPrice: price,
     lowPrice: price,
     closePrice: price,
+    firstTradeAt: eventAt,
+    lastTradeAt: eventAt,
   };
   const notional = size * price;
   if (side === "Buy") {
@@ -108,6 +123,7 @@ export function applyTrade(fields, columns, bars) {
   bar.highPrice = Math.max(bar.highPrice, price);
   bar.lowPrice = Math.min(bar.lowPrice, price);
   bar.closePrice = price;
+  bar.lastTradeAt = eventAt;
   bars.set(minute, bar);
 }
 
@@ -443,6 +459,11 @@ export function completeTradeBarsForCandles(db, symbol, date, bars) {
 }
 
 export async function aggregateTradeArchive(webBody, expectedSymbol) {
+  return aggregateTradeArchiveBuckets(webBody, expectedSymbol, 60_000);
+}
+
+export async function aggregateTradeArchiveBuckets(webBody, expectedSymbol, bucketMillis) {
+  bucketEpochMillis(0, bucketMillis);
   const archiveHash = createHash("sha256");
   let archiveSizeBytes = 0;
   const hashingStream = new Transform({
@@ -477,7 +498,7 @@ export async function aggregateTradeArchive(webBody, expectedSymbol) {
     firstEventAt ??= eventAtMillis;
     lastEventAt = eventAtMillis;
     eventCount += 1;
-    applyTrade(fields, columns, bars);
+    applyTradeToBucket(fields, columns, bars, bucketMillis);
   }
   if (eventCount === 0 || firstEventAt == null || lastEventAt == null) {
     throw new Error("Trade archive contains no events.");

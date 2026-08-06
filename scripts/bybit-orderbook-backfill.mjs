@@ -213,14 +213,26 @@ export async function listArchiveFiles(options, fetchImpl = fetch) {
 }
 
 export async function importArchiveFile(file, options, fetchImpl = fetch) {
+  const result = await readArchiveFile(
+    file,
+    options,
+    (stream, context) => aggregateArchiveLines(stream, context),
+    fetchImpl,
+  );
+  assertCompleteDay(result.bars, file.date);
+  assertCompleteDay(result.eventFlowBars, file.date);
+  return result;
+}
+
+export async function readArchiveFile(file, options, aggregate, fetchImpl = fetch) {
   return retryArchiveOperation(
-    () => importArchiveFileOnce(file, options, fetchImpl),
+    () => readArchiveFileOnce(file, options, aggregate, fetchImpl),
     options.archiveAttempts ?? DEFAULT_ARCHIVE_ATTEMPTS,
     options.archiveRetryDelayMillis ?? DEFAULT_ARCHIVE_RETRY_DELAY_MILLIS,
   );
 }
 
-async function importArchiveFileOnce(file, options, fetchImpl) {
+async function readArchiveFileOnce(file, options, aggregate, fetchImpl) {
   const { stream: archive, localArchive } = await openArchiveStream(file, options, fetchImpl);
   const archiveHash = createHash("sha256");
   let archiveSizeBytes = 0;
@@ -242,22 +254,20 @@ async function importArchiveFileOnce(file, options, fetchImpl) {
     : waitForReadableEnd(archive);
 
   try {
-    const aggregateCompletion = aggregateArchiveLines(funzip.stdout, {
+    const aggregateCompletion = aggregate(funzip.stdout, {
       sourceDate: file.date,
       symbol: options.symbol,
       depth: options.orderBookDepth,
     });
-    const [aggregate] = await Promise.all([aggregateCompletion, processCompletion, inputCompletion]);
+    const [aggregateResult] = await Promise.all([aggregateCompletion, processCompletion, inputCompletion]);
     if (archiveSizeBytes !== Number(file.size)) {
       throw new Error(`Order-book archive size mismatch date=${file.date}: expected=${file.size} actual=${archiveSizeBytes}.`);
     }
-    assertCompleteDay(aggregate.bars, file.date);
-    assertCompleteDay(aggregate.eventFlowBars, file.date);
     return {
       file,
       archiveSizeBytes,
       archiveSha256: archiveHash.digest("hex"),
-      ...aggregate,
+      ...aggregateResult,
     };
   } catch (error) {
     archive.destroy();
@@ -296,9 +306,15 @@ export async function retryArchiveOperation(operation, attempts, retryDelayMilli
   throw lastError;
 }
 
-export async function aggregateArchiveLines(stream, { sourceDate, symbol, depth }) {
+export async function aggregateArchiveLines(
+  stream,
+  { sourceDate, symbol, depth, bucketMillis = ONE_MINUTE_MILLIS, fillEmptyBuckets = false },
+) {
+  if (!Number.isInteger(bucketMillis) || bucketMillis <= 0 || ONE_MINUTE_MILLIS % bucketMillis !== 0) {
+    throw new Error("Order-book bucketMillis must be a positive divisor of one minute.");
+  }
   const reader = createInterface({ input: stream, crlfDelay: Infinity });
-  const book = new ArchiveOrderBookAggregator({ sourceDate, symbol, depth });
+  const book = new ArchiveOrderBookAggregator({ sourceDate, symbol, depth, bucketMillis, fillEmptyBuckets });
   for await (const line of reader) {
     if (line) book.record(line);
   }
@@ -318,11 +334,13 @@ export function assertCompleteDay(bars, date) {
   }
 }
 
-class ArchiveOrderBookAggregator {
-  constructor({ sourceDate, symbol, depth }) {
+export class ArchiveOrderBookAggregator {
+  constructor({ sourceDate, symbol, depth, bucketMillis = ONE_MINUTE_MILLIS, fillEmptyBuckets = false }) {
     this.sourceDate = sourceDate;
     this.symbol = symbol;
     this.depth = depth;
+    this.bucketMillis = bucketMillis;
+    this.fillEmptyBuckets = fillEmptyBuckets;
     this.bids = new SortedBookSide(true);
     this.asks = new SortedBookSide(false);
     this.initialized = false;
@@ -334,6 +352,7 @@ class ArchiveOrderBookAggregator {
     this.bars = [];
     this.eventFlowBars = [];
     this.minuteAccumulator = null;
+    this.lastSample = null;
   }
 
   record(line) {
@@ -351,12 +370,15 @@ class ArchiveOrderBookAggregator {
     if (this.lastTimestamp != null && timestamp < this.lastTimestamp) {
       throw new Error(`Order-book archive matching-engine timestamps must be non-decreasing: ${timestamp} < ${this.lastTimestamp}.`);
     }
-    const minute = Math.floor(timestamp / ONE_MINUTE_MILLIS) * ONE_MINUTE_MILLIS;
+    const minute = Math.floor(timestamp / this.bucketMillis) * this.bucketMillis;
     if (this.currentMinute != null && minute > this.currentMinute) {
       this.finalizeMinute(this.currentMinute);
+      if (this.fillEmptyBuckets) this.fillMissingBuckets(this.currentMinute + this.bucketMillis, minute);
     }
     const mutations = this.apply(message);
-    this.accumulateMinute(minute, message.type, mutations, this.snapshotMetrics());
+    const sample = this.snapshotMetrics();
+    this.accumulateMinute(minute, message.type, mutations, sample);
+    this.lastSample = sample;
     this.currentMinute = minute;
     this.lastTimestamp = timestamp;
     this.lastSourceTimestamp = sourceTimestamp;
@@ -368,6 +390,10 @@ class ArchiveOrderBookAggregator {
     if (this.currentMinute != null) this.finalizeMinute(this.currentMinute);
     if (this.firstTimestamp == null || this.lastTimestamp == null) {
       throw new Error(`Order-book archive ${this.sourceDate} contains no events.`);
+    }
+    if (this.fillEmptyBuckets) {
+      const dayEnd = Date.parse(`${this.sourceDate}T00:00:00Z`) + 86_400_000;
+      this.fillMissingBuckets(this.currentMinute + this.bucketMillis, dayEnd);
     }
     return {
       bars: this.bars,
@@ -402,21 +428,34 @@ class ArchiveOrderBookAggregator {
   finalizeMinute(openedAt) {
     if (toDate(openedAt) !== this.sourceDate) return;
     const accumulator = this.minuteAccumulator;
-    if (accumulator == null || accumulator.openedAt !== openedAt || accumulator.messageCount === 0) {
+    if (accumulator == null || accumulator.openedAt !== openedAt || accumulator.observationCount === 0) {
       throw new Error(`Order-book archive ${this.sourceDate} has no event samples at ${instantString(openedAt)}.`);
     }
     this.bars.push({
       symbol: this.symbol,
       openedAt,
       sampleCount: accumulator.messageCount,
-      meanBidNotional: accumulator.bidNotionalTotal / accumulator.messageCount,
-      meanAskNotional: accumulator.askNotionalTotal / accumulator.messageCount,
-      meanImbalance: accumulator.topDepthImbalanceTotal / accumulator.messageCount,
-      meanSpreadBps: accumulator.spreadTotal / accumulator.messageCount,
+      meanBidNotional: accumulator.bidNotionalTotal / accumulator.observationCount,
+      meanAskNotional: accumulator.askNotionalTotal / accumulator.observationCount,
+      meanImbalance: accumulator.topDepthImbalanceTotal / accumulator.observationCount,
+      meanSpreadBps: accumulator.spreadTotal / accumulator.observationCount,
       maxSpreadBps: accumulator.maxSpreadBps,
     });
     this.eventFlowBars.push(accumulator.toEventFlowBar(this.symbol));
     this.minuteAccumulator = null;
+  }
+
+  fillMissingBuckets(startAt, endAt) {
+    if (this.lastSample == null) {
+      throw new Error(`Order-book archive ${this.sourceDate} cannot fill a bucket before its first causal sample.`);
+    }
+    for (let openedAt = startAt; openedAt < endAt; openedAt += this.bucketMillis) {
+      if (toDate(openedAt) !== this.sourceDate) continue;
+      const accumulator = new MinuteEventFlowAccumulator(openedAt);
+      accumulator.addCarried(this.lastSample);
+      this.minuteAccumulator = accumulator;
+      this.finalizeMinute(openedAt);
+    }
   }
 
   snapshotMetrics() {
@@ -452,6 +491,8 @@ class ArchiveOrderBookAggregator {
       spreadBps: ((bestAsk[0] - bestBid[0]) / midpoint) * 10_000,
       micropriceEdgeBps: ((microprice - midpoint) / midpoint) * 10_000,
       midpoint,
+      bestBid: bestBid[0],
+      bestAsk: bestAsk[0],
     };
   }
 
@@ -550,7 +591,9 @@ class MinuteEventFlowAccumulator {
   constructor(openedAt) {
     this.openedAt = openedAt;
     this.messageCount = 0;
+    this.observationCount = 0;
     this.snapshotCount = 0;
+    this.carriedForward = false;
     this.bidNotionalTotal = 0;
     this.askNotionalTotal = 0;
     this.topDepthImbalanceTotal = 0;
@@ -572,10 +615,13 @@ class MinuteEventFlowAccumulator {
     this.highMidPrice = -Infinity;
     this.lowMidPrice = Infinity;
     this.closeMidPrice = null;
+    this.closeBestBid = null;
+    this.closeBestAsk = null;
   }
 
   add(messageType, mutations, sample) {
     this.messageCount += 1;
+    this.observationCount += 1;
     if (messageType === "snapshot") this.snapshotCount += 1;
     this.bidNotionalTotal += sample.bidNotional;
     this.askNotionalTotal += sample.askNotional;
@@ -598,23 +644,49 @@ class MinuteEventFlowAccumulator {
     this.highMidPrice = Math.max(this.highMidPrice, sample.midpoint);
     this.lowMidPrice = Math.min(this.lowMidPrice, sample.midpoint);
     this.closeMidPrice = sample.midpoint;
+    this.closeBestBid = sample.bestBid;
+    this.closeBestAsk = sample.bestAsk;
+  }
+
+  addCarried(sample) {
+    this.carriedForward = true;
+    this.observationCount = 1;
+    this.bidNotionalTotal = sample.bidNotional;
+    this.askNotionalTotal = sample.askNotional;
+    this.topDepthImbalanceTotal = sample.topDepthImbalance;
+    this.top5ImbalanceTotal = sample.top5Imbalance;
+    this.startTop5Imbalance = sample.top5Imbalance;
+    this.endTop5Imbalance = sample.top5Imbalance;
+    this.minTop5Imbalance = sample.top5Imbalance;
+    this.maxTop5Imbalance = sample.top5Imbalance;
+    this.spreadTotal = sample.spreadBps;
+    this.maxSpreadBps = sample.spreadBps;
+    this.micropriceEdgeTotal = sample.micropriceEdgeBps;
+    this.openMidPrice = sample.midpoint;
+    this.highMidPrice = sample.midpoint;
+    this.lowMidPrice = sample.midpoint;
+    this.closeMidPrice = sample.midpoint;
+    this.closeBestBid = sample.bestBid;
+    this.closeBestAsk = sample.bestAsk;
   }
 
   toEventFlowBar(symbol) {
+    if (this.observationCount === 0) throw new Error("Order-book event-flow bucket contains no observation.");
     return {
       symbol,
       openedAt: this.openedAt,
       messageCount: this.messageCount,
       snapshotCount: this.snapshotCount,
-      meanTop5Imbalance: this.top5ImbalanceTotal / this.messageCount,
-      meanTop50Imbalance: this.topDepthImbalanceTotal / this.messageCount,
+      carriedForward: this.carriedForward,
+      meanTop5Imbalance: this.top5ImbalanceTotal / this.observationCount,
+      meanTop50Imbalance: this.topDepthImbalanceTotal / this.observationCount,
       startTop5Imbalance: this.startTop5Imbalance,
       endTop5Imbalance: this.endTop5Imbalance,
       minTop5Imbalance: this.minTop5Imbalance,
       maxTop5Imbalance: this.maxTop5Imbalance,
-      meanSpreadBps: this.spreadTotal / this.messageCount,
+      meanSpreadBps: this.spreadTotal / this.observationCount,
       maxSpreadBps: this.maxSpreadBps,
-      meanMicropriceEdgeBps: this.micropriceEdgeTotal / this.messageCount,
+      meanMicropriceEdgeBps: this.micropriceEdgeTotal / this.observationCount,
       bidAddedTop5Notional: this.bidAddedTop5Notional,
       bidRemovedTop5Notional: this.bidRemovedTop5Notional,
       askAddedTop5Notional: this.askAddedTop5Notional,
@@ -625,6 +697,8 @@ class MinuteEventFlowAccumulator {
       highMidPrice: this.highMidPrice,
       lowMidPrice: this.lowMidPrice,
       closeMidPrice: this.closeMidPrice,
+      closeBestBid: this.closeBestBid,
+      closeBestAsk: this.closeBestAsk,
     };
   }
 }

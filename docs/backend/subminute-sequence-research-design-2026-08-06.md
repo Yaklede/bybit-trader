@@ -56,3 +56,23 @@
 ## 완료 조건
 
 데이터 수집기는 일별 17,280개 호가 버킷, 명시적 0 체결 버킷, 원본 해시, 이벤트 시각 경계, OI·펀딩 시점 정합성을 재현해야 한다. 전략은 2023 선택과 2024 내부 검증을 모두 통과하기 전에는 다음 데이터를 읽을 수 없다. 최종 실거래 승인은 이후의 독립 검증, 비용·지연·자본 스트레스, Kotlin 실행 정합성, Shadow/Paper 전진 검증까지 별도 통과해야 한다.
+
+## 수집 실행
+
+2023 선택 데이터만 먼저 수집한다.
+
+```bash
+node scripts/subminute-sequence-acquire.mjs \
+  --protocol=config/bybit-subminute-sequence-development-v1.json \
+  --stage=selection
+```
+
+수집은 일별 호가와 체결을 각각 독립 트랜잭션으로 확정한다. 프로세스가 중단되면 같은 명령을 다시 실행해 SHA와 17,280개 버킷이 이미 일치하는 일별 자료를 건너뛴다. 원본 크기, SHA, 이벤트 수, 첫·마지막 시각 또는 1분 재집계값 중 하나라도 기존 증거와 다르면 해당 날짜를 실패 처리한다.
+
+2024 내부 검증 자료는 2023 후보가 고정된 뒤에만 다음 명령으로 수집한다.
+
+```bash
+node scripts/subminute-sequence-acquire.mjs \
+  --protocol=config/bybit-subminute-sequence-development-v1.json \
+  --stage=internal-validation
+```
