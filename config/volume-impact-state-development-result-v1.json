@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-impact-state-development-result-v1",
+  "protocolId": "volume-impact-state-development-v1",
+  "protocolRevision": 2,
+  "executedAt": "2026-08-06",
+  "status": "REJECTED",
+  "codeGitSha": "1b1222a",
+  "inputs": {
+    "databasePath": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "databaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+    "replayStartAt": "2020-06-01T00:00:00Z",
+    "replayEndAt": "2024-01-01T00:00:00Z",
+    "observedM1": 1884960,
+    "candidateCount": 24
+  },
+  "outputs": {
+    "candidateTradesSha256": "ca039a5caf9c0c4c95a22dab0471284f84c3c9b8262020823a7f02bdfb6de422",
+    "nestedWalkForwardSha256": "6f1d36c90e72536e687acebaf7c2752819ddd243eaf77189cfd627b8e91f2b8b",
+    "summarySha256": "c46aa6c65e5ddb2f85bce7fcf677de85908b16cab6ef89ae43ec9772a6e488b4"
+  },
+  "families": [
+    {
+      "family": "VOLUME_IMPACT_CONTINUATION",
+      "status": "REJECTED",
+      "positiveValidationFolds": 0,
+      "bestDiagnosticCandidate": {
+        "id": "vic_rv2p5_lb6_cf2",
+        "tradeCount": 634,
+        "winRatePct": 29.33753943,
+        "netReturnPct": -26.02499862,
+        "compoundDailyReturnPct": -0.02302584,
+        "meanNetR": -0.09272097,
+        "profitFactor": 0.72037287,
+        "maxDrawdownPct": 27.05763348,
+        "bootstrapLowerMeanNetR": -0.14214516,
+        "bootstrapUpperMeanNetR": -0.04631146
+      },
+      "failureReason": "Every continuation candidate had negative net expectancy. The best candidate's 90 percent bootstrap interval was entirely below zero."
+    },
+    {
+      "family": "VOLUME_EXHAUSTION_REVERSAL",
+      "status": "REJECTED_INSUFFICIENT_EVIDENCE",
+      "positiveValidationFolds": 0,
+      "bestDiagnosticCandidate": {
+        "id": "ver_rv3_lb12_cf2",
+        "tradeCount": 20,
+        "winRatePct": 45,
+        "netReturnPct": 1.29104276,
+        "compoundDailyReturnPct": 0.00097997,
+        "meanNetR": 0.13254405,
+        "profitFactor": 1.24098918,
+        "maxDrawdownPct": 2.15568573,
+        "bootstrapLowerMeanNetR": -0.11005666,
+        "bootstrapUpperMeanNetR": 0.3616321
+      },
+      "failureReason": "The only positive candidates had 15 to 20 trades and bootstrap intervals crossing zero, so no training fold could select a statistically eligible candidate."
+    }
+  ],
+  "diagnosis": {
+    "continuation": "Immediate post-breakout confirmation enters after much of the short impulse is exhausted. Fees and slippage turn the dominant small trailing exits into negative net R.",
+    "reversal": "Exceptional-volume failed breakouts may contain signal, but the single-bar definition is too sparse for approval and weaker volume thresholds lose expectancy.",
+    "nextResearchDirections": [
+      "VOLUME_BREAKOUT_RETEST_CONTINUATION",
+      "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL"
+    ]
+  },
+  "reservedSealedProtocolId": "fresh-sealed-validation-2026-08-v1",
+  "reservedSealedWindowOpened": false,
+  "automaticExecutionAllowed": false
+}
