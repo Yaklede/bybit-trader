@@ -16,7 +16,12 @@ When an alert sink is enabled, the control-mode alert and the exchange safety
 result are delivered separately. The safety alert includes the remaining order
 and position counts and translates each issue code into an operator action.
 Alert delivery failure never changes the control command response or prevents
-the exchange action.
+the exchange action. While the persisted mode remains `PAUSE_ALL` or
+`EMERGENCY_STOP`, the reconciliation loop re-verifies the exchange state and
+emits only safety-state transitions. A pending flatten therefore produces a
+later `CONFIRMED` or changed `FAILED` alert without repeating the same status on
+every reconciliation cycle. Returning to a non-safety mode resets this alert
+fingerprint for the next operator command.
 
 Safety issue codes:
 

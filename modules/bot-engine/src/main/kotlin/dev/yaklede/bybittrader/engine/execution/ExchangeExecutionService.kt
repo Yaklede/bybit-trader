@@ -752,20 +752,40 @@ class ExchangeExecutionService(
     suspend fun enforceCurrentSafetyMode(symbol: Symbol): ExchangeSafetyResult =
         lifecycleMutex.withLock {
             val mode = stateStore.current().mode
-            val result = safetyCoordinator.enforce(mode, symbol)
-            logger.warn(
-                "execution safety action completed action={} status={} symbol={} cancelledEntries={} submittedCloses={} remainingOrders={} remainingPositions={} issues={}",
-                result.action.name,
-                result.status.name,
-                symbol.value,
-                result.cancelledEntryOrderCount,
-                result.submittedCloseOrderCount,
-                result.remainingOpenOrderCount,
-                result.remainingPositionCount,
-                result.issueCodes,
-            )
-            result
+            require(mode == BotMode.PAUSE_ALL || mode == BotMode.EMERGENCY_STOP) {
+                "Bot mode ${mode.name} does not require an exchange safety action."
+            }
+            enforceSafetyModeLocked(mode, symbol)
         }
+
+    suspend fun verifyCurrentSafetyMode(symbol: Symbol): ExchangeSafetyResult? =
+        lifecycleMutex.withLock {
+            val mode = stateStore.current().mode
+            if (mode != BotMode.PAUSE_ALL && mode != BotMode.EMERGENCY_STOP) {
+                null
+            } else {
+                enforceSafetyModeLocked(mode, symbol)
+            }
+        }
+
+    private suspend fun enforceSafetyModeLocked(
+        mode: BotMode,
+        symbol: Symbol,
+    ): ExchangeSafetyResult {
+        val result = safetyCoordinator.enforce(mode, symbol)
+        logger.warn(
+            "execution safety action completed action={} status={} symbol={} cancelledEntries={} submittedCloses={} remainingOrders={} remainingPositions={} issues={}",
+            result.action.name,
+            result.status.name,
+            symbol.value,
+            result.cancelledEntryOrderCount,
+            result.submittedCloseOrderCount,
+            result.remainingOpenOrderCount,
+            result.remainingPositionCount,
+            result.issueCodes,
+        )
+        return result
+    }
 
     private suspend fun enforcePersistedSafetyMode(report: ExchangeReconciliationReport) {
         val mode = stateStore.current().mode

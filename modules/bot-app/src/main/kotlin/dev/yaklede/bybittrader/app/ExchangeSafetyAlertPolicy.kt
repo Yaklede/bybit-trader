@@ -7,8 +7,35 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeSafetyAction
 import dev.yaklede.bybittrader.engine.execution.ExchangeSafetyResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeSafetyStatus
 
-internal suspend fun AlertingService.sendExchangeSafetyResult(result: ExchangeSafetyResult) {
-    send(result.toSafetyAlertMessage())
+internal class ExchangeSafetyAlertPolicy {
+    private var lastFingerprint: String? = null
+
+    @Synchronized
+    fun messages(result: ExchangeSafetyResult): List<AlertMessage> {
+        val fingerprint =
+            listOf(
+                result.action.name,
+                result.status.name,
+                result.remainingOpenOrderCount?.toString() ?: "UNKNOWN",
+                result.remainingPositionCount?.toString() ?: "UNKNOWN",
+                result.issueCodes.sorted().joinToString(","),
+            ).joinToString("|")
+        if (fingerprint == lastFingerprint) return emptyList()
+        lastFingerprint = fingerprint
+        return listOf(result.toSafetyAlertMessage())
+    }
+
+    @Synchronized
+    fun reset() {
+        lastFingerprint = null
+    }
+}
+
+internal suspend fun AlertingService.sendExchangeSafetyResult(
+    result: ExchangeSafetyResult,
+    policy: ExchangeSafetyAlertPolicy,
+) {
+    policy.messages(result).forEach { message -> send(message) }
 }
 
 internal fun ExchangeSafetyResult.toSafetyAlertMessage(): AlertMessage {

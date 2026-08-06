@@ -889,6 +889,49 @@ class ExchangeExecutionServiceTest :
             store.lifecycleRecords.last().state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
         }
 
+        "reconciliation loop reports exchange-confirmed emergency flatten" {
+            val symbol = Symbol("BTCUSDT")
+            val gateway =
+                RecordingExecutionGateway(
+                    positions = listOf(testManagedPosition(symbol)),
+                    closeImmediatelyOnReduceOnly = true,
+                )
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.EMERGENCY_STOP),
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+            val safetyResults = mutableListOf<ExchangeSafetyResult>()
+
+            ExchangeReconciliationLoop(
+                executionService = service,
+                config = ExchangeReconciliationLoopConfig(symbol),
+                onSafetyResult = { result -> safetyResults += result },
+            ).runOnce()
+
+            safetyResults.single().status shouldBe ExchangeSafetyStatus.CONFIRMED
+            safetyResults.single().action shouldBe ExchangeSafetyAction.FLATTEN
+            safetyResults.single().remainingPositionCount shouldBe 0
+            gateway.placedOrders.single().reduceOnly shouldBe true
+        }
+
+        "reconciliation loop skips safety verification while the bot is running" {
+            val gateway = RecordingExecutionGateway()
+            val service = testService(gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+            val safetyResults = mutableListOf<ExchangeSafetyResult>()
+
+            ExchangeReconciliationLoop(
+                executionService = service,
+                config = ExchangeReconciliationLoopConfig(Symbol("BTCUSDT")),
+                onSafetyResult = { result -> safetyResults += result },
+            ).runOnce()
+
+            safetyResults shouldBe emptyList()
+            gateway.openOrderRequests shouldBe 1
+            gateway.positionRequests shouldBe 1
+        }
+
         "automatic trading loop does not reconcile exchange state" {
             val gateway = RecordingExecutionGateway()
             val loop =

@@ -299,7 +299,10 @@ curl -X POST \
   remaining exposure, and issue codes. Safe stop keeps protected positions
   managed; flatten requires exchange-confirmed zero positions and zero active
   orders before it reports `CONFIRMED`. Treat `PENDING` as unresolved exposure
-  and `FAILED` as an immediate manual Bybit inspection condition.
+  and `FAILED` as an immediate manual Bybit inspection condition. The
+  reconciliation loop continues verification in a persisted safety mode and
+  sends a later transition alert when the exchange confirms completion; an
+  unchanged status is suppressed.
 - Paper runtime state prevents a closed candle from being evaluated twice and
   restores pending/open positions after restart.
 - A signal is persisted as `ENTRY_PENDING` and can fill only at the next

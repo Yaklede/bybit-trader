@@ -239,6 +239,7 @@ fun main() {
             logger.info("paper trading loop disabled")
             null
         }
+    val executionSafetyAlertPolicy = ExchangeSafetyAlertPolicy()
     val executionReconciliationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val executionReconciliationLoop =
         if (executionService != null && config.executionReconciliation.enabled) {
@@ -256,6 +257,9 @@ fun main() {
                     ),
                 onClosure = { closure -> alertingService.sendExecutionClosure(closure) },
                 onLifecycleEvent = { event -> alertingService.sendExecutionLifecycleEvent(event) },
+                onSafetyResult = { result ->
+                    alertingService.sendExchangeSafetyResult(result, executionSafetyAlertPolicy)
+                },
                 onFailure = { error -> alertingService.sendExecutionReconciliationFailure(error) },
             )
         } else {
@@ -400,7 +404,10 @@ fun main() {
             },
         ).start(
             scope = resumeReadinessScope,
-            onConfirmed = { result -> alertingService.sendControlResult(result) },
+            onConfirmed = { result ->
+                executionSafetyAlertPolicy.reset()
+                alertingService.sendControlResult(result)
+            },
         )
 
     runBlocking {
@@ -469,8 +476,15 @@ fun main() {
                         rawEventArchive = forwardMarketRawEventArchive,
                     ),
                 forwardMarketCaptureEnabled = config.forwardMarketCapture.enabled,
-                onControlResult = { result -> alertingService.sendControlResult(result) },
-                onSafetyResult = { result -> alertingService.sendExchangeSafetyResult(result) },
+                onControlResult = { result ->
+                    if (result.newMode != BotMode.PAUSE_ALL && result.newMode != BotMode.EMERGENCY_STOP) {
+                        executionSafetyAlertPolicy.reset()
+                    }
+                    alertingService.sendControlResult(result)
+                },
+                onSafetyResult = { result ->
+                    alertingService.sendExchangeSafetyResult(result, executionSafetyAlertPolicy)
+                },
                 onSmokeAlert = { message -> alertingService.sendSmokeAlert(message) },
                 controlCredential = config.api.controlCredential,
             )

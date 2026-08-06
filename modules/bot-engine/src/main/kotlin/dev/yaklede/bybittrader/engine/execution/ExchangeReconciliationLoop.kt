@@ -18,6 +18,7 @@ class ExchangeReconciliationLoop(
     private val clock: Clock = Clock.systemUTC(),
     private val onClosure: suspend (ExecutionTradeClosure) -> Boolean = { false },
     private val onLifecycleEvent: suspend (ExecutionLifecycleEvent) -> Unit = {},
+    private val onSafetyResult: suspend (ExchangeSafetyResult) -> Unit = {},
     private val onFailure: suspend (Throwable) -> Unit = {},
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeReconciliationLoop::class.java)
@@ -47,6 +48,12 @@ class ExchangeReconciliationLoop(
                 logger.warn("execution lifecycle callback failed symbol={}", config.symbol.value, error)
                 error
             }
+        try {
+            executionService.verifyCurrentSafetyMode(config.symbol)?.let { result -> onSafetyResult(result) }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            logger.warn("execution safety verification or callback failed symbol={}", config.symbol.value, error)
+        }
         deliverPendingClosureAlerts()
         reconciliation.exceptionOrNull()?.let { error -> throw error }
         lifecycleFailure?.let { error -> throw error }

@@ -38,6 +38,38 @@ class ExchangeSafetyAlertPolicyTest :
             message.body shouldContain "남은 활성 주문: 확인 불가"
             message.body shouldContain "수동으로 정리"
         }
+
+        "suppresses repeated safety states and reports a confirmed transition" {
+            val policy = ExchangeSafetyAlertPolicy()
+            val pending =
+                safetyResult(
+                    status = ExchangeSafetyStatus.PENDING,
+                    remainingOpenOrderCount = 1,
+                    remainingPositionCount = 1,
+                    issueCodes = listOf("SAFETY_VERIFICATION_PENDING"),
+                )
+            val confirmed =
+                safetyResult(
+                    status = ExchangeSafetyStatus.CONFIRMED,
+                    remainingOpenOrderCount = 0,
+                    remainingPositionCount = 0,
+                )
+
+            policy.messages(pending).single().title shouldBe "안전 정지 거래소 확인 대기"
+            policy.messages(pending) shouldBe emptyList()
+            policy.messages(confirmed).single().title shouldBe "안전 정지 거래소 확인 완료"
+            policy.messages(confirmed) shouldBe emptyList()
+        }
+
+        "reset allows the next safety command to emit the same state" {
+            val policy = ExchangeSafetyAlertPolicy()
+            val confirmed = safetyResult()
+            policy.messages(confirmed)
+
+            policy.reset()
+
+            policy.messages(confirmed).single().title shouldBe "안전 정지 거래소 확인 완료"
+        }
     })
 
 private fun safetyResult(
