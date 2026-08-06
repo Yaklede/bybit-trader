@@ -3,9 +3,11 @@ import fs from "node:fs/promises";
 
 const EXPECTED_STATUS = "PREDECLARED_ANALYSIS_BEFORE_FEATURE_INSPECTION";
 const EXPECTED_V2_STATUS = "PREDECLARED_EXECUTION_REPAIR_BEFORE_V2_REPLAY";
+const EXPECTED_V3_STATUS = "PREDECLARED_CONFIRMED_REVERSAL_BEFORE_V3_REPLAY";
 const EXPECTED_ACQUISITION_PROTOCOL_HASH = "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d";
 const EXPECTED_V1_ANALYSIS_HASH = "10a69cbf42452346e26e983634c3377fede3c67076ba2e35c494301789f157b9";
 const EXPECTED_V1_RESULT_RECEIPT_HASH = "12c80593ec2780b0a88f08f1e54f6b103cc106a89a977c3bbf8309389a4ecd32";
+const EXPECTED_V2_RESULT_RECEIPT_HASH = "0c95001165aa2b2b3158fc066431a453fc0e33e55a8405b658465ba0a7f154e4";
 
 export async function loadAnalysisContract(path) {
   const bytes = await fs.readFile(path);
@@ -16,6 +18,9 @@ export async function loadAnalysisContract(path) {
 }
 
 export function validateAnalysisContract(contract) {
+  if (contract?.analysisId === "bybit-event-flow-development-analysis-v3") {
+    return validateV3AnalysisContract(contract);
+  }
   if (contract?.analysisId === "bybit-event-flow-development-analysis-v2") {
     return validateV2AnalysisContract(contract);
   }
@@ -48,6 +53,53 @@ export function validateAnalysisContract(contract) {
       contract.outcomePolicy?.automaticExecutionAllowed !== false ||
       contract.outcomePolicy?.liveExecutionAllowed !== false) {
     throw new Error("Development analysis cannot mutate itself or authorize execution.");
+  }
+  return contract;
+}
+
+function validateV3AnalysisContract(contract) {
+  if (contract.status !== EXPECTED_V3_STATUS) throw new Error("Event-flow v3 confirmation stage must be predeclared before replay.");
+  if (contract.parentResult?.resultReceiptSha256 !== EXPECTED_V2_RESULT_RECEIPT_HASH ||
+      contract.parentResult?.requiredStatus !== "REJECTED_NO_STATISTICALLY_POSITIVE_FAMILY") {
+    throw new Error("Event-flow v3 must bind the rejected v2 result receipt.");
+  }
+  if (contract.acquisitionProtocol?.protocolSha256 !== EXPECTED_ACQUISITION_PROTOCOL_HASH ||
+      contract.acquisitionProtocol?.validationExternalAndFreshDataAllowed !== false) {
+    throw new Error("Event-flow v3 cannot change acquisition evidence or access locked data.");
+  }
+  const trials = contract.trialAccounting;
+  if (trials?.priorEvidenceContractCandidates !== 124 || trials.stageCandidates !== 16 ||
+      trials.cumulativeCandidates !== 140 || trials.maximumCumulativeCandidates !== 192) {
+    throw new Error("Event-flow v3 trial accounting must remain frozen at 124 + 16 = 140 of 192.");
+  }
+  const hypothesis = contract.hypothesis;
+  const candidateCount = Object.values(hypothesis?.grid ?? {}).reduce(
+    (count, values) => count * (Array.isArray(values) ? values.length : 0),
+    1,
+  );
+  if (hypothesis?.family !== "CONFIRMED_ABSORPTION_REVERSAL" || candidateCount !== 16 || hypothesis.candidateCount !== 16 ||
+      hypothesis.setupFixed?.minimumEffectiveStopFloorPct !== 0.004 || hypothesis.setupFixed?.targetR !== 2.5) {
+    throw new Error("Event-flow v3 must preserve its bounded 16-candidate confirmed-reversal family.");
+  }
+  if (contract.stateMachine?.confirmationMustOccurAfterSetupClose !== true ||
+      contract.stateMachine?.preReplaySetupAllowed !== false ||
+      contract.stateMachine?.confirmedToPending !== "NEXT_CONTIGUOUS_M1_OPEN_AFTER_CONFIRMATION_CLOSE") {
+    throw new Error("Event-flow v3 must confirm causally after setup and enter on the next minute.");
+  }
+  const development = contract.chronologicalDevelopment;
+  if (development?.selectionEras?.join(",") !== "2023H1,2023H2" ||
+      development?.validationEras?.join(",") !== "2024H1,2024H2" ||
+      development?.selectedCandidateMayChangeBetweenValidationEras !== false ||
+      development?.trainingEligibility?.minimumTrades !== 15 ||
+      development?.validationGate?.minimumPooledTrades !== 15 ||
+      development?.validationGate?.minimumPositiveEraCount !== 2 ||
+      development?.validationGate?.minimumBootstrapLowerMeanNetR !== 0) {
+    throw new Error("Event-flow v3 chronological selection and validation gates must remain frozen.");
+  }
+  if (contract.outcomePolicy?.analysisContractMayChangeAfterOutcome !== false ||
+      contract.outcomePolicy?.automaticExecutionAllowed !== false ||
+      contract.outcomePolicy?.liveExecutionAllowed !== false) {
+    throw new Error("Event-flow v3 cannot mutate after outcome or authorize execution.");
   }
   return contract;
 }

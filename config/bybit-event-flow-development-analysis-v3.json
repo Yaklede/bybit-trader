@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "analysisId": "bybit-event-flow-development-analysis-v3",
+  "status": "PREDECLARED_CONFIRMED_REVERSAL_BEFORE_V3_REPLAY",
+  "declaredAt": "2026-08-06",
+  "parentResult": {
+    "resultId": "bybit-event-flow-development-result-v2",
+    "resultReceiptSha256": "0c95001165aa2b2b3158fc066431a453fc0e33e55a8405b658465ba0a7f154e4",
+    "resultArtifactSha256": "a0b485d5dbcefc9e8a168708beb2a978ad89b4be5dd252c3ab4a7791b43470ac",
+    "requiredStatus": "REJECTED_NO_STATISTICALLY_POSITIVE_FAMILY"
+  },
+  "acquisitionProtocol": {
+    "protocolId": "bybit-event-flow-development-v1",
+    "protocolSha256": "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d",
+    "stage": "development",
+    "allowedBlockSource": "stages.development.primaryBlocks",
+    "validationExternalAndFreshDataAllowed": false
+  },
+  "inheritedContracts": {
+    "causalFeatureDefinitions": "bybit-event-flow-development-analysis-v1",
+    "costAwareStopFloor": "bybit-event-flow-development-analysis-v2",
+    "sameBarExecutionPriorityUnchanged": true,
+    "feesSlippageLeverageHoldingDailyLimitAndCooldownUnchanged": true
+  },
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 124,
+    "stageCandidates": 16,
+    "cumulativeCandidates": 140,
+    "maximumCumulativeCandidates": 192
+  },
+  "hypothesis": {
+    "family": "CONFIRMED_ABSORPTION_REVERSAL",
+    "statement": "An absorption event is only an armed setup; reversal entry requires later opposite taker flow, aligned closing top-five pressure, and a trade-price cross in the reversal direction within a bounded confirmation window.",
+    "setupFixed": {
+      "minimumRelativeTakerNotional": 2.0,
+      "maximumDirectionalPriceImpactBps": 5.0,
+      "minimumConsumedSideReplenishment": 0.1,
+      "minimumOpposingEndTop5Imbalance": 0,
+      "requireClosedM15RegimeAlignmentAfterReversal": true,
+      "initialStopAtr": 1.25,
+      "minimumEffectiveStopFloorPct": 0.004,
+      "targetR": 2.5,
+      "maximumHoldingMinutes": 180
+    },
+    "grid": {
+      "minimumSetupAbsoluteTakerImbalance": [0.25, 0.4],
+      "confirmationWindowMinutes": [3, 5],
+      "minimumConfirmationAbsoluteTakerImbalance": [0.1, 0.2],
+      "minimumConfirmationAlignedTop5Imbalance": [0, 0.05]
+    },
+    "candidateCount": 16,
+    "candidateId": "car_ti{setupTaker}_cw{window}_ci{confirmationTaker}_ob{confirmationBook}"
+  },
+  "stateMachine": {
+    "FLAT_TO_SETUP_ARMED": "CLOSED_M1_BAR_PASSES_THE_V3_ABSORPTION_SETUP",
+    "setupReplacement": "LATEST_QUALIFYING_SETUP_REPLACES_AN_EXISTING_UNCONFIRMED_SETUP",
+    "confirmationMustOccurAfterSetupClose": true,
+    "confirmationConditions": [
+      "TAKER_DIRECTION_EQUALS_REVERSAL_ORDER_SIDE",
+      "ABS_TAKER_IMBALANCE_AT_LEAST_CANDIDATE_CONFIRMATION_MINIMUM",
+      "RELATIVE_TAKER_NOTIONAL_AT_LEAST_1P0",
+      "ORDER_SIDE_SIGN_MULTIPLIED_BY_END_TOP5_IMBALANCE_AT_LEAST_CANDIDATE_CONFIRMATION_MINIMUM",
+      "CLOSE_TRADE_PRICE_CROSSES_SETUP_CLOSE_TRADE_PRICE_IN_ORDER_SIDE_DIRECTION"
+    ],
+    "expiration": "SETUP_CLOSE_TIME_PLUS_CANDIDATE_CONFIRMATION_WINDOW_MINUTES",
+    "expiredOrUnconfirmed": "NO_TRADE",
+    "confirmedToPending": "NEXT_CONTIGUOUS_M1_OPEN_AFTER_CONFIRMATION_CLOSE",
+    "preReplaySetupAllowed": false,
+    "singlePositionPerCandidate": true
+  },
+  "execution": {
+    "atrSource": "CAUSAL_M1_ATR_AT_CONFIRMATION_CLOSE",
+    "effectiveStopDistance": "MAX_OF_1P25_MULTIPLIED_BY_CONFIRMATION_M1_ATR_AND_ADVERSE_ENTRY_FILL_MULTIPLIED_BY_0P004",
+    "targetDistance": "EFFECTIVE_STOP_DISTANCE_MULTIPLIED_BY_2P5",
+    "quantity": "RISK_FRACTION_OF_CURRENT_CANDIDATE_EQUITY_DIVIDED_BY_COST_INCLUSIVE_EFFECTIVE_STOP_LOSS_PER_UNIT",
+    "aboveMaximumInitialRiskPolicy": "NO_TRADE"
+  },
+  "chronologicalDevelopment": {
+    "selectionEras": ["2023H1", "2023H2"],
+    "validationEras": ["2024H1", "2024H2"],
+    "selectedCandidateMayChangeBetweenValidationEras": false,
+    "trainingEligibility": {
+      "minimumTrades": 15,
+      "minimumProfitFactor": 1.05,
+      "minimumMeanNetR": 0,
+      "maximumDrawdownPct": 20,
+      "maximumLiquidationCount": 0
+    },
+    "candidateRanking": [
+      "BOOTSTRAP_95_LOWER_MEAN_NET_R_DESC",
+      "WORST_BLOCK_MEAN_NET_R_DESC",
+      "PROFIT_FACTOR_DESC",
+      "CANDIDATE_ID_ASC"
+    ],
+    "validationGate": {
+      "minimumPooledTrades": 15,
+      "minimumPositiveEraCount": 2,
+      "totalValidationEraCount": 2,
+      "minimumProfitFactor": 1.1,
+      "minimumMeanNetR": 0,
+      "minimumBootstrapLowerMeanNetR": 0,
+      "maximumDrawdownPct": 20,
+      "maximumLiquidationCount": 0
+    }
+  },
+  "outcomePolicy": {
+    "failure": "REJECT_V3_AND_DO_NOT_ACQUIRE_LOCKED_DATA",
+    "pass": "FREEZE_THE_SINGLE_CHRONOLOGICALLY_SELECTED_CANDIDATE_BEFORE_VALIDATION_ACQUISITION",
+    "analysisContractMayChangeAfterOutcome": false,
+    "validationExternalOrFreshAcquisitionMayBeTriggeredByThisAnalysisDirectly": false,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
