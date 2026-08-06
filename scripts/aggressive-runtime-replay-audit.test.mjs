@@ -13,6 +13,7 @@ import { verifyProtocol } from "./volume-flow-sealed-evaluate.mjs";
 
 const protocolPath = new URL("../config/volume-flow-sealed-windows-v1.json", import.meta.url);
 const contractPath = new URL("../config/aggressive-runtime-replay-contract-v2.json", import.meta.url);
+const configDirectory = new URL("../config/", import.meta.url);
 
 test("runtime replay contract identifies the actual aggressive profile and its execution limits", async () => {
   const contract = verifyContract(JSON.parse(await fs.readFile(contractPath, "utf8")));
@@ -32,6 +33,21 @@ test("runtime replay contract rejects a missing net risk-reward limit", async ()
   delete contract.runtimeProfile.minimumNetRiskReward;
 
   assert.throws(() => verifyContract(contract), /incomplete execution settings/);
+});
+
+test("all frozen runtime contracts declare every fingerprint input", async () => {
+  const filenames = (await fs.readdir(configDirectory)).filter((filename) => filename.endsWith(".json"));
+  const contracts = [];
+  for (const filename of filenames) {
+    const candidate = JSON.parse(await fs.readFile(new URL(filename, configDirectory), "utf8"));
+    if (candidate.status === "FROZEN" && candidate.runtimeProfile != null) contracts.push([filename, candidate]);
+  }
+
+  assert.ok(contracts.length > 0);
+  for (const [filename, contract] of contracts) {
+    assert.doesNotThrow(() => verifyContract(contract), filename);
+    assert.equal(contract.runtimeProfile.minimumNetRiskReward, 1, filename);
+  }
 });
 
 test("runtime audit requires a verified profile, causal fill, return, risk, and coverage gates", () => {

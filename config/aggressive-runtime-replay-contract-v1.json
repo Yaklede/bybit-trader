@@ -14,7 +14,8 @@
     "minQuantity": 0.001,
     "maxNotional": 100,
     "leverage": 15,
-    "liquidationBufferPct": 0.6
+    "liquidationBufferPct": 0.6,
+    "minimumNetRiskReward": 1.0
   },
   "gates": {
     "requiredFillModelVersion": "causal-m1-path-v2",
