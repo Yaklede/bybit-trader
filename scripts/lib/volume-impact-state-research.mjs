@@ -414,7 +414,7 @@ export async function runCandidateBatch({ m1Candles, m5Candles, m15Candles, cand
   const replayEndMs = Date.parse(protocol.sourceData.developmentReplayEndsAt);
   const preparedM5 = prepareHigherTimeframeCandles(m5Candles, TIMEFRAME_MS.M5);
   const preparedM15 = prepareHigherTimeframeCandles(m15Candles, TIMEFRAME_MS.M15);
-  const slopeLookback = Math.max(...candidates.map((candidate) => candidate.m15SlopeLookbackBars ?? 0));
+  const slopeLookback = Math.max(4, ...candidates.map((candidate) => candidate.m15SlopeLookbackBars ?? 0));
   attachClosedM15Regimes(preparedM5, preparedM15, slopeLookback);
   const states = new Map(candidates.map((candidate) => [candidate.id, initialState(candidate)]));
   const m1Indicators = new RollingM1Indicators();

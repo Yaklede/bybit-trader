@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
   "protocolId": "asymmetric-cluster-absorption-development-v3",
-  "protocolRevision": 1,
+  "protocolRevision": 2,
+  "revisionReason": "Invalidate the zero-trade replay caused by an implicit zero-bar M15 slope and explicitly retain the four-bar closed-M15 slope used by the parent experiment; no candidate outcome was observed.",
   "status": "PREDECLARED_DEVELOPMENT",
   "declaredAt": "2026-08-06",
   "parentResultId": "volume-structure-development-v2-result",
@@ -67,6 +68,7 @@
       "fixed": {
         "m15FastEma": 20,
         "m15SlowEma": 50,
+        "m15SlopeLookbackBars": 4,
         "reversalDirectionMustMatchClosedM15Regime": true,
         "m5VolumeLookbackBars": 48,
         "m5AtrLookbackBars": 20,

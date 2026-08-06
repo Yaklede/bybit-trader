@@ -14,6 +14,7 @@ const parent = JSON.parse(
 );
 
 test("v3 freezes one asymmetric family with exactly 12 candidates", () => {
+  assert.equal(protocol.protocolRevision, 2);
   assert.equal(protocol.parentResultId, parent.resultId);
   assert.equal(protocol.hypotheses.length, 1);
   assert.equal(protocol.hypotheses[0].family, "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL");
@@ -23,6 +24,7 @@ test("v3 freezes one asymmetric family with exactly 12 candidates", () => {
   const candidates = expandCandidates(protocol);
   assert.equal(candidates.length, 12);
   assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 12);
+  assert.ok(candidates.every((candidate) => candidate.m15SlopeLookbackBars === 4));
 });
 
 test("active-month methodology does not relax the pooled family gate", () => {

@@ -174,6 +174,22 @@ test("v3 asymmetric cluster applies a finite volume band to short reversals", ()
   );
 });
 
+test("a single-family v3 replay retains the four-bar M15 slope and can trade", async () => {
+  const fixture = clusteredReversalFixture();
+  const candidate = expandCandidates(v3Protocol).find(
+    (item) => item.maximumShortClusterRelativeVolumeExclusive === 2.5 && item.m1ConfirmationWindowBars === 4,
+  );
+  const batch = await runCandidateBatch({
+    m1Candles: fixture.m1,
+    m5Candles: fixture.m5,
+    m15Candles: fixture.m15,
+    candidates: [candidate],
+    protocol: v3Protocol,
+  });
+  assert.equal(batch.candidates[0].trades.length, 1, JSON.stringify(batch.candidates[0], null, 2));
+  assert.equal(batch.candidates[0].trades[0].m15Regime, "SELL");
+});
+
 test("event metrics separate active-month quality from no-trade coverage", () => {
   const trade = {
     openedAt: "2020-01-10T00:00:00.000Z",
@@ -238,7 +254,12 @@ function clusteredReversalFixture() {
   });
   m5[181] = candle(Date.parse("2020-06-01T00:05:00Z"), 109.0, 110.0, 108.9, 109.6, 200, TIMEFRAME_MS.M5);
   m5[182] = candle(Date.parse("2020-06-01T00:10:00Z"), 109.6, 110.2, 109.0, 109.05, 200, TIMEFRAME_MS.M5);
-  return { m5, m15 };
+  const m1 = Array.from({ length: 920 }, (_, index) =>
+    candle(base + index * MINUTE_MS, 109.2, 109.25, 109.15, 109.18, 100, MINUTE_MS),
+  );
+  m1[915] = candle(Date.parse("2020-06-01T00:15:00Z"), 109.1, 109.15, 108.8, 108.85, 100, MINUTE_MS);
+  m1[916] = candle(Date.parse("2020-06-01T00:16:00Z"), 108.85, 108.95, 108.6, 108.7, 100, MINUTE_MS);
+  return { m1, m5, m15 };
 }
 
 function candle(openedAtMs, open, high, low, close, volume, durationMs) {
