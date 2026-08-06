@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "policyId": "volume-confirmed-trend-ensemble-v1-forward-policy",
+  "status": "FROZEN_BEFORE_FRESH_BYBIT_OBSERVATION",
+  "protocol": {
+    "path": "config/volume-confirmed-trend-ensemble-v1.json",
+    "sha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74"
+  },
+  "trialAccounting": {
+    "freshBybitForwardRead": false,
+    "criteriaMayChangeAfterObservationStarts": false
+  },
+  "requirements": {
+    "minimumCalendarDays": 90,
+    "minimumClosedTrades": 5,
+    "minimumExecutedTransitions": 6,
+    "minimumSessionReturnPct": 0,
+    "minimumClosedTradeProfitFactor": 1,
+    "maximumDrawdownPct": 35,
+    "maximumEntryExposureFraction": 0.85,
+    "maximumAdverseExposureFraction": 1.2,
+    "maximumLiquidationCount": 0,
+    "maximumObservationStalenessMinutes": 300,
+    "requireRuntimeReplayParity": true,
+    "requireContinuousCurrentSession": true
+  },
+  "decision": {
+    "passingStatus": "READY_FOR_HUMAN_REVIEW",
+    "automaticLivePromotionAllowed": false,
+    "humanApprovalRequired": true,
+    "liveExecutionAllowed": false
+  }
+}

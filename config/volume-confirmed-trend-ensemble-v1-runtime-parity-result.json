@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-confirmed-trend-ensemble-v1-runtime-parity-result",
+  "status": "PASS",
+  "implementationGitSha": "2d43de628cee554e113a8f301cee897ee3734276",
+  "protocol": {
+    "path": "config/volume-confirmed-trend-ensemble-v1.json",
+    "sha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74"
+  },
+  "externalResult": {
+    "path": "config/volume-confirmed-trend-ensemble-v1-external-result.json",
+    "sha256": "1a4a49029e7a24020e21fb90f23490dddeb7c27a98f02a20438fd28bf9cc2cd1"
+  },
+  "sourceResult": {
+    "ignoredPath": "build/research/volume-confirmed-trend-runtime-parity-2d43de6-a.json",
+    "sha256": "df04122c20b8816049ec390eb1d1e27c2884f0e62642ef7ead80e1b9c461305c",
+    "deterministicRepeatSha256": "df04122c20b8816049ec390eb1d1e27c2884f0e62642ef7ead80e1b9c461305c"
+  },
+  "sourceEvidence": {
+    "venue": "BINANCE_USDM",
+    "databaseSha256": "9c80bd330b8edb3a3a081b88ff4493ad7e1035da2d4d807e4ff625ee844bbbb6",
+    "sourceFeatureSha256": "bb1634cca011a44b062f20aebd25e7ecd307fea37e3dd0082fb8e43efa6250f7",
+    "h4BarCount": 14424,
+    "fundingRateCount": 7212,
+    "bootstrapH4BarCount": 540,
+    "replayedH4BarCount": 13883
+  },
+  "comparison": {
+    "numericTolerance": 0.00000001,
+    "maximumNumericDifference": 0,
+    "expectedTransitionCount": 164,
+    "actualTransitionCount": 164,
+    "expectedClosedTradeCount": 163,
+    "actualClosedTradeCount": 163,
+    "mismatchCount": 0,
+    "passed": true
+  },
+  "decision": {
+    "paperRuntimeReplayParity": true,
+    "freshShadowPass": false,
+    "runtimeParityGrantsExecution": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
