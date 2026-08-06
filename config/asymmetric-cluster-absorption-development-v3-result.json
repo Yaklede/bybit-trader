@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "resultId": "asymmetric-cluster-absorption-development-v3-result",
+  "protocolId": "asymmetric-cluster-absorption-development-v3",
+  "protocolRevision": 2,
+  "executedAt": "2026-08-06",
+  "status": "REJECTED_FAMILY_GATE",
+  "invalidatedRun": {
+    "protocolRevision": 1,
+    "status": "INVALIDATED_SIMULATOR_CONFIGURATION",
+    "observedTrades": 0,
+    "reason": "A missing single-family M15 slope default made every regime neutral; no candidate outcome was observed."
+  },
+  "codeGitSha": "cfea633",
+  "inputs": {
+    "databaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+    "replayStartAt": "2020-06-01T00:00:00Z",
+    "replayEndAt": "2024-01-01T00:00:00Z",
+    "observedM1": 1884960,
+    "candidateCount": 12
+  },
+  "outputs": {
+    "candidateTradesSha256": "5c4c0b92e5394505f054ccf1b9f381a8a5042550921f096323c9a4d37646dda9",
+    "nestedWalkForwardSha256": "60d4a5440efda035d7679f9cc221f5c3041f5d83f3178368b2d41c873ecdbed9",
+    "summarySha256": "9e6346960751d915f3f40096bbb77b3e5d8779b6374c5dc5beffc7874baceddb"
+  },
+  "nestedWalkForward": {
+    "positiveValidationFolds": 4,
+    "pooledTradeCount": 28,
+    "pooledWinRatePct": 46.42857143,
+    "pooledNetReturnPct": 3.15481043,
+    "pooledMeanNetR": 0.22642783,
+    "pooledProfitFactor": 1.44778477,
+    "pooledMaxDrawdownPct": 2.28813621,
+    "pooledBootstrapLowerMeanNetR": -0.00218248,
+    "pooledBootstrapUpperMeanNetR": 0.45703912,
+    "failedChecks": [
+      "ALL_FOLDS_SELECTED_CANDIDATE",
+      "MINIMUM_POOLED_VALIDATION_TRADES",
+      "MINIMUM_BOOTSTRAP_LOWER_MEAN_NET_R"
+    ]
+  },
+  "diagnosticCandidate": {
+    "id": "acar_lrv2p1_smax2p5_cf4",
+    "selectionStatus": "FROZEN_DIAGNOSTIC_ONLY_NOT_PROMOTABLE",
+    "selectionReason": "Highest predeclared bootstrap lower bound among full-development candidates with at least 60 trades.",
+    "tradeCount": 66,
+    "positiveHalfYearFolds": 4,
+    "winRatePct": 45.45454545,
+    "netReturnPct": 8.44421383,
+    "compoundDailyReturnPct": 0.00619314,
+    "meanNetR": 0.25053274,
+    "profitFactor": 1.48223503,
+    "maxDrawdownPct": 3.90553269,
+    "activeMonthPositiveRatio": 0.5483871,
+    "activeMonthCoverage": 0.72093023,
+    "maximumWinnerProfitConcentration": 0.04439308,
+    "bootstrapLowerMeanNetR": 0.08977997,
+    "bootstrapUpperMeanNetR": 0.40982922
+  },
+  "nextAction": "RUN_FROZEN_NON_INDEPENDENT_POST2024_DIAGNOSTIC_WITHOUT_PROMOTION",
+  "reservedSealedProtocolId": "fresh-sealed-validation-2026-08-v1",
+  "reservedSealedWindowOpened": false,
+  "automaticExecutionAllowed": false
+}
