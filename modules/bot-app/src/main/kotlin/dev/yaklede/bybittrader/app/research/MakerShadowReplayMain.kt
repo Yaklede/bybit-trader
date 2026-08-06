@@ -67,15 +67,31 @@ internal fun parseMakerShadowReplayArgs(args: Array<String>): MakerShadowReplayO
     )
 }
 
-internal suspend fun replayMakerShadow(options: MakerShadowReplayOptions): MakerShadowReplayResult {
+internal suspend fun replayMakerShadow(options: MakerShadowReplayOptions): MakerShadowReplayResult =
+    replayMakerShadow(
+        options = options,
+        definitionOverride = null,
+        definitionBytesOverride = null,
+    )
+
+internal suspend fun replayMakerShadow(
+    options: MakerShadowReplayOptions,
+    definitionOverride: MakerShadowReplayDefinition?,
+    definitionBytesOverride: ByteArray?,
+): MakerShadowReplayResult {
     require(Files.isRegularFile(options.definitionPath)) {
         "Maker shadow replay definition does not exist: ${options.definitionPath}"
     }
     require(Files.isDirectory(options.inputRoot)) {
         "Maker shadow replay input directory does not exist: ${options.inputRoot}"
     }
-    val definitionBytes = Files.readAllBytes(options.definitionPath)
-    val definition = JSON.decodeFromString<MakerShadowReplayDefinition>(definitionBytes.toString(StandardCharsets.UTF_8))
+    require((definitionOverride == null) == (definitionBytesOverride == null)) {
+        "Maker shadow replay definition and bytes must be overridden together."
+    }
+    val definitionBytes = definitionBytesOverride ?: Files.readAllBytes(options.definitionPath)
+    val definition =
+        definitionOverride
+            ?: JSON.decodeFromString<MakerShadowReplayDefinition>(definitionBytes.toString(StandardCharsets.UTF_8))
     require(definition.schemaVersion == 1) { "Unsupported maker shadow replay schema: ${definition.schemaVersion}" }
     require(!definition.automaticExecutionAllowed) { "Maker shadow replay definition cannot enable automatic execution." }
     require(definition.evidencePolicy.source == "FORWARD_RAW_ARCHIVE") {
@@ -523,7 +539,7 @@ private fun MessageDigest.copyDigestHex(): String =
         error("SHA-256 digest cloning is required for maker shadow replay output.")
     }
 
-private fun writeAtomically(
+internal fun writeAtomically(
     outputPath: Path,
     payload: String,
 ) {

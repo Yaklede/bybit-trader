@@ -21,6 +21,13 @@ tasks.register<JavaExec>("runMakerShadowReplay") {
     mainClass.set("dev.yaklede.bybittrader.app.research.MakerShadowReplayMainKt")
 }
 
+tasks.register<JavaExec>("runMakerShadowReplayMatrix") {
+    group = "verification"
+    description = "Runs the frozen maker shadow queue and cost stress matrix."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.yaklede.bybittrader.app.research.MakerShadowReplayMatrixMainKt")
+}
+
 dependencies {
     implementation(project(":modules:bot-api"))
     implementation(project(":modules:bot-alerts"))

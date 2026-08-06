@@ -56,6 +56,37 @@ class MakerShadowReplayMainTest :
                 root.toFile().deleteRecursively()
             }
         }
+
+        "stress matrix approves only a complete positive deterministic fixture" {
+            val root = Files.createTempDirectory("maker-shadow-matrix-test")
+            try {
+                val input = Files.createDirectories(root.resolve("input"))
+                val definition = root.resolve("definition.json")
+                Files.writeString(definition, replayDefinition())
+                writeFixtureArchive(input.resolve("BTCUSDT-20260806T0000Z-test-1.ndjson.gz"))
+                val options =
+                    MakerShadowReplayOptions(
+                        definitionPath = definition,
+                        inputRoot = input,
+                        outputPath = root.resolve("matrix.json"),
+                    )
+
+                val first = replayMakerShadowMatrix(options)
+                val second = replayMakerShadowMatrix(options)
+
+                first.status shouldBe "DEVELOPMENT_STRESS_COMPLETE_FORWARD_VALIDATION_REQUIRED"
+                first.automaticExecutionAllowed shouldBe false
+                first.scenarioCount shouldBe 1
+                first.scenarios
+                    .single()
+                    .metrics.netPnl shouldBe "0.0799"
+                first.gates.allPassed shouldBe true
+                first.matrixFingerprint shouldBe second.matrixFingerprint
+                first.sourceSnapshotSha256 shouldBe second.sourceSnapshotSha256
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
     })
 
 private fun writeFixtureArchive(path: java.nio.file.Path) {
