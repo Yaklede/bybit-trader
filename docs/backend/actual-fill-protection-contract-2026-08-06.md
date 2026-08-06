@@ -97,8 +97,20 @@ order/price/quantity/time identity is used only when the provider omits
 WebSocket retries cannot duplicate fees or quantities and process restarts do
 not erase partial-fill evidence.
 
-An order acknowledgement is still not treated as a fill. Final IOC order state
-confirmation is handled separately through the private order stream.
+An order acknowledgement is not treated as a fill. The same authenticated
+WebSocket subscribes to both `execution` and `order`. Order updates distinguish:
+
+- `ENTRY_FILLED`: cumulative entry quantity is fully filled, position readback pending
+- `PARTIALLY_FILLED`: a live partial fill, including IOC remainder cancellation
+- `ENTRY_CANCELLED`: IOC ended with zero fill
+- `ENTRY_REJECTED`: exchange rejected the entry with zero fill
+- `ERROR`: inconsistent quantity or a rejected/cancelled reduce-only exit
+
+Private order callbacks and REST reconciliation share one lifecycle mutex. A
+filled entry that has neither an exchange position nor a closure by the
+protection deadline becomes `ENTRY_FILL_POSITION_MISSING`; an acknowledged
+entry whose final state cannot be recovered becomes
+`ENTRY_ORDER_FINAL_STATE_UNKNOWN`.
 
 ## Verification
 
@@ -110,13 +122,15 @@ Regression coverage includes:
 - open entry counting for the UTC daily cap
 - lifecycle metadata persistence and legacy schema migration
 - execution fill persistence and `execId` retry deduplication
+- private order parsing and terminal IOC lifecycle classification
 - existing max-hold, closure, alert, and account-performance behavior
 
 ## Remaining work
 
 - Make historical, paper, shadow, and exchange adapters consume one shared
   position-policy state machine.
-- Define partial-fill remainder deadlines and asynchronous exit confirmation.
+- Verify reduce-only exit completion from the position, order, and closed-PnL
+  streams instead of leaving it in a pending lifecycle state.
 - Replace configured tick/quantity constraints with periodically refreshed
   exchange instrument metadata.
 - Add daily loss, consecutive-loss, account drawdown, and reconciliation

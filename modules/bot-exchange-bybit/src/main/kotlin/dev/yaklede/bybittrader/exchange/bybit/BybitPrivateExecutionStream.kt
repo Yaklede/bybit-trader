@@ -1,8 +1,11 @@
 package dev.yaklede.bybittrader.exchange.bybit
 
+import dev.yaklede.bybittrader.domain.OrderStatus
+import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
+import dev.yaklede.bybittrader.engine.execution.ExchangeOrderUpdate
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
@@ -35,6 +38,7 @@ class BybitPrivateExecutionStream(
     private val config: BybitPrivateExecutionStreamConfig,
     private val clock: Clock = Clock.systemUTC(),
     private val onExecution: suspend (ExchangeExecutionFill) -> Unit = {},
+    private val onOrder: suspend (ExchangeOrderUpdate) -> Unit = {},
 ) {
     private val logger = LoggerFactory.getLogger(BybitPrivateExecutionStream::class.java)
     private val parser = BybitPrivateExecutionParser()
@@ -45,6 +49,7 @@ class BybitPrivateExecutionStream(
             clock = clock,
         )
     private val seenExecutionKeys = LinkedHashMap<String, Unit>()
+    private val seenOrderKeys = LinkedHashMap<String, Unit>()
     private var streamJob: Job? = null
 
     fun start(scope: CoroutineScope): Job {
@@ -112,7 +117,10 @@ class BybitPrivateExecutionStream(
                         throw BybitPrivateExecutionStreamException(message)
                     }
                     parser.parse(payload).forEach { execution ->
-                        dispatch(connectionId, execution)
+                        dispatchExecution(connectionId, execution)
+                    }
+                    parser.parseOrders(payload).forEach { order ->
+                        dispatchOrder(connectionId, order)
                     }
                 }
             } finally {
@@ -121,7 +129,7 @@ class BybitPrivateExecutionStream(
         }
     }
 
-    private suspend fun dispatch(
+    private suspend fun dispatchExecution(
         connectionId: String,
         execution: ExchangeExecutionFill,
     ) {
@@ -157,6 +165,42 @@ class BybitPrivateExecutionStream(
         }
     }
 
+    private suspend fun dispatchOrder(
+        connectionId: String,
+        order: ExchangeOrderUpdate,
+    ) {
+        val orderKey = order.deduplicationKey()
+        synchronized(seenOrderKeys) {
+            if (seenOrderKeys.containsKey(orderKey)) return
+            seenOrderKeys[orderKey] = Unit
+            while (seenOrderKeys.size > config.maximumRememberedExecutions) {
+                seenOrderKeys.remove(seenOrderKeys.entries.first().key)
+            }
+        }
+        logger.info(
+            "Bybit private order observed connectionId={} symbol={} orderId={} clientOrderId={} status={} cumExecQty={} leavesQty={}",
+            connectionId,
+            order.symbol.value,
+            order.exchangeOrderId,
+            order.clientOrderId,
+            order.status.name,
+            order.cumulativeFilledQuantity.toPlainString(),
+            order.leavesQuantity.toPlainString(),
+        )
+        try {
+            onOrder(order)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.warn(
+                "Bybit private order callback failed exchangeOrderId={} clientOrderId={}",
+                order.exchangeOrderId,
+                order.clientOrderId,
+                error,
+            )
+        }
+    }
+
     private fun ExchangeExecutionFill.deduplicationKey(): String =
         executionId
             ?: listOf(
@@ -169,6 +213,18 @@ class BybitPrivateExecutionStream(
                 executedAt.toEpochMilli().toString(),
             ).joinToString("|")
 
+    private fun ExchangeOrderUpdate.deduplicationKey(): String =
+        listOf(
+            exchangeOrderId.orEmpty(),
+            clientOrderId.orEmpty(),
+            status.name,
+            cumulativeFilledQuantity.toPlainString(),
+            leavesQuantity.toPlainString(),
+            rejectReason.orEmpty(),
+            cancelType.orEmpty(),
+            updatedAt.toEpochMilli().toString(),
+        ).joinToString("|")
+
     private fun authPayload(
         expiresMillis: Long,
         signature: String,
@@ -176,7 +232,7 @@ class BybitPrivateExecutionStream(
 
     companion object {
         private const val PING_PAYLOAD = "{\"op\":\"ping\"}"
-        private const val SUBSCRIBE_PAYLOAD = "{\"op\":\"subscribe\",\"args\":[\"execution\"]}"
+        private const val SUBSCRIBE_PAYLOAD = "{\"op\":\"subscribe\",\"args\":[\"execution\",\"order\"]}"
     }
 }
 
@@ -230,6 +286,16 @@ class BybitPrivateExecutionParser(
             .orEmpty()
     }
 
+    fun parseOrders(payload: String): List<ExchangeOrderUpdate> {
+        val root = payload.toJsonObject() ?: return emptyList()
+        if (root["topic"]?.jsonPrimitive?.contentOrNull != "order") return emptyList()
+        val createdAt = root.string("creationTime")?.toLongOrNull()?.let(Instant::ofEpochMilli)
+        return root["data"]
+            ?.jsonArray
+            ?.mapNotNull { item -> item.jsonObject.toExchangeOrderUpdate(createdAt) }
+            .orEmpty()
+    }
+
     fun controlFailure(payload: String): String? {
         val root = payload.toJsonObject() ?: return null
         val operation = root["op"]?.jsonPrimitive?.contentOrNull ?: return null
@@ -270,6 +336,67 @@ class BybitPrivateExecutionParser(
             closedSize = string("closedSize")?.toBigDecimalOrNull(),
             executionPnl = string("execPnl")?.toBigDecimalOrNull(),
         )
+    }
+
+    private fun JsonObject.toExchangeOrderUpdate(messageCreatedAt: Instant?): ExchangeOrderUpdate? {
+        val side =
+            when (string("side")) {
+                "Buy" -> Side.BUY
+                "Sell" -> Side.SELL
+                else -> return null
+            }
+        val orderType =
+            when (string("orderType")) {
+                "Market" -> OrderType.MARKET
+                "Limit" -> OrderType.LIMIT
+                else -> return null
+            }
+        val status =
+            when (string("orderStatus")) {
+                "New",
+                "Created",
+                "Untriggered",
+                "PendingCancel",
+                -> OrderStatus.SUBMITTED
+
+                "PartiallyFilled" -> OrderStatus.PARTIALLY_FILLED
+                "Filled" -> OrderStatus.FILLED
+                "Cancelled",
+                "Deactivated",
+                "PartiallyFilledCanceled",
+                -> OrderStatus.CANCELLED
+
+                "Rejected" -> OrderStatus.REJECTED
+                else -> return null
+            }
+        val quantity = string("qty")?.toBigDecimalOrNull() ?: return null
+        val cumulativeFilledQuantity = string("cumExecQty")?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+        val leavesQuantity =
+            string("leavesQty")?.toBigDecimalOrNull()
+                ?: quantity.subtract(cumulativeFilledQuantity).max(BigDecimal.ZERO)
+        val updatedAt =
+            string("updatedTime")?.toLongOrNull()?.let(Instant::ofEpochMilli)
+                ?: messageCreatedAt
+                ?: return null
+        return runCatching {
+            ExchangeOrderUpdate(
+                exchangeOrderId = string("orderId"),
+                clientOrderId = string("orderLinkId"),
+                parentClientOrderId = string("parentOrderLinkId"),
+                symbol = string("symbol")?.let(::Symbol) ?: return null,
+                side = side,
+                orderType = orderType,
+                status = status,
+                quantity = quantity,
+                cumulativeFilledQuantity = cumulativeFilledQuantity,
+                leavesQuantity = leavesQuantity,
+                averageFillPrice = string("avgPrice")?.toBigDecimalOrNull()?.takeIf { it > BigDecimal.ZERO },
+                reduceOnly = this["reduceOnly"]?.jsonPrimitive?.booleanOrNull ?: false,
+                rejectReason = string("rejectReason"),
+                cancelType = string("cancelType"),
+                updatedAt = updatedAt,
+            )
+        }.getOrNull()
     }
 
     private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)

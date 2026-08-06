@@ -285,6 +285,24 @@ fun main() {
                         }
                     }
                 },
+                onOrder = { order ->
+                    if (order.symbol == config.marketData.symbol) {
+                        logger.info(
+                            "private order observed; updating lifecycle symbol={} orderId={} clientOrderId={} status={}",
+                            order.symbol.value,
+                            order.exchangeOrderId,
+                            order.clientOrderId,
+                            order.status.name,
+                        )
+                        try {
+                            executionService.observeOrderUpdate(order)?.let { event ->
+                                alertingService.sendExecutionLifecycleEvent(event)
+                            }
+                        } finally {
+                            executionReconciliationLoop.requestImmediateReconciliation()
+                        }
+                    }
+                },
             ).start(privateExecutionStreamScope)
         } else {
             logger.info("private execution stream disabled")
@@ -718,6 +736,34 @@ private suspend fun AlertingService.sendExecutionLifecycleEvent(event: Execution
                             "요청 수량: ${event.requestedQuantity.toPlainString()}, " +
                             "체결 수량: ${event.filledQuantity?.toPlainString()}, " +
                             "평균 체결가: ${event.fillVwap?.toPlainString()}",
+                )
+
+            ExecutionLifecycleState.ENTRY_FILLED ->
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "실거래 진입 체결 확인",
+                    body =
+                        "${event.symbol.value} ${event.side.name} 진입 주문의 체결을 확인했어요. " +
+                            "체결 수량: ${event.filledQuantity?.toPlainString()}, " +
+                            "평균 체결가: ${event.fillVwap?.toPlainString()}. 포지션 보호 상태를 확인하고 있어요.",
+                )
+
+            ExecutionLifecycleState.ENTRY_CANCELLED ->
+                AlertMessage(
+                    severity = AlertSeverity.INFO,
+                    title = "실거래 진입 주문 취소",
+                    body =
+                        "${event.symbol.value} ${event.side.name} 진입 주문이 체결 없이 종료됐어요. " +
+                            "사유 코드: ${event.reasonCode}",
+                )
+
+            ExecutionLifecycleState.ENTRY_REJECTED ->
+                AlertMessage(
+                    severity = AlertSeverity.WARNING,
+                    title = "실거래 진입 주문 거절",
+                    body =
+                        "${event.symbol.value} ${event.side.name} 진입 주문을 거래소가 거절했어요. " +
+                            "사유 코드: ${event.reasonCode}",
                 )
 
             ExecutionLifecycleState.OPEN_UNPROTECTED ->

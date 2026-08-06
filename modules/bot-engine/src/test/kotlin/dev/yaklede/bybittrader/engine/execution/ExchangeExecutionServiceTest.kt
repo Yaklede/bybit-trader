@@ -1183,6 +1183,135 @@ class ExchangeExecutionServiceTest :
             store.fillEvents.size shouldBe 1
         }
 
+        "private order update distinguishes unfilled cancellation from partial remainder cancellation" {
+            val symbol = Symbol("BTCUSDT")
+            val cancelledStore = InMemoryTradingStore()
+            cancelledStore.recordLifecycleEvent(testLifecycleEvent())
+            val cancelledService =
+                testService(
+                    store = cancelledStore,
+                    gateway = RecordingExecutionGateway(),
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val cancelled =
+                cancelledService.observeOrderUpdate(
+                    testOrderUpdate(status = OrderStatus.CANCELLED, cancelType = "CancelByUser"),
+                )
+
+            cancelled?.state shouldBe ExecutionLifecycleState.ENTRY_CANCELLED
+            cancelled?.filledQuantity shouldBe null
+            cancelled?.reasonCode shouldBe "ENTRY_ORDER_CANCELLED_UNFILLED|CancelByUser"
+
+            val partialStore = InMemoryTradingStore()
+            partialStore.recordLifecycleEvent(testLifecycleEvent())
+            val partialService =
+                testService(
+                    store = partialStore,
+                    gateway = RecordingExecutionGateway(),
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val partial =
+                partialService.observeOrderUpdate(
+                    testOrderUpdate(
+                        status = OrderStatus.CANCELLED,
+                        cumulativeFilledQuantity = BigDecimal("0.4"),
+                        leavesQuantity = BigDecimal("0.6"),
+                        averageFillPrice = BigDecimal("101"),
+                        cancelType = "CancelByUser",
+                    ),
+                )
+
+            partial?.state shouldBe ExecutionLifecycleState.PARTIALLY_FILLED
+            partial?.filledQuantity shouldBe BigDecimal("0.4")
+            partial?.reasonCode shouldBe "ENTRY_PARTIAL_FILL_REMAINDER_CANCELLED|CancelByUser"
+        }
+
+        "private order update confirms entry fill but waits for position reconciliation" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(testLifecycleEvent())
+            val service =
+                testService(
+                    store = store,
+                    gateway = RecordingExecutionGateway(),
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val filled =
+                service.observeOrderUpdate(
+                    testOrderUpdate(
+                        status = OrderStatus.FILLED,
+                        cumulativeFilledQuantity = BigDecimal.ONE,
+                        leavesQuantity = BigDecimal.ZERO,
+                        averageFillPrice = BigDecimal("101"),
+                    ),
+                )
+
+            filled?.state shouldBe ExecutionLifecycleState.ENTRY_FILLED
+            filled?.fillVwap shouldBe BigDecimal("101")
+            filled?.reasonCode shouldBe "ENTRY_FILL_CONFIRMED_PENDING_POSITION"
+            service.observeOrderUpdate(
+                testOrderUpdate(
+                    status = OrderStatus.PARTIALLY_FILLED,
+                    cumulativeFilledQuantity = BigDecimal("0.4"),
+                    leavesQuantity = BigDecimal("0.6"),
+                ).copy(updatedAt = Instant.parse("2024-06-29T23:10:30Z")),
+            ) shouldBe null
+            store.latestLifecycleEvent(ExecutionRuntimeMode.TESTNET, symbol)?.state shouldBe ExecutionLifecycleState.ENTRY_FILLED
+        }
+
+        "private order update records exchange rejection without claiming a fill" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(testLifecycleEvent())
+            val service =
+                testService(
+                    store = store,
+                    gateway = RecordingExecutionGateway(),
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val rejected =
+                service.observeOrderUpdate(
+                    testOrderUpdate(
+                        status = OrderStatus.REJECTED,
+                        rejectReason = "EC_TooLateToCancel",
+                    ),
+                )
+
+            rejected?.state shouldBe ExecutionLifecycleState.ENTRY_REJECTED
+            rejected?.reasonCode shouldBe "ENTRY_ORDER_REJECTED|EC_TooLateToCancel"
+        }
+
+        "reconciliation errors when a confirmed fill never becomes a position or closure" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent(state = ExecutionLifecycleState.ENTRY_FILLED).copy(
+                    filledQuantity = BigDecimal.ONE,
+                    fillVwap = BigDecimal("101"),
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("101"),
+                    structuralStopPrice = BigDecimal("100"),
+                    expectedR = BigDecimal("1.5"),
+                    protectionDeadlineAt = Instant.parse("2024-06-29T23:12:00Z"),
+                ),
+            )
+            val service =
+                testService(
+                    store = store,
+                    gateway = RecordingExecutionGateway(),
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val report = service.persistExchangeState(symbol)
+
+            report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.ERROR
+            report.lifecycleEvent?.reasonCode shouldBe "ENTRY_FILL_POSITION_MISSING"
+        }
+
         "exchange reconciliation closes the active lifecycle from closed PnL" {
             val symbol = Symbol("BTCUSDT")
             val store = InMemoryTradingStore()
@@ -1816,6 +1945,32 @@ private fun testLifecycleEvent(
         clientOrderId = "client-entry-1",
         reasonCode = "TEST_LIFECYCLE",
         occurredAt = occurredAt,
+    )
+
+private fun testOrderUpdate(
+    status: OrderStatus,
+    cumulativeFilledQuantity: BigDecimal = BigDecimal.ZERO,
+    leavesQuantity: BigDecimal = BigDecimal.ONE,
+    averageFillPrice: BigDecimal? = null,
+    rejectReason: String = "EC_NoError",
+    cancelType: String? = null,
+): ExchangeOrderUpdate =
+    ExchangeOrderUpdate(
+        exchangeOrderId = "exchange-entry-1",
+        clientOrderId = "client-entry-1",
+        parentClientOrderId = null,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        orderType = OrderType.LIMIT,
+        status = status,
+        quantity = BigDecimal.ONE,
+        cumulativeFilledQuantity = cumulativeFilledQuantity,
+        leavesQuantity = leavesQuantity,
+        averageFillPrice = averageFillPrice,
+        reduceOnly = false,
+        rejectReason = rejectReason,
+        cancelType = cancelType,
+        updatedAt = Instant.parse("2024-06-29T23:11:00Z"),
     )
 
 private fun testClosure(

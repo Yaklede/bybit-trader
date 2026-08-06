@@ -74,8 +74,9 @@ override:
 - `BYBIT_POSITION_IDX`: default `0`.
 - `BOT_PRIVATE_EXECUTION_ENABLED`: default `true`.
 - `BOT_PRIVATE_EXECUTION_STREAM_ENABLED`: defaults to the private execution
-  setting. A closing execution wakes reconciliation immediately; REST
-  reconciliation remains the recovery path.
+  setting. Private execution and order updates persist fills, classify IOC
+  terminal states, and wake reconciliation immediately; REST remains the
+  recovery path.
 - `BOT_EXECUTION_LOOP_ENABLED`: default `false`.
 - `BOT_EXECUTION_RECONCILIATION_ENABLED`: default `true`; observes private
   order, position, fill, and closed-PnL state without enabling automatic entry.

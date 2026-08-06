@@ -42,6 +42,7 @@ class ExchangeExecutionService(
     private val logger = LoggerFactory.getLogger(ExchangeExecutionService::class.java)
     private val sessionStartedAt = Instant.now(clock)
     private val evaluationMutex = Mutex()
+    private val lifecycleMutex = Mutex()
 
     suspend fun evaluateAndSubmit(
         symbol: Symbol,
@@ -598,7 +599,12 @@ class ExchangeExecutionService(
         return persistDiscoveredClosures(symbol, gateway.closedPnls(symbol), executions)
     }
 
-    suspend fun persistExchangeState(symbol: Symbol): ExchangeReconciliationReport {
+    suspend fun persistExchangeState(symbol: Symbol): ExchangeReconciliationReport =
+        lifecycleMutex.withLock {
+            persistExchangeStateLocked(symbol)
+        }
+
+    private suspend fun persistExchangeStateLocked(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
         persistAccountSnapshot()
         persistExecutionFills(report.executions)
@@ -607,6 +613,87 @@ class ExchangeExecutionService(
         return report.copy(
             persistedClosures = persistedClosures,
             lifecycleEvent = lifecycleEvent,
+        )
+    }
+
+    suspend fun observeOrderUpdate(update: ExchangeOrderUpdate): ExecutionLifecycleEvent? =
+        lifecycleMutex.withLock {
+            observeOrderUpdateLocked(update)
+        }
+
+    private suspend fun observeOrderUpdateLocked(update: ExchangeOrderUpdate): ExecutionLifecycleEvent? {
+        val store = lifecycleStore ?: return null
+        val latest = store.latestLifecycleEvent(runtimeMode, update.symbol) ?: return null
+        if (latest.state == ExecutionLifecycleState.CLOSED || !update.matches(latest)) return null
+        if (update.updatedAt.isBefore(latest.occurredAt)) return null
+        if (
+            latest.state in setOf(ExecutionLifecycleState.OPEN_UNPROTECTED, ExecutionLifecycleState.OPEN_PROTECTED) &&
+            !update.reduceOnly
+        ) {
+            return null
+        }
+        val hasFill = update.cumulativeFilledQuantity > BigDecimal.ZERO
+        val isExit = update.reduceOnly || latest.state == ExecutionLifecycleState.EXIT_SUBMITTED
+        val nextState =
+            when (update.status) {
+                OrderStatus.FILLED ->
+                    when {
+                        !hasFill -> ExecutionLifecycleState.ERROR
+                        isExit -> ExecutionLifecycleState.EXIT_SUBMITTED
+                        else -> ExecutionLifecycleState.ENTRY_FILLED
+                    }
+
+                OrderStatus.PARTIALLY_FILLED ->
+                    if (hasFill) ExecutionLifecycleState.PARTIALLY_FILLED else ExecutionLifecycleState.ERROR
+
+                OrderStatus.CANCELLED ->
+                    when {
+                        isExit -> ExecutionLifecycleState.ERROR
+                        hasFill -> ExecutionLifecycleState.PARTIALLY_FILLED
+                        else -> ExecutionLifecycleState.ENTRY_CANCELLED
+                    }
+
+                OrderStatus.REJECTED ->
+                    when {
+                        isExit || hasFill -> ExecutionLifecycleState.ERROR
+                        else -> ExecutionLifecycleState.ENTRY_REJECTED
+                    }
+
+                OrderStatus.CREATED,
+                OrderStatus.SUBMITTED,
+                -> return null
+            }
+        if (!latest.state.canTransitionTo(nextState)) return null
+        val reasonCode =
+            when {
+                update.status == OrderStatus.FILLED && !hasFill -> "ORDER_FILLED_WITHOUT_QUANTITY"
+                update.status == OrderStatus.FILLED && isExit -> "EXIT_FILL_CONFIRMED_PENDING_RECONCILIATION"
+                update.status == OrderStatus.FILLED -> "ENTRY_FILL_CONFIRMED_PENDING_POSITION"
+                update.status == OrderStatus.PARTIALLY_FILLED && hasFill -> "ENTRY_PARTIALLY_FILLED"
+                update.status == OrderStatus.PARTIALLY_FILLED -> "PARTIAL_STATUS_WITHOUT_QUANTITY"
+                update.status == OrderStatus.CANCELLED && isExit -> "EXIT_ORDER_CANCELLED"
+                update.status == OrderStatus.CANCELLED && hasFill -> "ENTRY_PARTIAL_FILL_REMAINDER_CANCELLED"
+                update.status == OrderStatus.CANCELLED -> "ENTRY_ORDER_CANCELLED_UNFILLED"
+                update.status == OrderStatus.REJECTED && isExit -> "EXIT_ORDER_REJECTED"
+                update.status == OrderStatus.REJECTED && hasFill -> "REJECTED_ORDER_REPORTED_PARTIAL_FILL"
+                else -> "ENTRY_ORDER_REJECTED"
+            }
+        return recordObservedLifecycle(
+            latest.copy(
+                id = 0,
+                state = nextState,
+                filledQuantity = update.cumulativeFilledQuantity.takeIf { it > BigDecimal.ZERO },
+                fillVwap = update.averageFillPrice ?: latest.fillVwap,
+                exchangeOrderId = update.exchangeOrderId ?: latest.exchangeOrderId,
+                clientOrderId = update.clientOrderId ?: latest.clientOrderId,
+                reasonCode =
+                    listOfNotNull(
+                        reasonCode,
+                        update.rejectReason?.takeUnless { it == "EC_NoError" },
+                        update.cancelType?.takeUnless { it == "UNKNOWN" },
+                    ).joinToString("|"),
+                occurredAt = update.updatedAt,
+            ),
         )
     }
 
@@ -706,6 +793,9 @@ class ExchangeExecutionService(
             return observeActivePositionProtection(report, activePosition, base)
         }
         if (latest == null || latest.state == ExecutionLifecycleState.CLOSED) return null
+        if (latest.state.isUnfilledTerminalEntry()) {
+            return null
+        }
         if (relatedOpenOrder != null && latest.state == ExecutionLifecycleState.EXIT_SUBMITTED) {
             return null
         }
@@ -723,6 +813,30 @@ class ExchangeExecutionService(
                     fillVwap = relatedFills.weightedVwap(),
                     reasonCode = "ENTRY_FILL_OBSERVED_WITHOUT_POSITION",
                     occurredAt = relatedFills.maxOf(ExchangeExecutionFill::executedAt),
+                ),
+            )
+        }
+        val deadline = latest.protectionDeadlineAt
+        if (
+            relatedOpenOrder == null &&
+            deadline != null &&
+            !report.reconciledAt.isBefore(deadline) &&
+            (
+                latest.state == ExecutionLifecycleState.ENTRY_FILLED ||
+                    (latest.state == ExecutionLifecycleState.ENTRY_SUBMITTED && relatedFills.isEmpty())
+            )
+        ) {
+            return recordObservedLifecycle(
+                latest.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.ERROR,
+                    reasonCode =
+                        if (latest.state == ExecutionLifecycleState.ENTRY_FILLED) {
+                            "ENTRY_FILL_POSITION_MISSING"
+                        } else {
+                            "ENTRY_ORDER_FINAL_STATE_UNKNOWN"
+                        },
+                    occurredAt = report.reconciledAt,
                 ),
             )
         }
@@ -1629,11 +1743,18 @@ private fun BotMode.allowsPositionManagement(): Boolean = this == BotMode.RUNNIN
 
 private fun OrderStatus.isActive(): Boolean = this == OrderStatus.SUBMITTED || this == OrderStatus.PARTIALLY_FILLED
 
+private fun ExecutionLifecycleState.isUnfilledTerminalEntry(): Boolean =
+    this == ExecutionLifecycleState.ENTRY_CANCELLED || this == ExecutionLifecycleState.ENTRY_REJECTED
+
 private fun ExchangeOpenOrder.matches(event: ExecutionLifecycleEvent): Boolean =
     (!exchangeOrderId.isNullOrBlank() && exchangeOrderId == event.exchangeOrderId) ||
         (!clientOrderId.isNullOrBlank() && clientOrderId == event.clientOrderId)
 
 private fun ExchangeExecutionFill.matches(event: ExecutionLifecycleEvent): Boolean =
+    (!exchangeOrderId.isNullOrBlank() && exchangeOrderId == event.exchangeOrderId) ||
+        (!clientOrderId.isNullOrBlank() && clientOrderId == event.clientOrderId)
+
+private fun ExchangeOrderUpdate.matches(event: ExecutionLifecycleEvent): Boolean =
     (!exchangeOrderId.isNullOrBlank() && exchangeOrderId == event.exchangeOrderId) ||
         (!clientOrderId.isNullOrBlank() && clientOrderId == event.clientOrderId)
 

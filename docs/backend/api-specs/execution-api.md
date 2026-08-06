@@ -92,6 +92,9 @@ The lifecycle state contract is:
 
 - `ENTRY_SUBMITTED`
 - `PARTIALLY_FILLED`
+- `ENTRY_FILLED`
+- `ENTRY_CANCELLED`
+- `ENTRY_REJECTED`
 - `OPEN_UNPROTECTED`
 - `OPEN_PROTECTED`
 - `EXIT_SUBMITTED`
@@ -101,18 +104,21 @@ The lifecycle state contract is:
 The independent reconciliation loop advances submission events from Bybit open
 orders, recent executions, positions, and closed PnL even when automatic entry
 evaluation is disabled. A positive position with
-both exchange-reported TP and SL becomes `OPEN_PROTECTED`; a missing TP or SL
-becomes `OPEN_UNPROTECTED` and emits a critical Korean alert. Recent fills
-without a visible position remain `PARTIALLY_FILLED`, and a matching closed
-PnL advances the active lifecycle to `CLOSED`.
+the required exchange-reported protection becomes `OPEN_PROTECTED`; missing
+protection becomes `OPEN_UNPROTECTED` and emits a critical Korean alert. The
+order stream uses `ENTRY_FILLED` while position readback is pending,
+`ENTRY_CANCELLED` for a zero-fill IOC cancellation, and `ENTRY_REJECTED` for a
+zero-fill exchange rejection. A matching closed PnL advances the active
+lifecycle to `CLOSED`.
 
 This projection uses REST polling every
 `BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS` (60 seconds by default) as the
 durable recovery path. When
-`BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true`, a private `execution` WebSocket
-close event wakes the same reconciliation loop immediately. The WebSocket
-event is a trigger, not a second persistence path, so closure deduplication and
-Discord at-least-once delivery stay centralized in the existing ledger flow.
+`BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true`, private `execution` and `order`
+topics persist each `execId`, classify the acknowledged IOC order state, and
+wake the same reconciliation loop immediately. REST backfills the same
+idempotent fill ledger after reconnects. Closure deduplication and Discord
+at-least-once delivery remain centralized in the projection flow.
 
 ## POST /execution/reconcile
 

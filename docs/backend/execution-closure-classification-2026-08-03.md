@@ -25,12 +25,13 @@ Bybit `closed-pnl` 응답은 포지션 종료 손익을 제공하지만 종료 �
 
 ## 운영 한계
 
-private WebSocket `execution` 스트림이 종료 체결을 관찰하면 reconciliation loop를 즉시 깨운다. 원장 기록과 Discord 알림은 기존 REST reconciliation 경로가 수행하므로, WebSocket 이벤트 자체를 원장에 직접 기록하지 않는다. REST 경로는 재연결·재시작·이벤트 누락을 복구하는 at-least-once 경로로 유지된다.
+private WebSocket `execution` 스트림은 각 체결을 `execId` 기준으로 원장에 직접 기록하고 reconciliation loop를 즉시 깨운다. 같은 연결의 `order` 스트림은 IOC 주문의 체결·부분 체결·취소·거절 상태를 lifecycle에 반영한다. REST 경로는 재연결·재시작·이벤트 누락을 동일 원장으로 복구하는 at-least-once 경로로 유지된다.
 
-`BOT_PRIVATE_EXECUTION_STREAM_ENABLED`의 기본값은 private execution이 활성화된 경우 `true`이며, 장애 조사나 단계적 롤아웃이 필요할 때만 명시적으로 `false`로 끌 수 있다. private stream은 중복 `execId`를 프로세스 내에서 억제하지만, 최종 중복 방지는 SQLite closure 식별자가 담당한다.
+`BOT_PRIVATE_EXECUTION_STREAM_ENABLED`의 기본값은 private execution이 활성화된 경우 `true`이며, 장애 조사나 단계적 롤아웃이 필요할 때만 명시적으로 `false`로 끌 수 있다. private stream은 중복 이벤트를 프로세스 내에서 억제하고, SQLite `executionFillEvents`의 고유 식별자가 재시작 이후의 중복까지 차단한다. 종료 거래는 별도의 closure 식별자로 중복을 차단한다.
 
 관련 Bybit 계약:
 
 - https://bybit-exchange.github.io/docs/v5/order/execution
 - https://bybit-exchange.github.io/docs/v5/websocket/private/execution
+- https://bybit-exchange.github.io/docs/v5/websocket/private/order
 - https://bybit-exchange.github.io/docs/api-explorer/v5/position/close-pnl

@@ -1,5 +1,7 @@
 package dev.yaklede.bybittrader.exchange.bybit
 
+import dev.yaklede.bybittrader.domain.OrderStatus
+import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -90,5 +92,57 @@ class BybitPrivateExecutionStreamTest :
                 """.trimIndent()
 
             BybitPrivateExecutionParser().parse(payload).map { it.side }.shouldContainExactly(Side.BUY, Side.SELL)
+        }
+
+        "parser maps terminal IOC order state and cumulative partial fill" {
+            val orders =
+                BybitPrivateExecutionParser().parseOrders(
+                    """
+                    {
+                      "topic":"order",
+                      "creationTime":1719748800200,
+                      "data":[{
+                        "orderId":"order-1",
+                        "orderLinkId":"bt-BTCUSDT-entry-1",
+                        "parentOrderLinkId":"",
+                        "symbol":"BTCUSDT",
+                        "side":"Buy",
+                        "orderType":"Limit",
+                        "orderStatus":"Cancelled",
+                        "qty":"0.002",
+                        "cumExecQty":"0.001",
+                        "leavesQty":"0.001",
+                        "avgPrice":"63275.7",
+                        "reduceOnly":false,
+                        "rejectReason":"EC_NoError",
+                        "cancelType":"CancelByPrepareLiq",
+                        "updatedTime":"1719748800100"
+                      }]
+                    }
+                    """.trimIndent(),
+                )
+
+            orders.size shouldBe 1
+            val order = orders.single()
+            order.status shouldBe OrderStatus.CANCELLED
+            order.orderType shouldBe OrderType.LIMIT
+            order.cumulativeFilledQuantity shouldBe BigDecimal("0.001")
+            order.leavesQuantity shouldBe BigDecimal("0.001")
+            order.averageFillPrice shouldBe BigDecimal("63275.7")
+            order.updatedAt shouldBe Instant.ofEpochMilli(1719748800100)
+        }
+
+        "parser ignores malformed or unknown order states" {
+            val parser = BybitPrivateExecutionParser()
+
+            parser.parseOrders("""{"topic":"execution","data":[]}""") shouldBe emptyList()
+            parser.parseOrders(
+                """
+                {"topic":"order","creationTime":1000,"data":[{
+                  "orderId":"order-1","symbol":"BTCUSDT","side":"Buy","orderType":"Limit",
+                  "orderStatus":"UnknownFutureState","qty":"1","cumExecQty":"0"
+                }]}
+                """.trimIndent(),
+            ) shouldBe emptyList()
         }
     })

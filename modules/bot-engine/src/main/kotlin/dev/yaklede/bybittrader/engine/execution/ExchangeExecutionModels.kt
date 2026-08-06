@@ -171,6 +171,37 @@ data class ExchangeExecutionFill(
     val executionPnl: BigDecimal? = null,
 )
 
+data class ExchangeOrderUpdate(
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+    val parentClientOrderId: String?,
+    val symbol: Symbol,
+    val side: Side,
+    val orderType: OrderType,
+    val status: OrderStatus,
+    val quantity: BigDecimal,
+    val cumulativeFilledQuantity: BigDecimal,
+    val leavesQuantity: BigDecimal,
+    val averageFillPrice: BigDecimal?,
+    val reduceOnly: Boolean,
+    val rejectReason: String?,
+    val cancelType: String?,
+    val updatedAt: Instant,
+) {
+    init {
+        require(!exchangeOrderId.isNullOrBlank() || !clientOrderId.isNullOrBlank()) {
+            "Order update needs an exchange order id or client order id."
+        }
+        require(quantity > BigDecimal.ZERO) { "Order update quantity must be positive." }
+        require(cumulativeFilledQuantity >= BigDecimal.ZERO) { "Order update cumulative fill must not be negative." }
+        require(leavesQuantity >= BigDecimal.ZERO) { "Order update leaves quantity must not be negative." }
+        require(cumulativeFilledQuantity <= quantity) { "Order update cumulative fill must not exceed order quantity." }
+        require(averageFillPrice == null || averageFillPrice > BigDecimal.ZERO) {
+            "Order update average fill price must be positive."
+        }
+    }
+}
+
 data class ExchangeClosedPnl(
     val exchangeOrderId: String?,
     val clientOrderId: String?,

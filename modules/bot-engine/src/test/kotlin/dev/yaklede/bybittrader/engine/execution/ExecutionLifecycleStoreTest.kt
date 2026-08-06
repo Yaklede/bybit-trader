@@ -7,6 +7,11 @@ class ExecutionLifecycleStoreTest :
     StringSpec({
         "entry lifecycle permits fill protection exit and close progression" {
             ExecutionLifecycleState.ENTRY_SUBMITTED.canTransitionTo(ExecutionLifecycleState.PARTIALLY_FILLED) shouldBe true
+            ExecutionLifecycleState.PARTIALLY_FILLED.canTransitionTo(ExecutionLifecycleState.ENTRY_FILLED) shouldBe true
+            ExecutionLifecycleState.ENTRY_SUBMITTED.canTransitionTo(ExecutionLifecycleState.ENTRY_CANCELLED) shouldBe true
+            ExecutionLifecycleState.ENTRY_SUBMITTED.canTransitionTo(ExecutionLifecycleState.ENTRY_REJECTED) shouldBe true
+            ExecutionLifecycleState.ENTRY_CANCELLED.canTransitionTo(ExecutionLifecycleState.ENTRY_FILLED) shouldBe true
+            ExecutionLifecycleState.ENTRY_FILLED.canTransitionTo(ExecutionLifecycleState.OPEN_UNPROTECTED) shouldBe true
             ExecutionLifecycleState.PARTIALLY_FILLED.canTransitionTo(ExecutionLifecycleState.OPEN_UNPROTECTED) shouldBe true
             ExecutionLifecycleState.OPEN_UNPROTECTED.canTransitionTo(ExecutionLifecycleState.OPEN_PROTECTED) shouldBe true
             ExecutionLifecycleState.OPEN_PROTECTED.canTransitionTo(ExecutionLifecycleState.EXIT_SUBMITTED) shouldBe true

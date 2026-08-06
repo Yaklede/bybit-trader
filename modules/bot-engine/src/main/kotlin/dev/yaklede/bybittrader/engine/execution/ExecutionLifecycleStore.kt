@@ -8,6 +8,9 @@ import java.time.Instant
 enum class ExecutionLifecycleState {
     ENTRY_SUBMITTED,
     PARTIALLY_FILLED,
+    ENTRY_FILLED,
+    ENTRY_CANCELLED,
+    ENTRY_REJECTED,
     OPEN_UNPROTECTED,
     OPEN_PROTECTED,
     EXIT_SUBMITTED,
@@ -87,6 +90,9 @@ fun ExecutionLifecycleState.canTransitionTo(next: ExecutionLifecycleState): Bool
                 setOf(
                     ExecutionLifecycleState.ENTRY_SUBMITTED,
                     ExecutionLifecycleState.PARTIALLY_FILLED,
+                    ExecutionLifecycleState.ENTRY_FILLED,
+                    ExecutionLifecycleState.ENTRY_CANCELLED,
+                    ExecutionLifecycleState.ENTRY_REJECTED,
                     ExecutionLifecycleState.OPEN_UNPROTECTED,
                     ExecutionLifecycleState.OPEN_PROTECTED,
                     ExecutionLifecycleState.EXIT_SUBMITTED,
@@ -98,6 +104,34 @@ fun ExecutionLifecycleState.canTransitionTo(next: ExecutionLifecycleState): Bool
             next in
                 setOf(
                     ExecutionLifecycleState.PARTIALLY_FILLED,
+                    ExecutionLifecycleState.ENTRY_FILLED,
+                    ExecutionLifecycleState.OPEN_UNPROTECTED,
+                    ExecutionLifecycleState.OPEN_PROTECTED,
+                    ExecutionLifecycleState.EXIT_SUBMITTED,
+                    ExecutionLifecycleState.CLOSED,
+                    ExecutionLifecycleState.ERROR,
+                )
+
+        ExecutionLifecycleState.ENTRY_FILLED ->
+            next in
+                setOf(
+                    ExecutionLifecycleState.ENTRY_FILLED,
+                    ExecutionLifecycleState.OPEN_UNPROTECTED,
+                    ExecutionLifecycleState.OPEN_PROTECTED,
+                    ExecutionLifecycleState.EXIT_SUBMITTED,
+                    ExecutionLifecycleState.CLOSED,
+                    ExecutionLifecycleState.ERROR,
+                )
+
+        ExecutionLifecycleState.ENTRY_CANCELLED,
+        ExecutionLifecycleState.ENTRY_REJECTED,
+        ->
+            next in
+                setOf(
+                    ExecutionLifecycleState.ENTRY_CANCELLED,
+                    ExecutionLifecycleState.ENTRY_REJECTED,
+                    ExecutionLifecycleState.PARTIALLY_FILLED,
+                    ExecutionLifecycleState.ENTRY_FILLED,
                     ExecutionLifecycleState.OPEN_UNPROTECTED,
                     ExecutionLifecycleState.OPEN_PROTECTED,
                     ExecutionLifecycleState.EXIT_SUBMITTED,

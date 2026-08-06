@@ -96,9 +96,9 @@ independent reconciliation loop advances it from Bybit orders, executions,
 positions, and closed PnL. Positions with both exchange-reported TP and SL are
 `OPEN_PROTECTED`; missing protection is `OPEN_UNPROTECTED` and sends a
 critical Discord alert. When `BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true`, the
-private execution stream wakes reconciliation as soon as a closing execution
-is observed. REST reconciliation remains the durable recovery path after
-reconnects or restarts.
+private execution and order streams persist fills, classify IOC terminal state,
+and wake reconciliation immediately. REST reconciliation remains the durable
+recovery path after reconnects or restarts.
 
 Close alerts use a SQLite-backed at-least-once queue. Failed Discord deliveries
 remain pending and retry on the next M5 cycle; successful delivery is
