@@ -9,6 +9,7 @@ import {
   attachClosedM15Regimes,
   detectM5Setup,
   expandCandidates,
+  metricsForTrades,
   prepareHigherTimeframeCandles,
   resolveExitOnCandle,
   runCandidateBatch,
@@ -20,6 +21,9 @@ const protocol = JSON.parse(
 );
 const v2Protocol = JSON.parse(
   await fs.readFile(path.join(repoRoot, "config/volume-structure-development-v2.json"), "utf8"),
+);
+const v3Protocol = JSON.parse(
+  await fs.readFile(path.join(repoRoot, "config/asymmetric-cluster-absorption-development-v3.json"), "utf8"),
 );
 
 test("candidate expansion preserves the predeclared two-family 24-trial boundary", () => {
@@ -153,6 +157,42 @@ test("v2 clustered reversal uses two closed M5 bars and the closed M15 direction
   assert.equal(setup.m15Regime.direction, "SELL");
   assert.ok(setup.relativeVolume >= candidate.minimumClusterRelativeVolume);
   assert.ok(setup.displacementAtr <= candidate.maximumClusterDisplacementAtr);
+});
+
+test("v3 asymmetric cluster applies a finite volume band to short reversals", () => {
+  const fixture = clusteredReversalFixture();
+  const m5 = prepareHigherTimeframeCandles(fixture.m5, TIMEFRAME_MS.M5);
+  const m15 = prepareHigherTimeframeCandles(fixture.m15, TIMEFRAME_MS.M15);
+  attachClosedM15Regimes(m5, m15, 4);
+  const v3 = JSON.parse(JSON.stringify(v3Protocol));
+  const candidate = expandCandidates(v3).find((item) => item.m1ConfirmationWindowBars === 4);
+  const setup = detectM5Setup(candidate, m5, m5.length - 1);
+  assert.equal(setup?.side, "SELL");
+  assert.equal(
+    detectM5Setup({ ...candidate, maximumShortClusterRelativeVolumeExclusive: 1.9 }, m5, m5.length - 1),
+    null,
+  );
+});
+
+test("event metrics separate active-month quality from no-trade coverage", () => {
+  const trade = {
+    openedAt: "2020-01-10T00:00:00.000Z",
+    closedAt: "2020-01-10T01:00:00.000Z",
+    openedAtMs: Date.parse("2020-01-10T00:00:00Z"),
+    closedAtMs: Date.parse("2020-01-10T01:00:00Z"),
+    netR: 1,
+    maeR: -0.25,
+    exitReason: "TARGET",
+  };
+  const metrics = metricsForTrades(
+    [trade],
+    "2020-01-01T00:00:00Z",
+    "2020-04-01T00:00:00Z",
+    v3Protocol,
+  );
+  assert.ok(Math.abs(metrics.positiveMonthRatio - (1 / 3)) < 1e-7);
+  assert.equal(metrics.activeMonthPositiveRatio, 1);
+  assert.ok(Math.abs(metrics.activeMonthCoverage - (1 / 3)) < 1e-7);
 });
 
 function continuationFixture() {

@@ -40,12 +40,19 @@ export function expandCandidates(protocol) {
       const lookback = parameters.m5BreakoutLookbackBars ?? parameters.m5FailedBreakoutLookbackBars;
       const volume = parameters.minimumM5RelativeVolume ?? parameters.minimumClusterRelativeVolume;
       const confirmation = parameters.m1ConfirmationWindowBars ?? parameters.m1RetestWindowBars;
-      const id = [
-        prefix,
-        `rv${numberId(volume)}`,
-        `lb${lookback}`,
-        `${hypothesis.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION" ? "rt" : "cf"}${confirmation}`,
-      ].join("_");
+      const id = hypothesis.family === "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL"
+        ? [
+          prefix,
+          `lrv${numberId(parameters.minimumLongClusterRelativeVolume)}`,
+          `smax${numberId(parameters.maximumShortClusterRelativeVolumeExclusive)}`,
+          `cf${confirmation}`,
+        ].join("_")
+        : [
+          prefix,
+          `rv${numberId(volume)}`,
+          `lb${lookback}`,
+          `${hypothesis.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION" ? "rt" : "cf"}${confirmation}`,
+        ].join("_");
       candidates.push({
         id,
         family: hypothesis.family,
@@ -66,6 +73,7 @@ function candidatePrefix(family) {
     case "VOLUME_EXHAUSTION_REVERSAL": return "ver";
     case "VOLUME_BREAKOUT_RETEST_CONTINUATION": return "vbr";
     case "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL": return "cve";
+    case "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL": return "acar";
     default: throw new Error(`Unsupported candidate family: ${family}`);
   }
 }
@@ -255,6 +263,9 @@ export function detectM5Setup(candidate, candles, index) {
   if (candidate.family === "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL") {
     return clusteredReversalSetup(candidate, candles, index);
   }
+  if (candidate.family === "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL") {
+    return clusteredReversalSetup(candidate, candles, index);
+  }
   throw new Error(`Unsupported candidate family: ${candidate.family}`);
 }
 
@@ -268,7 +279,10 @@ function clusteredReversalSetup(candidate, candles, index) {
     : null;
   if (baselineVolume == null || baselineVolume <= 0 || current.atr == null || current.atr <= 0) return null;
   const clusterRelativeVolume = (previous.volume + current.volume) / (2 * baselineVolume);
-  if (clusterRelativeVolume < candidate.minimumClusterRelativeVolume) return null;
+  if (
+    candidate.family !== "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL" &&
+    clusterRelativeVolume < candidate.minimumClusterRelativeVolume
+  ) return null;
   const high = Math.max(previous.high, current.high);
   const low = Math.min(previous.low, current.low);
   const clusterRange = high - low;
@@ -278,13 +292,22 @@ function clusteredReversalSetup(candidate, candles, index) {
   const closeLocation = (current.close - low) / clusterRange;
   const upperRejection = (high - Math.max(previous.open, current.close)) / clusterRange;
   const lowerRejection = (Math.min(previous.open, current.close) - low) / clusterRange;
+  const shortVolumeAllowed = candidate.family === "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL"
+    ? clusterRelativeVolume >= candidate.minimumShortClusterRelativeVolume &&
+      clusterRelativeVolume < candidate.maximumShortClusterRelativeVolumeExclusive
+    : true;
+  const longVolumeAllowed = candidate.family === "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL"
+    ? clusterRelativeVolume >= candidate.minimumLongClusterRelativeVolume
+    : true;
   const sell =
+    shortVolumeAllowed &&
     current.m15Regime.direction === "SELL" &&
     high > range.high &&
     current.close < range.high &&
     upperRejection >= candidate.minimumClusterRejectionRatio &&
     closeLocation <= candidate.maximumDirectionalCloseLocation;
   const buy =
+    longVolumeAllowed &&
     current.m15Regime.direction === "BUY" &&
     low < range.low &&
     current.close > range.low &&
@@ -628,7 +651,11 @@ function buildPosition(state, pending, candle, contract) {
   if (!Number.isFinite(netRiskPerUnit) || netRiskPerUnit <= 0) return null;
   const riskAmount = state.equity * contract.riskFraction;
   const quantity = riskAmount / netRiskPerUnit;
-  const targetPrice = ["VOLUME_EXHAUSTION_REVERSAL", "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL"].includes(state.candidate.family)
+  const targetPrice = [
+    "VOLUME_EXHAUSTION_REVERSAL",
+    "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL",
+    "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL",
+  ].includes(state.candidate.family)
     ? side === "BUY"
       ? entryPrice + triggerRiskPerUnit * state.candidate.targetR
       : entryPrice - triggerRiskPerUnit * state.candidate.targetR
@@ -899,9 +926,12 @@ export function evaluateNestedWalkForward(batch, protocol) {
 function trainingEligible(item, protocol) {
   const gate = protocol.trainingEligibility;
   const metrics = item.metrics;
+  const monthStability = gate.minimumActiveMonthPositiveRatio == null
+    ? metrics.positiveMonthRatio >= gate.minimumPositiveMonthRatio
+    : metrics.activeMonthPositiveRatio >= gate.minimumActiveMonthPositiveRatio;
   return item.dataGapCount === 0 &&
     metrics.tradeCount >= gate.minimumTrades &&
-    metrics.positiveMonthRatio >= gate.minimumPositiveMonthRatio &&
+    monthStability &&
     metrics.profitFactor >= gate.minimumProfitFactor &&
     metrics.maxDrawdownPct <= gate.maximumDrawdownPct;
 }
@@ -909,6 +939,8 @@ function trainingEligible(item, protocol) {
 function compareRankedMetrics(left, right) {
   const lowerDifference = (right.metrics.bootstrap?.lowerBound ?? -Infinity) - (left.metrics.bootstrap?.lowerBound ?? -Infinity);
   if (lowerDifference !== 0) return lowerDifference;
+  const activeMonthDifference = right.metrics.activeMonthPositiveRatio - left.metrics.activeMonthPositiveRatio;
+  if (activeMonthDifference !== 0) return activeMonthDifference;
   const medianDifference = right.metrics.medianMonthlyReturnPct - left.metrics.medianMonthlyReturnPct;
   if (medianDifference !== 0) return medianDifference;
   const profitFactorDifference = right.metrics.profitFactor - left.metrics.profitFactor;
@@ -944,6 +976,7 @@ export function metricsForTrades(trades, startAt, endAt, protocol, { alreadyFilt
   let liquidationCount = 0;
   const activeDays = new Set();
   const monthFactors = new Map(monthKeys(startAt, endAt).map((month) => [month, 1]));
+  const activeMonths = new Set();
   for (const trade of selected) {
     const equityBefore = equity;
     const adverseEquity = equityBefore * (1 + riskFraction * trade.maeR);
@@ -960,10 +993,12 @@ export function metricsForTrades(trades, startAt, endAt, protocol, { alreadyFilt
     if (trade.exitReason === "LIQUIDATION") liquidationCount += 1;
     activeDays.add(trade.openedAt.slice(0, 10));
     const month = trade.closedAt.slice(0, 7);
+    activeMonths.add(month);
     monthFactors.set(month, (monthFactors.get(month) ?? 1) * Math.max(0, 1 + riskFraction * trade.netR));
   }
   const returnsR = selected.map((trade) => trade.netR);
   const monthlyReturns = [...monthFactors.values()].map((factor) => (factor - 1) * 100);
+  const activeMonthlyReturns = [...activeMonths].map((month) => ((monthFactors.get(month) ?? 1) - 1) * 100);
   const startMs = Date.parse(startAt);
   const endMs = Date.parse(endAt);
   const observedDays = Math.max(1, (endMs - startMs) / 86_400_000);
@@ -988,6 +1023,10 @@ export function metricsForTrades(trades, startAt, endAt, protocol, { alreadyFilt
     maxDrawdownPct: round(maxDrawdownPct),
     activeDayCoveragePct: round((activeDays.size / observedDays) * 100),
     positiveMonthRatio: monthlyReturns.length > 0 ? round(monthlyReturns.filter((value) => value > 0).length / monthlyReturns.length) : 0,
+    activeMonthPositiveRatio: activeMonthlyReturns.length > 0
+      ? round(activeMonthlyReturns.filter((value) => value > 0).length / activeMonthlyReturns.length)
+      : 0,
+    activeMonthCoverage: monthlyReturns.length > 0 ? round(activeMonthlyReturns.length / monthlyReturns.length) : 0,
     medianMonthlyReturnPct: monthlyReturns.length > 0 ? round(median(monthlyReturns)) : 0,
     liquidationCount,
     maximumWinnerProfitConcentration: grossProfitR > 0
@@ -1018,6 +1057,8 @@ function emptyMetrics(startAt, endAt) {
     maxDrawdownPct: 0,
     activeDayCoveragePct: 0,
     positiveMonthRatio: 0,
+    activeMonthPositiveRatio: 0,
+    activeMonthCoverage: 0,
     medianMonthlyReturnPct: 0,
     liquidationCount: 0,
     maximumWinnerProfitConcentration: 0,

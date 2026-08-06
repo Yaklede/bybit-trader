@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
+import { expandCandidates } from "./lib/volume-impact-state-research.mjs";
+
 const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const protocol = JSON.parse(
   await fs.readFile(path.join(repoRoot, "config/asymmetric-cluster-absorption-development-v3.json"), "utf8"),
@@ -18,6 +20,9 @@ test("v3 freezes one asymmetric family with exactly 12 candidates", () => {
   const count = Object.values(protocol.hypotheses[0].grid).reduce((total, values) => total * values.length, 1);
   assert.equal(count, 12);
   assert.equal(protocol.selectionPolicy.maximumStageCandidateCount, 12);
+  const candidates = expandCandidates(protocol);
+  assert.equal(candidates.length, 12);
+  assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 12);
 });
 
 test("active-month methodology does not relax the pooled family gate", () => {
