@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-multi-asset-delta-neutral-funding-carry-internal-result-v1",
+  "programStatus": "REJECTED_MULTI_ASSET_INTERNAL_VALIDATION",
+  "protocol": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-internal-v1.json",
+    "sha256": "b2e3b132e9cfa30322aeabf3e167863c9b4c65ccd2f7c2c27703aa0915a25da0"
+  },
+  "replayFreeze": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-internal-replay-freeze-v1.json",
+    "sha256": "64cdcc0a37458f6df093e443e00fccf85cd9f940df9354e61e0dbeafc9f92548"
+  },
+  "acquisitionReceiptSha256": "1f647717d71a70b13499b7861f5204706f24dcc1cbccfbf7e4393b8a888f58b6",
+  "resultReportSha256": "557c74fff09d5816a4d7069e9e19b40753aca00a86122351220f70b61f01f145",
+  "tradesSha256": "bea647527078dca6218c29ecdd49f3a8579489f5fe3facd7bacb3adcc4ca82c8",
+  "candidate": {
+    "id": "multi_asset_delta_neutral_carry_04",
+    "sha256": "2b46f1abe6caef9fb31eb6ad85de2ff4973985e52d76a1f377cc8ef2e6d974e9"
+  },
+  "metrics": {
+    "startingEquityUsdt": 660,
+    "endingEquityUsdt": 680.52748433,
+    "netReturnPct": 3.1102249,
+    "compoundDailyReturnPct": 0.00836876,
+    "tradeCount": 17,
+    "activeCalendarDays": 203,
+    "capturedFundingSettlements": 1153,
+    "profitFactor": 26.63077294,
+    "winRatePct": 76.47058824,
+    "maximumDrawdownPct": 0.43591163,
+    "liquidationCount": 0,
+    "positiveBlockCount": 3,
+    "totalBlockCount": 4,
+    "bootstrapLowerMeanDailyReturnPct": 0.00435713,
+    "costStressNetReturnPct": 2.52398486,
+    "secondLegDelayStressNetReturnPct": 1.79362814,
+    "positivePositionProfitConcentration": 0.20236513,
+    "positiveAssetProfitConcentration": 0.54965943
+  },
+  "gate": {
+    "passed": false,
+    "failedChecks": ["minimumClosedPositions"],
+    "requiredClosedPositions": 20,
+    "observedClosedPositions": 17,
+    "allOtherChecksPassed": true
+  },
+  "decision": {
+    "v1CandidateRejected": true,
+    "v1GateMayBeRelaxedAfterOutcome": false,
+    "v1CandidateMayBeRetunedAfterOutcome": false,
+    "v1External2025AcquisitionAllowed": false,
+    "successorProtocolMayUse2023And2024AsDisclosedDevelopmentEvidence": true
+  },
+  "evidenceBoundary": {
+    "development2023Read": true,
+    "internalValidation2024Read": true,
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
