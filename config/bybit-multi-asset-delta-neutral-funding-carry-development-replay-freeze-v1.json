@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "freezeId": "bybit-multi-asset-delta-neutral-funding-carry-development-replay-freeze-v1",
+  "status": "FROZEN_BEFORE_MULTI_ASSET_DEVELOPMENT_OUTCOME_REPLAY",
+  "frozenAt": "2026-08-06",
+  "protocol": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-development-v1.json",
+    "sha256": "42e9a485e747cc12d50263fee26f20318c50e04108efeeed6fa1171811625479"
+  },
+  "acquisitionReceipt": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-development-acquisition-receipt-v1.json",
+    "sha256": "30dbad593918e8ad557a35222415b971dc36ada5b8749c420334ac605e5dd9cb"
+  },
+  "implementation": {
+    "simulatorPath": "scripts/lib/multi-asset-delta-neutral-funding-carry-research.mjs",
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "replayPath": "scripts/multi-asset-delta-neutral-funding-carry-development-replay.mjs",
+    "replaySha256": "2ad95318b59e283b5d43980fc81c8f35deb1d604a813183d09f2b6ac459026e3",
+    "compositeSha256": "0625a786d2d69438070f2f40008ff7d997880fa18115283ff2bf96a470ec6c7d"
+  },
+  "trialAccounting": {
+    "priorObservedCandidates": 311,
+    "frozenCandidatesToEvaluate": 24,
+    "cumulativeObservedCandidatesAfterReplay": 335,
+    "candidateBudgetMayIncreaseAfterOutcome": false
+  },
+  "outcomeBoundary": {
+    "developmentCandidateMetricsReadBeforeFreeze": false,
+    "internalValidation2024Read": false,
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "selectionPolicy": {
+    "maximumSelectedCandidateCount": 1,
+    "allDevelopmentGatesMustPass": true,
+    "gateMayBeChangedAfterOutcome": false,
+    "candidateMayBeRetunedAfterOutcome": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
