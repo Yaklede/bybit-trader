@@ -195,6 +195,7 @@ export function detectEventSignal(candidate, row) {
     "CONFIRMED_ABSORPTION_REVERSAL",
     "ACCEPTED_DEPLETION_CONTINUATION",
     "FAILED_LIQUIDITY_SWEEP_REVERSAL",
+    "SHOCK_PULLBACK_REACCELERATION_CONTINUATION",
   ].includes(candidate.family)
     ? candidate.minimumSetupAbsoluteTakerImbalance
     : candidate.minimumAbsoluteTakerImbalance;
@@ -205,7 +206,11 @@ export function detectEventSignal(candidate, row) {
     Math.abs(row.takerImbalance) < minimumTakerImbalance ||
     row.relativeTakerNotional < candidate.minimumRelativeTakerNotional
   ) return null;
-  if (["EVENT_DEPLETION_CONTINUATION", "ACCEPTED_DEPLETION_CONTINUATION"].includes(candidate.family)) {
+  if ([
+    "EVENT_DEPLETION_CONTINUATION",
+    "ACCEPTED_DEPLETION_CONTINUATION",
+    "SHOCK_PULLBACK_REACCELERATION_CONTINUATION",
+  ].includes(candidate.family)) {
     if (
       row.alignedEndTop5Imbalance < candidate.minimumAlignedTop5Imbalance ||
       row.alignedMicropriceEdgeBps < candidate.minimumAlignedMicropriceEdgeBps ||
@@ -265,6 +270,7 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
         "CONFIRMED_ABSORPTION_REVERSAL",
         "ACCEPTED_DEPLETION_CONTINUATION",
         "FAILED_LIQUIDITY_SWEEP_REVERSAL",
+        "SHOCK_PULLBACK_REACCELERATION_CONTINUATION",
       ].includes(candidate.family)) continue;
       if (row.closeTimeMs === replayStartMs) {
         const signal = detectEventSignal(candidate, row);
@@ -282,6 +288,8 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
       processAcceptedContinuationState(state, candidate, row);
     } else if (state.position == null && candidate.family === "FAILED_LIQUIDITY_SWEEP_REVERSAL") {
       processFailedSweepState(state, candidate, row);
+    } else if (state.position == null && candidate.family === "SHOCK_PULLBACK_REACCELERATION_CONTINUATION") {
+      processPullbackReaccelerationState(state, candidate, row);
     } else if (state.position == null) {
       const signal = detectEventSignal(candidate, row);
       if (signal != null && row.closeTimeMs < replayEndMs) {
@@ -699,6 +707,96 @@ function confirmFailedSweep(setup, candidate, row) {
   };
 }
 
+function processPullbackReaccelerationState(state, candidate, row) {
+  const arm = state.arm;
+  if (arm != null && row.closeTimeMs > arm.signalCloseTimeMs) {
+    const expiresAt = arm.signalCloseTimeMs + candidate.sequenceWindowMinutes * MINUTE_MS;
+    if (row.closeTimeMs > expiresAt || invalidatesPullbackSetup(arm, row)) {
+      state.arm = null;
+      return;
+    }
+    if (arm.pullbackObservedAtMs == null) {
+      const pullback = detectPullback(arm, candidate, row);
+      if (pullback != null) state.arm = { ...arm, ...pullback };
+      return;
+    }
+    const confirmation = confirmPullbackReacceleration(arm, candidate, row);
+    if (confirmation != null) {
+      state.pending = { signal: confirmation, expectedEntryAtMs: row.closeTimeMs };
+      state.arm = null;
+    }
+    return;
+  }
+  if (state.pending == null && state.arm == null) {
+    const setup = detectEventSignal(candidate, row);
+    if (setup != null) state.arm = setup;
+  }
+}
+
+function invalidatesPullbackSetup(setup, row) {
+  if (!Number.isFinite(setup.openTradePrice) || !Number.isFinite(row.closeTradePrice)) return true;
+  return setup.orderSide === "BUY"
+    ? row.closeTradePrice <= setup.openTradePrice
+    : row.closeTradePrice >= setup.openTradePrice;
+}
+
+function detectPullback(setup, candidate, row) {
+  if (!Number.isFinite(setup.openTradePrice) || !Number.isFinite(setup.closeTradePrice) ||
+      !Number.isFinite(row.closeTradePrice) || !Number.isFinite(row.takerImbalance)) return null;
+  const side = setup.orderSide;
+  const setupMove = Math.abs(setup.closeTradePrice - setup.openTradePrice);
+  if (setupMove <= 0 || row.m15Regime !== side || row.takerDirection !== opposite(side) ||
+      Math.abs(row.takerImbalance) < candidate.minimumPullbackOppositeTakerImbalance) return null;
+  const pullbackDistance = side === "BUY"
+    ? setup.closeTradePrice - row.closeTradePrice
+    : row.closeTradePrice - setup.closeTradePrice;
+  const pullbackFraction = pullbackDistance / setupMove;
+  if (pullbackFraction < candidate.minimumPullbackFraction) return null;
+  return {
+    pullbackObservedAtMs: row.closeTimeMs,
+    pullbackCloseTradePrice: row.closeTradePrice,
+    observedPullbackFraction: pullbackFraction,
+  };
+}
+
+function confirmPullbackReacceleration(setup, candidate, row) {
+  if (
+    !Number.isFinite(row.closeTradePrice) ||
+    !Number.isFinite(row.endTop5Imbalance) ||
+    !Number.isFinite(row.meanMicropriceEdgeBps) ||
+    !Number.isFinite(row.takerImbalance)
+  ) return null;
+  const side = setup.orderSide;
+  const directionSign = side === "BUY" ? 1 : -1;
+  const alignedBook = directionSign * row.endTop5Imbalance;
+  const alignedMicroprice = directionSign * row.meanMicropriceEdgeBps;
+  const priceReaccelerated = side === "BUY"
+    ? row.closeTradePrice > setup.closeTradePrice
+    : row.closeTradePrice < setup.closeTradePrice;
+  if (
+    row.closeTimeMs <= setup.pullbackObservedAtMs ||
+    row.takerDirection !== side ||
+    Math.abs(row.takerImbalance) < candidate.minimumReaccelerationAbsoluteTakerImbalance ||
+    row.relativeTakerNotional == null ||
+    row.relativeTakerNotional < candidate.minimumReaccelerationRelativeTakerNotional ||
+    alignedBook < candidate.minimumReaccelerationAlignedTop5Imbalance ||
+    alignedMicroprice < candidate.minimumReaccelerationAlignedMicropriceEdgeBps ||
+    row.m15Regime !== side ||
+    !priceReaccelerated
+  ) return null;
+  return {
+    ...setup,
+    atr: row.atr,
+    signalCloseTimeMs: row.closeTimeMs,
+    confirmationOpenedAtMs: row.openedAtMs,
+    confirmationTakerImbalance: row.takerImbalance,
+    confirmationRelativeTakerNotional: row.relativeTakerNotional,
+    confirmationAlignedTop5Imbalance: alignedBook,
+    confirmationAlignedMicropriceEdgeBps: alignedMicroprice,
+    confirmationCloseTradePrice: row.closeTradePrice,
+  };
+}
+
 function fillPending(state, candidate, row, contract, blockId) {
   const pending = state.pending;
   if (pending == null) return;
@@ -849,6 +947,11 @@ function closePosition(state, triggerPrice, closedAtMs, reason, contract) {
     confirmationRelativeTakerNotional: nullableRound(position.signal.confirmationRelativeTakerNotional),
     confirmationAlignedTop5Imbalance: nullableRound(position.signal.confirmationAlignedTop5Imbalance),
     confirmationAlignedMicropriceEdgeBps: nullableRound(position.signal.confirmationAlignedMicropriceEdgeBps),
+    pullbackObservedAt: position.signal.pullbackObservedAtMs == null
+      ? null
+      : instantString(position.signal.pullbackObservedAtMs),
+    pullbackCloseTradePrice: nullableRound(position.signal.pullbackCloseTradePrice),
+    observedPullbackFraction: nullableRound(position.signal.observedPullbackFraction),
   });
   state.cooldownUntilMs = closedAtMs + contract.cooldownMinutes * MINUTE_MS;
   state.position = null;
