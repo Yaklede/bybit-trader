@@ -35,11 +35,35 @@ data class OrderBookDepthSnapshot(
     val bidNotional: BigDecimal,
     val askNotional: BigDecimal,
     val spreadBps: BigDecimal,
+    val bestBidPrice: BigDecimal? = null,
+    val bestBidQuantity: BigDecimal? = null,
+    val bestAskPrice: BigDecimal? = null,
+    val bestAskQuantity: BigDecimal? = null,
+    val updateId: Long? = null,
+    val crossSequence: Long? = null,
+    val bookEpoch: Long? = null,
+    val matchingEngineTimestamp: Instant? = null,
+    val receivedAt: Instant? = null,
+    val quality: ForwardMarketDataQuality = ForwardMarketDataQuality.VALID,
 ) : ForwardMarketCaptureEvent {
     init {
         require(bidNotional >= BigDecimal.ZERO) { "Order book bid notional must not be negative." }
         require(askNotional >= BigDecimal.ZERO) { "Order book ask notional must not be negative." }
         require(spreadBps >= BigDecimal.ZERO) { "Order book spread must not be negative." }
+        val bestLevelFields = listOf(bestBidPrice, bestBidQuantity, bestAskPrice, bestAskQuantity)
+        require(bestLevelFields.all { it == null } || bestLevelFields.all { it != null }) {
+            "Order book best-level fields must be supplied together."
+        }
+        if (bestBidPrice != null && bestBidQuantity != null && bestAskPrice != null && bestAskQuantity != null) {
+            require(bestBidPrice > BigDecimal.ZERO) { "Order book best bid price must be positive." }
+            require(bestBidQuantity > BigDecimal.ZERO) { "Order book best bid quantity must be positive." }
+            require(bestAskPrice > BigDecimal.ZERO) { "Order book best ask price must be positive." }
+            require(bestAskQuantity > BigDecimal.ZERO) { "Order book best ask quantity must be positive." }
+            require(bestAskPrice >= bestBidPrice) { "Order book best ask must not be below best bid." }
+        }
+        require(updateId == null || updateId >= 0L) { "Order book update ID must not be negative." }
+        require(crossSequence == null || crossSequence >= 0L) { "Order book cross sequence must not be negative." }
+        require(bookEpoch == null || bookEpoch > 0L) { "Order book epoch must be positive." }
     }
 
     val imbalance: BigDecimal
@@ -75,10 +99,16 @@ data class TakerTradeEvent(
     val takerSide: Side,
     val quantity: BigDecimal,
     val price: BigDecimal,
+    val tradeId: String? = null,
+    val crossSequence: Long? = null,
+    val matchingEngineTimestamp: Instant? = null,
+    val receivedAt: Instant? = null,
 ) : ForwardMarketCaptureEvent {
     init {
         require(quantity > BigDecimal.ZERO) { "Taker trade quantity must be positive." }
         require(price > BigDecimal.ZERO) { "Taker trade price must be positive." }
+        require(tradeId == null || tradeId.isNotBlank()) { "Taker trade ID must not be blank." }
+        require(crossSequence == null || crossSequence >= 0L) { "Taker trade cross sequence must not be negative." }
     }
 
     val notional: BigDecimal

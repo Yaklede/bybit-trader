@@ -109,11 +109,11 @@ class BybitPublicMarketCaptureParser(
         val symbol = root.symbol(topic, eventKind) ?: return null
         val parsed =
             when (eventKind) {
-                ForwardMarketEventKind.ORDER_BOOK -> parseOrderBook(root, symbol)
+                ForwardMarketEventKind.ORDER_BOOK -> parseOrderBook(root, symbol, receivedAt)
                 ForwardMarketEventKind.LIQUIDATION ->
                     ParsedMarketMessage(parseLiquidations(root), ForwardMarketDataQuality.VALID)
                 ForwardMarketEventKind.PUBLIC_TRADE ->
-                    ParsedMarketMessage(parseTakerTrades(root), ForwardMarketDataQuality.VALID)
+                    ParsedMarketMessage(parseTakerTrades(root, receivedAt), ForwardMarketDataQuality.VALID)
             }
         val sequences = root.sequences(eventKind)
         val objectData = root["data"] as? JsonObject
@@ -142,6 +142,7 @@ class BybitPublicMarketCaptureParser(
     private fun parseOrderBook(
         root: JsonObject,
         symbol: Symbol,
+        receivedAt: Instant,
     ): ParsedMarketMessage {
         val data = root["data"]?.jsonObject ?: return gap(ForwardMarketDataQuality.EMPTY_ORDER_BOOK)
         val messageType = root.messageType() ?: return gap(ForwardMarketDataQuality.EMPTY_ORDER_BOOK)
@@ -156,7 +157,7 @@ class BybitPublicMarketCaptureParser(
             data["a"]?.jsonArray?.applyLevels(asks)
             lastUpdateId = updateId
             bookReady = true
-            return orderBookSnapshot(root, data, symbol, ForwardMarketDataQuality.SNAPSHOT_RESET)
+            return orderBookSnapshot(root, data, symbol, receivedAt, ForwardMarketDataQuality.SNAPSHOT_RESET)
         }
         if (!bookReady) return gap(ForwardMarketDataQuality.DELTA_BEFORE_SNAPSHOT)
         if (updateId == null) return gap(ForwardMarketDataQuality.MISSING_UPDATE_ID)
@@ -166,13 +167,14 @@ class BybitPublicMarketCaptureParser(
         data["b"]?.jsonArray?.applyLevels(bids)
         data["a"]?.jsonArray?.applyLevels(asks)
         lastUpdateId = updateId
-        return orderBookSnapshot(root, data, symbol, ForwardMarketDataQuality.VALID)
+        return orderBookSnapshot(root, data, symbol, receivedAt, ForwardMarketDataQuality.VALID)
     }
 
     private fun orderBookSnapshot(
         root: JsonObject,
         data: JsonObject,
         symbol: Symbol,
+        receivedAt: Instant,
         quality: ForwardMarketDataQuality,
     ): ParsedMarketMessage {
         if (bids.isEmpty() || asks.isEmpty()) return gap(ForwardMarketDataQuality.EMPTY_ORDER_BOOK)
@@ -193,6 +195,16 @@ class BybitPublicMarketCaptureParser(
                             bidNotional = bids.entries.take(orderBookDepth).sumNotional(),
                             askNotional = asks.entries.take(orderBookDepth).sumNotional(),
                             spreadBps = spreadBps,
+                            bestBidPrice = bestBid,
+                            bestBidQuantity = bids.getValue(bestBid),
+                            bestAskPrice = bestAsk,
+                            bestAskQuantity = asks.getValue(bestAsk),
+                            updateId = data.long("u"),
+                            crossSequence = data.long("seq"),
+                            bookEpoch = bookEpoch,
+                            matchingEngineTimestamp = it,
+                            receivedAt = receivedAt,
+                            quality = quality,
                         ),
                     )
                 }.orEmpty()
@@ -235,7 +247,10 @@ class BybitPublicMarketCaptureParser(
                 )
             }.orEmpty()
 
-    private fun parseTakerTrades(root: JsonObject): List<TakerTradeEvent> =
+    private fun parseTakerTrades(
+        root: JsonObject,
+        receivedAt: Instant,
+    ): List<TakerTradeEvent> =
         root["data"]
             ?.jsonArray
             ?.mapNotNull { item ->
@@ -257,6 +272,10 @@ class BybitPublicMarketCaptureParser(
                     takerSide = side,
                     quantity = quantity,
                     price = price,
+                    tradeId = data["i"]?.jsonPrimitive?.contentOrNull,
+                    crossSequence = data.long("seq"),
+                    matchingEngineTimestamp = capturedAt,
+                    receivedAt = receivedAt,
                 )
             }.orEmpty()
 }

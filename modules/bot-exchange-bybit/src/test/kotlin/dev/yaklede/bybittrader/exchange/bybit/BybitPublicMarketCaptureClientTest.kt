@@ -36,6 +36,16 @@ class BybitPublicMarketCaptureClientTest :
             snapshotEvent.bidNotional shouldBe BigDecimal("200")
             snapshotEvent.askNotional shouldBe BigDecimal("404")
             snapshotEvent.capturedAt shouldBe Instant.ofEpochMilli(1719748800000)
+            snapshotEvent.bestBidPrice shouldBe BigDecimal("100")
+            snapshotEvent.bestBidQuantity shouldBe BigDecimal("2")
+            snapshotEvent.bestAskPrice shouldBe BigDecimal("101")
+            snapshotEvent.bestAskQuantity shouldBe BigDecimal("4")
+            snapshotEvent.updateId shouldBe 100L
+            snapshotEvent.crossSequence shouldBe 1000L
+            snapshotEvent.bookEpoch shouldBe 1L
+            snapshotEvent.matchingEngineTimestamp shouldBe Instant.ofEpochMilli(1719748800000)
+            snapshotEvent.receivedAt shouldBe Instant.parse("2026-07-10T00:00:00.010Z")
+            snapshotEvent.quality shouldBe ForwardMarketDataQuality.SNAPSHOT_RESET
             snapshot.rawEvent.quality shouldBe ForwardMarketDataQuality.SNAPSHOT_RESET
             snapshot.rawEvent.updateId shouldBe 100L
             snapshot.rawEvent.sequenceStart shouldBe 1000L
@@ -59,6 +69,12 @@ class BybitPublicMarketCaptureClientTest :
             val deltaEvent = delta.normalizedEvents.single() as OrderBookDepthSnapshot
             deltaEvent.bidNotional shouldBe BigDecimal("297")
             deltaEvent.askNotional shouldBe BigDecimal("101")
+            deltaEvent.bestBidPrice shouldBe BigDecimal("99")
+            deltaEvent.bestBidQuantity shouldBe BigDecimal("3")
+            deltaEvent.bestAskQuantity shouldBe BigDecimal("1")
+            deltaEvent.updateId shouldBe 101L
+            deltaEvent.crossSequence shouldBe 1001L
+            deltaEvent.quality shouldBe ForwardMarketDataQuality.VALID
             delta.rawEvent.quality shouldBe ForwardMarketDataQuality.VALID
         }
 
@@ -144,8 +160,8 @@ class BybitPublicMarketCaptureClientTest :
                       "type":"snapshot",
                       "ts":1719748800200,
                       "data":[
-                        {"T":1719748800000,"s":"BTCUSDT","S":"Buy","v":"2","p":"100","seq":700},
-                        {"T":1719748800100,"s":"BTCUSDT","S":"Sell","v":"3","p":"101","seq":701}
+                        {"T":1719748800000,"s":"BTCUSDT","S":"Buy","v":"2","p":"100","i":"trade-1","seq":700},
+                        {"T":1719748800100,"s":"BTCUSDT","S":"Sell","v":"3","p":"101","i":"trade-2","seq":701}
                       ]
                     }
                     """.trimIndent(),
@@ -156,6 +172,13 @@ class BybitPublicMarketCaptureClientTest :
             events.map { it.takerSide }.shouldContainExactly(Side.BUY, Side.SELL)
             events.map { it.quantity }.shouldContainExactly(BigDecimal("2"), BigDecimal("3"))
             events.map { it.price }.shouldContainExactly(BigDecimal("100"), BigDecimal("101"))
+            events.map { it.tradeId }.shouldContainExactly("trade-1", "trade-2")
+            events.map { it.crossSequence }.shouldContainExactly(700L, 701L)
+            events.map { it.matchingEngineTimestamp }.shouldContainExactly(
+                Instant.ofEpochMilli(1719748800000),
+                Instant.ofEpochMilli(1719748800100),
+            )
+            events.map { it.receivedAt }.shouldContainExactly(RECEIVED_AT, RECEIVED_AT)
             batch.rawEvent.sequenceStart shouldBe 700L
             batch.rawEvent.sequenceEnd shouldBe 701L
         }
