@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-multi-asset-cost-recovery-carry-sealed-result-v3",
+  "programStatus": "REJECTED_SEALED_2026_H1_VALIDATION",
+  "protocol": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-sealed-2026-h1-v3.json",
+    "sha256": "7ec481bf092749a2b414b338d94b206b47f013e867aa53bcc57291ab38074041"
+  },
+  "replayFreeze": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-sealed-replay-freeze-v3.json",
+    "sha256": "dfd4759b600f749b62f064ca1d8b5fb8251df095a353f03481e3f979212e9865"
+  },
+  "acquisitionReceipt": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-sealed-acquisition-receipt-v3.json",
+    "sha256": "96b88f7ceb83ac744580ffc9da1ad07e6899ff76d5645b7c074b33c1c16a4b3d"
+  },
+  "sourceArtifacts": {
+    "resultReportSha256": "422320b43c6a467a3ff1f6829009fada97c885cd6c3692ab70fab9e54b7d0552",
+    "tradesSha256": "a0d541472e2e71e666185a23b784ff31ca28b977741b4b04758ffc3bdd17f81d"
+  },
+  "candidate": {
+    "id": "multi_asset_cost_recovery_carry_018",
+    "sha256": "46bac80f02e00cdbcb4605e785a0f2dee6865d983c9082e326615381dd91dfcf"
+  },
+  "metrics": {
+    "startingEquityUsdt": 660,
+    "endingEquityUsdt": 658.63211263,
+    "netReturnPct": -0.20725566,
+    "compoundDailyReturnPct": -0.00114624,
+    "tradeCount": 4,
+    "activeCalendarDays": 175,
+    "capturedFundingSettlements": 1039,
+    "tradedAssetCount": 2,
+    "positiveAssetCount": 0,
+    "positiveBlockCount": 0,
+    "totalBlockCount": 2,
+    "profitFactor": 0.05519889,
+    "winRatePct": 25,
+    "maximumDrawdownPct": 0.26766541,
+    "liquidationCount": 0,
+    "bootstrapLowerMeanDailyReturnPct": -0.00296058,
+    "fundingPnlUsdt": 0.29364834,
+    "pricePnlUsdt": 0.06081462,
+    "feeCostUsdt": 1.30237301,
+    "slippageCostUsdt": 0.41997731,
+    "costStressNetReturnPct": -0.33716991,
+    "secondLegDelayStressNetReturnPct": -0.20822686,
+    "assetNetPnlUsdt": {
+      "BTCUSDT": 0,
+      "ETHUSDT": -0.09466957,
+      "SOLUSDT": -1.2732178
+    },
+    "blockReturns": [
+      {"blockId":"S01","era":"2026Q1","returnPct":-0.1069852},
+      {"blockId":"S02","era":"2026Q2","returnPct":-0.10037785}
+    ]
+  },
+  "gate": {
+    "passed": false,
+    "failedChecks": [
+      "minimumPositiveAssetCount",
+      "minimumPositiveBlockCount",
+      "minimumNetReturnPct",
+      "minimumProfitFactor",
+      "minimumMeanDailyReturnPct",
+      "minimumBootstrapLowerMeanDailyReturnPct",
+      "maximumPositivePositionProfitConcentration",
+      "maximumPositiveAssetProfitConcentration",
+      "costStressMinimumNetReturnPct",
+      "secondLegDelayStressMinimumNetReturnPct"
+    ]
+  },
+  "failureAttribution": {
+    "fundingDidNotCoverBaseExecutionCosts": true,
+    "positiveFundingStreakDidNotPredictLongHorizonCarry": true,
+    "firstSolPositionFundingPnlUsdt": -0.68854911,
+    "totalFundingAndPricePnlUsdt": 0.35446296,
+    "totalFeeAndSlippageCostUsdt": 1.72235032,
+    "bothSealedQuartersNegative": true
+  },
+  "decision": {
+    "candidateRejected": true,
+    "candidateMayBeRetunedOn2026H1": false,
+    "sealedGateMayBeRelaxed": false,
+    "forwardShadowAndPaperAllowed": false,
+    "successorMayUse2023Through2026H1AsDisclosedDevelopmentEvidence": true
+  },
+  "evidenceBoundary": {
+    "development2023Through2025Read": true,
+    "sealed2026H1Read": true,
+    "future2026AfterH1Read": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
