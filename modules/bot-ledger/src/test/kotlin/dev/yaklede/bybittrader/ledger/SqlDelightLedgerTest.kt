@@ -134,7 +134,7 @@ class SqlDelightLedgerTest :
             database.ledgerQueries.countAlertEvents().executeAsOne() shouldBe 1L
         }
 
-        "maker shadow events append atomically and remain idempotent by event ID" {
+        "maker shadow events append atomically and reject reused event IDs" {
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             LedgerDatabase.Schema.create(driver)
             val database = createLedgerDatabase(driver)
@@ -146,9 +146,16 @@ class SqlDelightLedgerTest :
                 )
 
             ledger.append(events)
-            ledger.append(events)
+            val duplicateFailure =
+                try {
+                    ledger.append(events)
+                    null
+                } catch (error: Throwable) {
+                    error
+                }
 
             val rows = database.ledgerQueries.selectMakerShadowEventsBySession("shadow-session").executeAsList()
+            (duplicateFailure != null) shouldBe true
             rows.size shouldBe 2
             rows.map { it.event_id } shouldBe listOf("shadow-e-1", "shadow-e-2")
             rows.last().event_type shouldBe MakerShadowLedgerEventType.FILL.name

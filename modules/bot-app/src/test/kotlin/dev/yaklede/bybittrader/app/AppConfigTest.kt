@@ -16,6 +16,10 @@ class AppConfigTest :
             config.forwardMarketCapture.orderBookDepth shouldBe 50
             config.forwardMarketCapture.rawArchiveEnabled shouldBe false
             config.forwardMarketCapture.rawArchivePath shouldBe "data/market-events"
+            config.makerShadow.enabled shouldBe false
+            config.makerShadow.initialEquity.toPlainString() shouldBe "100"
+            config.makerShadow.orderQuantity.toPlainString() shouldBe "0.001"
+            config.makerShadow.queueMultiplier.toPlainString() shouldBe "1.5"
             config.bybitPrivate.credentialsAvailable shouldBe false
             config.bybitPrivate.baseUrl shouldBe "https://api-testnet.bybit.com"
             config.bybitPrivate.privateWebSocketUrl shouldBe "wss://stream.bybit.com/v5/private"
@@ -295,6 +299,63 @@ class AppConfigTest :
             }
             shouldThrow<IllegalArgumentException> {
                 AppConfig.fromEnvironment(mapOf("BOT_FORWARD_RAW_ARCHIVE_ENABLED" to "true"))
+            }
+        }
+
+        "maker shadow is opt-in and requires raw forward evidence" {
+            val config =
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_FORWARD_MARKET_CAPTURE_ENABLED" to "true",
+                        "BOT_MAKER_SHADOW_ENABLED" to "true",
+                        "BOT_MAKER_SHADOW_SESSION_ID" to "shadow-config-test",
+                        "BOT_MAKER_SHADOW_INITIAL_EQUITY" to "660",
+                        "BOT_MAKER_SHADOW_ORDER_QUANTITY" to "0.001",
+                        "BOT_MAKER_SHADOW_MAX_NOTIONAL" to "100",
+                        "BOT_MAKER_SHADOW_QUEUE_MULTIPLIER" to "2",
+                        "BOT_MAKER_SHADOW_QUEUE_BUFFER_QUANTITY" to "0.0005",
+                        "BOT_MAKER_SHADOW_MIN_SPREAD_BPS" to "0.02",
+                        "BOT_MAKER_SHADOW_MAKER_FEE_RATE" to "0.0001",
+                        "BOT_MAKER_SHADOW_TAKER_FEE_RATE" to "0.0006",
+                        "BOT_MAKER_SHADOW_TAKER_EXIT_SLIPPAGE_BPS" to "3",
+                        "BOT_MAKER_SHADOW_MAX_QUOTE_AGE_MILLIS" to "3000",
+                        "BOT_MAKER_SHADOW_MAX_HOLDING_SECONDS" to "90",
+                        "BOT_MAKER_SHADOW_MAX_EVENT_DELAY_MILLIS" to "500",
+                    ),
+                )
+
+            config.makerShadow.enabled shouldBe true
+            config.makerShadow.sessionId shouldBe "shadow-config-test"
+            config.makerShadow.initialEquity.toPlainString() shouldBe "660"
+            config.makerShadow.queueMultiplier.toPlainString() shouldBe "2"
+            config.makerShadow.queueBufferQuantity.toPlainString() shouldBe "0.0005"
+            config.makerShadow.minSpreadBps.toPlainString() shouldBe "0.02"
+            config.makerShadow.makerFeeRate.toPlainString() shouldBe "0.0001"
+            config.makerShadow.takerFeeRate.toPlainString() shouldBe "0.0006"
+            config.makerShadow.maxQuoteAge.toMillis() shouldBe 3000
+            config.makerShadow.maxHoldingDuration.seconds shouldBe 90
+            config.makerShadow.maxEventDelay.toMillis() shouldBe 500
+
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(mapOf("BOT_MAKER_SHADOW_ENABLED" to "true"))
+            }
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_FORWARD_MARKET_CAPTURE_ENABLED" to "true",
+                        "BOT_FORWARD_RAW_ARCHIVE_ENABLED" to "false",
+                        "BOT_MAKER_SHADOW_ENABLED" to "true",
+                    ),
+                )
+            }
+            shouldThrow<IllegalArgumentException> {
+                AppConfig.fromEnvironment(
+                    mapOf(
+                        "BOT_FORWARD_MARKET_CAPTURE_ENABLED" to "true",
+                        "BOT_MAKER_SHADOW_ENABLED" to "true",
+                        "BOT_MAKER_SHADOW_QUEUE_MULTIPLIER" to "0.5",
+                    ),
+                )
             }
         }
 

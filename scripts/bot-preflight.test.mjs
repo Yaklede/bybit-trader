@@ -25,6 +25,22 @@ test("paper preflight rejects a timeframe that changes the validated horizons", 
   assert.match(run.stdout, /FAIL multi-horizon paper timeframe is M5 - timeframe=M15/);
 });
 
+test("maker shadow requires forward raw evidence and accepts conservative settings", () => {
+  const missingEvidence = runPaperPreflight({ BOT_MAKER_SHADOW_ENABLED: "true" });
+  assert.equal(missingEvidence.status, 1, runOutput(missingEvidence));
+  assert.match(missingEvidence.stdout, /FAIL maker shadow requires forward market capture/);
+
+  const enabled =
+    runPaperPreflight({
+      BOT_MAKER_SHADOW_ENABLED: "true",
+      BOT_FORWARD_MARKET_CAPTURE_ENABLED: "true",
+      BOT_FORWARD_RAW_ARCHIVE_ENABLED: "true",
+      BOT_MAKER_SHADOW_QUEUE_MULTIPLIER: "1.5",
+    });
+  assert.equal(enabled.status, 0, runOutput(enabled));
+  assert.match(enabled.stdout, /PASS maker shadow queue multiplier is conservative/);
+});
+
 function runPaperPreflight(overrides = {}) {
   const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "bybit-paper-preflight-"));
   const env = {
@@ -39,6 +55,7 @@ function runPaperPreflight(overrides = {}) {
     DISCORD_ALERTS_ENABLED: "true",
     DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/test/test",
     BOT_DATABASE_PATH: path.join(temporaryDirectory, "paper.sqlite"),
+    BOT_FORWARD_RAW_ARCHIVE_PATH: path.join(temporaryDirectory, "market-events"),
     BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH: path.join(repoRoot, "config", "volume-flow-composite-current.json"),
     ...overrides,
   };

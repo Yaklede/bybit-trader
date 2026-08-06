@@ -58,6 +58,19 @@ const forwardRawArchiveEnabled =
     ? forwardMarketCaptureEnabled
     : parseBool(env.BOT_FORWARD_RAW_ARCHIVE_ENABLED);
 const forwardRawArchivePath = env.BOT_FORWARD_RAW_ARCHIVE_PATH || "data/market-events";
+const makerShadowEnabled = parseBool(env.BOT_MAKER_SHADOW_ENABLED);
+const makerShadowInitialEquity = Number(env.BOT_MAKER_SHADOW_INITIAL_EQUITY || "100");
+const makerShadowOrderQuantity = Number(env.BOT_MAKER_SHADOW_ORDER_QUANTITY || "0.001");
+const makerShadowMaxNotional = Number(env.BOT_MAKER_SHADOW_MAX_NOTIONAL || "100");
+const makerShadowQueueMultiplier = Number(env.BOT_MAKER_SHADOW_QUEUE_MULTIPLIER || "1.5");
+const makerShadowQueueBufferQuantity = Number(env.BOT_MAKER_SHADOW_QUEUE_BUFFER_QUANTITY || "0");
+const makerShadowMinSpreadBps = Number(env.BOT_MAKER_SHADOW_MIN_SPREAD_BPS || "0");
+const makerShadowMakerFeeRate = Number(env.BOT_MAKER_SHADOW_MAKER_FEE_RATE || "0.0002");
+const makerShadowTakerFeeRate = Number(env.BOT_MAKER_SHADOW_TAKER_FEE_RATE || "0.00055");
+const makerShadowExitSlippageBps = Number(env.BOT_MAKER_SHADOW_TAKER_EXIT_SLIPPAGE_BPS || "2");
+const makerShadowMaxQuoteAgeMillis = Number(env.BOT_MAKER_SHADOW_MAX_QUOTE_AGE_MILLIS || "2000");
+const makerShadowMaxHoldingSeconds = Number(env.BOT_MAKER_SHADOW_MAX_HOLDING_SECONDS || "60");
+const makerShadowMaxEventDelayMillis = Number(env.BOT_MAKER_SHADOW_MAX_EVENT_DELAY_MILLIS || "1000");
 const telegramEnabled = parseBool(env.TELEGRAM_ALERTS_ENABLED);
 const discordEnabled = parseBool(env.DISCORD_ALERTS_ENABLED);
 
@@ -95,6 +108,30 @@ check(
   `capture=${forwardMarketCaptureEnabled}, rawArchive=${forwardRawArchiveEnabled}`,
 );
 if (forwardRawArchiveEnabled) checkWritableDirectory(forwardRawArchivePath);
+check(
+  "maker shadow requires forward market capture",
+  !makerShadowEnabled || forwardMarketCaptureEnabled,
+  `makerShadow=${makerShadowEnabled}, capture=${forwardMarketCaptureEnabled}`,
+);
+check(
+  "maker shadow requires raw evidence archival",
+  !makerShadowEnabled || forwardRawArchiveEnabled,
+  `makerShadow=${makerShadowEnabled}, rawArchive=${forwardRawArchiveEnabled}`,
+);
+if (makerShadowEnabled) {
+  check("maker shadow initial equity is positive", makerShadowInitialEquity > 0, `equity=${makerShadowInitialEquity}`);
+  check("maker shadow order quantity is positive", makerShadowOrderQuantity > 0, `quantity=${makerShadowOrderQuantity}`);
+  check("maker shadow max notional is positive", makerShadowMaxNotional > 0, `maxNotional=${makerShadowMaxNotional}`);
+  check("maker shadow queue multiplier is conservative", makerShadowQueueMultiplier >= 1, `queueMultiplier=${makerShadowQueueMultiplier}`);
+  check("maker shadow queue buffer is non-negative", makerShadowQueueBufferQuantity >= 0, `queueBuffer=${makerShadowQueueBufferQuantity}`);
+  check("maker shadow minimum spread is non-negative", makerShadowMinSpreadBps >= 0, `minSpreadBps=${makerShadowMinSpreadBps}`);
+  check("maker shadow maker fee is bounded", makerShadowMakerFeeRate > -0.01 && makerShadowMakerFeeRate < 0.01, `makerFeeRate=${makerShadowMakerFeeRate}`);
+  check("maker shadow taker fee is bounded", makerShadowTakerFeeRate >= 0 && makerShadowTakerFeeRate < 0.01, `takerFeeRate=${makerShadowTakerFeeRate}`);
+  check("maker shadow exit slippage is non-negative", makerShadowExitSlippageBps >= 0, `slippageBps=${makerShadowExitSlippageBps}`);
+  check("maker shadow quote age is positive", Number.isInteger(makerShadowMaxQuoteAgeMillis) && makerShadowMaxQuoteAgeMillis > 0, `quoteAgeMillis=${makerShadowMaxQuoteAgeMillis}`);
+  check("maker shadow holding duration is positive", Number.isInteger(makerShadowMaxHoldingSeconds) && makerShadowMaxHoldingSeconds > 0, `holdingSeconds=${makerShadowMaxHoldingSeconds}`);
+  check("maker shadow event delay is positive", Number.isInteger(makerShadowMaxEventDelayMillis) && makerShadowMaxEventDelayMillis > 0, `eventDelayMillis=${makerShadowMaxEventDelayMillis}`);
+}
 
 if (mode === "PAPER") {
   check("paper loop is enabled", paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=true for paper operation");

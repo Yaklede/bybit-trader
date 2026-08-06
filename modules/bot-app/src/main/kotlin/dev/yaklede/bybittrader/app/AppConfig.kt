@@ -13,6 +13,7 @@ data class AppConfig(
     val runtimeMode: RuntimeMode,
     val marketData: MarketDataConfig,
     val forwardMarketCapture: ForwardMarketCaptureSettings,
+    val makerShadow: MakerShadowSettings,
     val bybitPrivate: BybitPrivateSettings,
     val api: ApiConfig,
     val database: DatabaseConfig,
@@ -53,6 +54,14 @@ data class AppConfig(
             }
 
             val marketData = MarketDataConfig.fromEnvironment(environment)
+            val forwardMarketCapture = ForwardMarketCaptureSettings.fromEnvironment(environment, runtimeMode)
+            val makerShadow = MakerShadowSettings.fromEnvironment(environment)
+            require(!makerShadow.enabled || forwardMarketCapture.enabled) {
+                "BOT_FORWARD_MARKET_CAPTURE_ENABLED=true is required when maker shadow is enabled."
+            }
+            require(!makerShadow.enabled || forwardMarketCapture.rawArchiveEnabled) {
+                "BOT_FORWARD_RAW_ARCHIVE_ENABLED=true is required when maker shadow is enabled."
+            }
             val paperStrategy = PaperStrategyKind.fromEnvironment(environment)
             val execution = ExecutionSettings.fromEnvironment(environment)
             val executionLoop = ExecutionLoopSettings.fromEnvironment(environment, Timeframe.M5)
@@ -111,7 +120,8 @@ data class AppConfig(
             return AppConfig(
                 runtimeMode = runtimeMode,
                 marketData = marketData,
-                forwardMarketCapture = ForwardMarketCaptureSettings.fromEnvironment(environment, runtimeMode),
+                forwardMarketCapture = forwardMarketCapture,
+                makerShadow = makerShadow,
                 bybitPrivate =
                     BybitPrivateSettings.fromEnvironment(
                         environment = environment,
@@ -302,6 +312,74 @@ data class ForwardMarketCaptureSettings(
                 rawArchivePath = environment["BOT_FORWARD_RAW_ARCHIVE_PATH"] ?: "data/market-events",
             )
         }
+    }
+}
+
+data class MakerShadowSettings(
+    val enabled: Boolean,
+    val sessionId: String?,
+    val initialEquity: BigDecimal,
+    val orderQuantity: BigDecimal,
+    val maxNotional: BigDecimal,
+    val queueMultiplier: BigDecimal,
+    val queueBufferQuantity: BigDecimal,
+    val minSpreadBps: BigDecimal,
+    val makerFeeRate: BigDecimal,
+    val takerFeeRate: BigDecimal,
+    val takerExitSlippageBps: BigDecimal,
+    val maxQuoteAge: Duration,
+    val maxHoldingDuration: Duration,
+    val maxEventDelay: Duration,
+) {
+    init {
+        require(sessionId == null || sessionId.matches(Regex("[A-Za-z0-9_-]+"))) {
+            "Maker shadow session ID contains unsupported characters."
+        }
+        require(initialEquity > BigDecimal.ZERO) { "Maker shadow initial equity must be positive." }
+        require(orderQuantity > BigDecimal.ZERO) { "Maker shadow order quantity must be positive." }
+        require(maxNotional > BigDecimal.ZERO) { "Maker shadow maximum notional must be positive." }
+        require(queueMultiplier >= BigDecimal.ONE) { "Maker shadow queue multiplier must be at least one." }
+        require(queueBufferQuantity >= BigDecimal.ZERO) { "Maker shadow queue buffer must not be negative." }
+        require(minSpreadBps >= BigDecimal.ZERO) { "Maker shadow minimum spread must not be negative." }
+        require(makerFeeRate > BigDecimal("-0.01") && makerFeeRate < BigDecimal("0.01")) {
+            "Maker shadow maker fee rate must be between -1% and 1%."
+        }
+        require(takerFeeRate >= BigDecimal.ZERO && takerFeeRate < BigDecimal("0.01")) {
+            "Maker shadow taker fee rate must be between zero and 1%."
+        }
+        require(takerExitSlippageBps >= BigDecimal.ZERO) { "Maker shadow exit slippage must not be negative." }
+        require(!maxQuoteAge.isZero && !maxQuoteAge.isNegative) { "Maker shadow maximum quote age must be positive." }
+        require(!maxHoldingDuration.isZero && !maxHoldingDuration.isNegative) {
+            "Maker shadow maximum holding duration must be positive."
+        }
+        require(!maxEventDelay.isZero && !maxEventDelay.isNegative) {
+            "Maker shadow maximum event delay must be positive."
+        }
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String>): MakerShadowSettings =
+            MakerShadowSettings(
+                enabled = environment["BOT_MAKER_SHADOW_ENABLED"].toBooleanStrictOrFalse(),
+                sessionId = environment["BOT_MAKER_SHADOW_SESSION_ID"]?.takeIf(String::isNotBlank),
+                initialEquity = environment["BOT_MAKER_SHADOW_INITIAL_EQUITY"]?.let(::BigDecimal) ?: BigDecimal("100"),
+                orderQuantity = environment["BOT_MAKER_SHADOW_ORDER_QUANTITY"]?.let(::BigDecimal) ?: BigDecimal("0.001"),
+                maxNotional = environment["BOT_MAKER_SHADOW_MAX_NOTIONAL"]?.let(::BigDecimal) ?: BigDecimal("100"),
+                queueMultiplier = environment["BOT_MAKER_SHADOW_QUEUE_MULTIPLIER"]?.let(::BigDecimal) ?: BigDecimal("1.5"),
+                queueBufferQuantity =
+                    environment["BOT_MAKER_SHADOW_QUEUE_BUFFER_QUANTITY"]?.let(::BigDecimal) ?: BigDecimal.ZERO,
+                minSpreadBps = environment["BOT_MAKER_SHADOW_MIN_SPREAD_BPS"]?.let(::BigDecimal) ?: BigDecimal.ZERO,
+                makerFeeRate = environment["BOT_MAKER_SHADOW_MAKER_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.0002"),
+                takerFeeRate = environment["BOT_MAKER_SHADOW_TAKER_FEE_RATE"]?.let(::BigDecimal) ?: BigDecimal("0.00055"),
+                takerExitSlippageBps =
+                    environment["BOT_MAKER_SHADOW_TAKER_EXIT_SLIPPAGE_BPS"]?.let(::BigDecimal) ?: BigDecimal("2"),
+                maxQuoteAge =
+                    Duration.ofMillis(environment["BOT_MAKER_SHADOW_MAX_QUOTE_AGE_MILLIS"]?.toLongOrNull() ?: 2_000),
+                maxHoldingDuration =
+                    Duration.ofSeconds(environment["BOT_MAKER_SHADOW_MAX_HOLDING_SECONDS"]?.toLongOrNull() ?: 60),
+                maxEventDelay =
+                    Duration.ofMillis(environment["BOT_MAKER_SHADOW_MAX_EVENT_DELAY_MILLIS"]?.toLongOrNull() ?: 1_000),
+            )
     }
 }
 

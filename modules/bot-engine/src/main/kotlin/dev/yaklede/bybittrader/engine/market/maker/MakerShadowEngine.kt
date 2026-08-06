@@ -298,14 +298,17 @@ class MakerShadowEngine(
         currentBook = book
         lastValuationMidpoint = book.midpoint
         settleMarkOuts(book, events)
-        emit(
-            events = events,
-            type = MakerShadowLedgerEventType.BOOK_ACCEPTED,
-            eventAt = event.capturedAt,
-            receivedAt = book.receivedAt,
-            bookEpoch = book.epoch,
-            sequence = book.sequence,
-        )
+        if (event.quality == ForwardMarketDataQuality.SNAPSHOT_RESET) {
+            emit(
+                events = events,
+                type = MakerShadowLedgerEventType.BOOK_ACCEPTED,
+                eventAt = event.capturedAt,
+                receivedAt = book.receivedAt,
+                bookEpoch = book.epoch,
+                sequence = book.sequence,
+                reason = "snapshot_baseline",
+            )
+        }
 
         if (positionOpenedAt?.let { openedAt -> elapsed(openedAt, book.receivedAt) >= config.maxHoldingDuration } == true) {
             forceTakerExit(book, events, "max_holding_duration")

@@ -46,6 +46,8 @@ import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureLoop
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureLoopConfig
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureService
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
+import dev.yaklede.bybittrader.engine.market.maker.MakerShadowConfig
+import dev.yaklede.bybittrader.engine.market.maker.MakerShadowEngine
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationResult
 import dev.yaklede.bybittrader.engine.paper.PaperEvaluationStatus
 import dev.yaklede.bybittrader.engine.paper.PaperTradingConfig
@@ -83,6 +85,7 @@ import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.UUID
 import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.server.cio.CIO as ServerCIO
 
@@ -91,7 +94,7 @@ private val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.app")
 fun main() {
     val config = AppConfig.fromEnvironment()
     logger.info(
-        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} symbol={} timeframes={}",
+        "application starting mode={} api={}:{} privateExecution={} privateExecutionStream={} reconciliationLoop={} executionLoop={} forwardCapture={} rawArchive={} makerShadow={} symbol={} timeframes={}",
         config.runtimeMode.name,
         config.api.host,
         config.api.port,
@@ -101,6 +104,7 @@ fun main() {
         config.executionLoop.enabled,
         config.forwardMarketCapture.enabled,
         config.forwardMarketCapture.rawArchiveEnabled,
+        config.makerShadow.enabled,
         config.marketData.symbol.value,
         config.marketData.timeframes.joinToString(",") { it.name },
     )
@@ -354,6 +358,45 @@ fun main() {
         } else {
             null
         }
+    val makerShadowEngine =
+        if (config.makerShadow.enabled) {
+            val settings = config.makerShadow
+            val sessionId = settings.sessionId ?: "maker-shadow-${UUID.randomUUID()}"
+            logger.info(
+                "maker shadow enabled sessionId={} initialEquity={} orderQuantity={} maxNotional={} queueMultiplier={} minSpreadBps={} makerFeeRate={} takerFeeRate={}",
+                sessionId,
+                settings.initialEquity,
+                settings.orderQuantity,
+                settings.maxNotional,
+                settings.queueMultiplier,
+                settings.minSpreadBps,
+                settings.makerFeeRate,
+                settings.takerFeeRate,
+            )
+            MakerShadowEngine(
+                config =
+                    MakerShadowConfig(
+                        sessionId = sessionId,
+                        symbol = config.marketData.symbol,
+                        initialEquity = settings.initialEquity,
+                        orderQuantity = settings.orderQuantity,
+                        maxNotional = settings.maxNotional,
+                        queueMultiplier = settings.queueMultiplier,
+                        queueBufferQuantity = settings.queueBufferQuantity,
+                        minSpreadBps = settings.minSpreadBps,
+                        makerFeeRate = settings.makerFeeRate,
+                        takerFeeRate = settings.takerFeeRate,
+                        takerExitSlippageBps = settings.takerExitSlippageBps,
+                        maxQuoteAge = settings.maxQuoteAge,
+                        maxHoldingDuration = settings.maxHoldingDuration,
+                        maxEventDelay = settings.maxEventDelay,
+                    ),
+                ledger = ledger,
+            )
+        } else {
+            logger.info("maker shadow disabled")
+            null
+        }
     val forwardMarketCaptureLoop =
         if (config.forwardMarketCapture.enabled) {
             logger.info(
@@ -375,6 +418,7 @@ fun main() {
                     ForwardMarketCaptureService(
                         store = ledger,
                         rawEventArchive = forwardMarketRawEventArchive,
+                        batchObservers = listOfNotNull(makerShadowEngine),
                     ),
                 config = ForwardMarketCaptureLoopConfig(symbol = config.marketData.symbol),
                 onFailure = { error -> alertingService.sendForwardMarketCaptureFailure(error) },

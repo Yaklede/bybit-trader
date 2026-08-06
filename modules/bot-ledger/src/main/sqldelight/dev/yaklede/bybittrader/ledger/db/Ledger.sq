@@ -1302,7 +1302,7 @@ ORDER BY id DESC
 LIMIT 1;
 
 insertMakerShadowEvent:
-INSERT OR IGNORE INTO makerShadowEvents(
+INSERT INTO makerShadowEvents(
   event_id,
   session_id,
   engine_version,
