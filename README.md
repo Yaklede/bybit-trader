@@ -68,6 +68,15 @@ Initial public repository placeholder for a Bybit trading automation project.
 > closed premium input within 30 minutes. This is acquisition evidence only.
 > The 32 predeclared candidates have not yet been evaluated, 2023 and later
 > evidence remains locked, and execution remains disabled.
+>
+> **Funding crowding v1 rejected (2026-08-06):** all 32 predeclared candidates
+> failed the development gate. The best candidate increased 660 USDT to
+> 721.96 USDT (`+9.38775%`) across 61 trades with PF `1.31937` and MDD
+> `7.02174%`, but its seven-day moving-block bootstrap lower bound was
+> `-0.00543R`. Five independent 100,000-sample checks remained negative, and
+> most profit was concentrated in 2021 H1. The 2023 and later evidence remains
+> unread for this family. See the
+> [funding crowding closure](docs/backend/funding-crowding-research-closure-2026-08-06.md).
 
 Milestone 1 is the operational backend shell:
 
