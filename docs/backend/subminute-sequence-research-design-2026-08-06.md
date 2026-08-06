@@ -76,3 +76,9 @@ node scripts/subminute-sequence-acquire.mjs \
   --protocol=config/bybit-subminute-sequence-development-v1.json \
   --stage=internal-validation
 ```
+
+## 2023 선택 데이터 결과
+
+선택 단계 28일 수집을 완료했다. 공식 압축 원본 기준 호가 `24,056,461`건과 체결 `21,305,955`건을 처리했고, 호가·체결 각각 `483,840`개의 5초 버킷을 만들었다. 호가 전달 버킷은 0개였고 체결이 없었던 `10,486`개 버킷은 거래량 0과 가격 없음으로 유지했다.
+
+읽기 전용 선택 snapshot은 `build/research/bybit-subminute-sequence-development-v1-selection.sqlite`에 봉인했다. snapshot SHA-256은 `bb7b95dda9de96835b4288a0e35ff03a4ed27d39d32caf5a85923b8b6e93e15f`, 정규화 특징 SHA-256은 `ba3265dd57cae8b008fbb433e131c94c4b9521342e64b77238a763a4b85a83c9`다. mutable 수집 DB의 SQLite 페이지 해시는 증거로 사용하지 않는다.

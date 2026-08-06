@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bybit-subminute-sequence-selection-acquisition-receipt-v1",
+  "status": "COMPLETE_SELECTION_EVIDENCE_SEALED",
+  "protocolId": "bybit-subminute-sequence-development-v1",
+  "protocolSha256": "24b5ffe11cf86ecf9452cfb5caa937e49358729198cf4e9b5aad074693e5dbb9",
+  "implementationSha256": "9977da50a60aef3a73b6e4bc0f1068507522048973cf247842db37bff5f7dde3",
+  "acquisitionReportSha256": "17353fa29f87070176e3cc2738e1dc8c8b41fc6d703637f6e066e23004410620",
+  "sourceDatesSha256": "7cc9e780cfb983d365df6f8630752a546edb1bf42b93f10e59498fe395c99840",
+  "stage": "selection",
+  "sourceYear": 2023,
+  "sourceDateCount": 28,
+  "evaluationDayCount": 24,
+  "stageSnapshot": "build/research/bybit-subminute-sequence-development-v1-selection.sqlite",
+  "stageSnapshotSha256": "bb7b95dda9de96835b4288a0e35ff03a4ed27d39d32caf5a85923b8b6e93e15f",
+  "normalizedFeatureSha256": "ba3265dd57cae8b008fbb433e131c94c4b9521342e64b77238a763a4b85a83c9",
+  "coverage": {
+    "orderBookSliceCount": 483840,
+    "tradeSliceCount": 483840,
+    "orderBookEventCount": 24056461,
+    "tradeEventCount": 21305955,
+    "orderBookCompressedBytes": 2990150165,
+    "tradeCompressedBytes": 792206475,
+    "carriedForwardOrderBookSliceCount": 0,
+    "zeroTradeSliceCount": 10486,
+    "openInterestM5Count": 70272,
+    "fundingCount": 732,
+    "m1CandleCount": 40320,
+    "m5CandleCount": 8064,
+    "m15CandleCount": 2688
+  },
+  "integrity": {
+    "allDailyArchiveHashesMatchedPriorManifest": true,
+    "allDailyEventBoundsMatchedPriorManifest": true,
+    "allDaysContain17280OrderBookSlices": true,
+    "allDaysContain17280TradeSlices": true,
+    "allFiveSecondAggregatesMatchBoundMinuteEvidence": true,
+    "openInterestCoverageContinuous": true,
+    "fundingCoverageContinuous": true,
+    "stageSnapshotStableAcrossResume": true
+  },
+  "lockedEvidence": {
+    "internalValidation2024Read": false,
+    "expansionRead": false,
+    "validation2025Read": false,
+    "external2026Read": false,
+    "freshSealedRead": false
+  },
+  "selectionAllowed": true,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
