@@ -198,6 +198,7 @@ fun interface ForwardMarketCaptureFeed {
 class ForwardMarketCaptureService(
     private val store: ForwardMarketCaptureStore,
     private val rawEventArchive: ForwardMarketRawEventArchive? = null,
+    private val batchObservers: List<ForwardMarketCaptureBatchObserver> = emptyList(),
 ) {
     private val mutex = Mutex()
     private val orderBookAccumulators = mutableMapOf<CaptureBucketKey, OrderBookAccumulator>()
@@ -206,6 +207,7 @@ class ForwardMarketCaptureService(
 
     suspend fun record(batch: ForwardMarketCaptureBatch) {
         rawEventArchive?.append(batch.rawEvent)
+        batchObservers.forEach { observer -> observer.onBatch(batch) }
         batch.normalizedEvents.forEach { event -> record(event) }
     }
 

@@ -72,6 +72,10 @@ data class ForwardMarketCaptureBatch(
     }
 }
 
+fun interface ForwardMarketCaptureBatchObserver {
+    suspend fun onBatch(batch: ForwardMarketCaptureBatch)
+}
+
 interface ForwardMarketRawEventArchive : AutoCloseable {
     fun append(event: ForwardMarketRawEvent)
 

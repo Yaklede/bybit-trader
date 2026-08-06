@@ -103,6 +103,66 @@ class ForwardMarketCaptureServiceTest :
             store.orderBookBars.size shouldBe 1
         }
 
+        "notifies batch observers after raw archival and before minute aggregation" {
+            val store = InMemoryForwardMarketCaptureStore()
+            val archive = RecordingRawEventArchive()
+            val observed = mutableListOf<ForwardMarketCaptureBatch>()
+            val service =
+                ForwardMarketCaptureService(
+                    store = store,
+                    rawEventArchive = archive,
+                    batchObservers = listOf(ForwardMarketCaptureBatchObserver { batch -> observed += batch }),
+                )
+            val symbol = Symbol("BTCUSDT")
+            val batch =
+                ForwardMarketCaptureBatch(
+                    rawEvent = sampleRawEvent(symbol),
+                    normalizedEvents = listOf(orderBookSnapshot(symbol, "2026-07-10T00:00:05Z", "100", "100", "1")),
+                )
+
+            service.record(batch)
+            service.flushClosedBars(Instant.parse("2026-07-10T00:01:00Z"))
+
+            archive.events shouldBe listOf(batch.rawEvent)
+            observed shouldBe listOf(batch)
+            store.orderBookBars.size shouldBe 1
+        }
+
+        "observer failure preserves raw evidence and prevents downstream aggregation" {
+            val store = InMemoryForwardMarketCaptureStore()
+            val archive = RecordingRawEventArchive()
+            val service =
+                ForwardMarketCaptureService(
+                    store = store,
+                    rawEventArchive = archive,
+                    batchObservers =
+                        listOf(
+                            ForwardMarketCaptureBatchObserver {
+                                error("shadow-ledger-unavailable")
+                            },
+                        ),
+                )
+            val symbol = Symbol("BTCUSDT")
+            val batch =
+                ForwardMarketCaptureBatch(
+                    rawEvent = sampleRawEvent(symbol),
+                    normalizedEvents = listOf(orderBookSnapshot(symbol, "2026-07-10T00:00:05Z", "100", "100", "1")),
+                )
+
+            val failure =
+                try {
+                    service.record(batch)
+                    null
+                } catch (error: IllegalStateException) {
+                    error
+                }
+            service.flushClosedBars(Instant.parse("2026-07-10T00:01:00Z"))
+
+            failure?.message shouldBe "shadow-ledger-unavailable"
+            archive.events shouldBe listOf(batch.rawEvent)
+            store.orderBookBars shouldBe emptyList()
+        }
+
         "graceful stop drains queued batches before the final minute flush" {
             runBlocking {
                 val store = InMemoryForwardMarketCaptureStore()

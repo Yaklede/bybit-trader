@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.market.maker
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureBatch
+import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureBatchObserver
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketDataQuality
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketEventKind
 import dev.yaklede.bybittrader.engine.market.capture.OrderBookDepthSnapshot
@@ -162,14 +163,10 @@ fun interface MakerShadowLedger {
     suspend fun append(events: List<MakerShadowLedgerEvent>)
 }
 
-fun interface MakerShadowObserver {
-    suspend fun onBatch(batch: ForwardMarketCaptureBatch)
-}
-
 class MakerShadowEngine(
     private val config: MakerShadowConfig,
     private val ledger: MakerShadowLedger,
-) : MakerShadowObserver {
+) : ForwardMarketCaptureBatchObserver {
     private val mutex = Mutex()
     private val activeQuotes = linkedMapOf<Side, MutableShadowQuote>()
     private val processedTradeIds = LinkedHashSet<String>()
