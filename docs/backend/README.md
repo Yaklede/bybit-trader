@@ -21,6 +21,12 @@
 | Actual-fill protection contract | [actual-fill-protection-contract-2026-08-06.md](actual-fill-protection-contract-2026-08-06.md) | 실제 체결가 기준 TP/SL 재계산, 검증, fail-closed 실행 계약 |
 | Causal paper execution contract | [causal-paper-execution-contract-2026-08-06.md](causal-paper-execution-contract-2026-08-06.md) | 백테스트와 동일한 다음 봉 진입·포지션 정책을 사용하는 영속 Paper 실행 계약 |
 | Research evidence contract | [research-evidence-contract-2026-08-06.md](research-evidence-contract-2026-08-06.md) | 실험 fingerprint, sealed 소비, bootstrap·DSR·PBO와 전진 검증 승인 계약 |
+| Volume-confirmed trend protocol | [volume-confirmed-trend-ensemble-v1-protocol-2026-08-07.md](volume-confirmed-trend-ensemble-v1-protocol-2026-08-07.md) | H4 거래량 확인형 멀티 호라이즌 후보의 고정 계산·비용·승인 계약 |
+| Volume-confirmed trend development | [volume-confirmed-trend-ensemble-v1-development-result-2026-08-07.md](volume-confirmed-trend-ensemble-v1-development-result-2026-08-07.md) | Bybit 개발 구간 결과와 외부 검증 전 판정 |
+| Volume-confirmed trend external | [volume-confirmed-trend-ensemble-v1-external-result-2026-08-07.md](volume-confirmed-trend-ensemble-v1-external-result-2026-08-07.md) | 첫 열람 Binance USD-M 외부·비용·자본 스트레스 결과 |
+| Volume-confirmed trend core parity | [volume-confirmed-trend-ensemble-v1-kotlin-parity-2026-08-07.md](volume-confirmed-trend-ensemble-v1-kotlin-parity-2026-08-07.md) | Node 연구기와 Kotlin 공통 계산 코어의 거래 단위 패리티 |
+| Volume-confirmed trend runtime parity | [volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md](volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md) | 역사 어댑터와 영속 Shadow 런타임의 전체 재생 패리티 및 전진 기준 |
+| Volume-confirmed trend container smoke | [volume-confirmed-trend-ensemble-v1-container-smoke-2026-08-07.md](volume-confirmed-trend-ensemble-v1-container-smoke-2026-08-07.md) | 주문을 차단한 컨테이너에서 public-data Shadow, API, 대시보드를 검증한 결과 |
 | Volume-impact state development | [volume-impact-state-development-protocol-2026-08-06.md](volume-impact-state-development-protocol-2026-08-06.md) | 거래량-가격충격 지속형·소진 반전형의 인과적 M15→M5→M1 nested walk-forward 계약 |
 | Volume-impact state result | [volume-impact-state-development-result-2026-08-06.md](volume-impact-state-development-result-2026-08-06.md) | 24개 사전 고정 후보의 탈락 결과와 다음 독립 가설 근거 |
 | Volume-structure development v2 | [volume-structure-development-v2-protocol-2026-08-06.md](volume-structure-development-v2-protocol-2026-08-06.md) | 돌파 재시험 지속형과 2봉 군집 소진 반전형의 사전 고정 개발 계약 |

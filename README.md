@@ -34,6 +34,23 @@ Initial public repository placeholder for a Bybit trading automation project.
 > historical seals are recorded as consumed. No current profile passes this
 > gate, and research reports cannot enable automatic exchange execution.
 >
+> **Current historical candidate (2026-08-07):** the frozen
+> `vcte_4h_majority_001` H4 volume-confirmed trend candidate passed both the
+> Bybit development replay and the first-read Binance USD-M replay. On the
+> external 2020-01 through 2026-07 history, 660 USDT became 3,605.35 USDT
+> after the frozen baseline costs, with CAGR `30.74%`, compound daily return
+> `0.0734%`, conservative intrabar MDD `30.58%`, win rate `26.06%`, and
+> Profit Factor `1.73`. Double costs remained positive. Node/Kotlin core
+> parity and persisted Shadow runtime replay both passed with zero mismatch.
+> This is historical evidence, not a forward profitability claim. The status
+> is `SHADOW_COLLECTING`; automatic and live execution remain disabled until a
+> continuous fresh Bybit Shadow session reaches the frozen 90-day, trade,
+> transition, return, Profit Factor, drawdown, exposure, staleness, and zero
+> liquidation gates, followed by explicit human review. See the
+> [external result](docs/backend/volume-confirmed-trend-ensemble-v1-external-result-2026-08-07.md),
+> [runtime parity report](docs/backend/volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md),
+> and [container smoke report](docs/backend/volume-confirmed-trend-ensemble-v1-container-smoke-2026-08-07.md).
+>
 > **Event-flow program closed (2026-08-06):** six predeclared continuation and
 > reversal families used 191 of the fixed 192-candidate budget without finding
 > an eligible 2023 development candidate. The final pullback-reacceleration
@@ -249,6 +266,41 @@ The raw archive is intentionally not deleted automatically. Monitor the Docker
 volume capacity and move sealed segments to durable research storage before the
 volume fills.
 
+### Frozen trend Shadow validation
+
+The volume-confirmed trend Shadow loop is disabled by default. It uses public
+Bybit candles, ticker prices, and funding rates to maintain a virtual position
+ledger. It never calls a private order endpoint. Keep all order-producing loops
+disabled while collecting forward evidence:
+
+```bash
+BOT_MODE=PAPER
+BOT_PRIVATE_EXECUTION_ENABLED=false
+BOT_EXECUTION_LOOP_ENABLED=false
+BOT_PAPER_LOOP_ENABLED=false
+BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED=true
+```
+
+The session is persisted in the main SQLite database. Deleting the database,
+changing the frozen protocol or approval policy, losing a required H4 interval,
+or invalidating session continuity restarts the evidence clock. Do not reset a
+failed session to preserve only favorable observations.
+
+The authenticated status endpoints are:
+
+```bash
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  http://127.0.0.1:8080/strategy/volume-confirmed-trend/approval
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/strategy/volume-confirmed-trend/shadow?limit=40"
+```
+
+The dashboard's **전진 검증** panel renders the same persisted state, all
+frozen gates, and recent virtual ledger events. `READY_FOR_HUMAN_REVIEW` is the
+highest automatic status; it does not enable live orders. The approval policy
+keeps `automaticExecutionAllowed=false` and `liveExecutionAllowed=false` even
+after every quantitative gate passes.
+
 Smoke test:
 
 ```bash
@@ -350,38 +402,16 @@ node .opendock/harness/opendock__business-ultrawork/check.mjs
 
 - Do not commit API keys, secrets, or local environment files.
 - Keep exchange credentials in local environment variables or a secrets manager.
-- Latest local BTCUSDT volume-flow snapshot: the current composite candidate in
-  `config/volume-flow-composite-current.json` uses `0.148` risk on five legs,
-  caps `m1_trend_up_breakout_scalp` at `0.12`, and caps
-  `m1_trend_down_breakout_assist` at `0.13` with adverse invalidation enabled
-  after `5` M1 candles if adverse movement reaches `0.9R` before at least
-  `0.35R` favorable movement. The portfolio drawdown throttle starts at `32%`
-  realized drawdown, reduces new entries to `20%` of normal risk, and applies a
-  `1` day cooldown after closed-trade drawdown triggers. On the local
-  three-year dataset, the replay returned `1,009,033.43%` net return,
-  `0.84396%` compound daily return, `39.23%` realized max drawdown, and
-  `39.70%` mark-to-market max drawdown over 266 trades.
-  Composite reports now split `BREAKEVEN_STOP` from full-risk `STOP` and expose
-  `performanceByLegExit` for leg-by-exit diagnostics. `BREAKEVEN_STOP` is
-  treated as a neutral defensive exit for loss-streak locks, and the tuning
-  scripts penalize full-risk `STOP` separately from breakeven defense.
-  This now narrowly clears the `0.84390%` compound daily return required for
-  `1,000,000 KRW -> 10,000,000,000 KRW` over three years while staying below
-  the current `40%` mark-to-market gate. The margin is thin, so this remains a
-  research backtest candidate until forward paper/testnet execution confirms
-  live signal parity, slippage, funding, and order behavior. See
-  `docs/backend/volume-flow-multi-year-growth-report.md` for the multi-year
-  reproduction notes, accepted/rejected tuning paths, and the next improvement
-  list. Source note: measured on
-  `build/runtime-test/bybit-trader-3y-backtest.sqlite` covering
-  `2023-06-30T10:38:00Z` to `2026-06-30T10:37:00Z`; this is not a live-trading
-  return guarantee.
-- Full available BTCUSDT linear history from Bybit (`2020-03-25T10:36:00Z` to
-  `2026-07-02T05:40:00Z`) materially weakens the same config: the replay
-  returned `1,101.21%` net return, `0.10857%` compound daily return,
-  `76.72%` realized max drawdown, and `76.80%` mark-to-market max drawdown.
-  This rejects the current config as a new-market robust live strategy. See
-  `docs/backend/volume-flow-long-horizon-validation-report.md`.
+- The legacy aggressive volume-flow report that showed `0.84396%` compound
+  daily return used an invalidated noncausal fill model. Its full-history replay
+  also reached about `76.8%` mark-to-market drawdown. It is retained only as
+  audit evidence and is not the current promotion candidate. See the
+  [long-horizon rejection](docs/backend/volume-flow-long-horizon-validation-report.md).
+- The only current historical promotion candidate is
+  `vcte_4h_majority_001`. Its historical results and exact execution parity are
+  positive, but fresh forward evidence is incomplete. Until the approval API
+  reports `READY_FOR_HUMAN_REVIEW` and a human explicitly approves a separate
+  live integration, the correct execution decision is `NO_TRADE`.
 
 <!-- OPENDOCK:START id=files:README.md dock=opendock/business-ultrawork path=README.md -->
 # Business Ultrawork
