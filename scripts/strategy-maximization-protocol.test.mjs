@@ -53,3 +53,14 @@ test("research candle metadata ends at one shared closed-candle boundary", async
     assert.equal(Date.parse(source.latestCandleAt[timeframe]) + minutes * 60_000, closedThrough);
   }
 });
+
+test("strategy promotion is delegated to immutable evidence and consumed-window controls", async () => {
+  const protocol = JSON.parse(await fs.readFile(protocolPath, "utf8"));
+  const evidence = protocol.evidenceContract;
+
+  assert.equal(evidence.approvalPolicy, "config/research-approval-policy-v1.json");
+  assert.equal(evidence.sealedRegistry, "config/research-sealed-registry-v1.json");
+  assert.equal(evidence.evaluator, "scripts/research-evidence.mjs");
+  assert.equal(evidence.allPreviouslyDeclaredSealedProtocolsConsumed, true);
+  assert.equal(evidence.automaticExecutionAllowedFromResearchReport, false);
+});

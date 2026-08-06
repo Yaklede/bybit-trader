@@ -73,5 +73,12 @@
     "requiredRuntimeFingerprintMatch": true,
     "requiredPaperOrShadowEvidence": true,
     "researchProfilesCannotBeLiveExecuted": true
+  },
+  "evidenceContract": {
+    "approvalPolicy": "config/research-approval-policy-v1.json",
+    "sealedRegistry": "config/research-sealed-registry-v1.json",
+    "evaluator": "scripts/research-evidence.mjs",
+    "allPreviouslyDeclaredSealedProtocolsConsumed": true,
+    "automaticExecutionAllowedFromResearchReport": false
   }
 }

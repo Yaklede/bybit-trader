@@ -26,6 +26,13 @@ Initial public repository placeholder for a Bybit trading automation project.
 > now has trade-level parity between the Node researcher and Kotlin engine and
 > can run in causal paper mode, but it remains `UNVERIFIED`, is not approved for
 > automatic exchange execution, and has no profitability claim.
+>
+> **Research evidence gate (2026-08-06):** strategy promotion now requires a
+> canonical experiment fingerprint, an unused sealed protocol, external and
+> cost/risk-stress folds, moving-block bootstrap, DSR, CSCV/PBO, execution
+> parity, and independent Shadow/Paper evidence. All previously declared
+> historical seals are recorded as consumed. No current profile passes this
+> gate, and research reports cannot enable automatic exchange execution.
 
 Milestone 1 is the operational backend shell:
 

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "policyId": "research-approval-v1",
+  "status": "ACTIVE",
+  "selectionPolicy": {
+    "dailyCompoundReturnIsSearchObjective": false,
+    "maximumCumulativeTrialCount": 192,
+    "candidateMustBeFrozenBeforeExternalReplay": true,
+    "candidateMustBeFrozenBeforeSealedReplay": true,
+    "automaticLivePromotionAllowed": false
+  },
+  "evidenceRequirements": {
+    "requiredInputRoles": [
+      "STRATEGY_SOURCE",
+      "SIMULATOR_SOURCE",
+      "EXECUTION_CONTRACT",
+      "FEATURE_SCHEMA",
+      "FEE_MODEL",
+      "RISK_POLICY",
+      "DATA_SNAPSHOT"
+    ],
+    "requiredPartitions": ["EXTERNAL", "SEALED"],
+    "requiredCostMultipliers": [1.0, 1.5, 2.0],
+    "baseRiskFraction": 0.005,
+    "requiredRiskFractions": [0.0025, 0.005, 0.0075, 0.01],
+    "minimumExternalFoldCount": 8,
+    "minimumSealedFoldCount": 1,
+    "minimumExternalPositiveFoldRatio": 0.75,
+    "minimumTotalClosedTrades": 200,
+    "maximumBaseDrawdownPct": 30.0,
+    "maximumStressDrawdownPct": 40.0,
+    "maximumLiquidationCount": 0,
+    "maximumSingleTradeProfitContributionPct": 25.0,
+    "requiredParityStatus": "PASS"
+  },
+  "statistics": {
+    "bootstrap": {
+      "iterations": 5000,
+      "blockLengthTrades": 5,
+      "confidenceLevel": 0.95,
+      "minimumExpectancyLowerBoundR": 0.0,
+      "seed": 20260806
+    },
+    "deflatedSharpe": {
+      "minimumObservationCount": 60,
+      "minimumProbability": 0.95
+    },
+    "probabilityOfBacktestOverfitting": {
+      "minimumCandidateCount": 4,
+      "minimumObservationCount": 8,
+      "maximumProbability": 0.2,
+      "maximumCombinationCount": 12870
+    }
+  },
+  "forwardValidation": {
+    "requiredForLiveApproval": true,
+    "allowedModes": ["SHADOW", "PAPER"],
+    "minimumCalendarDays": 30,
+    "minimumClosedTrades": 30,
+    "minimumNoDriftPValue": 0.05,
+    "maximumUnprotectedPositionCount": 0,
+    "maximumLedgerMismatchCount": 0
+  }
+}

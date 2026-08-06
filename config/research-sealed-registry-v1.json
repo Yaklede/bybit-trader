@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "registryId": "research-sealed-registry-v1",
+  "protocols": [
+    {
+      "protocolId": "volume-flow-sealed-windows-v1",
+      "path": "config/volume-flow-sealed-windows-v1.json",
+      "status": "CONSUMED_REJECTED",
+      "consumedByExperimentId": "absa-final-causal-revalidation-v1",
+      "consumedAt": "2026-07-13"
+    },
+    {
+      "protocolId": "macro-donchian-sealed-windows-v1",
+      "path": "config/macro-donchian-sealed-windows-v1.json",
+      "status": "CONSUMED_REJECTED",
+      "consumedByExperimentId": "macro-donchian-holdout-v1",
+      "consumedAt": "2026-07-13"
+    },
+    {
+      "protocolId": "multi-horizon-momentum-validation-v1",
+      "path": "config/multi-horizon-momentum-validation-windows-v1.json",
+      "status": "CONSUMED_REJECTED",
+      "consumedByExperimentId": "multi-horizon-momentum-validation-v1",
+      "consumedAt": "2026-08-03"
+    }
+  ]
+}
