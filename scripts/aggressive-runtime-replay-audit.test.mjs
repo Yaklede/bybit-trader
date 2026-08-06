@@ -20,10 +20,18 @@ test("runtime replay contract identifies the actual aggressive profile and its e
   assert.equal(contract.runtimeProfile.profileId, "absa_final_us_v1");
   assert.equal(contract.contractVersion, "aggressive-runtime-v1");
   assert.equal(contract.evaluationVersion, "aggressive-runtime-gates-v2");
-  assert.equal(executionContractFingerprint(contract.runtimeProfile), "c8d1a10ca516e78df918d0c72d9af9fb02c08ca3ce3c162531078cacfca604a7");
+  assert.equal(executionContractFingerprint(contract.runtimeProfile), "cb6391046012c35c0cf605b2c19a8b629c31266d46360fe4a259549de08eea5c");
   assert.equal(contract.runtimeProfile.maxNotional, 100);
+  assert.equal(contract.runtimeProfile.minimumNetRiskReward, 1);
   assert.equal(contract.gates.minCompoundDailyReturnPct, 0.2);
   assert.equal(contract.gates.requiredValidationStatus, "VERIFIED");
+});
+
+test("runtime replay contract rejects a missing net risk-reward limit", async () => {
+  const contract = JSON.parse(await fs.readFile(contractPath, "utf8"));
+  delete contract.runtimeProfile.minimumNetRiskReward;
+
+  assert.throws(() => verifyContract(contract), /incomplete execution settings/);
 });
 
 test("runtime audit requires a verified profile, causal fill, return, risk, and coverage gates", () => {

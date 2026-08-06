@@ -39,7 +39,9 @@ export function verifyContract(contract) {
     !Number.isFinite(runtime.maxNotional) ||
     runtime.maxNotional <= 0 ||
     !Number.isFinite(runtime.leverage) ||
-    runtime.leverage <= 1
+    runtime.leverage <= 1 ||
+    !Number.isFinite(runtime.minimumNetRiskReward) ||
+    runtime.minimumNetRiskReward <= 0
   ) {
     throw new Error("Runtime replay contract has incomplete execution settings.");
   }
@@ -89,6 +91,7 @@ export function executionContractFingerprint(runtime) {
     ["maxNotional", runtime.maxNotional],
     ["leverage", runtime.leverage],
     ["liquidationBufferPct", runtime.liquidationBufferPct],
+    ["minimumNetRiskReward", runtime.minimumNetRiskReward],
   ].map(([key, value]) => `${key}=${canonicalNumber(value)}`).join("|");
   return createHash("sha256").update(canonical).digest("hex");
 }
