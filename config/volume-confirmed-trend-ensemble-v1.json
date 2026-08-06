@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "volume-confirmed-trend-ensemble-v1",
+  "candidateId": "vcte_4h_majority_001",
+  "status": "FROZEN_DEVELOPMENT_CANDIDATE",
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false,
+  "trialAccounting": {
+    "candidateCount": 1,
+    "bybitHistoryWasObservedDuringDiscovery": true,
+    "binanceExternalHistoryRead": false,
+    "freshBybitForwardRead": false
+  },
+  "market": {
+    "symbol": "BTCUSDT",
+    "contract": "LINEAR_PERPETUAL",
+    "decisionTimeframe": "H4",
+    "sourceTimeframe": "M15",
+    "requiredSourceBarsPerDecisionBar": 16,
+    "warmupDecisionBars": 540
+  },
+  "strategy": {
+    "emaVotePairs": [
+      {"fast": 3, "slow": 72},
+      {"fast": 6, "slow": 42},
+      {"fast": 18, "slow": 180},
+      {"fast": 42, "slow": 180},
+      {"fast": 42, "slow": 540}
+    ],
+    "minimumMajorityVotes": 3,
+    "volumeMedianLookbackBars": 42,
+    "volumeMedianExcludesDecisionBar": true,
+    "changeSideOnlyWhenVolumeAtOrAboveMedian": true,
+    "executionDelayBars": 1,
+    "holdUntilOppositeConfirmed": true
+  },
+  "capital": {
+    "startingEquitiesUsdt": ["100", "660", "1000"],
+    "targetExposureFraction": "0.65",
+    "maximumRoundedExposureFraction": "0.85",
+    "quantityStepBtc": "0.001",
+    "minimumQuantityBtc": "0.001",
+    "absoluteMaximumNotionalUsdt": null,
+    "maximumEffectiveLeverage": "0.85"
+  },
+  "costs": {
+    "oneWayFeeRate": "0.0006",
+    "oneWaySlippageRate": "0.0002",
+    "stressMultipliers": ["1", "1.5", "2"],
+    "applyActualFunding": true
+  },
+  "developmentEvidence": {
+    "venue": "BYBIT",
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "startInclusive": "2020-03-25T10:36:00Z",
+    "endExclusive": "2026-08-06T00:15:00Z",
+    "disposition": "CONTAMINATED_DEVELOPMENT_ONLY"
+  },
+  "externalEvidence": {
+    "venue": "BINANCE_USDM",
+    "source": "https://data.binance.vision/data/futures/um/monthly",
+    "startInclusive": "2020-01-01T00:00:00Z",
+    "endExclusive": "2026-08-01T00:00:00Z",
+    "mustVerifyPublishedChecksums": true,
+    "parametersMayChangeAfterRead": false
+  },
+  "approvalGates": {
+    "minimumBaselineCagrPct": "20",
+    "minimumDoubleCostCagrPct": "15",
+    "maximumBaselineDrawdownPct": "35",
+    "maximumDoubleCostDrawdownPct": "40",
+    "minimumPositiveCompleteYearFraction": "0.8",
+    "maximumDirectionChangesPerYear": "40",
+    "minimumPositiveRandomWindowFraction": "0.75",
+    "randomWindowCount": 40,
+    "randomWindowMinimumMonths": 1,
+    "randomWindowMaximumMonths": 60,
+    "randomWindowSeed": 20260807,
+    "minimumPositiveRollingTwelveMonthFraction": "0.8",
+    "minimumWorstRollingTwelveMonthReturnPct": "-15",
+    "requireEveryStartingEquityPositiveAtBaseline": true,
+    "requireEveryStartingEquityPositiveAtDoubleCost": true,
+    "requireZeroLiquidations": true,
+    "requireExternalVenuePass": true,
+    "minimumFreshShadowDays": 90,
+    "requirePaperReplayParity": true
+  }
+}
