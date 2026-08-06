@@ -96,6 +96,62 @@ class VolumeConfirmedTrendEngineTest :
             (result.maximumEntryExposureFraction <= 0.85) shouldBe true
             (result.maximumAdverseExposureFraction >= result.maximumEntryExposureFraction) shouldBe true
         }
+
+        "restores the streaming evaluator without changing future transitions" {
+            val parameters =
+                VolumeConfirmedTrendParameters(
+                    emaVotePairs = listOf(VolumeConfirmedTrendEmaPair(1, 3)),
+                    minimumMajorityVotes = 1,
+                    volumeMedianLookbackBars = 2,
+                    warmupDecisionBars = 3,
+                )
+            val start = Instant.parse("2026-01-01T00:00:00Z")
+            val bars =
+                listOf(100.0, 101.0, 102.0, 103.0, 90.0, 80.0, 95.0, 110.0).mapIndexed { index, close ->
+                    h4Bar(
+                        at = start.plusSeconds(index * 14_400L),
+                        open = close,
+                        close = close,
+                        volume = if (index >= 4) 20.0 else 10.0,
+                    )
+                }
+            val uninterrupted = VolumeConfirmedTrendEvaluator(parameters)
+            val uninterruptedTransitions = bars.mapNotNull(uninterrupted::evaluate)
+
+            val firstProcess = VolumeConfirmedTrendEvaluator(parameters)
+            val beforeRestart = bars.take(5).mapNotNull(firstProcess::evaluate)
+            val restored = VolumeConfirmedTrendEvaluator.restore(firstProcess.snapshot(), parameters)
+            val afterRestart = bars.drop(5).mapNotNull(restored::evaluate)
+
+            beforeRestart + afterRestart shouldBe uninterruptedTransitions
+            restored.snapshot() shouldBe uninterrupted.snapshot()
+        }
+
+        "emits a pending transition for the latest closed H4 bar" {
+            val parameters =
+                VolumeConfirmedTrendParameters(
+                    emaVotePairs = listOf(VolumeConfirmedTrendEmaPair(1, 2)),
+                    minimumMajorityVotes = 1,
+                    volumeMedianLookbackBars = 2,
+                    warmupDecisionBars = 3,
+                )
+            val start = Instant.parse("2026-01-01T00:00:00Z")
+            val evaluator = VolumeConfirmedTrendEvaluator(parameters)
+            val transitions =
+                (0 until 3).mapNotNull { index ->
+                    evaluator.evaluate(
+                        h4Bar(
+                            at = start.plusSeconds(index * 14_400L),
+                            open = 100.0 + index,
+                            close = 100.0 + index,
+                            volume = if (index == 2) 20.0 else 10.0,
+                        ),
+                    )
+                }
+
+            transitions.single().decisionAt shouldBe Instant.parse("2026-01-01T12:00:00Z")
+            transitions.single().side shouldBe Side.BUY
+        }
     })
 
 private fun m15Candles(

@@ -112,6 +112,157 @@ data class VolumeConfirmedTrendCommand(
     val priorVolumeMedian: Double,
 )
 
+data class VolumeConfirmedTrendEmaState(
+    val fast: Double?,
+    val slow: Double?,
+) {
+    init {
+        require(fast == null || fast.isFinite()) { "Trend fast EMA must be finite when present." }
+        require(slow == null || slow.isFinite()) { "Trend slow EMA must be finite when present." }
+        require((fast == null) == (slow == null)) { "Trend EMA values must either both be present or both be absent." }
+    }
+}
+
+data class VolumeConfirmedTrendIndicatorState(
+    val processedBars: Long,
+    val lastBarOpenedAt: Instant?,
+    val emaStates: List<VolumeConfirmedTrendEmaState>,
+    val targetSide: Side?,
+    val recentVolumes: List<Double>,
+) {
+    init {
+        require(processedBars >= 0) { "Trend processed bar count must not be negative." }
+        require((processedBars == 0L) == (lastBarOpenedAt == null)) {
+            "Trend last bar timestamp must match whether any bars were processed."
+        }
+        require(recentVolumes.all { it.isFinite() && it >= 0.0 }) {
+            "Trend recent volumes must be finite and non-negative."
+        }
+    }
+}
+
+data class VolumeConfirmedTrendTransition(
+    val side: Side,
+    val decisionAt: Instant,
+    val decisionOrdinal: Long,
+    val netVotes: Int,
+    val decisionVolume: Double,
+    val priorVolumeMedian: Double,
+)
+
+class VolumeConfirmedTrendEvaluator private constructor(
+    private val parameters: VolumeConfirmedTrendParameters,
+    initialState: VolumeConfirmedTrendIndicatorState,
+) {
+    private var processedBars = initialState.processedBars
+    private var lastBarOpenedAt = initialState.lastBarOpenedAt
+    private val emaStates = initialState.emaStates.map { MutableEmaState(it.fast, it.slow) }.toMutableList()
+    private var targetSide = initialState.targetSide
+    private val recentVolumes = ArrayDeque(initialState.recentVolumes)
+
+    init {
+        require(emaStates.size == parameters.emaVotePairs.size) {
+            "Trend EMA state count must match the configured vote pairs."
+        }
+        require(recentVolumes.size <= parameters.volumeMedianLookbackBars) {
+            "Trend recent volume state exceeds its configured lookback."
+        }
+        require(processedBars == 0L || emaStates.all { it.fast != null && it.slow != null }) {
+            "Trend EMA state must be initialized after processing bars."
+        }
+    }
+
+    constructor(parameters: VolumeConfirmedTrendParameters = VolumeConfirmedTrendParameters()) :
+        this(
+            parameters = parameters,
+            initialState =
+                VolumeConfirmedTrendIndicatorState(
+                    processedBars = 0,
+                    lastBarOpenedAt = null,
+                    emaStates = parameters.emaVotePairs.map { VolumeConfirmedTrendEmaState(null, null) },
+                    targetSide = null,
+                    recentVolumes = emptyList(),
+                ),
+        )
+
+    fun evaluate(bar: VolumeConfirmedTrendBar): VolumeConfirmedTrendTransition? {
+        lastBarOpenedAt?.let { previous ->
+            require(bar.openedAt == previous.plusSeconds(H4_SECONDS)) {
+                "H4 trend evidence gap before ${bar.openedAt}."
+            }
+        }
+        val votes =
+            parameters.emaVotePairs.mapIndexed { pairIndex, pair ->
+                emaStates[pairIndex].vote(bar.close, pair)
+            }
+        processedBars += 1
+        lastBarOpenedAt = bar.openedAt
+
+        var transition: VolumeConfirmedTrendTransition? = null
+        if (processedBars >= parameters.warmupDecisionBars) {
+            val positiveVotes = votes.count { it > 0 }
+            val negativeVotes = votes.count { it < 0 }
+            val desiredSide =
+                when {
+                    positiveVotes >= parameters.minimumMajorityVotes -> Side.BUY
+                    negativeVotes >= parameters.minimumMajorityVotes -> Side.SELL
+                    else -> targetSide
+                }
+            if (desiredSide != null && desiredSide != targetSide && recentVolumes.size == parameters.volumeMedianLookbackBars) {
+                val priorMedian = median(recentVolumes.toList())
+                if (bar.volume >= priorMedian) {
+                    targetSide = desiredSide
+                    transition =
+                        VolumeConfirmedTrendTransition(
+                            side = desiredSide,
+                            decisionAt = bar.openedAt.plusSeconds(H4_SECONDS),
+                            decisionOrdinal = processedBars - 1,
+                            netVotes = positiveVotes - negativeVotes,
+                            decisionVolume = bar.volume,
+                            priorVolumeMedian = priorMedian,
+                        )
+                }
+            }
+        }
+
+        recentVolumes.addLast(bar.volume)
+        while (recentVolumes.size > parameters.volumeMedianLookbackBars) {
+            recentVolumes.removeFirst()
+        }
+        return transition
+    }
+
+    fun snapshot(): VolumeConfirmedTrendIndicatorState =
+        VolumeConfirmedTrendIndicatorState(
+            processedBars = processedBars,
+            lastBarOpenedAt = lastBarOpenedAt,
+            emaStates = emaStates.map { VolumeConfirmedTrendEmaState(it.fast, it.slow) },
+            targetSide = targetSide,
+            recentVolumes = recentVolumes.toList(),
+        )
+
+    companion object {
+        fun restore(
+            state: VolumeConfirmedTrendIndicatorState,
+            parameters: VolumeConfirmedTrendParameters = VolumeConfirmedTrendParameters(),
+        ): VolumeConfirmedTrendEvaluator = VolumeConfirmedTrendEvaluator(parameters, state)
+    }
+
+    private data class MutableEmaState(
+        var fast: Double?,
+        var slow: Double?,
+    ) {
+        fun vote(
+            close: Double,
+            pair: VolumeConfirmedTrendEmaPair,
+        ): Int {
+            fast = nextEma(fast, close, pair.fast)
+            slow = nextEma(slow, close, pair.slow)
+            return (fast!! - slow!!).sign.toInt()
+        }
+    }
+}
+
 object VolumeConfirmedTrendEngine {
     fun aggregateM15(candles: List<Candle>): List<VolumeConfirmedTrendBar> {
         require(candles.isNotEmpty()) { "M15 trend evidence is empty." }
@@ -156,42 +307,23 @@ object VolumeConfirmedTrendEngine {
             "Trend evidence is shorter than the configured warmup."
         }
         requireContiguousH4(bars)
-        val states = parameters.emaVotePairs.map { EmaState() }
+        val evaluator = VolumeConfirmedTrendEvaluator(parameters)
         val commands = MutableList<VolumeConfirmedTrendCommand?>(bars.size) { null }
-        var targetSide: Side? = null
         bars.forEachIndexed { index, bar ->
-            val votes =
-                parameters.emaVotePairs.mapIndexed { pairIndex, pair ->
-                    states[pairIndex].vote(bar.close, pair)
-                }
-            if (index + 1 < parameters.warmupDecisionBars) return@forEachIndexed
-            val positiveVotes = votes.count { it > 0 }
-            val negativeVotes = votes.count { it < 0 }
-            val desiredSide =
-                when {
-                    positiveVotes >= parameters.minimumMajorityVotes -> Side.BUY
-                    negativeVotes >= parameters.minimumMajorityVotes -> Side.SELL
-                    else -> targetSide
-                }
-            if (desiredSide == null || desiredSide == targetSide) return@forEachIndexed
-            val volumeStart = index - parameters.volumeMedianLookbackBars
-            if (volumeStart < 0) return@forEachIndexed
-            val priorMedian = median(bars.subList(volumeStart, index).map(VolumeConfirmedTrendBar::volume))
-            if (bar.volume < priorMedian) return@forEachIndexed
+            val transition = evaluator.evaluate(bar) ?: return@forEachIndexed
             val executionIndex = index + parameters.executionDelayBars
             if (executionIndex >= bars.size) return@forEachIndexed
-            targetSide = desiredSide
             check(commands[executionIndex] == null) { "Trend command collision detected." }
             commands[executionIndex] =
                 VolumeConfirmedTrendCommand(
-                    side = desiredSide,
-                    decisionAt = bar.openedAt.plusSeconds(H4_SECONDS),
+                    side = transition.side,
+                    decisionAt = transition.decisionAt,
                     executionAt = bars[executionIndex].openedAt,
                     decisionIndex = index,
                     executionIndex = executionIndex,
-                    netVotes = positiveVotes - negativeVotes,
-                    decisionVolume = bar.volume,
-                    priorVolumeMedian = priorMedian,
+                    netVotes = transition.netVotes,
+                    decisionVolume = transition.decisionVolume,
+                    priorVolumeMedian = transition.priorVolumeMedian,
                 )
         }
         return commands
@@ -227,20 +359,6 @@ object VolumeConfirmedTrendEngine {
     }
 
     private fun h4Bucket(value: Instant): Instant = Instant.ofEpochSecond((value.epochSecond / H4_SECONDS) * H4_SECONDS)
-
-    private class EmaState {
-        private var fast: Double? = null
-        private var slow: Double? = null
-
-        fun vote(
-            close: Double,
-            pair: VolumeConfirmedTrendEmaPair,
-        ): Int {
-            fast = nextEma(fast, close, pair.fast)
-            slow = nextEma(slow, close, pair.slow)
-            return (fast!! - slow!!).sign.toInt()
-        }
-    }
 }
 
 data class VolumeConfirmedTrendFundingRate(
