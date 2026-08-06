@@ -1,7 +1,7 @@
 # 거래량 확인형 추세 전략 실거래 실행 기술 설계
 
 > 작성일: 2026-08-07
-> 상태: Draft
+> 상태: 실행 코어 구현 완료, 런타임 활성화 및 전진 승인 대기
 > 대상 모듈: `bot-engine`, `bot-exchange-bybit`, `bot-ledger`, `bot-app`
 
 ## 1. 설계 배경 및 목적
@@ -10,8 +10,8 @@
 
 `volume-confirmed-trend-ensemble-v1`은 인과적 H4 계산 코어, Binance USD-M 외부 이력,
 비용 스트레스, Node/Kotlin 계산 패리티, 역사 어댑터/영속 Shadow 패리티를 통과했다.
-그러나 현재 운영 경로는 public-data Shadow까지만 구현돼 있으며 개인 주문 경로와 물리적으로
-분리돼 있다.
+현재 운영 런타임은 public-data Shadow까지만 활성화할 수 있다. 개인 주문 실행 코어와 Bybit 대사
+adapter는 구현됐지만 기본 `NOT_APPROVED` 영수증과 런타임 비활성 경계로 물리적으로 차단돼 있다.
 
 기존 `ExchangeExecutionService`는 M5 신호, 구조적 손절, 실제 체결 후 TP/SL 재설정,
 최대 보유 시간을 전제로 한다. 반면 새 후보는 계좌 equity의 `0.65`만 목표 명목가로 사용하고,
@@ -111,7 +111,7 @@ H4 실거래는 독립된 단일-row checkpoint와 append-only event table을 �
 H4 boundary + delay
   -> approval receipt와 현재 approval report 대조
   -> public M15/H4 데이터 최신성 확인
-  -> private wallet/position/open-order/execution 대사
+  -> private wallet/position/exact-order/execution 대사
   -> TargetPlanner.plan(...)
      -> NOOP | CLOSE | OPEN | HALT
   -> intent + checkpoint 원자 기록
@@ -148,9 +148,11 @@ DISABLED
 FLAT
 ENTRY_INTENT_RECORDED
 ENTRY_SUBMITTED
+ENTRY_NOT_FILLED
 OPEN
 EXIT_INTENT_RECORDED
 EXIT_SUBMITTED
+EXIT_NOT_FILLED
 HALTED
 ```
 
@@ -164,6 +166,8 @@ HALTED
   equity의 `0.85`를 넘으면 주문하지 않는다.
 - 최소 수량이 상한을 넘으면 올림하지 않고 `NO_TRADE`를 기록한다.
 - 같은 방향 포지션은 다음 반대 전환까지 재조정하지 않는다. 중간 rebalance는 백테스트에 없다.
+- IOC가 미체결 취소되면 해당 H4 결정을 소비하고 같은 client ID 또는 같은 결정으로 재주문하지 않는다.
+- exact-order 상태를 실시간 endpoint와 주문 이력 모두에서 확인할 수 없으면 재주문하지 않고 `HALTED`한다.
 
 ### 4.3 승인 영수증
 
@@ -210,8 +214,10 @@ CREATE TABLE volumeConfirmedTrendLiveEvents (
 | 체결 반영 | fill dedupe + event + state | SQLite transaction | 수수료·수량 중복 방지 |
 | 계좌 대사 | snapshot/transaction append 후 상태 판단 | 최종 일관성 | 거래소가 source of truth |
 
-DB intent 기록 후 주문 호출이 실패하면 같은 결정적 client ID로 재조회·재시도한다. 주문 ack 뒤 DB 쓰기가
-실패하면 거래소 open order, execution, position 조회로 복구한다. 로컬 상태만 보고 반대 주문을 만들지 않는다.
+DB intent 기록 후 주문 호출이 실패하면 결정적 client ID로 거래소 상태를 먼저 조회한다. 거래소가 주문을
+확인하지 못해도 자동 재주문하지 않고 제한 시간 뒤 `HALTED`한다. 주문 ack 뒤 DB 쓰기가 실패하면 거래소의
+exact-order, order history, execution, position 조회로 복구한다. 미체결 취소는 해당 H4 결정을 소비하며,
+로컬 상태만 보고 같은 주문이나 반대 주문을 만들지 않는다.
 
 ## 6. 예외 및 실패 처리
 
@@ -280,6 +286,17 @@ DB intent 기록 후 주문 호출이 실패하면 같은 결정적 client ID로
 - [x] 도메인 불변식, 원장, 트랜잭션, 실패 복구, 동시성을 정의했다.
 - [x] 승인 전 주문 불가능 조건을 고정했다.
 - [x] 순수 target planner와 결정적 테스트를 구현한다.
-- [ ] Live store와 fault-injection 테스트를 구현한다.
-- [ ] Bybit account mode/instrument adapter를 구현한다.
+- [x] Live store와 fault-injection 테스트를 구현한다.
+- [x] Bybit account mode/instrument 및 exact-order adapter를 구현한다.
 - [ ] 90일 Shadow와 사람 승인 후에만 TESTNET/LIVE 경로를 활성화한다.
+
+## 12. 공식 계약 근거
+
+- Bybit V5 주문 생성: `orderLinkId`는 36자 이하의 고유 값이어야 한다.
+  <https://bybit-exchange.github.io/docs/v5/order/create-order>
+- Bybit V5 실시간 주문 조회: `orderLinkId`로 최근 체결·취소 상태를 조회할 수 있으나 서버 재시작 뒤
+  종료 주문이 사라질 수 있다. <https://bybit-exchange.github.io/docs/v5/order/open-order>
+- Bybit V5 주문 이력: 최근 24시간의 취소·거절 주문과 체결 주문을 조회할 수 있다.
+  <https://bybit-exchange.github.io/docs/v5/order/order-list>
+- Bybit V5 체결 이력: 한 주문에 여러 체결이 존재할 수 있고 `orderLinkId`로 조회할 수 있다.
+  <https://bybit-exchange.github.io/docs/v5/order/execution>
