@@ -12,6 +12,8 @@ reconciliation
   -> executionAccountSnapshots
   -> /v5/account/transaction-log (24h bootstrap, 5m overlap)
   -> executionAccountTransactions (append-only, identity deduplicated)
+  -> executionWalletReconciliationStates
+  -> entry-only fail-closed gate
   -> window별 baseline + snapshot 재생
   -> maxAccountDrawdownPct
 ```
@@ -26,9 +28,19 @@ maintenance margin을 함께 저장한다. 거래 내역은 Bybit의 `id`만 신
 동일 이벤트는 한 번만 원장에 남는다.
 
 Bybit 거래 원장은 한 요청에서 최대 7일 구간과 50건 페이지를 사용하므로
-클라이언트가 cursor를 끝까지 순회한다. 공식 계약상 `change = cashFlow +
-funding - fee`이며, 이 값과 USDT wallet balance 사이의 대사는 다음 단계의
-fail-closed 진입 게이트에서 사용한다. 거래 내역 적재만으로 입출금을 전략
+클라이언트가 cursor를 끝까지 순회한다. 최초에는 최근 24시간을 적재하고,
+이후에는 마지막 거래에서 5분을 겹쳐 조회한다. 해결되지 않은 대사 기준점이
+있을 때만 그 기준점까지 조회 범위를 넓힌다. 공식 계약상 `change = cashFlow +
+funding - fee`이다.
+
+첫 스냅샷은 `BASELINE`으로 저장되며 신규 진입을 허용하지 않는다. 다음
+스냅샷부터 `observedWalletChange`와 기준점 이후 transaction `change` 합계를
+비교한다. 허용 오차 안이면 `MATCHED`로 기준점을 전진시키고, 벗어나면
+`MISMATCH`로 기존 기준점을 유지한다. 거래내역 동기화 실패, USDT wallet
+데이터 부재, 오래된 대사 상태, 확인된 불일치는 모두 신규 진입을 차단한다.
+기존 포지션 관리와 reduce-only 종료는 이 게이트보다 먼저 실행된다.
+
+이 대사는 원장 누락을 탐지하는 장치다. 거래 내역 적재만으로 입출금을 전략
 수익에서 자동 분리했다고 간주하지 않는다.
 
 Source: [Bybit Get Transaction Log](https://bybit-exchange.github.io/docs/v5/account/transaction-log),
@@ -55,3 +67,6 @@ Source: [Bybit Get Transaction Log](https://bybit-exchange.github.io/docs/v5/acc
 - 기존 SQLite는 누락된 performance 컬럼과 account snapshot 테이블을 additive migration으로 보완한다.
 - 거래 내역 pagination과 overlap 재조회는 동일 event를 중복 저장하지 않는다.
 - 기존 SQLite는 account transaction 테이블과 USDT 추적 잔고 컬럼을 additive migration으로 보완한다.
+- 첫 wallet snapshot은 `BASELINE`, 변화량과 원장이 일치하는 다음 snapshot은 `MATCHED`가 된다.
+- 불일치, transaction sync 실패, stale reconciliation 상태에서는 신규 진입만 fail closed 된다.
+- 기존 SQLite는 wallet reconciliation 상태 테이블을 additive migration으로 보완한다.

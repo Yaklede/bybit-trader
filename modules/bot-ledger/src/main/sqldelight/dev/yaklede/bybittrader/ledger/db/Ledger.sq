@@ -375,6 +375,26 @@ ON executionAccountTransactions(identity_key);
 CREATE INDEX executionAccountTransactions_mode_currency_transactionAt_id_idx
 ON executionAccountTransactions(mode, currency, transaction_at, id);
 
+CREATE TABLE executionWalletReconciliationStates (
+  mode TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  status TEXT NOT NULL,
+  baseline_snapshot_id INTEGER,
+  baseline_captured_at TEXT,
+  baseline_wallet_balance TEXT,
+  current_snapshot_id INTEGER,
+  current_captured_at TEXT,
+  current_wallet_balance TEXT,
+  observed_wallet_change TEXT,
+  ledger_change TEXT,
+  difference TEXT,
+  tolerance TEXT NOT NULL,
+  consecutive_mismatches INTEGER NOT NULL,
+  last_matched_at TEXT,
+  reconciled_at TEXT NOT NULL,
+  PRIMARY KEY (mode, currency)
+);
+
 CREATE TABLE livePerformanceSnapshots (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   mode TEXT NOT NULL,
@@ -1184,6 +1204,35 @@ FROM executionAccountTransactions
 WHERE mode = :mode AND currency = :currency
 ORDER BY transaction_at DESC, id DESC
 LIMIT 1;
+
+upsertExecutionWalletReconciliationState:
+INSERT OR REPLACE INTO executionWalletReconciliationStates(
+  mode,
+  currency,
+  status,
+  baseline_snapshot_id,
+  baseline_captured_at,
+  baseline_wallet_balance,
+  current_snapshot_id,
+  current_captured_at,
+  current_wallet_balance,
+  observed_wallet_change,
+  ledger_change,
+  difference,
+  tolerance,
+  consecutive_mismatches,
+  last_matched_at,
+  reconciled_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectExecutionWalletReconciliationState:
+SELECT mode, currency, status, baseline_snapshot_id, baseline_captured_at,
+  baseline_wallet_balance, current_snapshot_id, current_captured_at, current_wallet_balance,
+  observed_wallet_change, ledger_change, difference, tolerance, consecutive_mismatches,
+  last_matched_at, reconciled_at
+FROM executionWalletReconciliationStates
+WHERE mode = ? AND currency = ?;
 
 selectLatestLivePerformanceSnapshot:
 SELECT id, mode, window, trade_count, win_rate_pct, gross_profit, gross_loss, fees, net_pnl, profit_factor, expectancy,

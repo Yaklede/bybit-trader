@@ -659,10 +659,16 @@ class ExchangeExecutionService(
     private suspend fun persistExchangeStateLocked(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
         val accountSnapshot = persistAccountSnapshot()
-        accountSnapshot?.let { snapshot -> persistAccountTransactions(snapshot.capturedAt) }
+        val transactionSync =
+            accountSnapshot
+                ?.let { snapshot -> persistAccountTransactions(snapshot.capturedAt) }
+                ?: AccountTransactionSyncResult(succeeded = false)
         persistExecutionFills(report.executions)
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
         accountSnapshot?.let { snapshot -> persistRiskState(snapshot, persistedClosures) }
+        if (accountSnapshot != null && config.walletReconciliationEnabled) {
+            persistWalletReconciliation(accountSnapshot, transactionSync.succeeded)
+        }
         if (accountSnapshot != null && persistedClosures.isEmpty()) {
             refreshPerformanceSnapshots()
         }
@@ -1437,8 +1443,8 @@ class ExchangeExecutionService(
                 gateway
                     .accountBalance("USDT")
                     .toExecutionAccountSnapshot(runtimeMode)
-            store.recordAccountSnapshot(snapshot)
-            snapshot
+            val id = store.recordAccountSnapshot(snapshot)
+            snapshot.copy(id = id)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1452,13 +1458,24 @@ class ExchangeExecutionService(
         }
     }
 
-    private suspend fun persistAccountTransactions(endAt: Instant): List<ExecutionAccountTransactionEvent> {
-        val store = projectionStore ?: return emptyList()
+    private suspend fun persistAccountTransactions(endAt: Instant): AccountTransactionSyncResult {
+        val store = projectionStore ?: return AccountTransactionSyncResult(succeeded = false)
         return try {
             val latest = store.latestAccountTransaction(runtimeMode, ACCOUNT_LEDGER_CURRENCY)
             val bootstrapStart = endAt.minus(ACCOUNT_TRANSACTION_BOOTSTRAP_RANGE)
             val overlapStart = latest?.transaction?.transactionAt?.minus(ACCOUNT_TRANSACTION_OVERLAP)
-            val startAt = overlapStart?.takeIf { it.isAfter(bootstrapStart) } ?: bootstrapStart
+            val unresolvedBaseline =
+                store
+                    .walletReconciliationState(runtimeMode, ACCOUNT_LEDGER_CURRENCY)
+                    ?.baselineCapturedAt
+                    ?.minusSeconds(1)
+            val incrementalStart = overlapStart ?: bootstrapStart
+            val requestedStart =
+                unresolvedBaseline
+                    ?.let { baseline -> minOf(baseline, incrementalStart) }
+                    ?: incrementalStart
+            val maximumRangeStart = endAt.minus(ACCOUNT_TRANSACTION_MAXIMUM_RANGE)
+            val startAt = requestedStart.takeIf { it.isAfter(maximumRangeStart) } ?: maximumRangeStart
             val receivedAt = Instant.now(clock)
             val persisted =
                 gateway
@@ -1483,7 +1500,7 @@ class ExchangeExecutionService(
                 endAt,
                 persisted.size,
             )
-            persisted
+            AccountTransactionSyncResult(succeeded = true, persisted = persisted)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1494,8 +1511,45 @@ class ExchangeExecutionService(
                 error::class.simpleName,
                 error.message,
             )
-            emptyList()
+            AccountTransactionSyncResult(succeeded = false)
         }
+    }
+
+    private suspend fun persistWalletReconciliation(
+        current: ExecutionAccountSnapshot,
+        transactionSyncSucceeded: Boolean,
+    ): ExecutionWalletReconciliationState? {
+        val store = projectionStore ?: return null
+        val previous = store.walletReconciliationState(runtimeMode, ACCOUNT_LEDGER_CURRENCY)
+        val transactions =
+            store.accountTransactions(
+                mode = runtimeMode,
+                currency = ACCOUNT_LEDGER_CURRENCY,
+                transactionAtOrAfter = previous?.baselineCapturedAt,
+                transactionAtOrBefore = current.capturedAt,
+            )
+        val state =
+            ExecutionWalletReconciler.update(
+                previous = previous,
+                current = current,
+                transactions = transactions,
+                currency = ACCOUNT_LEDGER_CURRENCY,
+                tolerance = config.walletReconciliationTolerance,
+                transactionSyncSucceeded = transactionSyncSucceeded,
+                reconciledAt = Instant.now(clock),
+            )
+        store.upsertWalletReconciliationState(state)
+        logger.info(
+            "execution wallet reconciliation completed mode={} currency={} status={} observedChange={} ledgerChange={} difference={} consecutiveMismatches={}",
+            runtimeMode.name,
+            ACCOUNT_LEDGER_CURRENCY,
+            state.status.name,
+            state.observedWalletChange?.toPlainString(),
+            state.ledgerChange?.toPlainString(),
+            state.difference?.toPlainString(),
+            state.consecutiveMismatches,
+        )
+        return state
     }
 
     private suspend fun currentEntryRiskDecision(now: Instant): ExecutionRiskDecision {
@@ -1509,7 +1563,18 @@ class ExchangeExecutionService(
                 decision = config.evaluateRiskState(state, now)
             }
         }
-        return decision
+        val reasonCodes = decision.reasonCodes.toMutableList()
+        if (config.walletReconciliationEnabled) {
+            reasonCodes +=
+                ExecutionWalletReconciler
+                    .evaluate(
+                        state = store.walletReconciliationState(runtimeMode, ACCOUNT_LEDGER_CURRENCY),
+                        now = now,
+                        maximumAge = config.walletReconciliationMaximumAge,
+                        confirmedMismatchCount = config.walletReconciliationConfirmedMismatchCount,
+                    ).reasonCodes
+        }
+        return ExecutionRiskDecision(reasonCodes.distinct())
     }
 
     private suspend fun persistRiskState(
@@ -2723,6 +2788,7 @@ private const val RISK_CLOSURE_QUERY_LIMIT = 1000
 private const val ACCOUNT_LEDGER_CURRENCY = "USDT"
 private val ACCOUNT_TRANSACTION_BOOTSTRAP_RANGE: Duration = Duration.ofHours(24)
 private val ACCOUNT_TRANSACTION_OVERLAP: Duration = Duration.ofMinutes(5)
+private val ACCOUNT_TRANSACTION_MAXIMUM_RANGE: Duration = Duration.ofDays(7)
 private val RISK_STATE_REFRESH_REASON_CODES =
     setOf(
         "RISK_STATE_UNAVAILABLE",
@@ -2742,3 +2808,8 @@ private fun ExchangeExecutionConfig.evaluateRiskState(
         maximumAccountDrawdownFraction = maximumAccountDrawdownFraction,
         maximumConsecutiveLosses = maximumConsecutiveLosses,
     )
+
+private data class AccountTransactionSyncResult(
+    val succeeded: Boolean,
+    val persisted: List<ExecutionAccountTransactionEvent> = emptyList(),
+)

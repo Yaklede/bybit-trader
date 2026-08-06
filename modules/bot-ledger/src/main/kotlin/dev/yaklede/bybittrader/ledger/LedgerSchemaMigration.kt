@@ -391,6 +391,27 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         "CREATE UNIQUE INDEX IF NOT EXISTS executionAccountTransactions_identity_idx ON executionAccountTransactions(identity_key)",
         "CREATE INDEX IF NOT EXISTS executionAccountTransactions_mode_currency_transactionAt_id_idx ON executionAccountTransactions(mode, currency, transaction_at, id)",
         """
+        CREATE TABLE IF NOT EXISTS executionWalletReconciliationStates (
+          mode TEXT NOT NULL,
+          currency TEXT NOT NULL,
+          status TEXT NOT NULL,
+          baseline_snapshot_id INTEGER,
+          baseline_captured_at TEXT,
+          baseline_wallet_balance TEXT,
+          current_snapshot_id INTEGER,
+          current_captured_at TEXT,
+          current_wallet_balance TEXT,
+          observed_wallet_change TEXT,
+          ledger_change TEXT,
+          difference TEXT,
+          tolerance TEXT NOT NULL,
+          consecutive_mismatches INTEGER NOT NULL,
+          last_matched_at TEXT,
+          reconciled_at TEXT NOT NULL,
+          PRIMARY KEY (mode, currency)
+        )
+        """.trimIndent(),
+        """
         CREATE TABLE IF NOT EXISTS livePerformanceSnapshots (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           mode TEXT NOT NULL,

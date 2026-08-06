@@ -41,6 +41,10 @@ class AppConfigTest :
             config.execution.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.20"
             config.execution.maximumConsecutiveLosses shouldBe 3
             config.execution.riskStateMaximumAge.seconds shouldBe 120
+            config.execution.walletReconciliationEnabled shouldBe true
+            config.execution.walletReconciliationTolerance.toPlainString() shouldBe "0.01"
+            config.execution.walletReconciliationMaximumAge.seconds shouldBe 180
+            config.execution.walletReconciliationConfirmedMismatchCount shouldBe 3
             config.executionLoop.enabled shouldBe false
             config.executionReconciliation.enabled shouldBe false
             config.executionReconciliation.alertBatchLimit shouldBe 100
@@ -98,6 +102,10 @@ class AppConfigTest :
                         "BOT_EXECUTION_MAX_ACCOUNT_DRAWDOWN_FRACTION" to "0.25",
                         "BOT_EXECUTION_MAX_CONSECUTIVE_LOSSES" to "4",
                         "BOT_EXECUTION_RISK_STATE_MAX_AGE_SECONDS" to "180",
+                        "BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED" to "true",
+                        "BOT_EXECUTION_WALLET_RECONCILIATION_TOLERANCE" to "0.02",
+                        "BOT_EXECUTION_WALLET_RECONCILIATION_MAX_AGE_SECONDS" to "240",
+                        "BOT_EXECUTION_WALLET_RECONCILIATION_CONFIRMED_MISMATCHES" to "5",
                     ),
                 )
 
@@ -126,6 +134,10 @@ class AppConfigTest :
             config.execution.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.25"
             config.execution.maximumConsecutiveLosses shouldBe 4
             config.execution.riskStateMaximumAge.seconds shouldBe 180
+            config.execution.walletReconciliationEnabled shouldBe true
+            config.execution.walletReconciliationTolerance.toPlainString() shouldBe "0.02"
+            config.execution.walletReconciliationMaximumAge.seconds shouldBe 240
+            config.execution.walletReconciliationConfirmedMismatchCount shouldBe 5
             config.execution.maxQuantity?.toPlainString() shouldBe "5"
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"

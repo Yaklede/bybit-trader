@@ -81,6 +81,11 @@ override:
 - `BOT_EXECUTION_RECONCILIATION_ENABLED`: default `true`; observes private
   order, position, fill, and closed-PnL state without enabling automatic entry.
 - `BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS`: default `60`.
+- `BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED`: default `true`; automatic
+  entries require a fresh matched USDT wallet/transaction-log state.
+- `BOT_EXECUTION_WALLET_RECONCILIATION_TOLERANCE`: default `0.01` USDT.
+- `BOT_EXECUTION_WALLET_RECONCILIATION_MAX_AGE_SECONDS`: default `180`.
+- `BOT_EXECUTION_WALLET_RECONCILIATION_CONFIRMED_MISMATCHES`: default `3`.
 - `BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE`: default `false`. This legacy
   override is limited to future unverified TESTNET candidates. It cannot enable
   the rejected `absa_final_us_v1` profile, and LIVE requires a verified profile.

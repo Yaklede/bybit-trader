@@ -35,6 +35,10 @@ data class ExchangeExecutionConfig(
     val maximumAccountDrawdownFraction: BigDecimal = BigDecimal("0.20"),
     val maximumConsecutiveLosses: Int = 3,
     val riskStateMaximumAge: Duration = Duration.ofSeconds(120),
+    val walletReconciliationEnabled: Boolean = false,
+    val walletReconciliationTolerance: BigDecimal = BigDecimal("0.01"),
+    val walletReconciliationMaximumAge: Duration = Duration.ofSeconds(180),
+    val walletReconciliationConfirmedMismatchCount: Int = 3,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -88,6 +92,15 @@ data class ExchangeExecutionConfig(
         }
         require(!riskStateMaximumAge.isNegative && !riskStateMaximumAge.isZero) {
             "Execution risk-state maximum age must be positive."
+        }
+        require(walletReconciliationTolerance >= BigDecimal.ZERO) {
+            "Execution wallet-reconciliation tolerance must not be negative."
+        }
+        require(!walletReconciliationMaximumAge.isNegative && !walletReconciliationMaximumAge.isZero) {
+            "Execution wallet-reconciliation maximum age must be positive."
+        }
+        require(walletReconciliationConfirmedMismatchCount in 1..100) {
+            "Execution wallet-reconciliation mismatch count must be between 1 and 100."
         }
     }
 }

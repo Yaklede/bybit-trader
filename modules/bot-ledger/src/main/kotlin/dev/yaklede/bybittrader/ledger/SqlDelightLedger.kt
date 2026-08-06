@@ -29,6 +29,8 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationState
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationStatus
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.execution.PendingExecutionClosureAlert
@@ -62,6 +64,7 @@ import dev.yaklede.bybittrader.ledger.db.ExecutionFillEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionLifecycleEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionRiskStates
 import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
+import dev.yaklede.bybittrader.ledger.db.ExecutionWalletReconciliationStates
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LivePerformanceSnapshots
 import dev.yaklede.bybittrader.ledger.db.PerformanceSnapshots
@@ -1083,6 +1086,36 @@ class SqlDelightLedger(
             .selectLatestExecutionAccountTransaction(mode.name, currency)
             .executeAsOneOrNull()
             ?.toExecutionAccountTransactionEvent()
+
+    override suspend fun upsertWalletReconciliationState(state: ExecutionWalletReconciliationState) {
+        database.ledgerQueries.upsertExecutionWalletReconciliationState(
+            mode = state.mode.name,
+            currency = state.currency,
+            status = state.status.name,
+            baseline_snapshot_id = state.baselineSnapshotId,
+            baseline_captured_at = state.baselineCapturedAt?.toString(),
+            baseline_wallet_balance = state.baselineWalletBalance?.toPlainString(),
+            current_snapshot_id = state.currentSnapshotId,
+            current_captured_at = state.currentCapturedAt?.toString(),
+            current_wallet_balance = state.currentWalletBalance?.toPlainString(),
+            observed_wallet_change = state.observedWalletChange?.toPlainString(),
+            ledger_change = state.ledgerChange?.toPlainString(),
+            difference = state.difference?.toPlainString(),
+            tolerance = state.tolerance.toPlainString(),
+            consecutive_mismatches = state.consecutiveMismatches.toLong(),
+            last_matched_at = state.lastMatchedAt?.toString(),
+            reconciled_at = state.reconciledAt.toString(),
+        )
+    }
+
+    override suspend fun walletReconciliationState(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+    ): ExecutionWalletReconciliationState? =
+        database.ledgerQueries
+            .selectExecutionWalletReconciliationState(mode.name, currency)
+            .executeAsOneOrNull()
+            ?.toWalletReconciliationState()
 }
 
 fun createLedgerDatabase(driver: SqlDriver): LedgerDatabase = LedgerDatabase(driver)
@@ -1506,6 +1539,26 @@ private fun ExecutionRiskStates.toExecutionRiskState(): ExecutionRiskState =
         consecutiveLosses = consecutive_losses.toInt(),
         lastClosureId = last_closure_id,
         updatedAt = Instant.parse(updated_at),
+    )
+
+private fun ExecutionWalletReconciliationStates.toWalletReconciliationState(): ExecutionWalletReconciliationState =
+    ExecutionWalletReconciliationState(
+        mode = ExecutionRuntimeMode.valueOf(mode),
+        currency = currency,
+        status = ExecutionWalletReconciliationStatus.valueOf(status),
+        baselineSnapshotId = baseline_snapshot_id,
+        baselineCapturedAt = baseline_captured_at?.let(Instant::parse),
+        baselineWalletBalance = baseline_wallet_balance?.let(::BigDecimal),
+        currentSnapshotId = current_snapshot_id,
+        currentCapturedAt = current_captured_at?.let(Instant::parse),
+        currentWalletBalance = current_wallet_balance?.let(::BigDecimal),
+        observedWalletChange = observed_wallet_change?.let(::BigDecimal),
+        ledgerChange = ledger_change?.let(::BigDecimal),
+        difference = difference?.let(::BigDecimal),
+        tolerance = BigDecimal(tolerance),
+        consecutiveMismatches = consecutive_mismatches.toInt(),
+        lastMatchedAt = last_matched_at?.let(Instant::parse),
+        reconciledAt = Instant.parse(reconciled_at),
     )
 
 private fun String.splitReasons(): List<String> =

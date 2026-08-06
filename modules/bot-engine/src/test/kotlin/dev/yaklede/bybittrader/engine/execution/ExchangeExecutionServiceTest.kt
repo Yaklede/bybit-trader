@@ -250,6 +250,59 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
+        "wallet reconciliation mismatch blocks a new entry" {
+            val now = Instant.parse("2024-06-30T00:00:00Z")
+            val store = InMemoryTradingStore()
+            store.riskStates[ExecutionRuntimeMode.TESTNET] =
+                ExecutionRiskState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    peakEquity = BigDecimal("100"),
+                    utcDayStartedAt = now,
+                    dayStartEquity = BigDecimal("100"),
+                    latestEquity = BigDecimal("100"),
+                    consecutiveLosses = 0,
+                    lastClosureId = null,
+                    updatedAt = now,
+                )
+            store.walletReconciliationStates[ExecutionRuntimeMode.TESTNET to "USDT"] =
+                ExecutionWalletReconciliationState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    currency = "USDT",
+                    status = ExecutionWalletReconciliationStatus.MISMATCH,
+                    baselineSnapshotId = 1,
+                    baselineCapturedAt = now.minusSeconds(60),
+                    baselineWalletBalance = BigDecimal("100"),
+                    currentSnapshotId = 2,
+                    currentCapturedAt = now,
+                    currentWalletBalance = BigDecimal("99"),
+                    observedWalletChange = BigDecimal("-1"),
+                    ledgerChange = BigDecimal.ZERO,
+                    difference = BigDecimal("-1"),
+                    tolerance = BigDecimal("0.01"),
+                    consecutiveMismatches = 3,
+                    lastMatchedAt = null,
+                    reconciledAt = now,
+                )
+            val gateway = RecordingExecutionGateway()
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            walletReconciliationEnabled = true,
+                            walletReconciliationConfirmedMismatchCount = 3,
+                        ),
+                )
+
+            val result = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldBe listOf("ACCOUNT_LEDGER_MISMATCH_CONFIRMED")
+            gateway.placedOrders shouldBe emptyList()
+        }
+
         "account risk circuit breaker does not prevent an expired position exit" {
             val now = Instant.parse("2024-06-30T00:00:00Z")
             val store = InMemoryTradingStore()
@@ -1061,7 +1114,12 @@ class ExchangeExecutionServiceTest :
                             ),
                         ),
                 )
-            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
 
             service.persistExchangeState(symbol)
 
@@ -1772,7 +1830,12 @@ class ExchangeExecutionServiceTest :
                     accountTransactions = listOf(transaction),
                     accountBalance = accountBalance,
                 )
-            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, walletReconciliationEnabled = true),
+                )
 
             service.persistExchangeState(symbol)
             service.persistExchangeState(symbol)
@@ -1781,6 +1844,8 @@ class ExchangeExecutionServiceTest :
             store.accountSnapshots.last().trackedCoinWalletBalance shouldBe BigDecimal("990")
             store.accountSnapshots.last().trackedCoinCumulativeRealizedPnl shouldBe BigDecimal("25")
             gateway.accountTransactionRequests shouldBe 2
+            store.walletReconciliationStates[ExecutionRuntimeMode.TESTNET to "USDT"]?.status shouldBe
+                ExecutionWalletReconciliationStatus.MATCHED
         }
 
         "exchange reconciliation classifies the close from Bybit execution metadata" {
@@ -1976,6 +2041,8 @@ private class InMemoryTradingStore :
     val accountSnapshots = mutableListOf<ExecutionAccountSnapshot>()
     val accountTransactionEvents = mutableListOf<ExecutionAccountTransactionEvent>()
     val riskStates = mutableMapOf<ExecutionRuntimeMode, ExecutionRiskState>()
+    val walletReconciliationStates =
+        mutableMapOf<Pair<ExecutionRuntimeMode, String>, ExecutionWalletReconciliationState>()
     val suppressedAt = mutableMapOf<Long, Instant>()
     val deliveredAt = mutableMapOf<Long, Instant>()
     val alertAttempts = mutableMapOf<Long, Int>()
@@ -2235,6 +2302,15 @@ private class InMemoryTradingStore :
         accountTransactionEvents
             .filter { event -> event.mode == mode && event.transaction.currency == currency }
             .maxByOrNull { event -> event.transaction.transactionAt }
+
+    override suspend fun upsertWalletReconciliationState(state: ExecutionWalletReconciliationState) {
+        walletReconciliationStates[state.mode to state.currency] = state
+    }
+
+    override suspend fun walletReconciliationState(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+    ): ExecutionWalletReconciliationState? = walletReconciliationStates[mode to currency]
 }
 
 private class RecordingExecutionGateway(

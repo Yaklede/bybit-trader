@@ -204,6 +204,11 @@ fun main() {
                         maximumAccountDrawdownFraction = config.execution.maximumAccountDrawdownFraction,
                         maximumConsecutiveLosses = config.execution.maximumConsecutiveLosses,
                         riskStateMaximumAge = config.execution.riskStateMaximumAge,
+                        walletReconciliationEnabled = config.execution.walletReconciliationEnabled,
+                        walletReconciliationTolerance = config.execution.walletReconciliationTolerance,
+                        walletReconciliationMaximumAge = config.execution.walletReconciliationMaximumAge,
+                        walletReconciliationConfirmedMismatchCount =
+                            config.execution.walletReconciliationConfirmedMismatchCount,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                 positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),

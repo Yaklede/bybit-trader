@@ -76,6 +76,9 @@ data class AppConfig(
             require(!executionLoop.enabled || execution.circuitBreakerEnabled) {
                 "BOT_EXECUTION_CIRCUIT_BREAKER_ENABLED=true is required when automatic execution is enabled."
             }
+            require(!executionLoop.enabled || execution.walletReconciliationEnabled) {
+                "BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED=true is required when automatic execution is enabled."
+            }
             require(!privateExecutionStreamEnabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true."
             }
@@ -520,6 +523,10 @@ data class ExecutionSettings(
     val maximumAccountDrawdownFraction: BigDecimal,
     val maximumConsecutiveLosses: Int,
     val riskStateMaximumAge: Duration,
+    val walletReconciliationEnabled: Boolean,
+    val walletReconciliationTolerance: BigDecimal,
+    val walletReconciliationMaximumAge: Duration,
+    val walletReconciliationConfirmedMismatchCount: Int,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -572,6 +579,15 @@ data class ExecutionSettings(
         }
         require(!riskStateMaximumAge.isNegative && !riskStateMaximumAge.isZero) {
             "Execution risk-state maximum age must be positive."
+        }
+        require(walletReconciliationTolerance >= BigDecimal.ZERO) {
+            "Execution wallet-reconciliation tolerance must not be negative."
+        }
+        require(!walletReconciliationMaximumAge.isNegative && !walletReconciliationMaximumAge.isZero) {
+            "Execution wallet-reconciliation maximum age must be positive."
+        }
+        require(walletReconciliationConfirmedMismatchCount in 1..100) {
+            "Execution wallet-reconciliation mismatch count must be between 1 and 100."
         }
     }
 
@@ -633,6 +649,20 @@ data class ExecutionSettings(
                     Duration.ofSeconds(
                         environment["BOT_EXECUTION_RISK_STATE_MAX_AGE_SECONDS"]?.toLongOrNull() ?: 120,
                     ),
+                walletReconciliationEnabled =
+                    environment["BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED"]
+                        ?.equals("true", ignoreCase = true)
+                        ?: true,
+                walletReconciliationTolerance =
+                    environment["BOT_EXECUTION_WALLET_RECONCILIATION_TOLERANCE"]
+                        ?.let(::BigDecimal)
+                        ?: BigDecimal("0.01"),
+                walletReconciliationMaximumAge =
+                    Duration.ofSeconds(
+                        environment["BOT_EXECUTION_WALLET_RECONCILIATION_MAX_AGE_SECONDS"]?.toLongOrNull() ?: 180,
+                    ),
+                walletReconciliationConfirmedMismatchCount =
+                    environment["BOT_EXECUTION_WALLET_RECONCILIATION_CONFIRMED_MISMATCHES"]?.toIntOrNull() ?: 3,
             )
     }
 }

@@ -136,6 +136,10 @@ export BOT_EXECUTION_MAX_DAILY_LOSS_FRACTION="0.03"
 export BOT_EXECUTION_MAX_ACCOUNT_DRAWDOWN_FRACTION="0.20"
 export BOT_EXECUTION_MAX_CONSECUTIVE_LOSSES="3"
 export BOT_EXECUTION_RISK_STATE_MAX_AGE_SECONDS="120"
+export BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED="true"
+export BOT_EXECUTION_WALLET_RECONCILIATION_TOLERANCE="0.01"
+export BOT_EXECUTION_WALLET_RECONCILIATION_MAX_AGE_SECONDS="180"
+export BOT_EXECUTION_WALLET_RECONCILIATION_CONFIRMED_MISMATCHES="3"
 ```
 
 Keep `BOT_EXECUTION_LOOP_ENABLED=false` for the first live smoke order. Turn it
@@ -151,6 +155,11 @@ a daily equity loss of 3%, a 20% account drawdown, or three consecutive losses
 blocks new automatic entries. Existing positions remain under the shared
 stop, trailing, and maximum-hold policy. Do not disable the breaker to make a
 rejected strategy trade.
+
+Wallet reconciliation is also enabled by default. After startup, wait for the
+first `BASELINE` and the following `MATCHED` reconciliation before considering
+any automatic entry. A missing/stale transaction sync or wallet-ledger mismatch
+blocks new entries while existing position management remains active.
 
 Enable at least one alert sink:
 

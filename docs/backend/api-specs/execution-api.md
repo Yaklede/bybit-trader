@@ -33,9 +33,20 @@ more of these reason codes:
 - `DAILY_EQUITY_LOSS_LIMIT_REACHED`
 - `ACCOUNT_DRAWDOWN_LIMIT_REACHED`
 - `CONSECUTIVE_LOSS_LIMIT_REACHED`
+- `ACCOUNT_RECONCILIATION_UNAVAILABLE`
+- `ACCOUNT_RECONCILIATION_CLOCK_SKEW`
+- `ACCOUNT_RECONCILIATION_STALE`
+- `ACCOUNT_RECONCILIATION_BASELINE_PENDING`
+- `ACCOUNT_TRANSACTION_SYNC_UNAVAILABLE`
+- `ACCOUNT_WALLET_DATA_UNAVAILABLE`
+- `ACCOUNT_LEDGER_MISMATCH_PENDING`
+- `ACCOUNT_LEDGER_MISMATCH_CONFIRMED`
 
 Position management and reduce-only exits run before this entry-only gate, so
-the breaker cannot strand an existing position.
+the breaker cannot strand an existing position. Wallet reconciliation compares
+the observed USDT wallet-balance delta with persisted Bybit transaction `change`
+values. Its first snapshot is a blocking baseline; only a fresh `MATCHED` state
+allows a new entry.
 The gross target move must exceed configured round-trip fees plus
 `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`; otherwise the signal is rejected before
 any private order call.

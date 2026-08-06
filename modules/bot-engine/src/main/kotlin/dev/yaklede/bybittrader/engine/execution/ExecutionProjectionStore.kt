@@ -177,4 +177,11 @@ interface ExecutionProjectionStore {
         mode: ExecutionRuntimeMode,
         currency: String,
     ): ExecutionAccountTransactionEvent? = null
+
+    suspend fun upsertWalletReconciliationState(state: ExecutionWalletReconciliationState) = Unit
+
+    suspend fun walletReconciliationState(
+        mode: ExecutionRuntimeMode,
+        currency: String,
+    ): ExecutionWalletReconciliationState? = null
 }

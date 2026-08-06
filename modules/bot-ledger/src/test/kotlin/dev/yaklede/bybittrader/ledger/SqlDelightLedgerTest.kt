@@ -24,6 +24,8 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationState
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationStatus
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketSyncCheckpoint
@@ -563,6 +565,28 @@ class SqlDelightLedgerTest :
                     transactionAtOrAfter = Instant.parse("2026-06-30T00:10:00Z"),
                     transactionAtOrBefore = Instant.parse("2026-06-30T00:11:00Z"),
                 ).size shouldBe 1
+
+            val reconciliationState =
+                ExecutionWalletReconciliationState(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    currency = "USDT",
+                    status = ExecutionWalletReconciliationStatus.MATCHED,
+                    baselineSnapshotId = 1,
+                    baselineCapturedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    baselineWalletBalance = BigDecimal("990"),
+                    currentSnapshotId = 2,
+                    currentCapturedAt = Instant.parse("2026-06-30T00:11:00Z"),
+                    currentWalletBalance = BigDecimal("996.4"),
+                    observedWalletChange = BigDecimal("6.4"),
+                    ledgerChange = BigDecimal("6.4"),
+                    difference = BigDecimal.ZERO,
+                    tolerance = BigDecimal("0.01"),
+                    consecutiveMismatches = 0,
+                    lastMatchedAt = Instant.parse("2026-06-30T00:11:01Z"),
+                    reconciledAt = Instant.parse("2026-06-30T00:11:01Z"),
+                )
+            ledger.upsertWalletReconciliationState(reconciliationState)
+            ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT") shouldBe reconciliationState
         }
 
         "deduplicates nullable closure ids at the database identity key" {
