@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bybit-event-flow-development-acquisition-receipt-v1",
+  "status": "COMPLETE",
+  "protocolId": "bybit-event-flow-development-v1",
+  "protocolSha256": "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d",
+  "sourceDatabaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+  "targetDatabaseSha256": "054e55a07629e17a50131e06c444b044089de70a9d6511f6256e55d63278500d",
+  "developmentSourceFingerprintSha256": "a4de3485e49a81ee3cd23a03ece58abecd339d389f90fcdb20bc41eb597ad047",
+  "acquisitionReportSha256": "25bb3636e13a20928e1ff282055965ff7888d3fbd33ddc748c8de310af15ce32",
+  "coverage": {
+    "sourceDays": 36,
+    "m1Candles": 51840,
+    "m5Candles": 10368,
+    "m15Candles": 3456,
+    "orderBookEventFlowBars": 51840,
+    "takerEventFlowBars": 51840
+  },
+  "completedBlocks": [
+    {
+      "id": "D01",
+      "era": "2023H1",
+      "sourceStartDate": "2023-05-06",
+      "sourceEndDate": "2023-05-08",
+      "sourceFingerprintSha256": "28260a93cdf6b51e16948a4ff9d92a69bf79f349061d6e91632de8d1bd9de4a1",
+      "orderBookArchiveSha256": ["82fb772d49c56c3809d26ffc9216d0dd5d5e4f835282cafa33cf81b9fe765989", "35fa81606e27fa35b3ea0c5b74ce4bb1b6d661edbad62da4c401ab7521c86873", "8d587ac684193d6beb71ae1e8f4edf9d219addb8656d86afa844c41278002bf9"],
+      "tradeArchiveSha256": ["c0e1a58c7440fc5b8c1f158ab3e5fdbc1270ca8d61e9a91e98c6d6cdb0345cff", "98bc72ade76f36563aa295513eb90b1307dec716fe71d886c826b472834980ba", "f633249d91e7fa984057c3d8bccdf2b4ebb1dc37373d80b9d4ecd416cd0fab96"]
+    },
+    {
+      "id": "D02",
+      "era": "2023H1",
+      "sourceStartDate": "2023-05-22",
+      "sourceEndDate": "2023-05-24",
+      "sourceFingerprintSha256": "3ae4d4ad2d93f428a52cf9669e3b4559ac04d8e7e70ab144ba7a6c60820c1b58",
+      "orderBookArchiveSha256": ["b1034930ce8f83fe24d02b19336db3d3059090a7c610c6d9a032ba69bfc28302", "cc9bda86da791121686700046a8f589efe8d0e69d8a0e57de48f4cf86cd934ae", "9efb142fbab90017355ebf50218692f3cb9508428598ee3fa3008e10bc271a5d"],
+      "tradeArchiveSha256": ["e3ddaac8c98dbfba8b85fb184769da1c306ad18b89a5f2f4bb22fd0e5671420a", "34c96fe2b351ac66f2dafd47092f722711d284a9759b35936870196dc0884e37", "a2712096eaadb74cbc922149e740179d0390436513607129c150cf47abf10b96"]
+    },
+    {
+      "id": "D03",
+      "era": "2023H1",
+      "sourceStartDate": "2023-06-28",
+      "sourceEndDate": "2023-06-30",
+      "sourceFingerprintSha256": "4cfd5c31509c368b324e3a31d966c51e0f65dfe9da3887712b389bc4b7c66957",
+      "orderBookArchiveSha256": ["987cc7d9423b26ab5b4ca3f825b29d1d442b6366bcc2716da778c5d9879f62d6", "a1aa39b681f47b55d789c26f5e9a05c9b3abb5268f0754d2738196ba6f8f155f", "a8331214d0661145d37d5b7c7517ff6381b5bf135bcafdd749c0ef5f4ac84f2c"],
+      "tradeArchiveSha256": ["c33216cbdae0343744c9c66dc80926cc0345f076242db314f723d8325f8c85b5", "4f78a3cf0314b7d9bf5edbb3c0c60d36acc764761316931d07f4a849f21c5069", "820f71c122c413a46615849766ef4563f32a778e3548e8f88faa82f278d88558"]
+    },
+    {
+      "id": "D04",
+      "era": "2023H2",
+      "sourceStartDate": "2023-07-15",
+      "sourceEndDate": "2023-07-17",
+      "sourceFingerprintSha256": "1bc8052255305902ca1255d96e7ef230997e5aea8250a118977c912f4321f376",
+      "orderBookArchiveSha256": ["8b8e981271a12190e92bf4fac897fb8c410d1002aab7ea812b1545a64997adf5", "7459c58e9084aae99d3a5bbfff2b02484c56b5d89c505aeca6fe01653414ca98", "c673d077849245d774136cc7fc43f16c7f017eff94cf78b1c8827f793680ba58"],
+      "tradeArchiveSha256": ["86fda29644d2f17ebbaaa248caed5b0144b69af8d647b793cb7c3b792b3d3796", "b919ec4bdf48dfde2e52fa49972df195ac53b755825f4c54d665e4eb1849abae", "f2d48dd59c66b14770fbe2e9ee5ca9b69d255fe30bb86a3728fa32458d958621"]
+    },
+    {
+      "id": "D05",
+      "era": "2023H2",
+      "sourceStartDate": "2023-10-09",
+      "sourceEndDate": "2023-10-11",
+      "sourceFingerprintSha256": "29412095fe65b82ea3dd8001202d7effe37423c5ec064064223b3cfa97ae97a1",
+      "orderBookArchiveSha256": ["9fcf30f4ce76bc9b789ad2d24021650b64ec6545afbdb08b98293c336eaa4695", "3049b8da50a773904b4236e29dc3b848fc4f0010198172120986a74707eee110", "b7654e85758deb55e9d77808c13a96274944e045f4a57c37093bc321d0a05b97"],
+      "tradeArchiveSha256": ["5b1e80803d8452b2075778ab374b66ae92bc8d1ff3d389e240bc5c5d9ec380ab", "208fec3bf5bcc49d81bca02c5313c0101928b20ed4e2fe375fa5d5b509ff6475", "10618b1286b40a678a80367597d395a91d8c1151c46555fbafc969c0e2de42ce"]
+    },
+    {
+      "id": "D06",
+      "era": "2023H2",
+      "sourceStartDate": "2023-12-16",
+      "sourceEndDate": "2023-12-18",
+      "sourceFingerprintSha256": "ce1490c4cf67787a1f25278bbb6b5f16ecb645df7b2f5086cb542fc0a332200d",
+      "orderBookArchiveSha256": ["8a74c367f8734254e01083a6774db37db4af8ecb318126c920460c9e5c22f2a8", "284fe20874ca732b2108f3c15bec6bfddb156646e2df997f50d65caaccdce500", "a0e3ed5a7750ed4aa512649b390816b7ae7418f7eb1c34baee462f5901ffc28f"],
+      "tradeArchiveSha256": ["ccf56b1c7cbabf5ae41afcbab1e501408a9cac90a7e73045ec6f34c531f5dc71", "6b196d96c41594f6e9e6ca20b6b0b3461285b230e1a8307001063c158f8699f0", "f5e2594a8efb29f0385d6254af1323aaff05d10072bde31f6c21567eaae65303"]
+    },
+    {
+      "id": "D07",
+      "era": "2024H1",
+      "sourceStartDate": "2024-01-27",
+      "sourceEndDate": "2024-01-29",
+      "sourceFingerprintSha256": "249ed2c82af0dacfcffe4ab692c9a29a8a4c30bb2a01eb59dec5c35a9468cd81",
+      "orderBookArchiveSha256": ["03655f842d620001f43231066dceba404997218c2508c09c606fba0dac66b5b6", "dec413cbee7d56d3df5d560c7edd098f4cfe223b176a159366850d867098dccc", "fe55d3baa3527905239da3ce9c3d68b25eb5adb56d457069b5061ba6bc7a1ef4"],
+      "tradeArchiveSha256": ["718352dcadfa35f72a9b2cb738d25098ff47b7ab418918fbd09feb14e12227c2", "29aaf5c7c7510c8b0a58cabfe4c8761fd7ef4fcd41b9d8602d51c06b675f972b", "9d0a486af489990957ff0803ddf76e4073cd20c0403403232923084b14ffea6f"]
+    },
+    {
+      "id": "D08",
+      "era": "2024H1",
+      "sourceStartDate": "2024-04-14",
+      "sourceEndDate": "2024-04-16",
+      "sourceFingerprintSha256": "f8c79f5f94c5f0fc385bfdc51352973c0bfca1f4f5d07579d3ab4d4561d116ce",
+      "orderBookArchiveSha256": ["fa84826dc086ddd22bdcfaea707761f72e02d0366a7a49bce78eacb35f49ad41", "001c3051650250ceda2f840780d5fb28692cbe8268591d710ce0953cab7fb7cf", "cf17e4ec6b2c3e5117ac6c42fe13004ae7f9c397b5e3d79c77bf5868907743ca"],
+      "tradeArchiveSha256": ["ddd7a41f9b29f491992d5c1e4348779468d9e914d303672bfea7b131c01239f1", "d69aaa647f829dae5e6a585e4616d712a624bcd9af1ff3af7e74e584216581f1", "af206f5d2e1bbf37d44ad7def645ec18b5030c10531fe5dc5e3c9f4bf491f533"]
+    },
+    {
+      "id": "D09",
+      "era": "2024H1",
+      "sourceStartDate": "2024-05-23",
+      "sourceEndDate": "2024-05-25",
+      "sourceFingerprintSha256": "9d1454cfc00843b93a457d7b77959e2fce2224f90fcf9e7f106a05e3127ce3ce",
+      "orderBookArchiveSha256": ["09a5b27e1504212c8c84018941537bdcd05ba271db5270c6f38393ba289d7072", "9316251e4b4faeaa8ec0c143edda3c4b1fe95bd0a4163815054588ad4c609c52", "8d6667c2b786b997bbdc0a04e0b21dd9d7a261a48d9f668a0ab570725cfc7d17"],
+      "tradeArchiveSha256": ["d30d913ceca64b4549ad562b04257a321ca10b90d1e9a7e46a6c02057cfa1331", "52caa211cc888acc2e870496656df009c9a8f6caac74484999fd3c7ba12bf1d5", "d0a9221d2f8ae6d4e8a0bf442c9fa9ae02723f14084fe37960822d3e57d55dd7"]
+    },
+    {
+      "id": "D10",
+      "era": "2024H2",
+      "sourceStartDate": "2024-08-03",
+      "sourceEndDate": "2024-08-05",
+      "sourceFingerprintSha256": "d698f22b2b567bc56243e13950c308048c6fe600ee6d30c21e1f222f0043ae8a",
+      "orderBookArchiveSha256": ["43caf87e257f949c223b65fad5f0c4680d3ded8491a49779a4a4a717cf68f51b", "e777d0b0e651db002e81eb7a0c03c8e1fd88c60062d7748e4c2104fd58ad997f", "e5c8ec0e1a33cac2fb67cfddeaa4fc003b2ae406f828e0646d5627c8870b605e"],
+      "tradeArchiveSha256": ["0fe563b082a9a906fe6ef63990617fbea60bc990ff56c9e7b29ed505e2bfa6cd", "5fb60b86b38827607f22e4188e3105839bd573384992fd7ab063a1b2a0ab236d", "6bd548e84d17bab101842e9dcb4bc4f82bbcde6d76f257529ea0f0ba94836f83"]
+    },
+    {
+      "id": "D11",
+      "era": "2024H2",
+      "sourceStartDate": "2024-08-28",
+      "sourceEndDate": "2024-08-30",
+      "sourceFingerprintSha256": "3a5e599a44ed00886f98d276d293857a12c9383f9ea192676e856e36ea1677ba",
+      "orderBookArchiveSha256": ["c8db6b845209d12288757e12abcf191516cdfa0f57ccb97e084b036eff832fd0", "7051add3950e8610b060709b281f779907b1e63fdc37226bf0081c9e8f9a9d20", "42f60104d77adac0295357358cbd26944291c409f6e293bd4415b5d07b202cf4"],
+      "tradeArchiveSha256": ["a41a576defa33fd0dd851269eed7f9e2f271edcf56b89c0889f358b2c84cafb8", "d1d01b3add2d628b899ae318b8dac23ac0ec299592e0c3c93a49ca217cdcac5d", "0d60a629e2a07a0385bc10829732ffd519eb50bf2c0e73d19347f4ae8c282e17"]
+    },
+    {
+      "id": "D12",
+      "era": "2024H2",
+      "sourceStartDate": "2024-09-13",
+      "sourceEndDate": "2024-09-15",
+      "sourceFingerprintSha256": "31dcbb2ef34c7f286360072da73eb673251af6168eb9181e989d2ddd86a4f33d",
+      "orderBookArchiveSha256": ["818fff2b188b4b44885720e8082c7a0e64696d231b87ccb12bea4e22e21daf03", "57d80a9ae048fe3b2cdc28efe377dfb5bb211444275c3170cc1a68a2a106a511", "143039ea9b353759908cf0cced0641d063f45667e5e7afa748b78b548f03d67b"],
+      "tradeArchiveSha256": ["812d309d3834951955d273344bcaa60fbae3d6ab4d18fdddb40d31e417e5430b", "e1d2ceeb728fc2174f78a737662bebc04183a03cbe9166dd9b2bd727f85a39c4", "549d65b508856cd05825d3ef94c4b3ae467e4cbf966594bcd6ab27d0ab89bf47"]
+    }
+  ],
+  "lockedDataAcquired": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
