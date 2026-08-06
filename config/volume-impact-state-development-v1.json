@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "volume-impact-state-development-v1",
+  "status": "PREDECLARED_DEVELOPMENT",
+  "declaredAt": "2026-08-06",
+  "purpose": "Test two independent causal BTCUSDT hypotheses without opening the reserved sealed window or optimizing for a target compound-daily return.",
+  "selectionPolicy": {
+    "dailyCompoundReturnIsSearchObjective": false,
+    "automaticPromotionAllowed": false,
+    "maximumStageCandidateCount": 24,
+    "candidateFamilies": 2,
+    "candidatesPerFamily": 12,
+    "ranking": [
+      "MOVING_BLOCK_BOOTSTRAP_90_LOWER_MEAN_NET_R_DESC",
+      "MEDIAN_MONTHLY_RETURN_DESC",
+      "PROFIT_FACTOR_DESC",
+      "CANDIDATE_ID_ASC"
+    ]
+  },
+  "contaminationDisclosure": {
+    "legacyResultsThrough": "2026-07-02T05:45:00Z",
+    "legacyResultsWerePreviouslyInspected": true,
+    "legacyPost2024WindowsAreIndependentHoldout": false,
+    "developmentSelectionEndsAt": "2024-01-01T00:00:00Z",
+    "reservedSealedProtocolId": "fresh-sealed-validation-2026-08-v1",
+    "reservedSealedWindowMayBeReadDuringDevelopment": false
+  },
+  "sourceData": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframes": ["M1", "M5", "M15"],
+    "warmupMayStartAt": "2020-03-25T10:36:00Z",
+    "developmentReplayStartsAt": "2020-06-01T00:00:00Z",
+    "developmentReplayEndsAt": "2024-01-01T00:00:00Z"
+  },
+  "executionContract": {
+    "decisionClock": "M1_CLOSE",
+    "m15Input": "CLOSED_BARS_ONLY",
+    "m5SetupInput": "CLOSED_BARS_ONLY",
+    "m1ConfirmationMustBeStrictlyAfterM5Close": true,
+    "entry": "NEXT_CONTIGUOUS_M1_OPEN",
+    "sameBarConflict": "STOP_FIRST",
+    "discontinuousEntry": "NO_TRADE",
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002,
+    "riskFraction": 0.005,
+    "minimumInitialRiskPct": 0.004,
+    "maximumInitialRiskPct": 0.025,
+    "maximumTradesPerUtcDay": 2,
+    "cooldownMinutes": 60,
+    "quantityModel": "CONTINUOUS_RESEARCH_ONLY",
+    "capitalAndExchangeStepStressDeferredToStage": "M6"
+  },
+  "hypotheses": [
+    {
+      "family": "VOLUME_IMPACT_CONTINUATION",
+      "statement": "When a closed M15 trend agrees with a closed M5 breakout whose price displacement is efficient relative to its volume, later M1 follow-through is more likely to continue than reverse after costs.",
+      "fixed": {
+        "m15FastEma": 20,
+        "m15SlowEma": 50,
+        "m15SlopeLookbackBars": 4,
+        "m5VolumeLookbackBars": 48,
+        "m5AtrLookbackBars": 20,
+        "minimumBodyRatio": 0.55,
+        "minimumDirectionalCloseLocation": 0.75,
+        "minimumDisplacementAtr": 0.35,
+        "m1MinimumDirectionalCloseLocation": 0.6,
+        "m1MinimumRelativeVolume": 0.8,
+        "initialStopAtr": 1.25,
+        "trailingStopAtr": 2.5,
+        "maximumHoldingMinutes": 720
+      },
+      "grid": {
+        "minimumM5RelativeVolume": [1.5, 2.0, 2.5],
+        "m5BreakoutLookbackBars": [6, 12],
+        "m1ConfirmationWindowBars": [2, 4]
+      },
+      "candidateCount": 12
+    },
+    {
+      "family": "VOLUME_EXHAUSTION_REVERSAL",
+      "statement": "When a closed M5 bar breaks a prior extreme on exceptional volume but closes back inside with low directional impact and a dominant rejection wick, a later M1 continuation of that rejection is more likely to reverse after costs.",
+      "fixed": {
+        "m15FastEma": 20,
+        "m15SlowEma": 50,
+        "m5VolumeLookbackBars": 48,
+        "m5AtrLookbackBars": 20,
+        "maximumBodyRatio": 0.4,
+        "minimumRejectionWickRatio": 0.55,
+        "maximumDisplacementAtr": 0.45,
+        "maximumDirectionalCloseLocation": 0.4,
+        "m1MinimumDirectionalCloseLocation": 0.65,
+        "m1MinimumRelativeVolume": 0.8,
+        "initialStopBufferAtr": 0.25,
+        "targetR": 2.5,
+        "maximumHoldingMinutes": 360
+      },
+      "grid": {
+        "minimumM5RelativeVolume": [2.0, 2.5, 3.0],
+        "m5FailedBreakoutLookbackBars": [12, 24],
+        "m1ConfirmationWindowBars": [2, 4]
+      },
+      "candidateCount": 12
+    }
+  ],
+  "nestedWalkForward": {
+    "trainingMode": "EXPANDING",
+    "selectionOccursInsideEachTrainingPartition": true,
+    "validationIsNeverUsedToSelectThatFoldCandidate": true,
+    "folds": [
+      {
+        "id": "NW01",
+        "trainStartAt": "2020-06-01T00:00:00Z",
+        "trainEndAt": "2021-01-01T00:00:00Z",
+        "validationStartAt": "2021-01-01T00:00:00Z",
+        "validationEndAt": "2021-07-01T00:00:00Z"
+      },
+      {
+        "id": "NW02",
+        "trainStartAt": "2020-06-01T00:00:00Z",
+        "trainEndAt": "2021-07-01T00:00:00Z",
+        "validationStartAt": "2021-07-01T00:00:00Z",
+        "validationEndAt": "2022-01-01T00:00:00Z"
+      },
+      {
+        "id": "NW03",
+        "trainStartAt": "2020-06-01T00:00:00Z",
+        "trainEndAt": "2022-01-01T00:00:00Z",
+        "validationStartAt": "2022-01-01T00:00:00Z",
+        "validationEndAt": "2022-07-01T00:00:00Z"
+      },
+      {
+        "id": "NW04",
+        "trainStartAt": "2020-06-01T00:00:00Z",
+        "trainEndAt": "2022-07-01T00:00:00Z",
+        "validationStartAt": "2022-07-01T00:00:00Z",
+        "validationEndAt": "2023-01-01T00:00:00Z"
+      },
+      {
+        "id": "NW05",
+        "trainStartAt": "2020-06-01T00:00:00Z",
+        "trainEndAt": "2023-01-01T00:00:00Z",
+        "validationStartAt": "2023-01-01T00:00:00Z",
+        "validationEndAt": "2023-07-01T00:00:00Z"
+      },
+      {
+        "id": "NW06",
+        "trainStartAt": "2020-06-01T00:00:00Z",
+        "trainEndAt": "2023-07-01T00:00:00Z",
+        "validationStartAt": "2023-07-01T00:00:00Z",
+        "validationEndAt": "2024-01-01T00:00:00Z"
+      }
+    ]
+  },
+  "trainingEligibility": {
+    "minimumTrades": 30,
+    "minimumPositiveMonthRatio": 0.55,
+    "minimumProfitFactor": 1.05,
+    "maximumDrawdownPct": 20,
+    "bootstrap": {
+      "method": "CIRCULAR_MOVING_BLOCK",
+      "iterations": 1000,
+      "blockLengthTrades": 5,
+      "confidenceLevel": 0.9,
+      "seed": 20260806
+    }
+  },
+  "familyDevelopmentGate": {
+    "minimumPooledValidationTrades": 60,
+    "minimumPositiveValidationFolds": 4,
+    "totalValidationFolds": 6,
+    "minimumPooledProfitFactor": 1.1,
+    "minimumPooledMeanNetR": 0,
+    "minimumBootstrapLowerMeanNetR": 0,
+    "maximumPooledDrawdownPct": 20,
+    "maximumLiquidationCount": 0
+  },
+  "outcomePolicy": {
+    "noPassingFamily": "REJECT_STAGE_WITHOUT_OPENING_RESERVED_SEAL",
+    "passingFamily": "FREEZE_ONE_FULL_DEVELOPMENT_CANDIDATE_BEFORE_ANY_POST2024_REPLAY",
+    "multiplePassingFamilies": "KEEP_HYPOTHESES_SEPARATE_AND_FREEZE_AT_MOST_ONE_CANDIDATE_PER_FAMILY",
+    "liveExecutionAllowed": false
+  }
+}

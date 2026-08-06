@@ -21,6 +21,7 @@
 | Actual-fill protection contract | [actual-fill-protection-contract-2026-08-06.md](actual-fill-protection-contract-2026-08-06.md) | 실제 체결가 기준 TP/SL 재계산, 검증, fail-closed 실행 계약 |
 | Causal paper execution contract | [causal-paper-execution-contract-2026-08-06.md](causal-paper-execution-contract-2026-08-06.md) | 백테스트와 동일한 다음 봉 진입·포지션 정책을 사용하는 영속 Paper 실행 계약 |
 | Research evidence contract | [research-evidence-contract-2026-08-06.md](research-evidence-contract-2026-08-06.md) | 실험 fingerprint, sealed 소비, bootstrap·DSR·PBO와 전진 검증 승인 계약 |
+| Volume-impact state development | [volume-impact-state-development-protocol-2026-08-06.md](volume-impact-state-development-protocol-2026-08-06.md) | 거래량-가격충격 지속형·소진 반전형의 인과적 M15→M5→M1 nested walk-forward 계약 |
 | On-prem paper deployment | [on-prem-paper-deployment-runbook.md](on-prem-paper-deployment-runbook.md) | Twingate 뒤에서 인과적 paper loop를 운영하기 위한 배포 직전 절차 |
 
 ## 규칙
