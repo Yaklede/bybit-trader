@@ -15,7 +15,9 @@ import dev.yaklede.bybittrader.engine.control.BotRuntimeStatus
 import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.control.ControlEventRecorder
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
@@ -50,6 +52,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradeRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
 import dev.yaklede.bybittrader.ledger.db.ExecutionAccountSnapshots
+import dev.yaklede.bybittrader.ledger.db.ExecutionFillEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionLifecycleEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
@@ -842,6 +845,52 @@ class SqlDelightLedger(
             .map(ExecutionLifecycleEvents::toExecutionLifecycleEvent)
     }
 
+    override suspend fun recordExecutionFill(event: ExecutionFillEvent): Long? =
+        database.transactionWithResult {
+            val fill = event.fill
+            database.ledgerQueries.insertExecutionFillEvent(
+                mode = event.mode.name,
+                execution_id = fill.executionId,
+                exchange_order_id = fill.exchangeOrderId,
+                client_order_id = fill.clientOrderId,
+                symbol = fill.symbol.value,
+                side = fill.side.name,
+                price = fill.price.toPlainString(),
+                quantity = fill.quantity.toPlainString(),
+                fee = fill.fee.toPlainString(),
+                executed_at = fill.executedAt.toString(),
+                received_at = event.receivedAt.toString(),
+                execution_type = fill.executionType,
+                create_type = fill.createType,
+                stop_order_type = fill.stopOrderType,
+                closed_size = fill.closedSize?.toPlainString(),
+                execution_pnl = fill.executionPnl?.toPlainString(),
+                identity_key = event.identityKey(),
+            )
+            if (database.ledgerQueries.selectChanges().executeAsOne() == 0L) {
+                null
+            } else {
+                database.ledgerQueries.lastInsertRowId().executeAsOne()
+            }
+        }
+
+    override suspend fun executionFills(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+        executedAtOrAfter: Instant?,
+        limit: Int,
+    ): List<ExecutionFillEvent> {
+        require(limit in 1..10_000) { "Execution fill limit must be between 1 and 10000." }
+        return database.ledgerQueries
+            .selectExecutionFillEvents(
+                mode = mode.name,
+                symbol = symbol.value,
+                executedAtOrAfter = executedAtOrAfter?.toString(),
+                limit = limit.toLong(),
+            ).executeAsList()
+            .map(ExecutionFillEvents::toExecutionFillEvent)
+    }
+
     override suspend fun recordLivePerformanceSnapshot(snapshot: LivePerformanceSnapshot): Long {
         database.ledgerQueries.insertLivePerformanceSnapshot(
             mode = snapshot.mode.name,
@@ -945,6 +994,49 @@ private fun ExecutionLifecycleEvent.identityKey(): String =
         clientOrderId.orEmpty(),
         occurredAt.toString(),
     ).joinToString("|")
+
+private fun ExecutionFillEvent.identityKey(): String {
+    val fill = fill
+    val identity =
+        fill.executionId
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { "execution|$it" }
+            ?: listOf(
+                "fallback",
+                fill.exchangeOrderId.orEmpty(),
+                fill.clientOrderId.orEmpty(),
+                fill.side.name,
+                fill.price.toPlainString(),
+                fill.quantity.toPlainString(),
+                fill.executedAt.toString(),
+            ).joinToString("|")
+    return "${mode.name}|${fill.symbol.value}|$identity"
+}
+
+private fun ExecutionFillEvents.toExecutionFillEvent(): ExecutionFillEvent =
+    ExecutionFillEvent(
+        id = id,
+        mode = ExecutionRuntimeMode.valueOf(mode),
+        fill =
+            ExchangeExecutionFill(
+                exchangeOrderId = exchange_order_id,
+                clientOrderId = client_order_id,
+                symbol = Symbol(symbol),
+                side = Side.valueOf(side),
+                price = BigDecimal(price),
+                quantity = BigDecimal(quantity),
+                fee = BigDecimal(fee),
+                executedAt = Instant.parse(executed_at),
+                executionId = execution_id,
+                executionType = execution_type,
+                createType = create_type,
+                stopOrderType = stop_order_type,
+                closedSize = closed_size?.let(::BigDecimal),
+                executionPnl = execution_pnl?.let(::BigDecimal),
+            ),
+        receivedAt = Instant.parse(received_at),
+    )
 
 private fun ExecutionLifecycleEvents.toExecutionLifecycleEvent(): ExecutionLifecycleEvent =
     ExecutionLifecycleEvent(

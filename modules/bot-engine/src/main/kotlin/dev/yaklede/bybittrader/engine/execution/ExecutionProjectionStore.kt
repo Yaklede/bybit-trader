@@ -56,6 +56,13 @@ data class ExecutionAccountSnapshot(
     val capturedAt: Instant,
 )
 
+data class ExecutionFillEvent(
+    val id: Long = 0,
+    val mode: ExecutionRuntimeMode,
+    val fill: ExchangeExecutionFill,
+    val receivedAt: Instant,
+)
+
 data class PendingExecutionClosureAlert(
     val closure: ExecutionTradeClosure,
     val attemptCount: Int,
@@ -75,6 +82,15 @@ enum class LivePerformanceWindow {
 }
 
 interface ExecutionProjectionStore {
+    suspend fun recordExecutionFill(event: ExecutionFillEvent): Long? = null
+
+    suspend fun executionFills(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+        executedAtOrAfter: Instant?,
+        limit: Int,
+    ): List<ExecutionFillEvent> = emptyList()
+
     suspend fun recordTradeClosure(
         closure: ExecutionTradeClosure,
         suppressedAt: Instant? = null,

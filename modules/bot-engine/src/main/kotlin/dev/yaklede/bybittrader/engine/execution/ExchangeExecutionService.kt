@@ -601,12 +601,34 @@ class ExchangeExecutionService(
     suspend fun persistExchangeState(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
         persistAccountSnapshot()
+        persistExecutionFills(report.executions)
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
         val lifecycleEvent = persistLifecycleObservation(report)
         return report.copy(
             persistedClosures = persistedClosures,
             lifecycleEvent = lifecycleEvent,
         )
+    }
+
+    suspend fun persistExecutionFill(fill: ExchangeExecutionFill): ExecutionFillEvent? = persistExecutionFill(fill, Instant.now(clock))
+
+    private suspend fun persistExecutionFill(
+        fill: ExchangeExecutionFill,
+        receivedAt: Instant,
+    ): ExecutionFillEvent? {
+        val store = projectionStore ?: return null
+        val event =
+            ExecutionFillEvent(
+                mode = runtimeMode,
+                fill = fill,
+                receivedAt = receivedAt,
+            )
+        return store.recordExecutionFill(event)?.let { id -> event.copy(id = id) }
+    }
+
+    private suspend fun persistExecutionFills(fills: List<ExchangeExecutionFill>): List<ExecutionFillEvent> {
+        val receivedAt = Instant.now(clock)
+        return fills.mapNotNull { fill -> persistExecutionFill(fill, receivedAt) }
     }
 
     private suspend fun persistDiscoveredClosures(

@@ -1157,6 +1157,7 @@ class ExchangeExecutionServiceTest :
                     executions =
                         listOf(
                             ExchangeExecutionFill(
+                                executionId = "exec-entry-1",
                                 exchangeOrderId = "exchange-entry-1",
                                 clientOrderId = "client-entry-1",
                                 symbol = symbol,
@@ -1176,6 +1177,10 @@ class ExchangeExecutionServiceTest :
             latest?.state shouldBe ExecutionLifecycleState.PARTIALLY_FILLED
             latest?.filledQuantity shouldBe BigDecimal("0.4")
             latest?.fillVwap shouldBe BigDecimal("101")
+            val storedFill = store.fillEvents.single().fill
+            storedFill.executionId shouldBe "exec-entry-1"
+            service.persistExecutionFill(storedFill) shouldBe null
+            store.fillEvents.size shouldBe 1
         }
 
         "exchange reconciliation closes the active lifecycle from closed PnL" {
@@ -1393,6 +1398,7 @@ private class InMemoryTradingStore :
     val signals = mutableListOf<PaperSignalRecord>()
     val orders = mutableListOf<PaperOrderRecord>()
     val closures = mutableListOf<ExecutionTradeClosure>()
+    val fillEvents = mutableListOf<ExecutionFillEvent>()
     val lifecycleRecords = mutableListOf<ExecutionLifecycleEvent>()
     val performance = mutableListOf<LivePerformanceSnapshot>()
     val accountSnapshots = mutableListOf<ExecutionAccountSnapshot>()
@@ -1414,6 +1420,37 @@ private class InMemoryTradingStore :
     }
 
     override suspend fun recordFill(fill: PaperFillRecord): Long = 0
+
+    override suspend fun recordExecutionFill(event: ExecutionFillEvent): Long? {
+        val executionId = event.fill.executionId
+        if (
+            fillEvents.any { existing ->
+                existing.mode == event.mode &&
+                    existing.fill.symbol == event.fill.symbol &&
+                    executionId != null &&
+                    existing.fill.executionId == executionId
+            }
+        ) {
+            return null
+        }
+        val id = fillEvents.size + 1L
+        fillEvents += event.copy(id = id)
+        return id
+    }
+
+    override suspend fun executionFills(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+        executedAtOrAfter: Instant?,
+        limit: Int,
+    ): List<ExecutionFillEvent> =
+        fillEvents
+            .filter { event ->
+                event.mode == mode &&
+                    event.fill.symbol == symbol &&
+                    (executedAtOrAfter == null || !event.fill.executedAt.isBefore(executedAtOrAfter))
+            }.sortedByDescending { event -> event.fill.executedAt }
+            .take(limit)
 
     override suspend fun recordPosition(position: PaperPositionRecord): Long = 0
 

@@ -272,6 +272,33 @@ ON executionLifecycleEvents(identity_key);
 CREATE INDEX executionLifecycleEvents_mode_symbol_id_idx
 ON executionLifecycleEvents(mode, symbol, id DESC);
 
+CREATE TABLE executionFillEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL,
+  execution_id TEXT,
+  exchange_order_id TEXT,
+  client_order_id TEXT,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  price TEXT NOT NULL,
+  quantity TEXT NOT NULL,
+  fee TEXT NOT NULL,
+  executed_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  execution_type TEXT,
+  create_type TEXT,
+  stop_order_type TEXT,
+  closed_size TEXT,
+  execution_pnl TEXT,
+  identity_key TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX executionFillEvents_identity_idx
+ON executionFillEvents(identity_key);
+
+CREATE INDEX executionFillEvents_mode_symbol_executedAt_id_idx
+ON executionFillEvents(mode, symbol, executed_at DESC, id DESC);
+
 CREATE TABLE executionAccountSnapshots (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   mode TEXT NOT NULL,
@@ -911,6 +938,38 @@ FROM executionLifecycleEvents
 WHERE (:mode IS NULL OR mode = :mode)
   AND (:symbol IS NULL OR symbol = :symbol)
 ORDER BY id DESC
+LIMIT :limit;
+
+insertExecutionFillEvent:
+INSERT OR IGNORE INTO executionFillEvents(
+  mode,
+  execution_id,
+  exchange_order_id,
+  client_order_id,
+  symbol,
+  side,
+  price,
+  quantity,
+  fee,
+  executed_at,
+  received_at,
+  execution_type,
+  create_type,
+  stop_order_type,
+  closed_size,
+  execution_pnl,
+  identity_key
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectExecutionFillEvents:
+SELECT id, mode, execution_id, exchange_order_id, client_order_id, symbol, side, price, quantity, fee,
+  executed_at, received_at, execution_type, create_type, stop_order_type, closed_size, execution_pnl, identity_key
+FROM executionFillEvents
+WHERE mode = :mode
+  AND symbol = :symbol
+  AND (:executedAtOrAfter IS NULL OR executed_at >= :executedAtOrAfter)
+ORDER BY executed_at DESC, id DESC
 LIMIT :limit;
 
 insertLivePerformanceSnapshot:

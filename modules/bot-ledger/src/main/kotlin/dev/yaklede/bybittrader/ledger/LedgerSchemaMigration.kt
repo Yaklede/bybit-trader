@@ -278,6 +278,30 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         "CREATE UNIQUE INDEX IF NOT EXISTS executionLifecycleEvents_identity_idx ON executionLifecycleEvents(identity_key)",
         "CREATE INDEX IF NOT EXISTS executionLifecycleEvents_mode_symbol_id_idx ON executionLifecycleEvents(mode, symbol, id DESC)",
         """
+        CREATE TABLE IF NOT EXISTS executionFillEvents (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          mode TEXT NOT NULL,
+          execution_id TEXT,
+          exchange_order_id TEXT,
+          client_order_id TEXT,
+          symbol TEXT NOT NULL,
+          side TEXT NOT NULL,
+          price TEXT NOT NULL,
+          quantity TEXT NOT NULL,
+          fee TEXT NOT NULL,
+          executed_at TEXT NOT NULL,
+          received_at TEXT NOT NULL,
+          execution_type TEXT,
+          create_type TEXT,
+          stop_order_type TEXT,
+          closed_size TEXT,
+          execution_pnl TEXT,
+          identity_key TEXT NOT NULL
+        )
+        """.trimIndent(),
+        "CREATE UNIQUE INDEX IF NOT EXISTS executionFillEvents_identity_idx ON executionFillEvents(identity_key)",
+        "CREATE INDEX IF NOT EXISTS executionFillEvents_mode_symbol_executedAt_id_idx ON executionFillEvents(mode, symbol, executed_at DESC, id DESC)",
+        """
         CREATE TABLE IF NOT EXISTS executionAccountSnapshots (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           mode TEXT NOT NULL,

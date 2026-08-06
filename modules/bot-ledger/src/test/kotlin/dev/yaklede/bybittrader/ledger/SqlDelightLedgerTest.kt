@@ -13,7 +13,9 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
@@ -572,6 +574,51 @@ class SqlDelightLedgerTest :
             ledger.lifecycleEvents(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), 10).size shouldBe 1
         }
 
+        "stores exchange fills once by execution id and preserves private metadata" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val event =
+                ExecutionFillEvent(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    fill =
+                        ExchangeExecutionFill(
+                            executionId = "exec-1",
+                            exchangeOrderId = "order-1",
+                            clientOrderId = "bt-BTCUSDT-entry-1",
+                            symbol = Symbol("BTCUSDT"),
+                            side = Side.BUY,
+                            price = BigDecimal("64000.5"),
+                            quantity = BigDecimal("0.001"),
+                            fee = BigDecimal("0.0352"),
+                            executedAt = Instant.parse("2026-06-30T00:00:01Z"),
+                            executionType = "Trade",
+                            createType = "CreateByUser",
+                            stopOrderType = "UNKNOWN",
+                            closedSize = BigDecimal.ZERO,
+                            executionPnl = BigDecimal.ZERO,
+                        ),
+                    receivedAt = Instant.parse("2026-06-30T00:00:02Z"),
+                )
+
+            ledger.recordExecutionFill(event) shouldBe 1L
+            ledger.recordExecutionFill(event.copy(receivedAt = Instant.parse("2026-06-30T00:00:03Z"))) shouldBe null
+
+            val stored =
+                ledger
+                    .executionFills(
+                        mode = ExecutionRuntimeMode.LIVE,
+                        symbol = Symbol("BTCUSDT"),
+                        executedAtOrAfter = Instant.parse("2026-06-30T00:00:00Z"),
+                        limit = 10,
+                    ).single()
+            stored.id shouldBe 1L
+            stored.fill.executionId shouldBe "exec-1"
+            stored.fill.createType shouldBe "CreateByUser"
+            stored.fill.fee shouldBe BigDecimal("0.0352")
+            stored.receivedAt shouldBe Instant.parse("2026-06-30T00:00:02Z")
+        }
+
         "additive migration adds actual-fill protection metadata to a legacy lifecycle table" {
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             driver.execute(
@@ -612,6 +659,9 @@ class SqlDelightLedgerTest :
                     "fixed_target_enabled",
                     "intended_risk",
                 ),
+            ) shouldBe true
+            tableColumnNames(driver, "executionFillEvents").containsAll(
+                setOf("execution_id", "executed_at", "received_at", "identity_key"),
             ) shouldBe true
         }
 

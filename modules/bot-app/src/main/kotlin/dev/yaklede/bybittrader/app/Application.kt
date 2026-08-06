@@ -278,7 +278,11 @@ fun main() {
                             execution.executionId,
                             execution.closedSize?.toPlainString(),
                         )
-                        executionReconciliationLoop.requestImmediateReconciliation()
+                        try {
+                            executionService.persistExecutionFill(execution)
+                        } finally {
+                            executionReconciliationLoop.requestImmediateReconciliation()
+                        }
                     }
                 },
             ).start(privateExecutionStreamScope)

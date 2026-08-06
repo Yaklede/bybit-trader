@@ -87,6 +87,19 @@ actual average fill, actual size, and actual-fill stop. If it exceeds persisted
 `intendedRisk` by more than the configured fraction, the full position is
 submitted for reduce-only closure before any strategy management continues.
 
+## Fill journal
+
+Every private execution is stored in the append-only `executionFillEvents`
+journal before immediate reconciliation is requested. `mode + symbol + execId`
+is the preferred deduplication identity; a deterministic
+order/price/quantity/time identity is used only when the provider omits
+`execId`. REST reconciliation backfills the same journal, so reconnects and
+WebSocket retries cannot duplicate fees or quantities and process restarts do
+not erase partial-fill evidence.
+
+An order acknowledgement is still not treated as a fill. Final IOC order state
+confirmation is handled separately through the private order stream.
+
 ## Verification
 
 Regression coverage includes:
@@ -96,14 +109,13 @@ Regression coverage includes:
 - protection failure after deadline and reduce-only fail-closed exit
 - open entry counting for the UTC daily cap
 - lifecycle metadata persistence and legacy schema migration
+- execution fill persistence and `execId` retry deduplication
 - existing max-hold, closure, alert, and account-performance behavior
 
 ## Remaining work
 
 - Make historical, paper, shadow, and exchange adapters consume one shared
   position-policy state machine.
-- Persist execution fills as an idempotent `execId` ledger instead of relying
-  only on the position average price for reconciliation.
 - Define partial-fill remainder deadlines and asynchronous exit confirmation.
 - Replace configured tick/quantity constraints with periodically refreshed
   exchange instrument metadata.
@@ -115,4 +127,5 @@ Regression coverage includes:
 - Bybit place order: https://bybit-exchange.github.io/docs/v5/order/create-order
 - Bybit set trading stop: https://bybit-exchange.github.io/docs/v5/position/trading-stop
 - Bybit private execution stream: https://bybit-exchange.github.io/docs/v5/websocket/private/execution
+- Bybit private order stream: https://bybit-exchange.github.io/docs/v5/websocket/private/order
 - Bybit private position stream: https://bybit-exchange.github.io/docs/v5/websocket/private/position
