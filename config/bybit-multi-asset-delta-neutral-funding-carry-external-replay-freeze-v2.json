@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "freezeId": "bybit-multi-asset-delta-neutral-funding-carry-external-replay-freeze-v2",
+  "status": "FROZEN_BEFORE_MULTI_ASSET_EXTERNAL_OUTCOME_REPLAY",
+  "frozenAt": "2026-08-06",
+  "protocol": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-external-v2.json",
+    "sha256": "563c30e593688d38ff4747f8bf21627f9d623161c8856102885e92635a17f24a"
+  },
+  "acquisitionReceipt": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-external-acquisition-receipt-v2.json",
+    "sha256": "561ed7a3c95f695d47063b510a4aefcfde037564060c97470576cefc4165f991"
+  },
+  "implementation": {
+    "simulatorPath": "scripts/lib/multi-asset-delta-neutral-funding-carry-research.mjs",
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "replayPath": "scripts/multi-asset-delta-neutral-funding-carry-external-replay.mjs",
+    "replaySha256": "b2f960b748ca1d41c86de5bb50ebebf9bb058cb6fb3811336839732b93b1c7c3",
+    "compositeSha256": "6619cc958b0ffcf220f8a7cbcdc17b8ca77eb84d4878d2a2e9070e6f7bdbafb7"
+  },
+  "outcomeBoundary": {
+    "externalPortfolioMetricsReadBeforeFreeze": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "candidatePolicy": {
+    "candidateId": "multi_asset_delta_neutral_carry_04",
+    "candidateSha256": "2b46f1abe6caef9fb31eb6ad85de2ff4973985e52d76a1f377cc8ef2e6d974e9",
+    "evaluatedCandidateCount": 1,
+    "candidateMayBeRetunedAfterOutcome": false
+  },
+  "gatePolicy": {
+    "allExternalGatesMustPassBeforeSealedAcquisition": true,
+    "gateMayBeChangedAfterOutcome": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
