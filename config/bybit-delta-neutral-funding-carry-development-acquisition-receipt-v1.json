@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bybit-delta-neutral-funding-carry-development-acquisition-receipt-v1",
+  "status": "COMPLETE_DELTA_NEUTRAL_DEVELOPMENT_EVIDENCE_SEALED",
+  "protocolId": "bybit-delta-neutral-funding-carry-development-v1",
+  "protocolSha256": "6a3cdf6c4f56c37343e106b54fda9474f1b08d1b78e85fa73e6752c0d9c961b3",
+  "parentResultSha256": "7f4ff15d0842cba7c7453b743dbcba387b780eae74e9838719b12346ef77d1e2",
+  "implementationSha256": "accd84494703b2e342dd60c2139776f16e9aafc369452e003b91a774619c542f",
+  "acquisitionReportSha256": "625de6e1ba1214572623eca5222148e53cae281a29dbd8921d2f85d7125f9824",
+  "stage": "development",
+  "developmentStart": "2023-01-01T00:00:00Z",
+  "developmentEndExclusive": "2024-01-01T00:00:00Z",
+  "stageSnapshot": "build/research/bybit-delta-neutral-funding-carry-development-v1-development.sqlite",
+  "stageSnapshotSha256": "8e469a14e1895462158649531d4e27950a31665aac52bd42896f7ffcc5404e6e",
+  "normalizedEvidenceSha256": "0709d302565a9805820adf5dc9fbdfe76b6591886fc15a0bc243ea9d2314a39e",
+  "officialRestEvidence": {
+    "spotLast": {
+      "pageCount": 106,
+      "rowCount": 105120,
+      "responseChainSha256": "fcda4e3f83aa6d7005128f9ec84a7d9475a75a22e2500e4da9787af02d3f676d",
+      "contentSha256": "bb87b8f9e1805a283f04e19f1b92cc1024ff440fcb9b6df537f56169a5a6f49e"
+    },
+    "perpetualLast": {
+      "pageCount": 106,
+      "rowCount": 105120,
+      "responseChainSha256": "3c4929871cb2e3d40d219f46105bedef08a4e404620d1531d660be7c67c2ef39",
+      "contentSha256": "3f5e7c871b850c00d520c761036f46d28c9f9ce2f408e8151936e5036e6cab19"
+    },
+    "perpetualMark": {
+      "pageCount": 106,
+      "rowCount": 105120,
+      "responseChainSha256": "03a4d3a6a6cb744bb37241a0a28880aee6b5f71cab73a56e0adf8214c49e26c7",
+      "contentSha256": "3c67ad3b27278d276545187298cef90caa18b8a02fa4b741f0edbd63b65bb804"
+    },
+    "perpetualIndex": {
+      "pageCount": 106,
+      "rowCount": 105120,
+      "responseChainSha256": "f438125671c336afdc4c6c2c759b396e6e9edcd418b604f2cefac40ab0c8eb43",
+      "contentSha256": "87464cb22c280000c89d3eb99cef922217c18dc32c00679bc79579318c5ae469"
+    },
+    "funding": {
+      "pageCount": 6,
+      "rowCount": 1095,
+      "responseChainSha256": "9d3cdfa06083f366063c1ca19f96f9d16be813d13b9f7e7e983bd9e3ba680588",
+      "contentSha256": "7e4217b2129f42c796ea2e1e2f7c1472613c3a7f2e536b826efb91c2df4b0ac0"
+    }
+  },
+  "coverage": {
+    "expectedM5RowsPerSeries": 105120,
+    "matchingM5Rows": 105120,
+    "fundingRows": 1095,
+    "offGridRowCount": 0,
+    "invalidPriceRowCount": 0,
+    "missingDecisionInputCount": 0
+  },
+  "integrity": {
+    "allFourM5SeriesContinuousAndOnGrid": true,
+    "allFourM5SeriesShareExactTimeline": true,
+    "allFundingIntervalsContinuous": true,
+    "allFundingSettlementsHaveCausalDecisionAndEntryBars": true,
+    "allRawRestPagesRetainedAndHashed": true,
+    "stageSnapshotStableAcrossResume": true,
+    "acquisitionReportStableAcrossResume": true,
+    "temporarySqliteSidecarsRemoved": true
+  },
+  "lockedEvidence": {
+    "internalValidation2024Read": false,
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "developmentEvaluationAllowed": true,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
