@@ -7,6 +7,7 @@ import {
   MINUTE_MS,
   TIMEFRAME_MS,
   attachClosedM15Regimes,
+  detectM5Setup,
   expandCandidates,
   prepareHigherTimeframeCandles,
   resolveExitOnCandle,
@@ -16,6 +17,9 @@ import {
 const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const protocol = JSON.parse(
   await fs.readFile(path.join(repoRoot, "config/volume-impact-state-development-v1.json"), "utf8"),
+);
+const v2Protocol = JSON.parse(
+  await fs.readFile(path.join(repoRoot, "config/volume-structure-development-v2.json"), "utf8"),
 );
 
 test("candidate expansion preserves the predeclared two-family 24-trial boundary", () => {
@@ -102,6 +106,55 @@ test("same-bar stop and target conflict is stop-first, while a gap stop fills at
   assert.deepEqual(resolveExitOnCandle(position, gap), { price: 94, reason: "STOP" });
 });
 
+test("v2 continuation waits for a post-setup retest and fills on the following M1", async () => {
+  const fixture = continuationFixture();
+  fixture.m1[915] = candle(
+    Date.parse("2020-06-01T00:15:00Z"),
+    101.0,
+    101.3,
+    100.75,
+    101.2,
+    100,
+    MINUTE_MS,
+  );
+  fixture.m1[916] = candle(
+    Date.parse("2020-06-01T00:16:00Z"),
+    101.22,
+    101.45,
+    101.1,
+    101.35,
+    100,
+    MINUTE_MS,
+  );
+  const candidate = expandCandidates(v2Protocol).find((item) => item.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION");
+  const batch = await runCandidateBatch({
+    m1Candles: fixture.m1,
+    m5Candles: fixture.m5,
+    m15Candles: fixture.m15,
+    candidates: [candidate],
+    protocol: v2Protocol,
+  });
+  const trade = batch.candidates[0].trades[0];
+  assert.ok(trade, JSON.stringify(batch.candidates[0], null, 2));
+  assert.equal(trade.setupAt, "2020-06-01T00:15:00.000Z");
+  assert.equal(trade.confirmationAt, "2020-06-01T00:16:00.000Z");
+  assert.equal(trade.openedAt, "2020-06-01T00:16:00.000Z");
+});
+
+test("v2 clustered reversal uses two closed M5 bars and the closed M15 direction", () => {
+  const fixture = clusteredReversalFixture();
+  const m5 = prepareHigherTimeframeCandles(fixture.m5, TIMEFRAME_MS.M5);
+  const m15 = prepareHigherTimeframeCandles(fixture.m15, TIMEFRAME_MS.M15);
+  attachClosedM15Regimes(m5, m15, 4);
+  const candidate = expandCandidates(v2Protocol).find((item) => item.family === "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL");
+  const setup = detectM5Setup(candidate, m5, m5.length - 1);
+  assert.ok(setup);
+  assert.equal(setup.side, "SELL");
+  assert.equal(setup.m15Regime.direction, "SELL");
+  assert.ok(setup.relativeVolume >= candidate.minimumClusterRelativeVolume);
+  assert.ok(setup.displacementAtr <= candidate.maximumClusterDisplacementAtr);
+});
+
 function continuationFixture() {
   const replayStart = Date.parse(protocol.sourceData.developmentReplayStartsAt);
   const base = replayStart - 15 * 60 * MINUTE_MS;
@@ -130,6 +183,22 @@ function continuationFixture() {
   m1[916] = candle(Date.parse("2020-06-01T00:16:00Z"), 102.35, 102.55, 102.25, 102.45, 100, MINUTE_MS);
   m1[917] = candle(Date.parse("2020-06-01T00:17:00Z"), 102.45, 102.65, 102.35, 102.55, 100, MINUTE_MS);
   return { m1, m5, m15 };
+}
+
+function clusteredReversalFixture() {
+  const replayStart = Date.parse(v2Protocol.sourceData.developmentReplayStartsAt);
+  const base = replayStart - 15 * 60 * MINUTE_MS;
+  const m15 = Array.from({ length: 61 }, (_, index) => {
+    const open = 110 - index * 0.08;
+    return candle(base + index * TIMEFRAME_MS.M15, open, open + 0.04, open - 0.12, open - 0.08, 300, TIMEFRAME_MS.M15);
+  });
+  const m5 = Array.from({ length: 183 }, (_, index) => {
+    const open = 110 - index * 0.005;
+    return candle(base + index * TIMEFRAME_MS.M5, open, open + 0.04, open - 0.08, open - 0.04, 100, TIMEFRAME_MS.M5);
+  });
+  m5[181] = candle(Date.parse("2020-06-01T00:05:00Z"), 109.0, 110.0, 108.9, 109.6, 200, TIMEFRAME_MS.M5);
+  m5[182] = candle(Date.parse("2020-06-01T00:10:00Z"), 109.6, 110.2, 109.0, 109.05, 200, TIMEFRAME_MS.M5);
+  return { m5, m15 };
 }
 
 function candle(openedAtMs, open, high, low, close, volume, durationMs) {

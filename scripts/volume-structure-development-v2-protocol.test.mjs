@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
+import { expandCandidates } from "./lib/volume-impact-state-research.mjs";
+
 const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const protocol = JSON.parse(
   await fs.readFile(path.join(repoRoot, "config/volume-structure-development-v2.json"), "utf8"),
@@ -22,6 +24,9 @@ test("v2 is a bounded new hypothesis stage derived from the rejected v1 result",
   );
   assert.deepEqual(counts, [12, 12]);
   assert.equal(counts.reduce((sum, count) => sum + count, 0), 24);
+  const candidates = expandCandidates(protocol);
+  assert.equal(candidates.length, 24);
+  assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 24);
 });
 
 test("v2 never reads beyond pre-2024 development or opens the reserved seal", () => {

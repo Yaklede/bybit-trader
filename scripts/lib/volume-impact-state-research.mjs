@@ -36,13 +36,15 @@ export function expandCandidates(protocol) {
   for (const hypothesis of protocol.hypotheses ?? []) {
     const gridEntries = Object.entries(hypothesis.grid ?? {});
     for (const parameters of cartesianGrid(gridEntries)) {
-      const prefix = hypothesis.family === "VOLUME_IMPACT_CONTINUATION" ? "vic" : "ver";
+      const prefix = candidatePrefix(hypothesis.family);
       const lookback = parameters.m5BreakoutLookbackBars ?? parameters.m5FailedBreakoutLookbackBars;
+      const volume = parameters.minimumM5RelativeVolume ?? parameters.minimumClusterRelativeVolume;
+      const confirmation = parameters.m1ConfirmationWindowBars ?? parameters.m1RetestWindowBars;
       const id = [
         prefix,
-        `rv${numberId(parameters.minimumM5RelativeVolume)}`,
+        `rv${numberId(volume)}`,
         `lb${lookback}`,
-        `cf${parameters.m1ConfirmationWindowBars}`,
+        `${hypothesis.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION" ? "rt" : "cf"}${confirmation}`,
       ].join("_");
       candidates.push({
         id,
@@ -56,6 +58,16 @@ export function expandCandidates(protocol) {
     throw new Error("Expanded candidate IDs must be unique.");
   }
   return candidates;
+}
+
+function candidatePrefix(family) {
+  switch (family) {
+    case "VOLUME_IMPACT_CONTINUATION": return "vic";
+    case "VOLUME_EXHAUSTION_REVERSAL": return "ver";
+    case "VOLUME_BREAKOUT_RETEST_CONTINUATION": return "vbr";
+    case "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL": return "cve";
+    default: throw new Error(`Unsupported candidate family: ${family}`);
+  }
 }
 
 function cartesianGrid(entries, index = 0, current = {}) {
@@ -232,10 +244,71 @@ export function detectM5Setup(candidate, candles, index) {
   if (candidate.family === "VOLUME_IMPACT_CONTINUATION") {
     return continuationSetup(candidate, candles, index);
   }
+  if (candidate.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION") {
+    const setup = continuationSetup(candidate, candles, index);
+    if (setup != null) setup.breakoutLevel = setup.side === "BUY" ? setup.priorHigh : setup.priorLow;
+    return setup;
+  }
   if (candidate.family === "VOLUME_EXHAUSTION_REVERSAL") {
     return reversalSetup(candidate, candles, index);
   }
+  if (candidate.family === "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL") {
+    return clusteredReversalSetup(candidate, candles, index);
+  }
   throw new Error(`Unsupported candidate family: ${candidate.family}`);
+}
+
+function clusteredReversalSetup(candidate, candles, index) {
+  const current = candles[index];
+  const previous = candles[index - 1];
+  const range = priorRange(candles, index - 1, candidate.m5FailedBreakoutLookbackBars);
+  if (previous == null || range == null || current.m15Regime?.direction === "NEUTRAL") return null;
+  const baselineVolume = current.relativeVolume != null && current.relativeVolume > 0
+    ? current.volume / current.relativeVolume
+    : null;
+  if (baselineVolume == null || baselineVolume <= 0 || current.atr == null || current.atr <= 0) return null;
+  const clusterRelativeVolume = (previous.volume + current.volume) / (2 * baselineVolume);
+  if (clusterRelativeVolume < candidate.minimumClusterRelativeVolume) return null;
+  const high = Math.max(previous.high, current.high);
+  const low = Math.min(previous.low, current.low);
+  const clusterRange = high - low;
+  if (clusterRange <= 0) return null;
+  const displacementAtr = Math.abs(current.close - previous.open) / current.atr;
+  if (displacementAtr > candidate.maximumClusterDisplacementAtr) return null;
+  const closeLocation = (current.close - low) / clusterRange;
+  const upperRejection = (high - Math.max(previous.open, current.close)) / clusterRange;
+  const lowerRejection = (Math.min(previous.open, current.close) - low) / clusterRange;
+  const sell =
+    current.m15Regime.direction === "SELL" &&
+    high > range.high &&
+    current.close < range.high &&
+    upperRejection >= candidate.minimumClusterRejectionRatio &&
+    closeLocation <= candidate.maximumDirectionalCloseLocation;
+  const buy =
+    current.m15Regime.direction === "BUY" &&
+    low < range.low &&
+    current.close > range.low &&
+    lowerRejection >= candidate.minimumClusterRejectionRatio &&
+    closeLocation >= 1 - candidate.maximumDirectionalCloseLocation;
+  if (!sell && !buy) return null;
+  return {
+    candidateId: candidate.id,
+    family: candidate.family,
+    side: buy ? "BUY" : "SELL",
+    setupOpenedAtMs: previous.openedAtMs,
+    setupCloseTimeMs: current.closeTimeMs,
+    high,
+    low,
+    close: current.close,
+    atr: current.atr,
+    relativeVolume: clusterRelativeVolume,
+    displacementAtr,
+    bodyRatio: Math.abs(current.close - previous.open) / clusterRange,
+    closeLocation,
+    priorHigh: range.high,
+    priorLow: range.low,
+    m15Regime: current.m15Regime,
+  };
 }
 
 function continuationSetup(candidate, candles, index) {
@@ -449,13 +522,18 @@ function defaultContractForGap(state) {
 
 function expireArm(state, decisionTimeMs) {
   if (state.arm == null) return;
-  const expiresAt = state.arm.setupCloseTimeMs + state.candidate.m1ConfirmationWindowBars * MINUTE_MS;
+  const windowBars = state.candidate.m1ConfirmationWindowBars ?? state.candidate.m1RetestWindowBars;
+  const expiresAt = state.arm.setupCloseTimeMs + windowBars * MINUTE_MS;
   if (decisionTimeMs > expiresAt) state.arm = null;
 }
 
 function confirmArm(state, candle) {
   const setup = state.arm;
   if (setup == null || candle.closeTimeMs <= setup.setupCloseTimeMs) return;
+  if (state.candidate.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION") {
+    confirmRetestArm(state, candle);
+    return;
+  }
   const relativeVolume = candle.relativeVolume ?? 0;
   if (relativeVolume < state.candidate.m1MinimumRelativeVolume) return;
   const directionalLocation = setup.side === "BUY" ? candle.closeLocation : 1 - candle.closeLocation;
@@ -470,6 +548,36 @@ function confirmArm(state, candle) {
     setup,
     confirmationAtMs: candle.closeTimeMs,
     expectedEntryAtMs: candle.openedAtMs + MINUTE_MS,
+    confirmationHigh: candle.high,
+    confirmationLow: candle.low,
+  };
+  state.arm = null;
+}
+
+function confirmRetestArm(state, candle) {
+  const setup = state.arm;
+  const candidate = state.candidate;
+  const invalidated = setup.side === "BUY" ? candle.close < setup.low : candle.close > setup.high;
+  if (invalidated) {
+    state.arm = null;
+    return;
+  }
+  const tolerance = setup.atr * candidate.retestToleranceAtr;
+  const touched = setup.side === "BUY"
+    ? candle.low <= setup.breakoutLevel + tolerance
+    : candle.high >= setup.breakoutLevel - tolerance;
+  setup.retestTouched = setup.retestTouched === true || touched;
+  if (!setup.retestTouched || candle.relativeVolume == null || candle.relativeVolume > candidate.m1MaximumRelativeVolume) return;
+  const directionalLocation = setup.side === "BUY" ? candle.closeLocation : 1 - candle.closeLocation;
+  const directionalBody = setup.side === "BUY" ? candle.close > candle.open : candle.close < candle.open;
+  const accepted = setup.side === "BUY" ? candle.close > setup.breakoutLevel : candle.close < setup.breakoutLevel;
+  if (!directionalBody || !accepted || directionalLocation < candidate.m1MinimumDirectionalCloseLocation) return;
+  state.pending = {
+    setup,
+    confirmationAtMs: candle.closeTimeMs,
+    expectedEntryAtMs: candle.openedAtMs + MINUTE_MS,
+    confirmationHigh: candle.high,
+    confirmationLow: candle.low,
   };
   state.arm = null;
 }
@@ -499,7 +607,11 @@ function buildPosition(state, pending, candle, contract) {
   const { setup } = pending;
   const side = setup.side;
   const entryPrice = adverseEntryFill(candle.open, side, contract.entrySlippageRate);
-  const stopPrice = state.candidate.family === "VOLUME_IMPACT_CONTINUATION"
+  const stopPrice = state.candidate.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION"
+    ? side === "BUY"
+      ? pending.confirmationLow - setup.atr * state.candidate.confirmationStopBufferAtr
+      : pending.confirmationHigh + setup.atr * state.candidate.confirmationStopBufferAtr
+    : state.candidate.family === "VOLUME_IMPACT_CONTINUATION"
     ? side === "BUY"
       ? Math.min(setup.low, entryPrice - setup.atr * state.candidate.initialStopAtr)
       : Math.max(setup.high, entryPrice + setup.atr * state.candidate.initialStopAtr)
@@ -516,7 +628,7 @@ function buildPosition(state, pending, candle, contract) {
   if (!Number.isFinite(netRiskPerUnit) || netRiskPerUnit <= 0) return null;
   const riskAmount = state.equity * contract.riskFraction;
   const quantity = riskAmount / netRiskPerUnit;
-  const targetPrice = state.candidate.family === "VOLUME_EXHAUSTION_REVERSAL"
+  const targetPrice = ["VOLUME_EXHAUSTION_REVERSAL", "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL"].includes(state.candidate.family)
     ? side === "BUY"
       ? entryPrice + triggerRiskPerUnit * state.candidate.targetR
       : entryPrice - triggerRiskPerUnit * state.candidate.targetR
@@ -536,6 +648,7 @@ function buildPosition(state, pending, candle, contract) {
     entryPrice,
     quantity,
     riskAmount,
+    triggerRiskPerUnit,
     stopPrice,
     targetPrice,
     liquidationPrice,
@@ -587,6 +700,34 @@ function processPositionCandle(state, candle, contract) {
       position.stopPrice = nextStop;
     }
   }
+  if (position.family === "VOLUME_BREAKOUT_RETEST_CONTINUATION") {
+    updateRetestTrailingStop(state, position, candle);
+  }
+}
+
+function updateRetestTrailingStop(state, position, candle) {
+  const candidate = state.candidate;
+  const previousStop = position.stopPrice;
+  if (position.side === "BUY") {
+    position.bestHigh = Math.max(position.bestHigh, candle.high);
+    const favorableR = (position.bestHigh - position.entryPrice) / position.triggerRiskPerUnit;
+    if (favorableR >= candidate.breakEvenTriggerR) {
+      position.stopPrice = Math.max(position.stopPrice, position.entryPrice + position.triggerRiskPerUnit * candidate.breakEvenLockR);
+    }
+    if (favorableR >= candidate.trailingActivationR) {
+      position.stopPrice = Math.max(position.stopPrice, position.bestHigh - position.setup.atr * candidate.trailingStopAtr);
+    }
+  } else {
+    position.bestLow = Math.min(position.bestLow, candle.low);
+    const favorableR = (position.entryPrice - position.bestLow) / position.triggerRiskPerUnit;
+    if (favorableR >= candidate.breakEvenTriggerR) {
+      position.stopPrice = Math.min(position.stopPrice, position.entryPrice - position.triggerRiskPerUnit * candidate.breakEvenLockR);
+    }
+    if (favorableR >= candidate.trailingActivationR) {
+      position.stopPrice = Math.min(position.stopPrice, position.bestLow + position.setup.atr * candidate.trailingStopAtr);
+    }
+  }
+  position.trailingMoved = position.trailingMoved === true || position.stopPrice !== previousStop;
 }
 
 function updateExcursions(position, candle, contract) {
