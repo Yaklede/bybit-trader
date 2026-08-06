@@ -560,7 +560,7 @@ function hasCompleteDay(db, importTable, sliceTable, symbol, date, archiveSha256
   return row?.archive_sha256 === archiveSha256 && Number(row.slice_count) === 17_280 && Number(row.actual_count) === 17_280;
 }
 
-function copyCandleBlocks(sourceDb, targetDb, symbol, blocks) {
+export function copyCandleBlocks(sourceDb, targetDb, symbol, blocks) {
   const select = sourceDb.prepare(`
     SELECT symbol, timeframe, opened_at, open, high, low, close, volume, source_timestamp
     FROM marketCandles
@@ -568,7 +568,7 @@ function copyCandleBlocks(sourceDb, targetDb, symbol, blocks) {
     ORDER BY opened_at, timeframe
   `);
   const insert = targetDb.prepare(`
-    INSERT OR REPLACE INTO marketCandles(
+    INSERT OR IGNORE INTO marketCandles(
       symbol, timeframe, opened_at, open, high, low, close, volume, source_timestamp
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);

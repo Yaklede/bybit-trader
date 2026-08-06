@@ -7,6 +7,7 @@ import {
   assertCompleteSliceDay,
   bindResearchDatabase,
   completeTradeSliceDay,
+  copyCandleBlocks,
   ensureSubminuteSchema,
   expectedArchiveDay,
   implementationFingerprint,
@@ -180,6 +181,25 @@ test("acquisition implementation fingerprint binds every parser on the evidence 
   const fingerprint = await implementationFingerprint(repositoryRoot);
   assert.match(fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(fingerprint, await implementationFingerprint(repositoryRoot));
+});
+
+test("candle copying is byte-stable on resume instead of replacing identical rows", () => {
+  const source = new DatabaseSync(":memory:");
+  const target = new DatabaseSync(":memory:");
+  ensureSubminuteSchema(source);
+  ensureSubminuteSchema(target);
+  source.exec(`
+    INSERT INTO marketCandles(symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp)
+    VALUES ('BTCUSDT','M1','2024-01-01T00:00:00Z','100','101','99','100','1','2024-01-01T00:01:00Z')
+  `);
+  const blocks = [{ id: "S01", sourceStartDate: "2024-01-01", sourceEndDate: "2024-01-01" }];
+  copyCandleBlocks(source, target, "BTCUSDT", blocks);
+  const firstId = target.prepare("SELECT id FROM marketCandles").get().id;
+  copyCandleBlocks(source, target, "BTCUSDT", blocks);
+  assert.equal(target.prepare("SELECT count(*) count FROM marketCandles").get().count, 1);
+  assert.equal(target.prepare("SELECT id FROM marketCandles").get().id, firstId);
+  source.close();
+  target.close();
 });
 
 function aggregateDatabase() {
