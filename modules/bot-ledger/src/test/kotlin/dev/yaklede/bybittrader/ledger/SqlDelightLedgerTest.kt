@@ -19,6 +19,7 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
@@ -497,6 +498,20 @@ class SqlDelightLedgerTest :
             ledger
                 .latestAccountSnapshot(ExecutionRuntimeMode.LIVE, Instant.parse("2026-06-30T00:05:00Z"))
                 ?.totalEquity shouldBe BigDecimal("1000")
+
+            val riskState =
+                ExecutionRiskState(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    peakEquity = BigDecimal("1010"),
+                    utcDayStartedAt = Instant.parse("2026-06-30T00:00:00Z"),
+                    dayStartEquity = BigDecimal("1000"),
+                    latestEquity = BigDecimal("995"),
+                    consecutiveLosses = 2,
+                    lastClosureId = 7,
+                    updatedAt = Instant.parse("2026-06-30T00:12:00Z"),
+                )
+            ledger.upsertExecutionRiskState(riskState)
+            ledger.executionRiskState(ExecutionRuntimeMode.LIVE) shouldBe riskState
         }
 
         "deduplicates nullable closure ids at the database identity key" {
@@ -791,6 +806,7 @@ class SqlDelightLedgerTest :
                     "fundingRates",
                     "executionLifecycleEvents",
                     "executionAccountSnapshots",
+                    "executionRiskStates",
                     "executionPositionRuntimeStates",
                     "paperRuntimeStates",
                 ),

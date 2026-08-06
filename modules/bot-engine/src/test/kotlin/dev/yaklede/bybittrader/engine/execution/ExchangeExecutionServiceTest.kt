@@ -222,6 +222,87 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
+        "account risk circuit breaker blocks a new entry from persisted equity state" {
+            val now = Instant.parse("2024-06-30T00:00:00Z")
+            val store = InMemoryTradingStore()
+            store.riskStates[ExecutionRuntimeMode.TESTNET] =
+                ExecutionRiskState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    peakEquity = BigDecimal("100"),
+                    utcDayStartedAt = now,
+                    dayStartEquity = BigDecimal("100"),
+                    latestEquity = BigDecimal("96"),
+                    consecutiveLosses = 3,
+                    lastClosureId = 3,
+                    updatedAt = now,
+                )
+            val gateway = RecordingExecutionGateway()
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val result = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldBe
+                listOf(
+                    "DAILY_EQUITY_LOSS_LIMIT_REACHED",
+                    "CONSECUTIVE_LOSS_LIMIT_REACHED",
+                )
+            gateway.placedOrders shouldBe emptyList()
+        }
+
+        "account risk circuit breaker does not prevent an expired position exit" {
+            val now = Instant.parse("2024-06-30T00:00:00Z")
+            val store = InMemoryTradingStore()
+            store.riskStates[ExecutionRuntimeMode.TESTNET] =
+                ExecutionRiskState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    peakEquity = BigDecimal("100"),
+                    utcDayStartedAt = now,
+                    dayStartEquity = BigDecimal("100"),
+                    latestEquity = BigDecimal("70"),
+                    consecutiveLosses = 5,
+                    lastClosureId = 5,
+                    updatedAt = now,
+                )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = Symbol("BTCUSDT"),
+                                side = Side.BUY,
+                                size = BigDecimal.ONE,
+                                openedAt = Instant.parse("2024-06-29T20:00:00Z"),
+                                entryPrice = BigDecimal("105"),
+                                markPrice = BigDecimal("104"),
+                                unrealizedPnl = BigDecimal("-1"),
+                                updatedAt = now,
+                                takeProfit = BigDecimal("112.5"),
+                                stopLoss = BigDecimal("100"),
+                            ),
+                        ),
+                )
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                    positionPolicy =
+                        AutomaticPositionPolicy(
+                            timeframe = Timeframe.M5,
+                            maxHoldCandles = 36,
+                            maxTradesPerUtcDay = 5,
+                            fixedTargetEnabled = true,
+                        ),
+                )
+
+            val result = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+
+            result.status shouldBe ExchangeEvaluationStatus.EXIT_SUBMITTED
+            result.reasonCodes shouldBe listOf("MAX_HOLD_DURATION_REACHED")
+            gateway.placedOrders.single().reduceOnly shouldBe true
+        }
+
         "safe stop cancels entry orders and keeps a protected position" {
             val symbol = Symbol("BTCUSDT")
             val entryOrder =
@@ -1635,6 +1716,29 @@ class ExchangeExecutionServiceTest :
             store.executionPositionRuntimeState(ExecutionRuntimeMode.TESTNET, symbol) shouldBe null
         }
 
+        "exchange reconciliation persists account risk state without replaying a closure" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            val loss =
+                testClosedPnl(exchangeOrderId = "loss-1").copy(
+                    grossPnl = BigDecimal("-4.88"),
+                    fees = BigDecimal("0.12"),
+                    netPnl = BigDecimal("-5"),
+                    exitReason = "STOP_LOSS",
+                )
+            val gateway = RecordingExecutionGateway(closedPnls = listOf(loss))
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            service.persistExchangeState(symbol)
+            service.persistExchangeState(symbol)
+
+            val state = store.executionRiskState(ExecutionRuntimeMode.TESTNET)
+            state?.peakEquity shouldBe BigDecimal("1000")
+            state?.latestEquity shouldBe BigDecimal("1000")
+            state?.consecutiveLosses shouldBe 1
+            state?.lastClosureId shouldBe 1L
+        }
+
         "exchange reconciliation classifies the close from Bybit execution metadata" {
             val symbol = Symbol("BTCUSDT")
             val store = InMemoryTradingStore()
@@ -1826,6 +1930,7 @@ private class InMemoryTradingStore :
     val positionRuntimeStates = mutableMapOf<Pair<ExecutionRuntimeMode, Symbol>, ExecutionPositionRuntimeState>()
     val performance = mutableListOf<LivePerformanceSnapshot>()
     val accountSnapshots = mutableListOf<ExecutionAccountSnapshot>()
+    val riskStates = mutableMapOf<ExecutionRuntimeMode, ExecutionRiskState>()
     val suppressedAt = mutableMapOf<Long, Instant>()
     val deliveredAt = mutableMapOf<Long, Instant>()
     val alertAttempts = mutableMapOf<Long, Int>()
@@ -2049,6 +2154,12 @@ private class InMemoryTradingStore :
         accountSnapshots
             .filter { snapshot -> snapshot.mode == mode && !snapshot.capturedAt.isAfter(capturedAtOrBefore) }
             .maxByOrNull(ExecutionAccountSnapshot::capturedAt)
+
+    override suspend fun upsertExecutionRiskState(state: ExecutionRiskState) {
+        riskStates[state.mode] = state
+    }
+
+    override suspend fun executionRiskState(mode: ExecutionRuntimeMode): ExecutionRiskState? = riskStates[mode]
 }
 
 private class RecordingExecutionGateway(

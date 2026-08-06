@@ -222,6 +222,24 @@ class ExchangeExecutionService(
                 )
             }
         }
+        if (config.circuitBreakerEnabled) {
+            val riskDecision = currentEntryRiskDecision(now)
+            if (!riskDecision.allowsEntry) {
+                logger.warn(
+                    "execution entry blocked by account risk circuit breaker symbol={} mode={} reasons={}",
+                    symbol.value,
+                    mode.name,
+                    riskDecision.reasonCodes,
+                )
+                return entryBlockedResult(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    mode = mode,
+                    evaluatedAt = now,
+                    reasonCodes = riskDecision.reasonCodes,
+                )
+            }
+        }
 
         val closedBefore = closedCandleBoundary(now, timeframe)
         val candles =
@@ -640,9 +658,13 @@ class ExchangeExecutionService(
 
     private suspend fun persistExchangeStateLocked(symbol: Symbol): ExchangeReconciliationReport {
         val report = fetchReconciliation(symbol)
-        persistAccountSnapshot()
+        val accountSnapshot = persistAccountSnapshot()
         persistExecutionFills(report.executions)
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
+        accountSnapshot?.let { snapshot -> persistRiskState(snapshot, persistedClosures) }
+        if (accountSnapshot != null && persistedClosures.isEmpty()) {
+            refreshPerformanceSnapshots()
+        }
         val lifecycleEvent = persistLifecycleObservation(report)
         enforcePersistedSafetyMode(report)
         return report.copy(
@@ -1407,14 +1429,15 @@ class ExchangeExecutionService(
         }
     }
 
-    private suspend fun persistAccountSnapshot() {
-        val store = projectionStore ?: return
-        try {
-            store.recordAccountSnapshot(
+    private suspend fun persistAccountSnapshot(): ExecutionAccountSnapshot? {
+        val store = projectionStore ?: return null
+        return try {
+            val snapshot =
                 gateway
                     .accountBalance("USDT")
-                    .toExecutionAccountSnapshot(runtimeMode),
-            )
+                    .toExecutionAccountSnapshot(runtimeMode)
+            store.recordAccountSnapshot(snapshot)
+            snapshot
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1424,7 +1447,44 @@ class ExchangeExecutionService(
                 error::class.simpleName,
                 error.message,
             )
+            null
         }
+    }
+
+    private suspend fun currentEntryRiskDecision(now: Instant): ExecutionRiskDecision {
+        val store = projectionStore ?: return ExecutionRiskDecision(listOf("RISK_STATE_STORE_UNAVAILABLE"))
+        var state = store.executionRiskState(runtimeMode)
+        var decision = config.evaluateRiskState(state, now)
+        if (decision.reasonCodes.any(RISK_STATE_REFRESH_REASON_CODES::contains)) {
+            val snapshot = persistAccountSnapshot()
+            if (snapshot != null) {
+                state = persistRiskState(snapshot, recentClosuresAfter(state?.lastClosureId))
+                decision = config.evaluateRiskState(state, now)
+            }
+        }
+        return decision
+    }
+
+    private suspend fun persistRiskState(
+        snapshot: ExecutionAccountSnapshot,
+        newClosures: List<ExecutionTradeClosure>,
+    ): ExecutionRiskState? {
+        val store = projectionStore ?: return null
+        val previous = store.executionRiskState(runtimeMode)
+        val state = ExecutionRiskCircuitBreaker.update(previous, snapshot, newClosures) ?: return null
+        store.upsertExecutionRiskState(state)
+        return state
+    }
+
+    private suspend fun recentClosuresAfter(lastClosureId: Long?): List<ExecutionTradeClosure> {
+        val store = projectionStore ?: return emptyList()
+        return store
+            .closedTrades(
+                symbol = null,
+                mode = runtimeMode,
+                limit = RISK_CLOSURE_QUERY_LIMIT,
+                cursor = null,
+            ).filter { closure -> lastClosureId == null || closure.id > lastClosureId }
     }
 
     private suspend fun automaticEntryCountForUtcDay(
@@ -1864,6 +1924,32 @@ class ExchangeExecutionService(
             takeProfit = position.takeProfit,
             stopLoss = position.stopLoss,
             quantity = position.size,
+            intendedRisk = null,
+        )
+
+    private fun entryBlockedResult(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        mode: BotMode,
+        evaluatedAt: Instant,
+        reasonCodes: List<String>,
+    ): ExchangeEvaluationResult =
+        ExchangeEvaluationResult(
+            symbol = symbol,
+            timeframe = timeframe,
+            mode = mode.name,
+            status = ExchangeEvaluationStatus.NO_TRADE,
+            evaluatedAt = evaluatedAt,
+            candleCount = 0,
+            reasonCodes = reasonCodes,
+            signalId = null,
+            orderId = null,
+            exchangeOrderId = null,
+            clientOrderId = null,
+            entryPrice = null,
+            takeProfit = null,
+            stopLoss = null,
+            quantity = null,
             intendedRisk = null,
         )
 
@@ -2577,3 +2663,23 @@ private object EmptyExecutionProjectionStore : ExecutionProjectionStore {
 
 private const val SIGNAL_KEY_PREFIX = "SIGNAL_AT_"
 private const val DAILY_ENTRY_EVENT_QUERY_LIMIT = 1000
+private const val RISK_CLOSURE_QUERY_LIMIT = 1000
+private val RISK_STATE_REFRESH_REASON_CODES =
+    setOf(
+        "RISK_STATE_UNAVAILABLE",
+        "RISK_STATE_STALE",
+        "RISK_STATE_CLOCK_SKEW",
+    )
+
+private fun ExchangeExecutionConfig.evaluateRiskState(
+    state: ExecutionRiskState?,
+    now: Instant,
+): ExecutionRiskDecision =
+    ExecutionRiskCircuitBreaker.evaluate(
+        state = state,
+        now = now,
+        maximumAge = riskStateMaximumAge,
+        maximumDailyLossFraction = maximumDailyLossFraction,
+        maximumAccountDrawdownFraction = maximumAccountDrawdownFraction,
+        maximumConsecutiveLosses = maximumConsecutiveLosses,
+    )

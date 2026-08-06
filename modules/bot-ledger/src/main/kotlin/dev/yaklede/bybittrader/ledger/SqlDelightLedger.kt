@@ -24,6 +24,7 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
 import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeStateStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
@@ -56,6 +57,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
 import dev.yaklede.bybittrader.ledger.db.ExecutionAccountSnapshots
 import dev.yaklede.bybittrader.ledger.db.ExecutionFillEvents
 import dev.yaklede.bybittrader.ledger.db.ExecutionLifecycleEvents
+import dev.yaklede.bybittrader.ledger.db.ExecutionRiskStates
 import dev.yaklede.bybittrader.ledger.db.ExecutionTradeClosures
 import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import dev.yaklede.bybittrader.ledger.db.LivePerformanceSnapshots
@@ -993,6 +995,25 @@ class SqlDelightLedger(
                 capturedAtOrBefore = capturedAtOrBefore.toString(),
             ).executeAsOneOrNull()
             ?.toExecutionAccountSnapshot()
+
+    override suspend fun upsertExecutionRiskState(state: ExecutionRiskState) {
+        database.ledgerQueries.upsertExecutionRiskState(
+            mode = state.mode.name,
+            peak_equity = state.peakEquity.toPlainString(),
+            utc_day_started_at = state.utcDayStartedAt.toString(),
+            day_start_equity = state.dayStartEquity.toPlainString(),
+            latest_equity = state.latestEquity.toPlainString(),
+            consecutive_losses = state.consecutiveLosses.toLong(),
+            last_closure_id = state.lastClosureId,
+            updated_at = state.updatedAt.toString(),
+        )
+    }
+
+    override suspend fun executionRiskState(mode: ExecutionRuntimeMode): ExecutionRiskState? =
+        database.ledgerQueries
+            .selectExecutionRiskState(mode.name)
+            .executeAsOneOrNull()
+            ?.toExecutionRiskState()
 }
 
 fun createLedgerDatabase(driver: SqlDriver): LedgerDatabase = LedgerDatabase(driver)
@@ -1356,6 +1377,18 @@ private fun ExecutionAccountSnapshots.toExecutionAccountSnapshot(): ExecutionAcc
         totalAvailableBalance = total_available_balance?.let(::BigDecimal),
         totalPerpUnrealizedPnl = total_perp_unrealized_pnl?.let(::BigDecimal),
         capturedAt = Instant.parse(captured_at),
+    )
+
+private fun ExecutionRiskStates.toExecutionRiskState(): ExecutionRiskState =
+    ExecutionRiskState(
+        mode = ExecutionRuntimeMode.valueOf(mode),
+        peakEquity = BigDecimal(peak_equity),
+        utcDayStartedAt = Instant.parse(utc_day_started_at),
+        dayStartEquity = BigDecimal(day_start_equity),
+        latestEquity = BigDecimal(latest_equity),
+        consecutiveLosses = consecutive_losses.toInt(),
+        lastClosureId = last_closure_id,
+        updatedAt = Instant.parse(updated_at),
     )
 
 private fun String.splitReasons(): List<String> =

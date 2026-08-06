@@ -145,4 +145,8 @@ interface ExecutionProjectionStore {
         mode: ExecutionRuntimeMode,
         capturedAtOrBefore: Instant,
     ): ExecutionAccountSnapshot? = null
+
+    suspend fun upsertExecutionRiskState(state: ExecutionRiskState) = Unit
+
+    suspend fun executionRiskState(mode: ExecutionRuntimeMode): ExecutionRiskState? = null
 }

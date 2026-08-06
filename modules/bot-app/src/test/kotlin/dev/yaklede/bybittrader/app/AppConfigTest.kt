@@ -36,6 +36,11 @@ class AppConfigTest :
             config.execution.useLiveAccountEquity shouldBe false
             config.execution.leverage shouldBe null
             config.execution.minimumNetRiskReward.toPlainString() shouldBe "1.0"
+            config.execution.circuitBreakerEnabled shouldBe true
+            config.execution.maximumDailyLossFraction.toPlainString() shouldBe "0.03"
+            config.execution.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.20"
+            config.execution.maximumConsecutiveLosses shouldBe 3
+            config.execution.riskStateMaximumAge.seconds shouldBe 120
             config.executionLoop.enabled shouldBe false
             config.executionReconciliation.enabled shouldBe false
             config.executionReconciliation.alertBatchLimit shouldBe 100
@@ -88,6 +93,11 @@ class AppConfigTest :
                         "BOT_EXECUTION_PROTECTION_GRACE_SECONDS" to "45",
                         "BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS" to "20",
                         "BOT_EXECUTION_MAX_ACTUAL_RISK_OVERRUN_FRACTION" to "0.08",
+                        "BOT_EXECUTION_CIRCUIT_BREAKER_ENABLED" to "true",
+                        "BOT_EXECUTION_MAX_DAILY_LOSS_FRACTION" to "0.04",
+                        "BOT_EXECUTION_MAX_ACCOUNT_DRAWDOWN_FRACTION" to "0.25",
+                        "BOT_EXECUTION_MAX_CONSECUTIVE_LOSSES" to "4",
+                        "BOT_EXECUTION_RISK_STATE_MAX_AGE_SECONDS" to "180",
                     ),
                 )
 
@@ -111,6 +121,11 @@ class AppConfigTest :
             config.execution.protectionGracePeriod.seconds shouldBe 45
             config.execution.maximumEntryDelay.seconds shouldBe 20
             config.execution.maximumActualRiskOverrunFraction.toPlainString() shouldBe "0.08"
+            config.execution.circuitBreakerEnabled shouldBe true
+            config.execution.maximumDailyLossFraction.toPlainString() shouldBe "0.04"
+            config.execution.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.25"
+            config.execution.maximumConsecutiveLosses shouldBe 4
+            config.execution.riskStateMaximumAge.seconds shouldBe 180
             config.execution.maxQuantity?.toPlainString() shouldBe "5"
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"

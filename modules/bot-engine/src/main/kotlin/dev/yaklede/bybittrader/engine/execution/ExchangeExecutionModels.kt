@@ -30,6 +30,11 @@ data class ExchangeExecutionConfig(
     val maximumActualRiskOverrunFraction: BigDecimal = BigDecimal("0.05"),
     val safetyVerificationAttempts: Int = 5,
     val safetyVerificationInterval: Duration = Duration.ofMillis(250),
+    val circuitBreakerEnabled: Boolean = true,
+    val maximumDailyLossFraction: BigDecimal = BigDecimal("0.03"),
+    val maximumAccountDrawdownFraction: BigDecimal = BigDecimal("0.20"),
+    val maximumConsecutiveLosses: Int = 3,
+    val riskStateMaximumAge: Duration = Duration.ofSeconds(120),
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -71,6 +76,18 @@ data class ExchangeExecutionConfig(
         }
         require(!safetyVerificationInterval.isNegative && !safetyVerificationInterval.isZero) {
             "Execution safety verification interval must be positive."
+        }
+        require(maximumDailyLossFraction > BigDecimal.ZERO && maximumDailyLossFraction <= BigDecimal.ONE) {
+            "Execution maximum daily loss fraction must be between 0 and 1."
+        }
+        require(maximumAccountDrawdownFraction > BigDecimal.ZERO && maximumAccountDrawdownFraction <= BigDecimal.ONE) {
+            "Execution maximum account drawdown fraction must be between 0 and 1."
+        }
+        require(maximumConsecutiveLosses in 1..100) {
+            "Execution maximum consecutive losses must be between 1 and 100."
+        }
+        require(!riskStateMaximumAge.isNegative && !riskStateMaximumAge.isZero) {
+            "Execution risk-state maximum age must be positive."
         }
     }
 }

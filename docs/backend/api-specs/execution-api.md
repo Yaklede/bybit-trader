@@ -6,7 +6,8 @@ All execution endpoints require `Authorization: Bearer $BOT_CONTROL_TOKEN`.
 
 Evaluates the runtime aggressive M5 strategy and submits a private Bybit market
 order only when `BOT_PRIVATE_EXECUTION_ENABLED=true` and the bot state is
-`RUNNING`.
+`RUNNING`. The current rejected profile remains unable to start the automatic
+loop.
 
 Only candles whose open time is before the current timeframe boundary are
 evaluated. After filtering, insufficient warmup returns `NO_TRADE` with
@@ -19,6 +20,22 @@ maximum hold of 36 M5 candles (three hours). An expired Bybit position is
 closed with a reduce-only market order and returns `EXIT_SUBMITTED`. While that
 time-exit order remains open, evaluation returns `NO_TRADE` with
 `MAX_HOLD_EXIT_PENDING` instead of submitting a duplicate exit.
+Before loading a new signal, the service evaluates the persisted account risk
+state. Missing or older-than-allowed state is refreshed from the private wallet
+API; if it cannot be refreshed, the service fails closed. A daily equity loss,
+account drawdown, or consecutive-loss breach returns `NO_TRADE` with one or
+more of these reason codes:
+
+- `RISK_STATE_STORE_UNAVAILABLE`
+- `RISK_STATE_UNAVAILABLE`
+- `RISK_STATE_STALE`
+- `RISK_STATE_CLOCK_SKEW`
+- `DAILY_EQUITY_LOSS_LIMIT_REACHED`
+- `ACCOUNT_DRAWDOWN_LIMIT_REACHED`
+- `CONSECUTIVE_LOSS_LIMIT_REACHED`
+
+Position management and reduce-only exits run before this entry-only gate, so
+the breaker cannot strand an existing position.
 The gross target move must exceed configured round-trip fees plus
 `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`; otherwise the signal is rejected before
 any private order call.

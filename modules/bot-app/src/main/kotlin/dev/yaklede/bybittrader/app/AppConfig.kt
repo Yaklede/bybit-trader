@@ -70,6 +70,12 @@ data class AppConfig(
             require(!executionReconciliation.enabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_EXECUTION_RECONCILIATION_ENABLED=true."
             }
+            require(!executionLoop.enabled || executionReconciliation.enabled) {
+                "BOT_EXECUTION_RECONCILIATION_ENABLED=true is required when automatic execution is enabled."
+            }
+            require(!executionLoop.enabled || execution.circuitBreakerEnabled) {
+                "BOT_EXECUTION_CIRCUIT_BREAKER_ENABLED=true is required when automatic execution is enabled."
+            }
             require(!privateExecutionStreamEnabled || execution.enabled) {
                 "BOT_PRIVATE_EXECUTION_ENABLED=true is required when BOT_PRIVATE_EXECUTION_STREAM_ENABLED=true."
             }
@@ -509,6 +515,11 @@ data class ExecutionSettings(
     val maximumActualRiskOverrunFraction: BigDecimal,
     val safetyVerificationAttempts: Int,
     val safetyVerificationInterval: Duration,
+    val circuitBreakerEnabled: Boolean,
+    val maximumDailyLossFraction: BigDecimal,
+    val maximumAccountDrawdownFraction: BigDecimal,
+    val maximumConsecutiveLosses: Int,
+    val riskStateMaximumAge: Duration,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -549,6 +560,18 @@ data class ExecutionSettings(
         }
         require(!safetyVerificationInterval.isNegative && !safetyVerificationInterval.isZero) {
             "Execution safety verification interval must be positive."
+        }
+        require(maximumDailyLossFraction > BigDecimal.ZERO && maximumDailyLossFraction <= BigDecimal.ONE) {
+            "Execution maximum daily loss fraction must be between 0 and 1."
+        }
+        require(maximumAccountDrawdownFraction > BigDecimal.ZERO && maximumAccountDrawdownFraction <= BigDecimal.ONE) {
+            "Execution maximum account drawdown fraction must be between 0 and 1."
+        }
+        require(maximumConsecutiveLosses in 1..100) {
+            "Execution maximum consecutive losses must be between 1 and 100."
+        }
+        require(!riskStateMaximumAge.isNegative && !riskStateMaximumAge.isZero) {
+            "Execution risk-state maximum age must be positive."
         }
     }
 
@@ -591,6 +614,24 @@ data class ExecutionSettings(
                 safetyVerificationInterval =
                     Duration.ofMillis(
                         environment["BOT_EXECUTION_SAFETY_VERIFICATION_INTERVAL_MILLIS"]?.toLongOrNull() ?: 250,
+                    ),
+                circuitBreakerEnabled =
+                    environment["BOT_EXECUTION_CIRCUIT_BREAKER_ENABLED"]
+                        ?.equals("true", ignoreCase = true)
+                        ?: true,
+                maximumDailyLossFraction =
+                    environment["BOT_EXECUTION_MAX_DAILY_LOSS_FRACTION"]
+                        ?.let(::BigDecimal)
+                        ?: BigDecimal("0.03"),
+                maximumAccountDrawdownFraction =
+                    environment["BOT_EXECUTION_MAX_ACCOUNT_DRAWDOWN_FRACTION"]
+                        ?.let(::BigDecimal)
+                        ?: BigDecimal("0.20"),
+                maximumConsecutiveLosses =
+                    environment["BOT_EXECUTION_MAX_CONSECUTIVE_LOSSES"]?.toIntOrNull() ?: 3,
+                riskStateMaximumAge =
+                    Duration.ofSeconds(
+                        environment["BOT_EXECUTION_RISK_STATE_MAX_AGE_SECONDS"]?.toLongOrNull() ?: 120,
                     ),
             )
     }

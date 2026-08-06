@@ -327,6 +327,18 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         """.trimIndent(),
         "CREATE INDEX IF NOT EXISTS executionAccountSnapshots_mode_capturedAt_id_idx ON executionAccountSnapshots(mode, captured_at, id DESC)",
         """
+        CREATE TABLE IF NOT EXISTS executionRiskStates (
+          mode TEXT NOT NULL PRIMARY KEY,
+          peak_equity TEXT NOT NULL,
+          utc_day_started_at TEXT NOT NULL,
+          day_start_equity TEXT NOT NULL,
+          latest_equity TEXT NOT NULL,
+          consecutive_losses INTEGER NOT NULL,
+          last_closure_id INTEGER,
+          updated_at TEXT NOT NULL
+        )
+        """.trimIndent(),
+        """
         CREATE TABLE IF NOT EXISTS livePerformanceSnapshots (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           mode TEXT NOT NULL,

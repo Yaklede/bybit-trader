@@ -866,7 +866,7 @@ class ApiModuleTest :
             testApplication {
                 val stateStore = InMemoryStateStore()
                 val paperStore = InMemoryPaperTradingStore()
-                val gateway = RecordingExecutionGateway()
+                val gateway = RecordingExecutionGateway(accountBalance = apiAccountBalance(Instant.parse("2026-06-30T10:00:00Z")))
                 application {
                     configureApi(
                         stateStore = stateStore,
@@ -1830,29 +1830,7 @@ private class RecordingExecutionGateway(
     private val positions: List<ExchangePosition> = emptyList(),
     private val executions: List<ExchangeExecutionFill> = emptyList(),
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
-    private val accountBalance: ExchangeAccountBalance =
-        ExchangeAccountBalance(
-            accountType = "UNIFIED",
-            totalEquity = BigDecimal("1200.5"),
-            totalWalletBalance = BigDecimal("1000"),
-            totalMarginBalance = BigDecimal("1100"),
-            totalAvailableBalance = BigDecimal("900"),
-            totalPerpUnrealizedPnl = BigDecimal("100.5"),
-            totalInitialMargin = BigDecimal("50"),
-            totalMaintenanceMargin = BigDecimal("20"),
-            coins =
-                listOf(
-                    ExchangeCoinBalance(
-                        coin = "USDT",
-                        equity = BigDecimal("1200.5"),
-                        usdValue = BigDecimal("1200.5"),
-                        walletBalance = BigDecimal("1000"),
-                        locked = BigDecimal.ZERO,
-                        unrealizedPnl = BigDecimal("100.5"),
-                    ),
-                ),
-            capturedAt = Instant.parse("2026-06-30T00:00:00Z"),
-        ),
+    private val accountBalance: ExchangeAccountBalance = apiAccountBalance(Instant.parse("2026-06-30T00:00:00Z")),
 ) : ExchangeExecutionGateway {
     val leverageRequests = mutableListOf<Pair<Symbol, BigDecimal>>()
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
@@ -1892,6 +1870,30 @@ private class RecordingExecutionGateway(
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = accountBalance
 }
+
+private fun apiAccountBalance(capturedAt: Instant): ExchangeAccountBalance =
+    ExchangeAccountBalance(
+        accountType = "UNIFIED",
+        totalEquity = BigDecimal("1200.5"),
+        totalWalletBalance = BigDecimal("1000"),
+        totalMarginBalance = BigDecimal("1100"),
+        totalAvailableBalance = BigDecimal("900"),
+        totalPerpUnrealizedPnl = BigDecimal("100.5"),
+        totalInitialMargin = BigDecimal("50"),
+        totalMaintenanceMargin = BigDecimal("20"),
+        coins =
+            listOf(
+                ExchangeCoinBalance(
+                    coin = "USDT",
+                    equity = BigDecimal("1200.5"),
+                    usdValue = BigDecimal("1200.5"),
+                    walletBalance = BigDecimal("1000"),
+                    locked = BigDecimal.ZERO,
+                    unrealizedPnl = BigDecimal("100.5"),
+                ),
+            ),
+        capturedAt = capturedAt,
+    )
 
 private fun sampleClosedPnl(): ExchangeClosedPnl =
     ExchangeClosedPnl(

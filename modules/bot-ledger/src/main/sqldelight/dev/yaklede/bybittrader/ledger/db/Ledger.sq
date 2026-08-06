@@ -324,6 +324,17 @@ CREATE TABLE executionAccountSnapshots (
 CREATE INDEX executionAccountSnapshots_mode_capturedAt_id_idx
 ON executionAccountSnapshots(mode, captured_at, id DESC);
 
+CREATE TABLE executionRiskStates (
+  mode TEXT NOT NULL PRIMARY KEY,
+  peak_equity TEXT NOT NULL,
+  utc_day_started_at TEXT NOT NULL,
+  day_start_equity TEXT NOT NULL,
+  latest_equity TEXT NOT NULL,
+  consecutive_losses INTEGER NOT NULL,
+  last_closure_id INTEGER,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE livePerformanceSnapshots (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   mode TEXT NOT NULL,
@@ -1053,6 +1064,25 @@ WHERE mode = :mode
   AND captured_at <= :capturedAtOrBefore
 ORDER BY captured_at DESC, id DESC
 LIMIT 1;
+
+upsertExecutionRiskState:
+INSERT OR REPLACE INTO executionRiskStates(
+  mode,
+  peak_equity,
+  utc_day_started_at,
+  day_start_equity,
+  latest_equity,
+  consecutive_losses,
+  last_closure_id,
+  updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectExecutionRiskState:
+SELECT mode, peak_equity, utc_day_started_at, day_start_equity, latest_equity,
+  consecutive_losses, last_closure_id, updated_at
+FROM executionRiskStates
+WHERE mode = ?;
 
 selectLatestLivePerformanceSnapshot:
 SELECT id, mode, window, trade_count, win_rate_pct, gross_profit, gross_loss, fees, net_pnl, profit_factor, expectancy,

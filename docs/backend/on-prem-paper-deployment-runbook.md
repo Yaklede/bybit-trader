@@ -131,6 +131,11 @@ export BOT_EXECUTION_MAX_NOTIONAL="<initial-live-notional-cap>"
 export BOT_EXECUTION_LEVERAGE="15"
 export BOT_EXECUTION_SAFETY_VERIFICATION_ATTEMPTS="5"
 export BOT_EXECUTION_SAFETY_VERIFICATION_INTERVAL_MILLIS="250"
+export BOT_EXECUTION_CIRCUIT_BREAKER_ENABLED="true"
+export BOT_EXECUTION_MAX_DAILY_LOSS_FRACTION="0.03"
+export BOT_EXECUTION_MAX_ACCOUNT_DRAWDOWN_FRACTION="0.20"
+export BOT_EXECUTION_MAX_CONSECUTIVE_LOSSES="3"
+export BOT_EXECUTION_RISK_STATE_MAX_AGE_SECONDS="120"
 ```
 
 Keep `BOT_EXECUTION_LOOP_ENABLED=false` for the first live smoke order. Turn it
@@ -138,6 +143,14 @@ on only for a replacement profile that passes its runtime replay gate. The
 current `absa_final_us_v1` profile is rejected and must remain disabled. Keep
 the reconciliation loop enabled so manual orders and exchange-side exits remain
 observable.
+
+The account circuit breaker is enabled by default. It persists the account
+equity high-water mark, UTC-day opening equity, latest equity, consecutive
+closed-trade losses, and the last processed closure. Missing or stale state,
+a daily equity loss of 3%, a 20% account drawdown, or three consecutive losses
+blocks new automatic entries. Existing positions remain under the shared
+stop, trailing, and maximum-hold policy. Do not disable the breaker to make a
+rejected strategy trade.
 
 Enable at least one alert sink:
 
