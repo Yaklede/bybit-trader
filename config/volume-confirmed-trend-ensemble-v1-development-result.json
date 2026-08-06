@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-confirmed-trend-ensemble-v1-development-result",
+  "programStatus": "PASSED_DEVELOPMENT_ONLY_EXTERNAL_REQUIRED",
+  "protocol": {
+    "path": "config/volume-confirmed-trend-ensemble-v1.json",
+    "sha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74"
+  },
+  "sourceEvidence": {
+    "venue": "BYBIT",
+    "disposition": "CONTAMINATED_DEVELOPMENT_ONLY",
+    "h4BarCount": 13947,
+    "fundingRateCount": 6973,
+    "firstH4OpenedAt": "2020-03-25T12:00:00.000Z",
+    "lastH4OpenedAt": "2026-08-05T20:00:00.000Z",
+    "sourceFeatureSha256": "ad002dcc0c5ab17697b1858338f01275a9aac51de65c59d2a0d7f091bd45d8cf"
+  },
+  "sourceResult": {
+    "generatedAt": "2026-08-06T17:04:14.261Z",
+    "ignoredPath": "build/research/volume-confirmed-trend-ensemble-v1-result.json",
+    "sha256": "6133cb47d5eabb7aa78c3055d8f384fb929c8e4b703de057fb2e8f18906f30f7"
+  },
+  "canonicalMetrics": {
+    "startingEquityUsdt": 660,
+    "baseline": {
+      "endingEquityUsdt": 3960.19278052,
+      "netReturnPct": 500.02920917,
+      "cagrPct": 34.02924838,
+      "compoundDailyReturnPct": 0.08022049,
+      "maximumConservativeIntrabarDrawdownPct": 31.74153806,
+      "maximumEntryExposureFraction": 0.64995708,
+      "maximumAdverseExposureFraction": 1.05438949,
+      "closedTradeCount": 156,
+      "annualizedSideChangeCount": 25.33620497,
+      "winRatePct": 26.92307692,
+      "profitFactor": 1.80222721,
+      "positiveCompleteYearFraction": 1,
+      "positiveRollingTwelveMonthFraction": 0.94708712,
+      "worstRollingTwelveMonthReturnPct": -11.9621966,
+      "positiveRandomWindowFraction": 0.95,
+      "liquidationCount": 0
+    },
+    "doubleCost": {
+      "endingEquityUsdt": 3328.90087937,
+      "netReturnPct": 404.37892112,
+      "cagrPct": 30.27834014,
+      "compoundDailyReturnPct": 0.07244322,
+      "maximumConservativeIntrabarDrawdownPct": 31.62082436,
+      "maximumEntryExposureFraction": 0.64990558,
+      "maximumAdverseExposureFraction": 1.04939319,
+      "winRatePct": 25.64102564,
+      "profitFactor": 1.67017148,
+      "positiveRollingTwelveMonthFraction": 0.91234634,
+      "worstRollingTwelveMonthReturnPct": -14.67593542,
+      "liquidationCount": 0
+    }
+  },
+  "startingCapitalStress": [
+    {
+      "startingEquityUsdt": 100,
+      "baselineEndingEquityUsdt": 541.6169216,
+      "baselineCagrPct": 31.80408823,
+      "doubleCostEndingEquityUsdt": 485.78213342,
+      "doubleCostCagrPct": 29.48078178
+    },
+    {
+      "startingEquityUsdt": 660,
+      "baselineEndingEquityUsdt": 3960.19278052,
+      "baselineCagrPct": 34.02924838,
+      "doubleCostEndingEquityUsdt": 3328.90087937,
+      "doubleCostCagrPct": 30.27834014
+    },
+    {
+      "startingEquityUsdt": 1000,
+      "baselineEndingEquityUsdt": 6045.98056556,
+      "baselineCagrPct": 34.19553785,
+      "doubleCostEndingEquityUsdt": 5171.83293857,
+      "doubleCostCagrPct": 30.81329662
+    }
+  ],
+  "developmentGate": {
+    "passed": true,
+    "failedChecks": []
+  },
+  "remainingGates": {
+    "externalVenuePass": false,
+    "freshShadowPass": false,
+    "paperReplayParity": false
+  },
+  "decision": {
+    "candidateFrozenWithoutRetuning": true,
+    "externalAcquisitionAllowed": true,
+    "developmentPassGrantsExecution": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
