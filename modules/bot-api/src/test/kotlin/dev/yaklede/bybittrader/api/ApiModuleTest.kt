@@ -42,6 +42,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExchangeSafetyResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeSafetyStatus
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
@@ -222,6 +224,7 @@ class ApiModuleTest :
         "authorized safe stop returns exchange verification state" {
             testApplication {
                 val stateStore = InMemoryStateStore()
+                val safetyResults = mutableListOf<ExchangeSafetyResult>()
                 application {
                     configureApi(
                         stateStore = stateStore,
@@ -240,6 +243,7 @@ class ApiModuleTest :
                                 config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
                             ),
                         controlSymbol = Symbol("BTCUSDT"),
+                        onSafetyResult = { safetyResults += it },
                         controlCredential = "test-control-credential",
                     )
                 }
@@ -256,6 +260,7 @@ class ApiModuleTest :
                 response.bodyAsText() shouldContain """"newMode":"PAUSE_ALL""""
                 response.bodyAsText() shouldContain """"action":"SAFE_STOP","status":"CONFIRMED""""
                 stateStore.current().mode shouldBe BotMode.PAUSE_ALL
+                safetyResults.single().status shouldBe ExchangeSafetyStatus.CONFIRMED
             }
         }
 

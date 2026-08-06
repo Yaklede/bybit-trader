@@ -31,6 +31,7 @@ import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.control.ControlResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
+import dev.yaklede.bybittrader.engine.execution.ExchangeSafetyResult
 import dev.yaklede.bybittrader.engine.market.MarketDataException
 import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.market.capture.ForwardMarketCaptureStatusService
@@ -72,6 +73,7 @@ fun Application.configureApi(
     forwardMarketCaptureStatusService: ForwardMarketCaptureStatusService? = null,
     forwardMarketCaptureEnabled: Boolean = false,
     onControlResult: suspend (ControlResult) -> Unit = {},
+    onSafetyResult: suspend (ExchangeSafetyResult) -> Unit = {},
     onSmokeAlert: (suspend (String) -> SmokeAlertDeliveryResponse)? = null,
     controlCredential: String?,
 ) {
@@ -147,6 +149,7 @@ fun Application.configureApi(
             executionService = executionService,
             controlSymbol = controlSymbol,
             onControlResult = onControlResult,
+            onSafetyResult = onSafetyResult,
         )
         configureMarketDataRoutes(marketDataSyncService)
         strategyProfileService?.let(::configureStrategyProfileRoutes)

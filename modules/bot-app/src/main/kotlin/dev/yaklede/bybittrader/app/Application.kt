@@ -470,6 +470,7 @@ fun main() {
                     ),
                 forwardMarketCaptureEnabled = config.forwardMarketCapture.enabled,
                 onControlResult = { result -> alertingService.sendControlResult(result) },
+                onSafetyResult = { result -> alertingService.sendExchangeSafetyResult(result) },
                 onSmokeAlert = { message -> alertingService.sendSmokeAlert(message) },
                 controlCredential = config.api.controlCredential,
             )

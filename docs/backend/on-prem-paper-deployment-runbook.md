@@ -294,9 +294,12 @@ curl -X POST \
 - `/status`, `/control/*`, `/market-data/*`, `/paper/evaluate`,
   `/execution/*`, and backtest endpoints require `BOT_CONTROL_TOKEN`.
 - `pause-all`/`safe-stop`, `resume`, and `emergency-stop`/`flatten` write control
-  events and emit alerts when an alert sink is configured. Safe stop keeps
-  protected positions managed; flatten requires exchange-confirmed zero
-  positions and zero active orders before it reports `CONFIRMED`.
+  events and emit alerts when an alert sink is configured. Safety commands emit
+  a second exchange-verification alert containing cancellation/close counts,
+  remaining exposure, and issue codes. Safe stop keeps protected positions
+  managed; flatten requires exchange-confirmed zero positions and zero active
+  orders before it reports `CONFIRMED`. Treat `PENDING` as unresolved exposure
+  and `FAILED` as an immediate manual Bybit inspection condition.
 - Paper runtime state prevents a closed candle from being evaluated twice and
   restores pending/open positions after restart.
 - A signal is persisted as `ENTRY_PENDING` and can fill only at the next

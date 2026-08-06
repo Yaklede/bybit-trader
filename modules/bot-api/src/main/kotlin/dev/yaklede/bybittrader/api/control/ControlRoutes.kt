@@ -21,6 +21,7 @@ fun Route.configureControlRoutes(
     executionService: ExchangeExecutionService? = null,
     controlSymbol: Symbol? = null,
     onControlResult: suspend (ControlResult) -> Unit = {},
+    onSafetyResult: suspend (ExchangeSafetyResult) -> Unit = {},
 ) {
     val logger = LoggerFactory.getLogger("dev.yaklede.bybittrader.api.control")
     authenticate("control") {
@@ -43,7 +44,7 @@ fun Route.configureControlRoutes(
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
-            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, logger)
+            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, onSafetyResult, logger)
         }
 
         post("/control/safe-stop") {
@@ -53,7 +54,7 @@ fun Route.configureControlRoutes(
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
-            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, logger)
+            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, onSafetyResult, logger)
         }
 
         post("/control/resume") {
@@ -75,7 +76,7 @@ fun Route.configureControlRoutes(
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
-            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, logger)
+            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, onSafetyResult, logger)
         }
 
         post("/control/flatten") {
@@ -85,7 +86,7 @@ fun Route.configureControlRoutes(
                     actor = call.controlActor(),
                     reason = request.reason,
                 )
-            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, logger)
+            call.respondSafetyControl(result, executionService, controlSymbol, onControlResult, onSafetyResult, logger)
         }
     }
 }
@@ -95,6 +96,7 @@ private suspend fun ApplicationCall.respondSafetyControl(
     executionService: ExchangeExecutionService?,
     controlSymbol: Symbol?,
     onControlResult: suspend (ControlResult) -> Unit,
+    onSafetyResult: suspend (ExchangeSafetyResult) -> Unit,
     logger: org.slf4j.Logger,
 ) {
     val safety =
@@ -104,6 +106,7 @@ private suspend fun ApplicationCall.respondSafetyControl(
             null
         }
     notifyControlResult(result, onControlResult)
+    safety?.let { notifySafetyResult(it, onSafetyResult) }
     logger.warn(
         "control safety action completed action={} mode={}->{} safetyStatus={}",
         result.action.name,
@@ -112,6 +115,17 @@ private suspend fun ApplicationCall.respondSafetyControl(
         safety?.status?.name ?: "NOT_APPLICABLE",
     )
     respond(result.toSafetyResponse(safety))
+}
+
+private suspend fun notifySafetyResult(
+    result: ExchangeSafetyResult,
+    onSafetyResult: suspend (ExchangeSafetyResult) -> Unit,
+) {
+    try {
+        onSafetyResult(result)
+    } catch (_: Throwable) {
+        // Safety actions and their API response must not fail because an alert sink is unavailable.
+    }
 }
 
 private suspend fun notifyControlResult(

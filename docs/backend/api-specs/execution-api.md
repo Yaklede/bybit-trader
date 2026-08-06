@@ -2,6 +2,31 @@
 
 All execution endpoints require `Authorization: Bearer $BOT_CONTROL_TOKEN`.
 
+## Exchange-verified safety controls
+
+`POST /control/safe-stop` changes the bot to `PAUSE_ALL`, cancels active entry
+orders, keeps protected positions open, and submits a reduce-only close for any
+unprotected position. `POST /control/flatten` changes the bot to
+`EMERGENCY_STOP`, cancels active entries, submits reduce-only exits, and waits
+for zero active orders and zero positions. The response includes a `safety`
+object with `CONFIRMED`, `PENDING`, or `FAILED`, action counts, remaining
+exchange exposure, and machine-readable issue codes.
+
+When an alert sink is enabled, the control-mode alert and the exchange safety
+result are delivered separately. The safety alert includes the remaining order
+and position counts and translates each issue code into an operator action.
+Alert delivery failure never changes the control command response or prevents
+the exchange action.
+
+Safety issue codes:
+
+- `SAFETY_SNAPSHOT_UNAVAILABLE`
+- `SAFETY_ORDER_CANCEL_FAILED`
+- `SAFETY_POSITION_CLOSE_FAILED`
+- `SAFETY_MULTIPLE_ACTIVE_POSITIONS_UNSUPPORTED`
+- `SAFETY_VERIFICATION_UNAVAILABLE`
+- `SAFETY_VERIFICATION_PENDING`
+
 ## POST /execution/evaluate-and-submit
 
 Evaluates the runtime aggressive M5 strategy and submits a private Bybit market

@@ -448,6 +448,116 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders.single().side shouldBe Side.SELL
         }
 
+        "safe stop fails closed when the initial exchange snapshot is unavailable" {
+            val symbol = Symbol("BTCUSDT")
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.PAUSE_ALL),
+                    gateway =
+                        RecordingExecutionGateway(
+                            openOrdersFailureOnRequest = 1,
+                        ),
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.status shouldBe ExchangeSafetyStatus.FAILED
+            result.issueCodes shouldBe listOf("SAFETY_SNAPSHOT_UNAVAILABLE")
+            result.remainingOpenOrderCount shouldBe null
+            result.remainingPositionCount shouldBe null
+        }
+
+        "safe stop reports an entry order cancellation failure" {
+            val symbol = Symbol("BTCUSDT")
+            val gateway =
+                RecordingExecutionGateway(
+                    openOrders =
+                        listOf(
+                            ExchangeOpenOrder(
+                                exchangeOrderId = "entry-order-1",
+                                clientOrderId = "entry-client-1",
+                                symbol = symbol,
+                                side = Side.BUY,
+                                orderType = OrderType.LIMIT,
+                                status = OrderStatus.SUBMITTED,
+                                quantity = BigDecimal.ONE,
+                                createdAt = Instant.parse("2024-06-29T23:59:00Z"),
+                            ),
+                        ),
+                    cancelFailure = IllegalStateException("cancel unavailable"),
+                )
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.PAUSE_ALL),
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.status shouldBe ExchangeSafetyStatus.FAILED
+            result.cancelledEntryOrderCount shouldBe 0
+            result.remainingOpenOrderCount shouldBe 1
+            result.issueCodes shouldBe listOf("SAFETY_ORDER_CANCEL_FAILED")
+        }
+
+        "safe stop reports an unprotected position close failure" {
+            val symbol = Symbol("BTCUSDT")
+            val unprotectedPosition = testManagedPosition(symbol).copy(takeProfit = null, stopLoss = null)
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.PAUSE_ALL),
+                    gateway =
+                        RecordingExecutionGateway(
+                            positions = listOf(unprotectedPosition),
+                            placementFailure = IllegalStateException("placement unavailable"),
+                        ),
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.status shouldBe ExchangeSafetyStatus.FAILED
+            result.submittedCloseOrderCount shouldBe 0
+            result.remainingPositionCount shouldBe 1
+            result.issueCodes shouldBe listOf("SAFETY_POSITION_CLOSE_FAILED")
+        }
+
+        "safe stop reports when post-action verification is unavailable" {
+            val symbol = Symbol("BTCUSDT")
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.PAUSE_ALL),
+                    gateway = RecordingExecutionGateway(openOrdersFailureOnRequest = 2),
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.status shouldBe ExchangeSafetyStatus.FAILED
+            result.issueCodes shouldBe listOf("SAFETY_VERIFICATION_UNAVAILABLE")
+            result.remainingOpenOrderCount shouldBe null
+            result.remainingPositionCount shouldBe null
+        }
+
+        "emergency stop stays pending until the exchange confirms a flat position" {
+            val symbol = Symbol("BTCUSDT")
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.EMERGENCY_STOP),
+                    gateway = RecordingExecutionGateway(positions = listOf(testManagedPosition(symbol))),
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.status shouldBe ExchangeSafetyStatus.PENDING
+            result.submittedCloseOrderCount shouldBe 1
+            result.remainingPositionCount shouldBe 1
+            result.issueCodes shouldBe listOf("SAFETY_VERIFICATION_PENDING")
+        }
+
         "evaluation ignores the current open candle and reports closed warmup shortage" {
             val symbol = Symbol("BTCUSDT")
             val service =
@@ -2395,6 +2505,10 @@ private class RecordingExecutionGateway(
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
     private val accountTransactions: List<ExchangeAccountTransaction> = emptyList(),
     var accountTransactionFailure: Throwable? = null,
+    private val openOrdersFailureOnRequest: Int? = null,
+    private val positionsFailureOnRequest: Int? = null,
+    private val cancelFailure: Throwable? = null,
+    private val placementFailure: Throwable? = null,
     private val protectionFailure: Throwable? = null,
     private val closeImmediatelyOnReduceOnly: Boolean = false,
     private val accountBalance: ExchangeAccountBalance =
@@ -2430,6 +2544,7 @@ private class RecordingExecutionGateway(
     }
 
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
+        placementFailure?.let { throw it }
         placedOrders += request
         if (request.reduceOnly && closeImmediatelyOnReduceOnly) {
             currentPositions = emptyList()
@@ -2455,6 +2570,7 @@ private class RecordingExecutionGateway(
     }
 
     override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult {
+        cancelFailure?.let { throw it }
         currentOpenOrders =
             currentOpenOrders.filterNot { order ->
                 (!request.exchangeOrderId.isNullOrBlank() && order.exchangeOrderId == request.exchangeOrderId) ||
@@ -2468,11 +2584,17 @@ private class RecordingExecutionGateway(
 
     override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> {
         openOrderRequests += 1
+        if (openOrdersFailureOnRequest == openOrderRequests) {
+            throw IllegalStateException("open orders unavailable")
+        }
         return currentOpenOrders
     }
 
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> {
         positionRequests += 1
+        if (positionsFailureOnRequest == positionRequests) {
+            throw IllegalStateException("positions unavailable")
+        }
         return currentPositions
     }
 
