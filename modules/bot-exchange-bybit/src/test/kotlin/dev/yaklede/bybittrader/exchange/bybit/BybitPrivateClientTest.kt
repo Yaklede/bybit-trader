@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeTimeInForce
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -77,6 +78,39 @@ class BybitPrivateClientTest :
             result.exchangeOrderId shouldBe "exchange-1"
             result.clientOrderId shouldBe "bt-BTCUSDT-1719748800000-1-B"
             result.status shouldBe OrderStatus.SUBMITTED
+        }
+
+        "placeOrder submits a marketable IOC limit with bounded price and protection" {
+            val engine =
+                MockEngine { request ->
+                    request.url.encodedPath shouldBe "/v5/order/create"
+                    request.bodyAsText() shouldBe
+                        """{"category":"linear","symbol":"BTCUSDT","side":"Buy","orderType":"Limit","qty":"0.123","price":"70014","timeInForce":"IOC","orderLinkId":"bt-BTCUSDT-1719748800000-2-B","reduceOnly":false,"takeProfit":"72000","stopLoss":"68000","tpslMode":"Full","positionIdx":0}"""
+                    respond(
+                        content =
+                            """{"retCode":0,"retMsg":"OK","result":{"orderId":"exchange-2","orderLinkId":"bt-BTCUSDT-1719748800000-2-B"}}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val result =
+                client.placeOrder(
+                    ExchangeOrderRequest(
+                        symbol = Symbol("BTCUSDT"),
+                        side = Side.BUY,
+                        orderType = OrderType.LIMIT,
+                        quantity = BigDecimal("0.123"),
+                        clientOrderId = "bt-BTCUSDT-1719748800000-2-B",
+                        takeProfit = BigDecimal("72000"),
+                        stopLoss = BigDecimal("68000"),
+                        price = BigDecimal("70014"),
+                        timeInForce = ExchangeTimeInForce.IOC,
+                    ),
+                )
+
+            result.exchangeOrderId shouldBe "exchange-2"
         }
 
         "cancelOrder submits orderLinkId when exchange order id is absent" {

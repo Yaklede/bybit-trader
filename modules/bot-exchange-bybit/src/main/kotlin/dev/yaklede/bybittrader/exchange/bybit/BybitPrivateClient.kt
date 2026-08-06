@@ -82,7 +82,8 @@ class BybitPrivateClient(
                     side = request.side.toBybitSide(),
                     orderType = request.orderType.toBybitOrderType(),
                     qty = request.quantity.toPlainString(),
-                    timeInForce = request.orderType.toBybitTimeInForce(),
+                    price = request.price?.toPlainString(),
+                    timeInForce = request.timeInForce.name,
                     orderLinkId = request.clientOrderId,
                     reduceOnly = request.reduceOnly,
                     takeProfit = request.takeProfit?.toPlainString(),
@@ -355,12 +356,6 @@ private fun OrderType.toBybitOrderType(): String =
         OrderType.LIMIT -> "Limit"
     }
 
-private fun OrderType.toBybitTimeInForce(): String =
-    when (this) {
-        OrderType.MARKET -> "IOC"
-        OrderType.LIMIT -> "GTC"
-    }
-
 private fun String?.toSide(): Side? =
     when (this) {
         "Buy" -> Side.BUY
@@ -538,6 +533,7 @@ private data class BybitPlaceOrderBody(
     val side: String,
     val orderType: String,
     val qty: String,
+    val price: String? = null,
     val timeInForce: String,
     val orderLinkId: String,
     val reduceOnly: Boolean,

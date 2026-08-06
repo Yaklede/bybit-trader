@@ -554,6 +554,7 @@ class SqlDelightLedgerTest :
                     expectedR = BigDecimal("1.5"),
                     protectionDeadlineAt = Instant.parse("2026-06-30T00:02:00Z"),
                     fixedTargetEnabled = false,
+                    intendedRisk = BigDecimal("10"),
                 )
 
             ledger.recordLifecycleEvent(event) shouldBe 1L
@@ -567,6 +568,7 @@ class SqlDelightLedgerTest :
             stored?.plannedEntryPrice shouldBe BigDecimal("64000")
             stored?.protectionDeadlineAt shouldBe Instant.parse("2026-06-30T00:02:00Z")
             stored?.fixedTargetEnabled shouldBe false
+            stored?.intendedRisk shouldBe BigDecimal("10")
             ledger.lifecycleEvents(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), 10).size shouldBe 1
         }
 
@@ -608,6 +610,7 @@ class SqlDelightLedgerTest :
                     "expected_r",
                     "protection_deadline_at",
                     "fixed_target_enabled",
+                    "intended_risk",
                 ),
             ) shouldBe true
         }

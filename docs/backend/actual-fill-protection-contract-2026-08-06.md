@@ -55,6 +55,7 @@ are never treated as bot-owned fail-closed positions without ownership data.
 
 - `BOT_EXECUTION_PRICE_TICK`, default `0.1` for BTCUSDT
 - `BOT_EXECUTION_PROTECTION_GRACE_SECONDS`, default `120`
+- `BOT_EXECUTION_MAX_ACTUAL_RISK_OVERRUN_FRACTION`, default `0.05`
 
 The protection model permits a nullable fixed take-profit. A stop-only policy
 sends `takeProfit=0` when amending the position so an existing target is
@@ -66,6 +67,25 @@ and zero-value cancellation contract:
 The exchange instrument metadata remains the preferred future source for price
 and quantity steps. These settings are explicit until that metadata is wired
 into the execution gateway.
+
+## Bounded automatic entry
+
+Automatic entries use a marketable IOC limit order instead of an unbounded
+market request. The limit is the last closed-candle price plus the configured
+entry slippage for buys, or minus it for sells, normalized conservatively to the
+price tick. Sizing and planned protection use this worst acceptable price. Any
+unfilled IOC quantity is cancelled by the exchange.
+
+This avoids Bybit's market-only slippage parameters, which cannot be combined
+with TP/SL, while retaining protection on the entry request. Bybit documents
+both that market orders are internally converted to IOC limits and that order
+creation acknowledgement is asynchronous:
+<https://bybit-exchange.github.io/docs/v5/order/create-order>.
+
+After a position appears, the service recomputes cost-adjusted risk from the
+actual average fill, actual size, and actual-fill stop. If it exceeds persisted
+`intendedRisk` by more than the configured fraction, the full position is
+submitted for reduce-only closure before any strategy management continues.
 
 ## Verification
 

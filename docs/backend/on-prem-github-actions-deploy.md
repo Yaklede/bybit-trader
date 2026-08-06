@@ -106,6 +106,9 @@ override:
 - `BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS`: default `30`; an automatic signal is
   rejected after this many seconds from the closed-candle boundary. Missing the
   latest closed candle is rejected independently of this setting.
+- `BOT_EXECUTION_MAX_ACTUAL_RISK_OVERRUN_FRACTION`: default `0.05`; a position
+  whose actual-fill cost-adjusted risk exceeds the persisted budget by more than
+  this fraction is submitted for reduce-only closure.
 - `TELEGRAM_ALERTS_ENABLED`: default `false`.
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.

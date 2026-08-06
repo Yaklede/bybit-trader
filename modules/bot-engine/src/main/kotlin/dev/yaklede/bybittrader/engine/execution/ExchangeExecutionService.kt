@@ -314,7 +314,13 @@ class ExchangeExecutionService(
             return result
         }
 
-        val entryPrice = candles.last().close
+        val entryPrice =
+            automaticEntryLimitPrice(
+                side = signal.side,
+                referencePrice = latestClosedCandle.close,
+                slippageRate = config.slippageBufferRate,
+                priceTick = config.priceTick,
+            )
         val protectionPlan =
             ExecutionTradePlanCalculator.calculateProtection(
                 side = signal.side,
@@ -509,11 +515,13 @@ class ExchangeExecutionService(
                 ExchangeOrderRequest(
                     symbol = symbol,
                     side = signal.side,
-                    orderType = OrderType.MARKET,
+                    orderType = OrderType.LIMIT,
                     quantity = sizing.quantity,
                     clientOrderId = clientOrderId,
                     takeProfit = takeProfit,
                     stopLoss = stopLoss,
+                    price = entryPrice,
+                    timeInForce = ExchangeTimeInForce.IOC,
                 ),
             )
         val orderId =
@@ -523,7 +531,7 @@ class ExchangeExecutionService(
                     clientOrderId = clientOrderId,
                     signalId = signalId,
                     side = signal.side,
-                    orderType = OrderType.MARKET,
+                    orderType = OrderType.LIMIT,
                     orderStatus = orderResult.status,
                     intendedRisk = intendedRisk,
                     createdAt = now,
@@ -548,6 +556,7 @@ class ExchangeExecutionService(
             expectedR = signal.expectedR,
             protectionDeadlineAt = now.plus(config.protectionGracePeriod),
             fixedTargetEnabled = activePositionPolicy?.fixedTargetEnabled ?: true,
+            intendedRisk = intendedRisk,
         )
 
         val result =
@@ -719,6 +728,21 @@ class ExchangeExecutionService(
         }
 
         val desiredProtection = base.desiredProtection(activePosition)
+        val actualRisk = desiredProtection?.let { plan -> actualPositionRisk(activePosition, plan) }
+        val maximumActualRisk =
+            base.intendedRisk?.multiply(
+                BigDecimal.ONE.add(config.maximumActualRiskOverrunFraction),
+                MathContext.DECIMAL64,
+            )
+        if (actualRisk != null && maximumActualRisk != null && actualRisk > maximumActualRisk) {
+            return failClosedActualRiskOverrunPosition(
+                report = report,
+                position = activePosition,
+                lifecycle = base,
+                actualRisk = actualRisk,
+                maximumActualRisk = maximumActualRisk,
+            )
+        }
         var observedPosition = activePosition
         var protectionUpdateFailed = false
         if (
@@ -796,6 +820,71 @@ class ExchangeExecutionService(
         }
 
         return failClosedUnprotectedPosition(report, observedPosition, observation) ?: recordedObservation
+    }
+
+    private fun actualPositionRisk(
+        position: ExchangePosition,
+        protection: ExecutionProtectionPlan,
+    ): BigDecimal {
+        val entryPrice = requireNotNull(position.entryPrice)
+        val costAdjustedRiskPerUnit =
+            ExecutionTradePlanCalculator.costAdjustedRiskPerUnit(
+                entryPrice = entryPrice,
+                riskPerUnit = protection.riskPerUnit,
+                feeRate = config.feeRate,
+                slippageBufferRate = config.slippageBufferRate,
+                exitSlippageRate = config.slippageBufferRate,
+            )
+        return costAdjustedRiskPerUnit.multiply(position.size, MathContext.DECIMAL64)
+    }
+
+    private suspend fun failClosedActualRiskOverrunPosition(
+        report: ExchangeReconciliationReport,
+        position: ExchangePosition,
+        lifecycle: ExecutionLifecycleEvent,
+        actualRisk: BigDecimal,
+        maximumActualRisk: BigDecimal,
+    ): ExecutionLifecycleEvent? {
+        logger.error(
+            "execution actual-fill risk exceeded symbol={} lifecycleId={} actualRisk={} maximumRisk={}",
+            position.symbol.value,
+            lifecycle.lifecycleId,
+            actualRisk.toPlainString(),
+            maximumActualRisk.toPlainString(),
+        )
+        return try {
+            submitManualOrder(
+                symbol = position.symbol,
+                side = position.side.opposite(),
+                quantity = position.size,
+                reduceOnly = true,
+                strategyName = "automatic-risk-fail-closed",
+                reasonCode = "ACTUAL_FILL_RISK_LIMIT_EXCEEDED",
+                clientOrderPrefix = "risk",
+            )
+            lifecycleStore?.latestLifecycleEvent(runtimeMode, position.symbol)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.error(
+                "execution actual-fill risk fail-closed exit failed symbol={} lifecycleId={}",
+                position.symbol.value,
+                lifecycle.lifecycleId,
+                error,
+            )
+            recordObservedLifecycle(
+                lifecycle.copy(
+                    id = 0,
+                    state = ExecutionLifecycleState.ERROR,
+                    filledQuantity = position.size,
+                    fillVwap = position.entryPrice,
+                    takeProfit = position.takeProfit,
+                    stopLoss = position.stopLoss,
+                    reasonCode = "ACTUAL_FILL_RISK_OVERRUN_EXIT_FAILED",
+                    occurredAt = report.reconciledAt,
+                ),
+            )
+        }
     }
 
     private suspend fun failClosedUnprotectedPosition(
@@ -1335,6 +1424,7 @@ class ExchangeExecutionService(
             expectedR = latestLifecycle?.expectedR,
             protectionDeadlineAt = latestLifecycle?.protectionDeadlineAt,
             fixedTargetEnabled = latestLifecycle?.fixedTargetEnabled ?: true,
+            intendedRisk = latestLifecycle?.intendedRisk,
         )
         logger.warn(
             "execution manual market order submitted symbol={} side={} signalId={} orderId={} exchangeOrderId={} reduceOnly={}",
@@ -1379,6 +1469,7 @@ class ExchangeExecutionService(
         expectedR: BigDecimal? = null,
         protectionDeadlineAt: Instant? = null,
         fixedTargetEnabled: Boolean = true,
+        intendedRisk: BigDecimal? = null,
     ) {
         val store = lifecycleStore ?: return
         val latest = store.latestLifecycleEvent(runtimeMode, symbol)
@@ -1410,6 +1501,7 @@ class ExchangeExecutionService(
                 expectedR = expectedR,
                 protectionDeadlineAt = protectionDeadlineAt,
                 fixedTargetEnabled = fixedTargetEnabled,
+                intendedRisk = intendedRisk,
             ),
         )
     }
@@ -1539,6 +1631,23 @@ private fun BigDecimal?.matchesOptional(
     expected: BigDecimal?,
     tolerance: BigDecimal,
 ): Boolean = if (expected == null) this == null || compareTo(BigDecimal.ZERO) == 0 else isNear(expected, tolerance)
+
+private fun automaticEntryLimitPrice(
+    side: Side,
+    referencePrice: BigDecimal,
+    slippageRate: BigDecimal,
+    priceTick: BigDecimal,
+): BigDecimal {
+    val rawLimit =
+        when (side) {
+            Side.BUY -> referencePrice.multiply(BigDecimal.ONE.add(slippageRate), MathContext.DECIMAL64)
+            Side.SELL -> referencePrice.multiply(BigDecimal.ONE.subtract(slippageRate), MathContext.DECIMAL64)
+        }
+    return when (side) {
+        Side.BUY -> rawLimit.floorToStep(priceTick)
+        Side.SELL -> rawLimit.ceilToStep(priceTick)
+    }
+}
 
 private fun closedCandleBoundary(
     instant: Instant,

@@ -38,6 +38,7 @@ data class ExecutionLifecycleEvent(
     val expectedR: BigDecimal? = null,
     val protectionDeadlineAt: Instant? = null,
     val fixedTargetEnabled: Boolean = true,
+    val intendedRisk: BigDecimal? = null,
 ) {
     init {
         require(lifecycleId.isNotBlank()) { "Execution lifecycle id must not be blank." }
@@ -57,6 +58,7 @@ data class ExecutionLifecycleEvent(
             "Entry-anchored execution stop distance must be positive."
         }
         require(expectedR == null || expectedR > BigDecimal.ZERO) { "Execution expected R must be positive." }
+        require(intendedRisk == null || intendedRisk > BigDecimal.ZERO) { "Execution intended risk must be positive." }
         require(!protectionRequired || protectionDeadlineAt != null) {
             "Protection-required execution lifecycle needs a deadline."
         }

@@ -506,6 +506,7 @@ data class ExecutionSettings(
     val priceTick: BigDecimal,
     val protectionGracePeriod: Duration,
     val maximumEntryDelay: Duration,
+    val maximumActualRiskOverrunFraction: BigDecimal,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -537,6 +538,9 @@ data class ExecutionSettings(
         }
         require(!maximumEntryDelay.isNegative && !maximumEntryDelay.isZero) {
             "Execution maximum entry delay must be positive."
+        }
+        require(maximumActualRiskOverrunFraction >= BigDecimal.ZERO && maximumActualRiskOverrunFraction <= BigDecimal.ONE) {
+            "Execution maximum actual-risk overrun fraction must be between 0 and 1."
         }
     }
 
@@ -570,6 +574,10 @@ data class ExecutionSettings(
                     Duration.ofSeconds(
                         environment["BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS"]?.toLongOrNull() ?: 30,
                     ),
+                maximumActualRiskOverrunFraction =
+                    environment["BOT_EXECUTION_MAX_ACTUAL_RISK_OVERRUN_FRACTION"]
+                        ?.let(::BigDecimal)
+                        ?: BigDecimal("0.05"),
             )
     }
 }

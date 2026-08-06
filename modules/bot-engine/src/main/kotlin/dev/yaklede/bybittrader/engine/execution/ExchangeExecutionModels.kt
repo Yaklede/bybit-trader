@@ -27,6 +27,7 @@ data class ExchangeExecutionConfig(
     val priceTick: BigDecimal = BigDecimal("0.1"),
     val protectionGracePeriod: Duration = Duration.ofSeconds(120),
     val maximumEntryDelay: Duration = Duration.ofSeconds(30),
+    val maximumActualRiskOverrunFraction: BigDecimal = BigDecimal("0.05"),
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -60,6 +61,9 @@ data class ExchangeExecutionConfig(
         require(!maximumEntryDelay.isNegative && !maximumEntryDelay.isZero) {
             "Execution maximum entry delay must be positive."
         }
+        require(maximumActualRiskOverrunFraction >= BigDecimal.ZERO && maximumActualRiskOverrunFraction <= BigDecimal.ONE) {
+            "Execution maximum actual-risk overrun fraction must be between 0 and 1."
+        }
     }
 }
 
@@ -72,12 +76,24 @@ data class ExchangeOrderRequest(
     val takeProfit: BigDecimal?,
     val stopLoss: BigDecimal?,
     val reduceOnly: Boolean = false,
+    val price: BigDecimal? = null,
+    val timeInForce: ExchangeTimeInForce =
+        if (orderType == OrderType.MARKET) ExchangeTimeInForce.IOC else ExchangeTimeInForce.GTC,
 ) {
     init {
         require(quantity > BigDecimal.ZERO) { "Order quantity must be positive." }
         require(clientOrderId.isNotBlank()) { "Client order id must not be blank." }
         require(clientOrderId.length <= 36) { "Client order id must be 36 characters or shorter." }
+        require(
+            (orderType == OrderType.MARKET && price == null) ||
+                (orderType == OrderType.LIMIT && price != null && price > BigDecimal.ZERO),
+        ) { "Limit orders require a positive price and market orders must not include one." }
     }
+}
+
+enum class ExchangeTimeInForce {
+    GTC,
+    IOC,
 }
 
 data class ExchangeOrderResult(

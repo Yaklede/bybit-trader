@@ -808,6 +808,7 @@ class SqlDelightLedger(
                 expected_r = event.expectedR?.toPlainString(),
                 protection_deadline_at = event.protectionDeadlineAt?.toString(),
                 fixed_target_enabled = if (event.fixedTargetEnabled) 1L else 0L,
+                intended_risk = event.intendedRisk?.toPlainString(),
                 identity_key = event.identityKey(),
             )
             if (database.ledgerQueries.selectChanges().executeAsOne() == 0L) {
@@ -969,6 +970,7 @@ private fun ExecutionLifecycleEvents.toExecutionLifecycleEvent(): ExecutionLifec
         expectedR = expected_r?.let(::BigDecimal),
         protectionDeadlineAt = protection_deadline_at?.let(Instant::parse),
         fixedTargetEnabled = fixed_target_enabled != 0L,
+        intendedRisk = intended_risk?.let(::BigDecimal),
     )
 
 private fun SelectRecentMarketCandles.toCandle(): Candle =

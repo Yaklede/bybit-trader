@@ -55,7 +55,7 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
-        "running execution sizes and submits a market order" {
+        "running execution sizes and submits a bounded IOC entry" {
             val gateway = RecordingExecutionGateway()
             val store = InMemoryTradingStore()
             val service =
@@ -86,6 +86,7 @@ class ExchangeExecutionServiceTest :
             result.stopLoss shouldBe BigDecimal("100")
             store.signals.single().accepted shouldBe true
             store.orders.single().orderStatus shouldBe OrderStatus.SUBMITTED
+            store.orders.single().orderType shouldBe OrderType.LIMIT
             store.orders.single().exchangeOrderId shouldBe "exchange-1"
             store.lifecycleRecords.single().state shouldBe ExecutionLifecycleState.ENTRY_SUBMITTED
             store.lifecycleRecords.single().takeProfit shouldBe BigDecimal("112.5")
@@ -93,6 +94,9 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders.map { it.clientOrderId }.shouldContainExactly(
                 listOf("bt-BTCUSDT-1719705600000-1-B"),
             )
+            gateway.placedOrders.single().orderType shouldBe OrderType.LIMIT
+            gateway.placedOrders.single().timeInForce shouldBe ExchangeTimeInForce.IOC
+            gateway.placedOrders.single().price shouldBe BigDecimal("105")
         }
 
         "stop-only policy submits and persists no fixed take profit" {
@@ -923,6 +927,49 @@ class ExchangeExecutionServiceTest :
             report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.OPEN_PROTECTED
             report.lifecycleEvent?.fillVwap shouldBe BigDecimal("106")
             report.lifecycleEvent?.reasonCode shouldBe "ACTUAL_FILL_PROTECTION_VERIFIED"
+        }
+
+        "exchange reconciliation closes a position whose actual-fill risk exceeds its budget" {
+            val symbol = Symbol("BTCUSDT")
+            val store = InMemoryTradingStore()
+            store.recordLifecycleEvent(
+                testLifecycleEvent().copy(
+                    protectionRequired = true,
+                    plannedEntryPrice = BigDecimal("105"),
+                    structuralStopPrice = BigDecimal("100"),
+                    expectedR = BigDecimal("1.5"),
+                    protectionDeadlineAt = Instant.parse("2024-06-30T00:02:00Z"),
+                    intendedRisk = BigDecimal("10"),
+                ),
+            )
+            val gateway =
+                RecordingExecutionGateway(
+                    positions =
+                        listOf(
+                            ExchangePosition(
+                                symbol = symbol,
+                                side = Side.BUY,
+                                size = BigDecimal("1"),
+                                openedAt = Instant.parse("2024-06-29T23:00:00Z"),
+                                entryPrice = BigDecimal("120"),
+                                markPrice = BigDecimal("120"),
+                                unrealizedPnl = BigDecimal.ZERO,
+                                updatedAt = Instant.parse("2024-06-30T00:00:00Z"),
+                                takeProfit = BigDecimal("130"),
+                                stopLoss = BigDecimal("100"),
+                            ),
+                        ),
+                )
+            val service = testService(store = store, gateway = gateway, config = ExchangeExecutionConfig(enabled = true))
+
+            val report = service.persistExchangeState(symbol)
+
+            gateway.protectionRequests shouldBe emptyList()
+            gateway.placedOrders.single().reduceOnly shouldBe true
+            gateway.placedOrders.single().side shouldBe Side.SELL
+            gateway.placedOrders.single().quantity shouldBe BigDecimal("1")
+            report.lifecycleEvent?.state shouldBe ExecutionLifecycleState.EXIT_SUBMITTED
+            report.lifecycleEvent?.reasonCode shouldBe "ACTUAL_FILL_RISK_LIMIT_EXCEEDED"
         }
 
         "exchange reconciliation clears TP and verifies a stop-only actual-fill protection" {

@@ -196,6 +196,7 @@ fun main() {
                         priceTick = config.execution.priceTick,
                         protectionGracePeriod = config.execution.protectionGracePeriod,
                         maximumEntryDelay = config.execution.maximumEntryDelay,
+                        maximumActualRiskOverrunFraction = config.execution.maximumActualRiskOverrunFraction,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                 positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),
