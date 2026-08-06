@@ -31,6 +31,61 @@ export function validateDevelopmentProtocol(protocol) {
   return protocol;
 }
 
+export function validateFrozenDiagnosticProtocol(protocol) {
+  if (protocol?.status !== "PREDECLARED_DIAGNOSTIC") {
+    throw new Error("Frozen diagnostic protocol must be PREDECLARED_DIAGNOSTIC.");
+  }
+  if (protocol.independence !== "NON_INDEPENDENT_PREVIOUSLY_INSPECTED_HISTORY") {
+    throw new Error("Reused historical diagnostics must disclose non-independence.");
+  }
+  if (protocol.outcomePolicy?.promotionAllowed !== false || protocol.outcomePolicy?.liveExecutionAllowed !== false) {
+    throw new Error("Historical diagnostics cannot enable promotion or live execution.");
+  }
+  if (protocol.reservedSealedWindowMayBeRead !== false) {
+    throw new Error("Historical diagnostics cannot read the reserved sealed window.");
+  }
+  const start = Date.parse(protocol.sourceData?.diagnosticReplayStartsAt);
+  const end = Date.parse(protocol.sourceData?.diagnosticReplayEndsAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
+    throw new Error("Diagnostic replay bounds are invalid.");
+  }
+  if (protocol.candidate?.id == null || protocol.candidate?.family == null) {
+    throw new Error("Diagnostic candidate must be fully frozen.");
+  }
+  if (!Array.isArray(protocol.costMultipliers) || protocol.costMultipliers.join(",") !== "1,1.5,2") {
+    throw new Error("Diagnostic cost multipliers must be exactly 1, 1.5, and 2.");
+  }
+  const windows = protocol.windows ?? [];
+  if (windows.length !== protocol.diagnosticGate?.totalWindowCount) {
+    throw new Error("Diagnostic window count does not match its gate.");
+  }
+  for (let index = 0; index < windows.length; index += 1) {
+    const window = windows[index];
+    if (Date.parse(window.replayStartAt) >= Date.parse(window.replayEndAt)) throw new Error(`Invalid diagnostic window: ${window.id}`);
+    if (index > 0 && windows[index - 1].replayEndAt !== window.replayStartAt) {
+      throw new Error("Diagnostic windows must be contiguous.");
+    }
+  }
+  if (windows[0]?.replayStartAt !== protocol.sourceData.diagnosticReplayStartsAt ||
+      windows.at(-1)?.replayEndAt !== protocol.sourceData.diagnosticReplayEndsAt) {
+    throw new Error("Diagnostic windows must cover the declared replay range.");
+  }
+  return protocol;
+}
+
+export function scaledCostContract(protocol, multiplier) {
+  validateFrozenDiagnosticProtocol(protocol);
+  if (!protocol.costMultipliers.includes(multiplier)) throw new Error(`Undeclared cost multiplier: ${multiplier}`);
+  const base = protocol.executionContract;
+  return {
+    ...base,
+    entryFeeRate: base.entryFeeRate * multiplier,
+    exitFeeRate: base.exitFeeRate * multiplier,
+    entrySlippageRate: base.entrySlippageRate * multiplier,
+    exitSlippageRate: base.exitSlippageRate * multiplier,
+  };
+}
+
 export function expandCandidates(protocol) {
   const candidates = [];
   for (const hypothesis of protocol.hypotheses ?? []) {
@@ -407,11 +462,22 @@ function priorRange(candles, index, lookback) {
   return { high, low };
 }
 
-export async function runCandidateBatch({ m1Candles, m5Candles, m15Candles, candidates, protocol }) {
-  validateDevelopmentProtocol(protocol);
-  const contract = protocol.executionContract;
-  const replayStartMs = Date.parse(protocol.sourceData.developmentReplayStartsAt);
-  const replayEndMs = Date.parse(protocol.sourceData.developmentReplayEndsAt);
+export async function runCandidateBatch({
+  m1Candles,
+  m5Candles,
+  m15Candles,
+  candidates,
+  protocol,
+  executionContract = protocol.executionContract,
+}) {
+  validateReplayProtocol(protocol, candidates);
+  const contract = executionContract;
+  const replayStartMs = Date.parse(
+    protocol.sourceData.developmentReplayStartsAt ?? protocol.sourceData.diagnosticReplayStartsAt,
+  );
+  const replayEndMs = Date.parse(
+    protocol.sourceData.developmentReplayEndsAt ?? protocol.sourceData.diagnosticReplayEndsAt,
+  );
   const preparedM5 = prepareHigherTimeframeCandles(m5Candles, TIMEFRAME_MS.M5);
   const preparedM15 = prepareHigherTimeframeCandles(m15Candles, TIMEFRAME_MS.M15);
   const slopeLookback = Math.max(4, ...candidates.map((candidate) => candidate.m15SlopeLookbackBars ?? 0));
@@ -486,6 +552,17 @@ export async function runCandidateBatch({ m1Candles, m5Candles, m15Candles, cand
     })),
     automaticExecutionAllowed: false,
   };
+}
+
+function validateReplayProtocol(protocol, candidates) {
+  if (protocol.status === "PREDECLARED_DEVELOPMENT") {
+    validateDevelopmentProtocol(protocol);
+    return;
+  }
+  validateFrozenDiagnosticProtocol(protocol);
+  if (candidates.length !== 1 || candidates[0].id !== protocol.candidate.id) {
+    throw new Error("Frozen diagnostic replay must run exactly its declared candidate.");
+  }
 }
 
 async function* toAsyncIterable(source) {
@@ -923,6 +1000,62 @@ export function evaluateNestedWalkForward(batch, protocol) {
   };
 }
 
+export function evaluateFrozenDiagnosticRuns(runs, protocol) {
+  validateFrozenDiagnosticProtocol(protocol);
+  const costReports = runs.map((run) => {
+    if (!protocol.costMultipliers.includes(run.costMultiplier)) {
+      throw new Error(`Unexpected diagnostic cost multiplier: ${run.costMultiplier}`);
+    }
+    const windows = protocol.windows.map((window) => ({
+      id: window.id,
+      metrics: metricsForTrades(run.candidateResult.trades, window.replayStartAt, window.replayEndAt, protocol),
+    }));
+    const pooled = metricsForTrades(
+      run.candidateResult.trades,
+      protocol.sourceData.diagnosticReplayStartsAt,
+      protocol.sourceData.diagnosticReplayEndsAt,
+      protocol,
+    );
+    return {
+      costMultiplier: run.costMultiplier,
+      dataGapCount: run.candidateResult.dataGapCount,
+      positiveWindowCount: windows.filter((window) => window.metrics.netReturnPct > 0).length,
+      pooled,
+      windows,
+    };
+  }).sort((left, right) => left.costMultiplier - right.costMultiplier);
+  if (costReports.map((report) => report.costMultiplier).join(",") !== protocol.costMultipliers.join(",")) {
+    throw new Error("Every predeclared cost multiplier must be evaluated exactly once.");
+  }
+  const base = costReports.find((report) => report.costMultiplier === 1);
+  const twoX = costReports.find((report) => report.costMultiplier === 2);
+  const gate = protocol.diagnosticGate;
+  const checks = {
+    noDataGaps: costReports.every((report) => report.dataGapCount === 0),
+    minimumBaseTradeCount: base.pooled.tradeCount >= gate.minimumBaseTradeCount,
+    minimumPositiveWindowCount: base.positiveWindowCount >= gate.minimumPositiveWindowCount,
+    minimumBaseProfitFactor: base.pooled.profitFactor >= gate.minimumBaseProfitFactor,
+    minimumBaseMeanNetR: base.pooled.meanNetR > gate.minimumBaseMeanNetR,
+    minimumBaseBootstrapLowerMeanNetR: (base.pooled.bootstrap?.lowerBound ?? -Infinity) > gate.minimumBaseBootstrapLowerMeanNetR,
+    maximumBaseDrawdownPct: base.pooled.maxDrawdownPct <= gate.maximumBaseDrawdownPct,
+    maximumLiquidationCount: base.pooled.liquidationCount <= gate.maximumLiquidationCount,
+    minimumTwoXCostMeanNetR: twoX.pooled.meanNetR > gate.minimumTwoXCostMeanNetR,
+    maximumWinnerProfitConcentration:
+      base.pooled.maximumWinnerProfitConcentration <= gate.maximumWinnerProfitConcentration,
+  };
+  const passed = Object.values(checks).every(Boolean);
+  return {
+    schemaVersion: 1,
+    protocolId: protocol.protocolId,
+    candidateId: protocol.candidate.id,
+    status: passed ? "DIAGNOSTIC_PASSED_NON_INDEPENDENT" : "REJECTED",
+    gate: { passed, checks },
+    costReports,
+    reservedSealedWindowOpened: false,
+    automaticExecutionAllowed: false,
+  };
+}
+
 function trainingEligible(item, protocol) {
   const gate = protocol.trainingEligibility;
   const metrics = item.metrics;
@@ -1002,8 +1135,8 @@ export function metricsForTrades(trades, startAt, endAt, protocol, { alreadyFilt
   const startMs = Date.parse(startAt);
   const endMs = Date.parse(endAt);
   const observedDays = Math.max(1, (endMs - startMs) / 86_400_000);
-  const bootstrapConfig = protocol.trainingEligibility.bootstrap;
-  const bootstrap = returnsR.length === 0 ? null : movingBlockBootstrap(returnsR, {
+  const bootstrapConfig = protocol.statistics?.bootstrap ?? protocol.trainingEligibility.bootstrap;
+  const bootstrap = returnsR.length < 2 ? null : movingBlockBootstrap(returnsR, {
     iterations: bootstrapConfig.iterations,
     blockLength: bootstrapConfig.blockLengthTrades,
     confidenceLevel: bootstrapConfig.confidenceLevel,

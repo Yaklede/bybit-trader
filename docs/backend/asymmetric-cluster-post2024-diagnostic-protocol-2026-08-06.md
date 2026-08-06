@@ -44,3 +44,12 @@ v3 가족은 nested 게이트를 통과하지 못했지만, 거래 60건 이상�
 - 저빈도 후보라 분기별 표본이 작을 수 있다.
 - 비용 2배 스트레스도 실제 변동성 급등 시 꼬리 슬리피지를 완전히 설명하지 못한다.
 - OHLCV 기반 청산 근사는 거래소 이벤트를 직접 복원하지 못한다.
+
+## 재현 명령
+
+```bash
+node --max-old-space-size=4096 scripts/frozen-candidate-diagnostic.mjs \
+  --protocol config/asymmetric-cluster-post2024-diagnostic-v1.json \
+  --db build/runtime-test/bybit-trader-full-history.sqlite \
+  --out build/research/asymmetric-cluster-post2024-diagnostic-v1
+```
