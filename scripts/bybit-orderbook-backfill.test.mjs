@@ -57,6 +57,37 @@ test("catalog requests are bounded to six days and validate official order-book 
   assert.equal(files.length, 7);
 });
 
+test("catalog lookup retries a transient network termination", async () => {
+  const options = parseArgs([
+    "--start=2024-01-01",
+    "--end=2024-01-01",
+    "--archive-attempts=3",
+    "--archive-retry-delay-millis=0",
+  ]);
+  let attempts = 0;
+  const files = await listArchiveFiles(options, async () => {
+    attempts += 1;
+    if (attempts < 3) throw new TypeError("terminated");
+    return new Response(JSON.stringify({
+      ret_code: 0,
+      result: {
+        list: [{
+          bizType: "contract",
+          productId: "orderbook",
+          interval: "daily",
+          symbol: "BTCUSDT",
+          date: "2024-01-01",
+          filename: "2024-01-01_BTCUSDT_ob500.data.zip",
+          size: "1",
+          url: "https://quote-saver.bycsi.com/orderbook/linear/BTCUSDT/2024-01-01.zip",
+        }],
+      },
+    }));
+  });
+  assert.equal(attempts, 3);
+  assert.equal(files.length, 1);
+});
+
 test("archive aggregation preserves event-weighted depth and top-five mutations", async () => {
   const lines = [
     message("2024-01-01T00:00:05.000Z", "snapshot", [["100", "2"], ["99", "1"], ["98", "3"], ["97", "1"], ["96", "1"], ["95", "1"]], [["101", "2"], ["102", "1"], ["103", "3"], ["104", "1"], ["105", "1"], ["106", "1"]]),

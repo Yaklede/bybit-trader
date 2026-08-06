@@ -14,6 +14,8 @@ const DEFAULT_ARCHIVE_URL = "https://public.bybit.com/trading";
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
 const TRADE_IMPORTER_VERSION = "bybit-public-trades-v2-event-flow";
 const MINUTES_PER_DAY = 1_440;
+const DEFAULT_ARCHIVE_ATTEMPTS = 3;
+const DEFAULT_ARCHIVE_RETRY_DELAY_MS = 1_000;
 
 export function parseArgs(argv) {
   const values = new Map();
@@ -37,6 +39,8 @@ export function parseArgs(argv) {
     apiBaseUrl: values.get("api-base-url") ?? DEFAULT_BASE_URL,
     archiveBaseUrl: values.get("archive-base-url") ?? DEFAULT_ARCHIVE_URL,
     requestDelayMs: Number(values.get("request-delay-ms") ?? 125),
+    archiveAttempts: Number(values.get("archive-attempts") ?? DEFAULT_ARCHIVE_ATTEMPTS),
+    archiveRetryDelayMs: Number(values.get("archive-retry-delay-ms") ?? DEFAULT_ARCHIVE_RETRY_DELAY_MS),
   };
   if (!SYMBOL_PATTERN.test(options.symbol)) throw new Error("Symbol must contain only uppercase letters and numbers.");
   if (!isDate(options.start) || !isDate(options.end) || options.start > options.end) {
@@ -48,6 +52,12 @@ export function parseArgs(argv) {
   }
   if (!Number.isInteger(options.requestDelayMs) || options.requestDelayMs < 0) {
     throw new Error("request-delay-ms must be a non-negative integer.");
+  }
+  if (!Number.isInteger(options.archiveAttempts) || options.archiveAttempts < 1 || options.archiveAttempts > 5) {
+    throw new Error("archive-attempts must be an integer between 1 and 5.");
+  }
+  if (!Number.isInteger(options.archiveRetryDelayMs) || options.archiveRetryDelayMs < 0 || options.archiveRetryDelayMs > 60_000) {
+    throw new Error("archive-retry-delay-ms must be an integer between 0 and 60000.");
   }
   return options;
 }
@@ -267,13 +277,17 @@ async function backfillTrades(db, options, fetchImpl, log) {
       continue;
     }
     const url = `${options.archiveBaseUrl.replace(/\/$/, "")}/${options.symbol}/${options.symbol}${date}.csv.gz`;
-    const response = await fetchImpl(url);
-    if (response.status === 404) {
+    const archive = await retryTradeArchiveOperation(async () => {
+      const response = await fetchImpl(url);
+      if (response.status === 404) return null;
+      if (!response.ok || !response.body) throw new Error(`Trade archive ${date} failed with HTTP ${response.status}.`);
+      return aggregateTradeArchive(response.body, options.symbol);
+    }, options.archiveAttempts, options.archiveRetryDelayMs);
+    if (archive == null) {
       log(`trade archive unavailable date=${date}`);
       continue;
     }
-    if (!response.ok || !response.body) throw new Error(`Trade archive ${date} failed with HTTP ${response.status}.`);
-    const aggregate = await aggregateTradeArchive(response.body, options.symbol);
+    const aggregate = archive;
     completeTradeBarsForCandles(db, options.symbol, date, aggregate.bars);
     const existing = db.prepare(`
       SELECT archive_sha256 FROM historicalTradeImports
@@ -324,6 +338,19 @@ async function backfillTrades(db, options, fetchImpl, log) {
     completed += 1;
     if (completed % 30 === 0) log(`trade archives completed=${completed} latest=${date}`);
   }
+}
+
+export async function retryTradeArchiveOperation(operation, attempts, retryDelayMs, wait = sleep) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await wait(retryDelayMs * 2 ** (attempt - 1));
+    }
+  }
+  throw lastError;
 }
 
 export function hasCompleteTradeImportDay(db, symbol, date) {

@@ -195,7 +195,11 @@ export async function listArchiveFiles(options, fetchImpl = fetch) {
     url.searchParams.set("interval", "daily");
     url.searchParams.set("startDay", start);
     url.searchParams.set("endDay", end);
-    const payload = await fetchJson(url, fetchImpl, "order-book archive catalog");
+    const payload = await retryArchiveOperation(
+      () => fetchJson(url, fetchImpl, "order-book archive catalog"),
+      options.archiveAttempts ?? DEFAULT_ARCHIVE_ATTEMPTS,
+      options.archiveRetryDelayMillis ?? DEFAULT_ARCHIVE_RETRY_DELAY_MILLIS,
+    );
     if (payload.ret_code !== 0 || !Array.isArray(payload.result?.list)) {
       throw new Error(`Order-book archive catalog returned ret_code=${payload.ret_code ?? "unknown"}: ${payload.ret_msg ?? "missing result"}`);
     }

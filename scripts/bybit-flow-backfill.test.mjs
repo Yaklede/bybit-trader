@@ -11,6 +11,7 @@ import {
   hasCompleteTakerFlowDay,
   minuteEpochMillis,
   parseArgs,
+  retryTradeArchiveOperation,
   verifyExistingTradeArchiveHash,
 } from "./bybit-flow-backfill.mjs";
 
@@ -20,6 +21,18 @@ test("parseArgs validates date ranges and dataset names", () => {
   assert.deepEqual([...options.datasets], ["oi", "account-ratio", "coverage"]);
   assert.throws(() => parseArgs(["--start=2024-02-01", "--end=2024-01-01"]));
   assert.throws(() => parseArgs(["--datasets=unknown"]));
+  assert.throws(() => parseArgs(["--archive-attempts=6"]));
+});
+
+test("trade archive operation retries a terminated response without changing the attempt budget", async () => {
+  const attempts = [];
+  const result = await retryTradeArchiveOperation(async (attempt) => {
+    attempts.push(attempt);
+    if (attempt < 3) throw new TypeError("terminated");
+    return "complete";
+  }, 3, 0, async () => {});
+  assert.equal(result, "complete");
+  assert.deepEqual(attempts, [1, 2, 3]);
 });
 
 test("minuteEpochMillis supports official decimal-second and epoch-millisecond timestamps", () => {
