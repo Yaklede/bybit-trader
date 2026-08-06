@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-event-flow-development-result-v2",
+  "status": "REJECTED_NO_STATISTICALLY_POSITIVE_FAMILY",
+  "protocolId": "bybit-event-flow-development-v1",
+  "protocolSha256": "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d",
+  "analysisId": "bybit-event-flow-development-analysis-v2",
+  "analysisContractSha256": "a8a6e1ce371a323f1928d37b22a791d1b2e6a1aeef07a8dbd92057e7b1ae6b74",
+  "implementationSha256": "7ddd900a3d498e2a3dfa271fa4cb9cdf1cb1ac525c0622b093dae7c97e77938f",
+  "developmentSourceFingerprintSha256": "a4de3485e49a81ee3cd23a03ece58abecd339d389f90fcdb20bc41eb597ad047",
+  "researchDatabaseSha256": "054e55a07629e17a50131e06c444b044089de70a9d6511f6256e55d63278500d",
+  "resultArtifactSha256": "a0b485d5dbcefc9e8a168708beb2a978ad89b4be5dd252c3ab4a7791b43470ac",
+  "generatedAt": "2026-08-06T08:27:04.826Z",
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 92,
+    "stageCandidates": 32,
+    "cumulativeCandidates": 124,
+    "maximumCumulativeCandidates": 192
+  },
+  "candidateTradeCountRange": {
+    "minimum": 0,
+    "maximum": 53
+  },
+  "families": [
+    {
+      "family": "EVENT_DEPLETION_CONTINUATION",
+      "status": "REJECTED",
+      "positiveMeanCandidateCount": 0,
+      "totalCandidateCount": 16,
+      "bestObservedCandidate": {
+        "candidateId": "sf04_edc_ti0p25_rn2_ob0p08_dp0p1",
+        "tradeCount": 36,
+        "winRatePct": 44.44444444,
+        "netReturnPct": -0.93906251,
+        "compoundDailyReturnPct": -0.03930475,
+        "meanNetR": -0.05029237,
+        "profitFactor": 0.88019448,
+        "maxDrawdownPct": 2.99852565,
+        "bootstrapLowerMeanNetR": -0.22297924,
+        "bootstrapUpperMeanNetR": 0.12293933
+      }
+    },
+    {
+      "family": "EVENT_ABSORPTION_REVERSAL",
+      "status": "REJECTED",
+      "positiveMeanCandidateCount": 4,
+      "positiveCandidatesWithAtLeast20Trades": 2,
+      "totalCandidateCount": 16,
+      "bestObservedCandidate": {
+        "candidateId": "sf04_ear_ti0p25_rn2_pi5_rp0p1",
+        "tradeCount": 33,
+        "winRatePct": 42.42424242,
+        "netReturnPct": 0.44614203,
+        "compoundDailyReturnPct": 0.01854963,
+        "meanNetR": 0.02947932,
+        "profitFactor": 1.07128511,
+        "maxDrawdownPct": 2.39775622,
+        "bootstrapLowerMeanNetR": -0.22857112,
+        "bootstrapUpperMeanNetR": 0.27624378
+      }
+    }
+  ],
+  "gate": {
+    "everyFoldSelectedCandidate": false,
+    "minimumPooledValidationTrades": false,
+    "minimumPositiveValidationFolds": false,
+    "minimumPooledProfitFactor": false,
+    "minimumPooledMeanNetR": false,
+    "minimumBootstrapLowerMeanNetR": false,
+    "maximumPooledDrawdownPct": true,
+    "maximumLiquidationCount": true
+  },
+  "diagnosis": [
+    "DEPLETION_CONTINUATION_HAS_NO_POSITIVE_MEAN_CANDIDATE",
+    "ABSORPTION_REVERSAL_BEST_33_TRADE_CANDIDATE_HAS_BOOTSTRAP_INTERVAL_CROSSING_ZERO",
+    "IMMEDIATE_NEXT_MINUTE_REVERSAL_ENTRY_IS_NOT_CONFIRMED_BY_OPPOSITE_TAKER_FLOW",
+    "FIRST_SIX_DAY_TRAINING_ERA_CANNOT_RELIABLY_MEET_A_30_TRADE_ELIGIBILITY_FLOOR"
+  ],
+  "nextStageBoundary": {
+    "allowed": "PREDECLARE_A_BOUNDED_ABSORPTION_REVERSAL_CONFIRMATION_STATE_MACHINE_WITH_A_NEW_TRIAL_LEDGER",
+    "notAllowed": [
+      "PROMOTE_ANY_V2_CANDIDATE",
+      "REINTERPRET_THE_BOOTSTRAP_INTERVAL_AS_POSITIVE",
+      "ACQUIRE_VALIDATION_EXTERNAL_OR_FRESH_SEALED_DATA"
+    ]
+  },
+  "validationDataRead": false,
+  "externalDataRead": false,
+  "freshSealedDataRead": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
