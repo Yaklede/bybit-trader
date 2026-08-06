@@ -16,11 +16,12 @@ import {
   verifyExistingArchiveHash,
 } from "./bybit-orderbook-backfill.mjs";
 
-test("parseArgs defaults to the first complete official archive day and validates archive controls", () => {
-  const options = parseArgs(["--db=/tmp/orderbook.sqlite", "--start=2024-01-01", "--end=2024-01-02", "--orderbook-depth=25"]);
+test("parseArgs fixes archive depth to the live top-50 feature contract", () => {
+  const options = parseArgs(["--db=/tmp/orderbook.sqlite", "--start=2024-01-01", "--end=2024-01-02", "--orderbook-depth=50"]);
   assert.equal(options.symbol, "BTCUSDT");
-  assert.equal(options.orderBookDepth, 25);
+  assert.equal(options.orderBookDepth, 50);
   assert.equal(options.catalogDaysPerRequest, 6);
+  assert.throws(() => parseArgs(["--orderbook-depth=25"]), /archive\/live feature parity/);
   assert.throws(() => parseArgs(["--orderbook-depth=501"]));
   assert.throws(() => parseArgs(["--catalog-days-per-request=7"]));
   assert.throws(() => parseArgs(["--archive-attempts=6"]));
@@ -56,34 +57,59 @@ test("catalog requests are bounded to six days and validate official order-book 
   assert.equal(files.length, 7);
 });
 
-test("archive aggregation applies snapshot and delta state before closing each minute", async () => {
+test("archive aggregation preserves event-weighted depth and top-five mutations", async () => {
   const lines = [
-    message("2024-01-01T00:00:05.000Z", "snapshot", [["100", "2"], ["99", "1"], ["98", "3"]], [["101", "2"], ["102", "1"], ["103", "3"]]),
+    message("2024-01-01T00:00:05.000Z", "snapshot", [["100", "2"], ["99", "1"], ["98", "3"], ["97", "1"], ["96", "1"], ["95", "1"]], [["101", "2"], ["102", "1"], ["103", "3"], ["104", "1"], ["105", "1"], ["106", "1"]]),
     message("2024-01-01T00:00:30.000Z", "delta", [["100", "0"], ["99", "2"]], [["101", "1"]]),
-    message("2024-01-01T00:01:05.000Z", "snapshot", [["100", "1"], ["99", "1"]], [["101", "1"], ["102", "1"]]),
+    message("2024-01-01T00:01:05.000Z", "snapshot", [["100", "1"], ["99", "1"], ["98", "1"], ["97", "1"], ["96", "1"]], [["101", "1"], ["102", "1"], ["103", "1"], ["104", "1"], ["105", "1"]]),
   ].map(JSON.stringify);
 
   const result = await aggregateArchiveLines(Readable.from(lines.map((line) => `${line}\n`)), {
     sourceDate: "2024-01-01",
     symbol: "BTCUSDT",
-    depth: 2,
+    depth: 5,
   });
 
   assert.equal(result.eventCount, 3);
   assert.equal(result.bars.length, 2);
   assert.deepEqual(result.bars.map((bar) => bar.openedAt), [Date.parse("2024-01-01T00:00:00Z"), Date.parse("2024-01-01T00:01:00Z")]);
-  assert.equal(result.bars[0].sampleCount, 1);
-  assert.equal(result.bars[0].meanBidNotional, 492);
-  assert.equal(result.bars[0].meanAskNotional, 203);
-  assert.equal(result.bars[0].meanSpreadBps, 200);
+  assert.equal(result.bars[0].sampleCount, 2);
+  assert.equal(result.bars[0].meanBidNotional, 783);
+  assert.equal(result.bars[0].meanAskNotional, 771.5);
+  assert.ok(Math.abs(result.bars[0].meanSpreadBps - 149.75124378109453) < 1e-9);
+  assert.equal(result.eventFlowBars.length, 2);
+  assert.equal(result.eventFlowBars[0].messageCount, 2);
+  assert.equal(result.eventFlowBars[0].snapshotCount, 1);
+  assert.equal(result.eventFlowBars[0].bidAddedTop5Notional, 99);
+  assert.equal(result.eventFlowBars[0].bidRemovedTop5Notional, 200);
+  assert.equal(result.eventFlowBars[0].askRemovedTop5Notional, 101);
+  assert.equal(result.eventFlowBars[0].bidUpdateCount, 2);
+  assert.equal(result.eventFlowBars[0].askUpdateCount, 1);
 });
 
 test("archive aggregation rejects delta messages before an initial snapshot", async () => {
   const line = JSON.stringify(message("2024-01-01T00:00:00.000Z", "delta", [["100", "2"]], [["101", "2"]]));
   await assert.rejects(
-    () => aggregateArchiveLines(Readable.from([`${line}\n`]), { sourceDate: "2024-01-01", symbol: "BTCUSDT", depth: 1 }),
+    () => aggregateArchiveLines(Readable.from([`${line}\n`]), { sourceDate: "2024-01-01", symbol: "BTCUSDT", depth: 5 }),
     /delta arrived before its initial snapshot/,
   );
+});
+
+test("archive aggregation uses matching-engine cts for the same minute boundary as live capture", async () => {
+  const snapshot = message(
+    "2024-01-01T00:01:00.010Z",
+    "snapshot",
+    [["100", "1"], ["99", "1"], ["98", "1"], ["97", "1"], ["96", "1"]],
+    [["101", "1"], ["102", "1"], ["103", "1"], ["104", "1"], ["105", "1"]],
+  );
+  snapshot.cts = Date.parse("2024-01-01T00:00:59.990Z");
+  const result = await aggregateArchiveLines(Readable.from([`${JSON.stringify(snapshot)}\n`]), {
+    sourceDate: "2024-01-01",
+    symbol: "BTCUSDT",
+    depth: 5,
+  });
+  assert.equal(result.bars[0].openedAt, Date.parse("2024-01-01T00:00:00Z"));
+  assert.equal(result.firstEventAt, snapshot.cts);
 });
 
 test("complete-day validation rejects gaps and accepts exactly contiguous minute bars", () => {
@@ -99,7 +125,7 @@ test("research schema creates the order-book bars and immutable import manifest"
   ensureSchema(db);
   ensureSchema(db);
   const names = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((row) => row.name);
-  assert.deepEqual(names, ["historicalOrderBookImports", "liquidationFlowBars", "orderBookImbalanceBars", "sqlite_sequence"]);
+  assert.deepEqual(names, ["historicalOrderBookImports", "liquidationFlowBars", "orderBookEventFlowBars", "orderBookImbalanceBars", "sqlite_sequence"]);
   db.close();
 });
 

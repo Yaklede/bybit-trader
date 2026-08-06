@@ -25,6 +25,7 @@ test("coverage audit reports only stored, continuous complete days as valid rang
   assert.equal(report.manifestDays, 2);
   assert.equal(report.completeDays, 1);
   assert.equal(report.invalidDays, 2);
+  assert.equal(report.eventFlowTablePresent, true);
   assert.deepEqual(report.completeRanges, [{ start: "2025-01-01", end: "2025-01-01", days: 1 }]);
   assert.deepEqual(report.gapRanges, [
     { start: "2025-01-02", end: "2025-01-03", days: 2, reasons: ["missing-manifest", "stored-bars-invalid"] },
@@ -51,17 +52,22 @@ function createSchema(db) {
     CREATE TABLE historicalOrderBookImports (
       provider TEXT NOT NULL, dataset TEXT NOT NULL, symbol TEXT NOT NULL,
       source_date TEXT NOT NULL, minute_bar_count INTEGER NOT NULL, archive_sha256 TEXT NOT NULL
+      , importer_version TEXT NOT NULL
     );
     CREATE TABLE orderBookImbalanceBars (symbol TEXT NOT NULL, opened_at TEXT NOT NULL);
+    CREATE TABLE orderBookEventFlowBars (symbol TEXT NOT NULL, opened_at TEXT NOT NULL);
   `);
 }
 
 function insertCompleteDay(db, date) {
   insertManifest(db, date, 1_440);
   const insert = db.prepare("INSERT INTO orderBookImbalanceBars(symbol, opened_at) VALUES (?, ?)");
+  const insertEventFlow = db.prepare("INSERT INTO orderBookEventFlowBars(symbol, opened_at) VALUES (?, ?)");
   const start = Date.parse(`${date}T00:00:00Z`);
   for (let offset = 0; offset < 1_440; offset += 1) {
-    insert.run("BTCUSDT", new Date(start + offset * 60_000).toISOString().replace(".000Z", "Z"));
+    const openedAt = new Date(start + offset * 60_000).toISOString().replace(".000Z", "Z");
+    insert.run("BTCUSDT", openedAt);
+    insertEventFlow.run("BTCUSDT", openedAt);
   }
 }
 
@@ -72,7 +78,8 @@ function insertIncompleteDay(db, date) {
 
 function insertManifest(db, date, minuteBarCount, archiveSha256 = "a".repeat(64)) {
   db.prepare(`
-    INSERT INTO historicalOrderBookImports(provider, dataset, symbol, source_date, minute_bar_count, archive_sha256)
-    VALUES ('bybit', 'orderbook', 'BTCUSDT', ?, ?, ?)
+    INSERT INTO historicalOrderBookImports(
+      provider, dataset, symbol, source_date, minute_bar_count, archive_sha256, importer_version
+    ) VALUES ('bybit', 'orderbook', 'BTCUSDT', ?, ?, ?, 'bybit-orderbook-archive-v2-event-flow')
   `).run(date, minuteBarCount, archiveSha256);
 }

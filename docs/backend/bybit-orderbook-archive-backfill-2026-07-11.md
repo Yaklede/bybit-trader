@@ -39,11 +39,11 @@ semantics and fields used by the files. Sources: [Bybit developer page](https://
 - The archive's original top-of-book depth varies by date. The importer
   standardizes the retained feature to the top 50 levels, matching the current
   live collector depth.
-- The archive importer writes one last-known reconstructed book sample per
-  minute (`sample_count=1`). The live collector currently records each incoming
-  snapshot. These are not interchangeable feature distributions, so archive
-  thresholds are research-only until a separately approved canonical sampling
-  change aligns the live collector.
+- Importer V2 records every reconstructed message after applying its delta and
+  calculates the same event-weighted top-50 imbalance and spread used by the
+  live collector. It also persists top-five add/remove flow and microprice
+  features. Archive exchange-time replay still omits live network latency and
+  reconnect gaps, so shadow parity remains required before promotion.
 - The archive has no verified historical all-liquidation stream in this import.
   No liquidation-flow filter may be enabled for an archive backtest. Simulated
   liquidation remains part of the existing execution model. The importer creates
@@ -76,9 +76,9 @@ For each source day it must:
 5. retry a transient archive download or decompression failure up to three
    times with exponential delay; no bars or manifest are written unless a full
    retry attempt succeeds;
-6. reconstruct snapshot/delta state, retain the last state in each completed
-   UTC minute, and write only that minute's `OrderBookImbalanceBar`;
-7. commit the day bars and provenance manifest together, so a failed day is
+6. reconstruct snapshot/delta state, sample each valid post-update state, and
+   write event-weighted `OrderBookImbalanceBar` plus `orderBookEventFlowBars`;
+7. commit both minute feature families and the provenance manifest together, so a failed day is
    rerunnable and cannot masquerade as completed.
 
 The SQLite manifest table is `historicalOrderBookImports`; its uniqueness key
@@ -146,7 +146,7 @@ provenance is found and separately reviewed.
 ## Validation Sequence
 
 1. Run the one-day command against a disposable research database and inspect
-   the 1,440 `orderBookImbalanceBars` and one manifest row.
+   1,440 rows in both order-book tables and one manifest row.
 2. Run a seven-day contiguous import, then verify every M1 bar is continuous
    and its archive hash is recorded.
 3. Import only the verified contiguous archive span into a separate research

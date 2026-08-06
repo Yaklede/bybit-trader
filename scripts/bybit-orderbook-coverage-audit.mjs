@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 const MINUTES_PER_DAY = 1_440;
 const ONE_MINUTE_MILLIS = 60_000;
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
+const REQUIRED_IMPORTER_VERSION = "bybit-orderbook-archive-v2-event-flow";
 
 export function parseArgs(argv) {
   const values = new Map();
@@ -38,8 +39,9 @@ export function auditArchiveCoverage(options, dependencies = {}) {
   const db = dependencies.db ?? new DatabaseSync(options.db);
   const ownsDatabase = dependencies.db == null;
   try {
+    const eventFlowTablePresent = tableExists(db, "orderBookEventFlowBars");
     const manifests = db.prepare(`
-      SELECT source_date, minute_bar_count, archive_sha256
+      SELECT source_date, minute_bar_count, archive_sha256, importer_version
       FROM historicalOrderBookImports
       WHERE provider='bybit' AND dataset='orderbook' AND symbol=?
         AND source_date>=? AND source_date<=?
@@ -53,7 +55,11 @@ export function auditArchiveCoverage(options, dependencies = {}) {
         days.push({ date, status: "missing-manifest" });
         continue;
       }
-      if (Number(manifest.minute_bar_count) !== MINUTES_PER_DAY || !isSha256(manifest.archive_sha256)) {
+      if (
+        Number(manifest.minute_bar_count) !== MINUTES_PER_DAY ||
+        !isSha256(manifest.archive_sha256) ||
+        manifest.importer_version !== REQUIRED_IMPORTER_VERSION
+      ) {
         days.push({ date, status: "invalid-manifest" });
         continue;
       }
@@ -64,6 +70,19 @@ export function auditArchiveCoverage(options, dependencies = {}) {
       `).all(options.symbol, `${date}T00:00:00Z`, `${nextDate(date)}T00:00:00Z`);
       if (!hasContinuousMinutes(bars, date)) {
         days.push({ date, status: "stored-bars-invalid" });
+        continue;
+      }
+      if (!eventFlowTablePresent) {
+        days.push({ date, status: "event-flow-table-missing" });
+        continue;
+      }
+      const eventFlowBars = db.prepare(`
+        SELECT opened_at FROM orderBookEventFlowBars
+        WHERE symbol=? AND opened_at>=? AND opened_at<?
+        ORDER BY opened_at ASC
+      `).all(options.symbol, `${date}T00:00:00Z`, `${nextDate(date)}T00:00:00Z`);
+      if (!hasContinuousMinutes(eventFlowBars, date)) {
+        days.push({ date, status: "event-flow-bars-invalid" });
         continue;
       }
       days.push({ date, status: "complete", archiveSha256: manifest.archive_sha256 });
@@ -78,12 +97,17 @@ export function auditArchiveCoverage(options, dependencies = {}) {
       manifestDays: manifests.length,
       completeDays: statusCounts.complete?.length ?? 0,
       invalidDays: days.length - (statusCounts.complete?.length ?? 0),
+      eventFlowTablePresent,
       completeRanges,
       gapRanges,
     };
   } finally {
     if (ownsDatabase) db.close();
   }
+}
+
+function tableExists(db, name) {
+  return db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1").get(name) != null;
 }
 
 export function hasContinuousMinutes(bars, date) {
