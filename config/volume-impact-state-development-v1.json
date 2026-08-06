@@ -1,5 +1,7 @@
 {
   "schemaVersion": 1,
+  "protocolRevision": 2,
+  "revisionReason": "Clarify the development liquidation approximation and the closed-M15 veto before the first candidate replay.",
   "protocolId": "volume-impact-state-development-v1",
   "status": "PREDECLARED_DEVELOPMENT",
   "declaredAt": "2026-08-06",
@@ -46,6 +48,9 @@
     "entrySlippageRate": 0.0002,
     "exitSlippageRate": 0.0002,
     "riskFraction": 0.005,
+    "researchLeverage": 15,
+    "maintenanceMarginRate": 0.005,
+    "liquidationTriggerSource": "ADVERSE_M1_EXTREME_BEFORE_OTHER_FAVORABLE_EXITS",
     "minimumInitialRiskPct": 0.004,
     "maximumInitialRiskPct": 0.025,
     "maximumTradesPerUtcDay": 2,
@@ -85,6 +90,7 @@
       "fixed": {
         "m15FastEma": 20,
         "m15SlowEma": 50,
+        "reversalDirectionMustMatchClosedM15Regime": true,
         "m5VolumeLookbackBars": 48,
         "m5AtrLookbackBars": 20,
         "maximumBodyRatio": 0.4,

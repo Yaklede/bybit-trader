@@ -10,6 +10,7 @@ const sealedPath = path.join(repoRoot, "config/fresh-sealed-validation-2026-08-v
 test("volume-impact development protocol freezes exactly 24 bounded candidates", async () => {
   const protocol = JSON.parse(await fs.readFile(protocolPath, "utf8"));
   assert.equal(protocol.status, "PREDECLARED_DEVELOPMENT");
+  assert.equal(protocol.protocolRevision, 2);
   assert.equal(protocol.selectionPolicy.dailyCompoundReturnIsSearchObjective, false);
   assert.equal(protocol.selectionPolicy.automaticPromotionAllowed, false);
   assert.equal(protocol.hypotheses.length, 2);
@@ -57,5 +58,12 @@ test("execution contract requires closed multi-timeframe inputs and adverse caus
   assert.ok(contract.exitFeeRate > 0);
   assert.ok(contract.entrySlippageRate > 0);
   assert.ok(contract.exitSlippageRate > 0);
+  assert.equal(contract.researchLeverage, 15);
+  assert.equal(contract.maintenanceMarginRate, 0.005);
+  assert.equal(
+    protocol.hypotheses.find((hypothesis) => hypothesis.family === "VOLUME_EXHAUSTION_REVERSAL")
+      .fixed.reversalDirectionMustMatchClosedM15Regime,
+    true,
+  );
   assert.equal(protocol.outcomePolicy.liveExecutionAllowed, false);
 });
