@@ -106,6 +106,25 @@ test("basis expansion is closed before the conservative liquidation boundary", (
   assert.equal(metrics.liquidationCount, 0);
 });
 
+test("non-synchronous spot low and perpetual high cannot fabricate a basis stop", () => {
+  const start = Date.parse("2023-01-01T00:00:00Z");
+  const frames = makeFrames(start, 10 * 24 * 12, () => ({
+    spot: 20_000,
+    perpetual: 20_020,
+    mark: 20_020,
+    index: 20_000,
+  }));
+  frames[300].spot.low = 18_000;
+  frames[300].perpetual.high = 22_000;
+  const fundingRates = [];
+  for (let timestamp = start; timestamp < start + 10 * 24 * 60 * 60 * 1_000; timestamp += 8 * 60 * 60 * 1_000) {
+    fundingRates.push({ timestamp, rate: 0.0003 });
+  }
+  const metrics = simulateFundingCarryCandidate({ candidate, frames, fundingRates, protocol: protocol() });
+  assert.equal(metrics.exitReasons.BASIS_DIVERGENCE_STOP ?? 0, 0);
+  assert.equal(metrics.liquidationCount, 0);
+});
+
 test("daily moving-block bootstrap is deterministic and preserves expectancy sign", () => {
   const positive = movingBlockBootstrapMean([0.001, 0.002, 0.0015, 0.0005], {
     samples: 1000,

@@ -156,7 +156,6 @@ export function simulateFundingCarryCandidate({ candidate, frames, fundingRates,
     if (position != null) {
       activeDays.add(utcDay(timestamp));
       const liquidationBoundary = position.perpetualEntryFillPrice * execution.conservativeLiquidationPriceMultiple;
-      const worstBasisPct = frame.perpetual.high / frame.spot.low - 1;
       const maximumHoldingTimestamp = position.entryTimestamp + candidate.maximumHoldingDays * DAY_MILLIS;
       let exit = null;
       if (frame.mark.high >= liquidationBoundary) {
@@ -165,12 +164,6 @@ export function simulateFundingCarryCandidate({ candidate, frames, fundingRates,
           reason: "LIQUIDATION",
           spotReferencePrice: frame.spot.low,
           perpetualReferencePrice: liquidationBoundary,
-        };
-      } else if (worstBasisPct - position.entryBasisPct >= candidate.basisDivergenceStopPctFromEntry) {
-        exit = {
-          reason: "BASIS_DIVERGENCE_STOP",
-          spotReferencePrice: frame.spot.low,
-          perpetualReferencePrice: frame.perpetual.high,
         };
       } else if (pendingExit?.timestamp === timestamp) {
         exit = {
@@ -194,6 +187,14 @@ export function simulateFundingCarryCandidate({ candidate, frames, fundingRates,
         position = null;
         pendingExit = null;
         closedThisFrame = true;
+      } else {
+        const closedBasisPct = frame.perpetual.close / frame.spot.close - 1;
+        if (closedBasisPct - position.entryBasisPct >= candidate.basisDivergenceStopPctFromEntry) {
+          pendingExit = {
+            timestamp: timestamp + M5_MILLIS,
+            reason: "BASIS_DIVERGENCE_STOP",
+          };
+        }
       }
     }
 
