@@ -211,6 +211,73 @@ class ExchangeExecutionServiceTest :
             result.reasonCodes shouldContainExactly listOf("INSUFFICIENT_CLOSED_CANDLE_HISTORY")
         }
 
+        "evaluation rejects a missing latest closed candle" {
+            val symbol = Symbol("BTCUSDT")
+            val service =
+                testService(
+                    candleStore =
+                        ListCandleStore(
+                            listOf(
+                                executionCandle(symbol, Instant.parse("2024-06-29T23:45:00Z")),
+                                executionCandle(symbol, Instant.parse("2024-06-29T23:50:00Z")),
+                            ),
+                        ),
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val result = service.evaluateAndSubmit(symbol, Timeframe.M5, 2)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldContainExactly listOf("LATEST_CLOSED_CANDLE_MISSING")
+        }
+
+        "evaluation rejects a signal outside the entry window" {
+            val symbol = Symbol("BTCUSDT")
+            val service =
+                testService(
+                    candleStore =
+                        ListCandleStore(
+                            listOf(
+                                executionCandle(symbol, Instant.parse("2024-06-29T23:50:00Z")),
+                                executionCandle(symbol, Instant.parse("2024-06-29T23:55:00Z")),
+                            ),
+                        ),
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            maximumEntryDelay = java.time.Duration.ofSeconds(30),
+                        ),
+                    clock = Clock.fixed(Instant.parse("2024-06-30T00:00:31Z"), ZoneOffset.UTC),
+                )
+
+            val result = service.evaluateAndSubmit(symbol, Timeframe.M5, 2)
+
+            result.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            result.reasonCodes shouldContainExactly listOf("ENTRY_WINDOW_EXPIRED")
+        }
+
+        "execution derives a decision key and blocks duplicate submission for the same candle" {
+            val gateway = RecordingExecutionGateway()
+            val store = InMemoryTradingStore()
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true),
+                )
+
+            val first = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+            val second = service.evaluateAndSubmit(Symbol("BTCUSDT"), Timeframe.M5, 30)
+
+            first.status shouldBe ExchangeEvaluationStatus.SUBMITTED
+            second.status shouldBe ExchangeEvaluationStatus.NO_TRADE
+            second.reasonCodes shouldContainExactly
+                listOf("DUPLICATE_SIGNAL", "SIGNAL_AT_2024-06-29T23:55:00Z")
+            store.signals.single().reasonCodes shouldContainExactly
+                listOf("TEST_ENTRY", "SIGNAL_AT_2024-06-29T23:55:00Z")
+            gateway.placedOrders.size shouldBe 1
+        }
+
         "reconcile delegates to gateway snapshots" {
             val gateway =
                 RecordingExecutionGateway(
@@ -1169,7 +1236,7 @@ private class InMemoryCandleStore : MarketCandleStore {
                 Candle(
                     symbol = symbol,
                     timeframe = timeframe,
-                    openedAt = Instant.parse("2024-06-29T20:00:00Z").plusSeconds(index * 300L),
+                    openedAt = Instant.parse("2024-06-29T20:40:00Z").plusSeconds(index * 300L),
                     open = close,
                     high = close + BigDecimal("2"),
                     low = close - BigDecimal("2"),

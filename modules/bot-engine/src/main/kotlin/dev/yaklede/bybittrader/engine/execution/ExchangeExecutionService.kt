@@ -14,6 +14,8 @@ import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.paper.PaperTradingStore
 import dev.yaklede.bybittrader.strategy.TradingStrategy
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 import java.math.BigDecimal
 import java.math.MathContext
@@ -39,8 +41,18 @@ class ExchangeExecutionService(
 ) {
     private val logger = LoggerFactory.getLogger(ExchangeExecutionService::class.java)
     private val sessionStartedAt = Instant.now(clock)
+    private val evaluationMutex = Mutex()
 
     suspend fun evaluateAndSubmit(
+        symbol: Symbol,
+        timeframe: Timeframe,
+        candleLimit: Int,
+    ): ExchangeEvaluationResult =
+        evaluationMutex.withLock {
+            evaluateAndSubmitLocked(symbol, timeframe, candleLimit)
+        }
+
+    private suspend fun evaluateAndSubmitLocked(
         symbol: Symbol,
         timeframe: Timeframe,
         candleLimit: Int,
@@ -203,6 +215,49 @@ class ExchangeExecutionService(
             )
         }
 
+        val latestClosedCandle = candles.last()
+        val expectedLatestOpenedAt = closedBefore.minusMillis(timeframe.executionDurationMillis())
+        if (latestClosedCandle.openedAt != expectedLatestOpenedAt) {
+            return ExchangeEvaluationResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                mode = mode.name,
+                status = ExchangeEvaluationStatus.NO_TRADE,
+                evaluatedAt = now,
+                candleCount = candles.size,
+                reasonCodes = listOf("LATEST_CLOSED_CANDLE_MISSING"),
+                signalId = null,
+                orderId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+                entryPrice = null,
+                takeProfit = null,
+                stopLoss = null,
+                quantity = null,
+                intendedRisk = null,
+            )
+        }
+        if (Duration.between(closedBefore, now) > config.maximumEntryDelay) {
+            return ExchangeEvaluationResult(
+                symbol = symbol,
+                timeframe = timeframe,
+                mode = mode.name,
+                status = ExchangeEvaluationStatus.NO_TRADE,
+                evaluatedAt = now,
+                candleCount = candles.size,
+                reasonCodes = listOf("ENTRY_WINDOW_EXPIRED"),
+                signalId = null,
+                orderId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+                entryPrice = null,
+                takeProfit = null,
+                stopLoss = null,
+                quantity = null,
+                intendedRisk = null,
+            )
+        }
+
         val decision = strategy.evaluate(candles)
         val signal = decision.intent
         if (signal == null) {
@@ -234,8 +289,8 @@ class ExchangeExecutionService(
             )
             return result
         }
-        if (signal.isDuplicate()) {
-            val signalKey = signal.score.reasonCodes.first { it.startsWith(SIGNAL_KEY_PREFIX) }
+        val signalKey = "$SIGNAL_KEY_PREFIX${latestClosedCandle.openedAt}"
+        if (signal.isDuplicate(signalKey)) {
             val result =
                 ExchangeEvaluationResult(
                     symbol = symbol,
@@ -277,6 +332,7 @@ class ExchangeExecutionService(
                         accepted = false,
                         rejectionReason = rejectionReason,
                         createdAt = now,
+                        signalKey = signalKey,
                     ),
                 )
             return ExchangeEvaluationResult(
@@ -324,6 +380,7 @@ class ExchangeExecutionService(
                         accepted = false,
                         rejectionReason = "INVALID_EXECUTION_SIZE",
                         createdAt = now,
+                        signalKey = signalKey,
                     ),
                 )
             val result =
@@ -375,6 +432,7 @@ class ExchangeExecutionService(
                         accepted = false,
                         rejectionReason = targetStopRejection,
                         createdAt = now,
+                        signalKey = signalKey,
                     ),
                 )
             return ExchangeEvaluationResult(
@@ -410,6 +468,7 @@ class ExchangeExecutionService(
                         accepted = false,
                         rejectionReason = rejectionReason,
                         createdAt = now,
+                        signalKey = signalKey,
                     ),
                 )
             return ExchangeEvaluationResult(
@@ -437,6 +496,7 @@ class ExchangeExecutionService(
                     accepted = true,
                     rejectionReason = null,
                     createdAt = now,
+                    signalKey = signalKey,
                 ),
             )
         val clientOrderId = clientOrderId(symbol = symbol, side = signal.side, now = now, signalId = signalId)
@@ -1361,18 +1421,15 @@ class ExchangeExecutionService(
         )
     }
 
-    private suspend fun SignalIntent.isDuplicate(): Boolean {
-        val signalKey = score.reasonCodes.firstOrNull { it.startsWith(SIGNAL_KEY_PREFIX) } ?: return false
-        return tradingStore
+    private suspend fun SignalIntent.isDuplicate(signalKey: String): Boolean =
+        tradingStore
             .recentSignals(config.duplicateSignalLookback)
             .any { recentSignal ->
                 recentSignal.accepted &&
                     recentSignal.strategy == strategy &&
                     recentSignal.symbol == symbol &&
-                    recentSignal.side == side &&
                     signalKey in recentSignal.reasonCodes
             }
-    }
 
     private suspend fun executionAccountEquity(): BigDecimal {
         if (!config.useLiveAccountEquity) return config.accountEquity
@@ -1484,6 +1541,14 @@ private fun closedCandleBoundary(
     return Instant.ofEpochMilli((instant.toEpochMilli() / timeframeMillis) * timeframeMillis)
 }
 
+private fun Timeframe.executionDurationMillis(): Long =
+    when (this) {
+        Timeframe.M1 -> 60_000L
+        Timeframe.M5 -> 300_000L
+        Timeframe.M15 -> 900_000L
+        Timeframe.H1 -> 3_600_000L
+    }
+
 private fun LivePerformanceWindow.startAt(
     capturedAt: Instant,
     sessionStartedAt: Instant,
@@ -1505,6 +1570,7 @@ private fun SignalIntent.toRecord(
     accepted: Boolean,
     rejectionReason: String?,
     createdAt: Instant,
+    signalKey: String,
 ): PaperSignalRecord =
     PaperSignalRecord(
         strategy = strategy,
@@ -1512,7 +1578,7 @@ private fun SignalIntent.toRecord(
         side = side,
         score = score.total,
         grade = score.total.toGrade(),
-        reasonCodes = score.reasonCodes,
+        reasonCodes = (score.reasonCodes + signalKey).distinct(),
         accepted = accepted,
         rejectionReason = rejectionReason,
         createdAt = createdAt,

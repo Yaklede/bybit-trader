@@ -843,7 +843,7 @@ class ApiModuleTest :
                                 strategy = AlwaysBuyApiStrategy(),
                                 gateway = gateway,
                                 config = ExchangeExecutionConfig(enabled = true),
-                                clock = Clock.fixed(Instant.parse("2026-06-30T10:15:00Z"), ZoneOffset.UTC),
+                                clock = Clock.fixed(Instant.parse("2026-06-30T10:00:00Z"), ZoneOffset.UTC),
                             ),
                         controlCredential = "test-control-credential",
                     )

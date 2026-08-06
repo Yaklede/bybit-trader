@@ -103,6 +103,9 @@ override:
   position whose actual-fill TP/SL cannot be verified by this deadline is
   submitted for reduce-only closure. Manual and smoke-test positions are not
   included in this automatic fail-closed rule.
+- `BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS`: default `30`; an automatic signal is
+  rejected after this many seconds from the closed-candle boundary. Missing the
+  latest closed candle is rejected independently of this setting.
 - `TELEGRAM_ALERTS_ENABLED`: default `false`.
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.

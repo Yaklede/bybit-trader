@@ -195,6 +195,7 @@ fun main() {
                         minimumNetRiskReward = config.execution.minimumNetRiskReward,
                         priceTick = config.execution.priceTick,
                         protectionGracePeriod = config.execution.protectionGracePeriod,
+                        maximumEntryDelay = config.execution.maximumEntryDelay,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                 positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),

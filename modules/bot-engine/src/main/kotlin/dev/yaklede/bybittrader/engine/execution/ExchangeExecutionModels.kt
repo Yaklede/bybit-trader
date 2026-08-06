@@ -26,6 +26,7 @@ data class ExchangeExecutionConfig(
     val duplicateSignalLookback: Int = 50,
     val priceTick: BigDecimal = BigDecimal("0.1"),
     val protectionGracePeriod: Duration = Duration.ofSeconds(120),
+    val maximumEntryDelay: Duration = Duration.ofSeconds(30),
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -55,6 +56,9 @@ data class ExchangeExecutionConfig(
         require(priceTick > BigDecimal.ZERO) { "Execution price tick must be positive." }
         require(!protectionGracePeriod.isNegative && !protectionGracePeriod.isZero) {
             "Execution protection grace period must be positive."
+        }
+        require(!maximumEntryDelay.isNegative && !maximumEntryDelay.isZero) {
+            "Execution maximum entry delay must be positive."
         }
     }
 }

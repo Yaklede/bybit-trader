@@ -505,6 +505,7 @@ data class ExecutionSettings(
     val minimumNetRiskReward: BigDecimal,
     val priceTick: BigDecimal,
     val protectionGracePeriod: Duration,
+    val maximumEntryDelay: Duration,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -534,6 +535,9 @@ data class ExecutionSettings(
         require(!protectionGracePeriod.isNegative && !protectionGracePeriod.isZero) {
             "Execution protection grace period must be positive."
         }
+        require(!maximumEntryDelay.isNegative && !maximumEntryDelay.isZero) {
+            "Execution maximum entry delay must be positive."
+        }
     }
 
     companion object {
@@ -561,6 +565,10 @@ data class ExecutionSettings(
                 protectionGracePeriod =
                     Duration.ofSeconds(
                         environment["BOT_EXECUTION_PROTECTION_GRACE_SECONDS"]?.toLongOrNull() ?: 120,
+                    ),
+                maximumEntryDelay =
+                    Duration.ofSeconds(
+                        environment["BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS"]?.toLongOrNull() ?: 30,
                     ),
             )
     }

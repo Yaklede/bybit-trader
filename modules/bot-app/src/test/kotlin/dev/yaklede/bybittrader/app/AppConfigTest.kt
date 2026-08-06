@@ -86,6 +86,7 @@ class AppConfigTest :
                         "BOT_EXECUTION_MIN_NET_RR" to "1.25",
                         "BOT_EXECUTION_PRICE_TICK" to "0.5",
                         "BOT_EXECUTION_PROTECTION_GRACE_SECONDS" to "45",
+                        "BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS" to "20",
                     ),
                 )
 
@@ -107,6 +108,7 @@ class AppConfigTest :
             config.execution.quantityStep.toPlainString() shouldBe "0.01"
             config.execution.priceTick.toPlainString() shouldBe "0.5"
             config.execution.protectionGracePeriod.seconds shouldBe 45
+            config.execution.maximumEntryDelay.seconds shouldBe 20
             config.execution.maxQuantity?.toPlainString() shouldBe "5"
             config.execution.maxNotional?.toPlainString() shouldBe "100000"
             config.execution.leverage?.toPlainString() shouldBe "15"
