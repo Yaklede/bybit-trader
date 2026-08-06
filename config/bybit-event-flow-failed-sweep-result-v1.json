@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-event-flow-failed-sweep-result-v1",
+  "status": "REJECTED_FAILED_SWEEP_REVERSAL",
+  "protocolId": "bybit-event-flow-failed-sweep-reversal-v1",
+  "protocolSha256": "9cc2ec896a9c8b31bc098f8deb672302e8b55b513c7eb0dc965659ce23b47f2f",
+  "parentResultSha256": "7b84b1e4735f2625120836945c623bc9dde8ebfd1ef9df9ec945c79743f96dab",
+  "implementationSha256": "598e3b94410c3e7d5cefab70cf3269588431af3ad18c508c11842a706fb8da15",
+  "resultArtifactSha256": "318c91b3bde71ca2e6a08e4cf60d1988a00674be7cc801ca5c19a36382cc5377",
+  "generatedAt": "2026-08-06T11:00:07.230Z",
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 157,
+    "stageCandidates": 16,
+    "cumulativeCandidates": 173,
+    "maximumCumulativeCandidates": 192,
+    "remainingCandidates": 19
+  },
+  "selection2023": {
+    "evaluationDays": 60,
+    "eligibleCandidateCount": 0,
+    "candidateTradeCountRange": {
+      "minimum": 24,
+      "maximum": 66
+    },
+    "candidateNetReturnPctRange": {
+      "minimum": -10.47310225,
+      "maximum": -4.08971328
+    },
+    "candidateMeanNetRRange": {
+      "minimum": -0.40021968,
+      "maximum": -0.33375416
+    },
+    "candidateProfitFactorRange": {
+      "minimum": 0.17453823,
+      "maximum": 0.34025309
+    },
+    "bestRankedIneligibleCandidate": {
+      "candidateId": "fsr_cw10_ci0p1_rn1_ob0p05",
+      "tradeCount": 66,
+      "netReturnPct": -10.47310225,
+      "meanNetR": -0.33375416,
+      "profitFactor": 0.32581258,
+      "maxDrawdownPct": 10.60790623,
+      "bootstrapLowerMeanNetR": -0.45237707,
+      "bootstrapUpperMeanNetR": -0.20624497
+    }
+  },
+  "bestRankedCandidateBreakdown": {
+    "longTrades": 34,
+    "shortTrades": 32,
+    "longMeanNetR": -0.1396216,
+    "shortMeanNetR": -0.54002,
+    "stopExits": 23,
+    "targetExits": 3,
+    "timeExits": 39,
+    "blockEndExits": 1,
+    "netMeanR": -0.33375416,
+    "grossMeanRAfterSlippageBeforeFees": -0.11141657,
+    "meanFeeCostR": 0.22233759
+  },
+  "gate": {
+    "passed": false,
+    "checks": {
+      "selectedCandidateExists": false,
+      "minimumTrades": false,
+      "minimumLongTrades": false,
+      "minimumShortTrades": false,
+      "minimumPositiveEraCount": false,
+      "minimumProfitFactor": false,
+      "minimumMeanNetR": false,
+      "minimumBootstrapLowerMeanNetR": false,
+      "maximumDrawdownPct": true,
+      "maximumLiquidationCount": true,
+      "maximumWinnerProfitConcentration": true
+    }
+  },
+  "diagnosis": [
+    "FULL_PRICE_REJECTION_AFTER_A_HIGH_IMPACT_SWEEP_DID_NOT_PRODUCE_POSITIVE_2023_EXPECTANCY",
+    "EVERY_CANDIDATE_BOOTSTRAP_INTERVAL_WAS_WHOLLY_NEGATIVE",
+    "THE_BEST_CANDIDATE_REMAINED_NEGATIVE_BEFORE_FEES_SO_MAKER_EXECUTION_ALONE_CANNOT_REPAIR_IT",
+    "SHORT_REVERSALS_WERE_SUBSTANTIALLY_WORSE_BUT_DIRECTION_FILTERING_AFTER_THE_RESULT_IS_FORBIDDEN",
+    "THE_FAMILY_IS_REJECTED_WITHOUT_2024_CANDIDATE_SELECTION"
+  ],
+  "nextStageBoundary": {
+    "allowed": "PREDECLARE_ONE_FINAL_DISTINCT_SHOCK_PULLBACK_REACCELERATION_HYPOTHESIS_WITH_AT_MOST_EIGHTEEN_CANDIDATES",
+    "notAllowed": [
+      "RETUNE_OR_DIRECTION_FILTER_THE_REJECTED_FAILED_SWEEP_CANDIDATES",
+      "CHANGE_FEES_TO_REINTERPRET_NEGATIVE_GROSS_EXPECTANCY_AS_POSITIVE",
+      "LOWER_SELECTION_OR_VALIDATION_GATES",
+      "ACQUIRE_VALIDATION_EXTERNAL_OR_FRESH_SEALED_DATA",
+      "ENABLE_AUTOMATIC_OR_LIVE_EXECUTION"
+    ]
+  },
+  "validationDataRead": false,
+  "externalDataRead": false,
+  "freshSealedDataRead": false,
+  "validationDataAcquisitionAllowed": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
