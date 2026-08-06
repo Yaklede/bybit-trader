@@ -43,6 +43,9 @@ internal fun VolumeConfirmedTrendShadowState.toTrendShadowStatePayload(): String
         put("closedTrades", closedTrades)
         put("executedTransitions", executedTransitions)
         put("invalidatedSessionCount", invalidatedSessionCount)
+        put("maximumEntryExposureFraction", maximumEntryExposureFraction)
+        put("maximumAdverseExposureFraction", maximumAdverseExposureFraction)
+        put("liquidationCount", liquidationCount)
     }.toString()
 
 internal fun VolumeConfirmedTrendShadowStates.toTrendShadowState(): VolumeConfirmedTrendShadowState {
@@ -74,6 +77,9 @@ internal fun VolumeConfirmedTrendShadowStates.toTrendShadowState(): VolumeConfir
         executedTransitions = payload.requiredLong("executedTransitions").toInt(),
         invalidatedSessionCount = payload.requiredLong("invalidatedSessionCount").toInt(),
         updatedAt = Instant.parse(updated_at),
+        maximumEntryExposureFraction = payload.nullableDouble("maximumEntryExposureFraction") ?: 0.0,
+        maximumAdverseExposureFraction = payload.nullableDouble("maximumAdverseExposureFraction") ?: 0.0,
+        liquidationCount = payload.nullableLong("liquidationCount")?.toInt() ?: 0,
     )
 }
 
@@ -157,6 +163,12 @@ private fun JsonObject.nullableDouble(key: String): Double? =
         ?.takeUnless { it is JsonNull }
         ?.jsonPrimitive
         ?.double
+
+private fun JsonObject.nullableLong(key: String): Long? =
+    this[key]
+        ?.takeUnless { it is JsonNull }
+        ?.jsonPrimitive
+        ?.long
 
 private fun JsonObjectBuilder.putNullableString(
     key: String,
