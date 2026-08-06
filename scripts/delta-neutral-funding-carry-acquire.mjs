@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, rmSync } from "node:fs";
 import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
@@ -82,6 +82,7 @@ export async function acquireDeltaNeutralFundingCarryDevelopment(options, depend
     db.prepare(`
       UPDATE deltaNeutralMetadata SET normalized_evidence_sha256=? WHERE singleton=1
     `).run(normalizedEvidenceSha256);
+    const boundAt = db.prepare("SELECT bound_at FROM deltaNeutralMetadata WHERE singleton=1").get().bound_at;
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     const snapshotSha256 = await sealDevelopmentSnapshot(
       targetDatabasePath,
@@ -109,7 +110,7 @@ export async function acquireDeltaNeutralFundingCarryDevelopment(options, depend
       external2025Read: false,
       sealed2026Read: false,
       freshForwardSealRead: false,
-      generatedAt: now(),
+      generatedAt: boundAt,
       automaticExecutionAllowed: false,
       liveExecutionAllowed: false,
     };
@@ -742,6 +743,8 @@ function verifySnapshotFingerprint(path, expectedFingerprint) {
     }
   } finally {
     snapshot.close();
+    rmSync(`${path}-shm`, { force: true });
+    rmSync(`${path}-wal`, { force: true });
   }
 }
 
