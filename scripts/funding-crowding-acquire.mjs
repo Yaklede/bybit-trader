@@ -248,12 +248,25 @@ export function normalizePremiumRows(rows, startMillis, endExclusiveMillis) {
 
 export function verifyIntervalCoverage(rows, expectedIntervalMillis, label, options = {}) {
   const failures = [];
-  if (rows.length === 0) return { complete: false, failures: [`${label} has no rows.`], maximumGapMillis: null };
+  const gaps = [];
+  if (rows.length === 0) {
+    return { complete: false, failures: [`${label} has no rows.`], maximumGapMillis: null, gaps };
+  }
   let maximumGapMillis = 0;
   for (let index = 1; index < rows.length; index += 1) {
     const gap = rows[index].timestamp - rows[index - 1].timestamp;
     maximumGapMillis = Math.max(maximumGapMillis, gap);
-    if (gap !== expectedIntervalMillis) failures.push(`${label} gap at ${instantString(rows[index].timestamp)} is ${gap}ms.`);
+    if (gap !== expectedIntervalMillis) {
+      gaps.push({
+        afterTimestamp: instantString(rows[index - 1].timestamp),
+        nextTimestamp: instantString(rows[index].timestamp),
+        gapMillis: gap,
+        missingIntervals: Math.max(0, Math.round(gap / expectedIntervalMillis) - 1),
+      });
+      if (options.allowGaps !== true) {
+        failures.push(`${label} gap at ${instantString(rows[index].timestamp)} is ${gap}ms.`);
+      }
+    }
   }
   if (options.requiredLastAtOrAfter != null && rows.at(-1).timestamp < options.requiredLastAtOrAfter) {
     failures.push(`${label} ends before required boundary.`);
@@ -261,7 +274,40 @@ export function verifyIntervalCoverage(rows, expectedIntervalMillis, label, opti
   if (options.minimumRows != null && rows.length < options.minimumRows) {
     failures.push(`${label} has ${rows.length} rows, expected at least ${options.minimumRows}.`);
   }
-  return { complete: failures.length === 0, failures, maximumGapMillis };
+  return { complete: failures.length === 0, failures, maximumGapMillis, gaps };
+}
+
+export function auditFundingDecisionInputs(funding, premium, maximumStalenessMillis = 30 * 60 * 1_000) {
+  const failures = [];
+  const missing = [];
+  let premiumIndex = -1;
+  for (const settlement of funding) {
+    while (premiumIndex + 1 < premium.length &&
+        premium[premiumIndex + 1].timestamp + PREMIUM_INTERVAL_MILLIS <= settlement.timestamp) {
+      premiumIndex += 1;
+    }
+    const latestClosed = premium[premiumIndex];
+    const stalenessMillis = latestClosed == null
+      ? Number.POSITIVE_INFINITY
+      : settlement.timestamp - (latestClosed.timestamp + PREMIUM_INTERVAL_MILLIS);
+    if (latestClosed == null || stalenessMillis > maximumStalenessMillis) {
+      missing.push({
+        fundingTimestamp: instantString(settlement.timestamp),
+        latestClosedPremiumTimestamp: latestClosed == null ? null : instantString(latestClosed.timestamp),
+        stalenessMillis: Number.isFinite(stalenessMillis) ? stalenessMillis : null,
+      });
+    }
+  }
+  if (missing.length > 0) {
+    failures.push(`${missing.length} funding settlements lack a closed premium bar within 30 minutes.`);
+  }
+  return {
+    complete: failures.length === 0,
+    failures,
+    checkedSettlementCount: funding.length,
+    missingSettlementCount: missing.length,
+    missingExamples: missing.slice(0, 20),
+  };
 }
 
 export function normalizedFundingFeatureFingerprint(db, symbol) {
@@ -305,6 +351,7 @@ export function auditFundingCrowdingCoverage(db, protocol) {
   const premiumCoverage = verifyIntervalCoverage(premium, PREMIUM_INTERVAL_MILLIS, "premium", {
     requiredLastAtOrAfter: endExclusiveMillis - PREMIUM_INTERVAL_MILLIS,
     minimumRows: 90,
+    allowGaps: true,
   });
   const failures = [...fundingCoverage.failures, ...premiumCoverage.failures];
   if (premium[0]?.timestamp !== Date.parse(firstPremiumCandle)) {
@@ -313,6 +360,8 @@ export function auditFundingCrowdingCoverage(db, protocol) {
   const warmupBeforeFirstBlock = funding.filter((row) =>
     row.timestamp < Date.parse(protocol.evidenceSchedule.developmentBlocks[0].startAt)).length;
   if (warmupBeforeFirstBlock < 90) failures.push("Funding history lacks 90 settled observations before F01.");
+  const decisionInputs = auditFundingDecisionInputs(funding, premium);
+  failures.push(...decisionInputs.failures);
   const candleCounts = Object.fromEntries(db.prepare(`
     SELECT timeframe,count(*) count FROM marketCandles
     WHERE symbol=? AND opened_at>=? AND opened_at<? GROUP BY timeframe ORDER BY timeframe
@@ -361,7 +410,10 @@ export function auditFundingCrowdingCoverage(db, protocol) {
       firstTimestamp: premium[0] == null ? null : instantString(premium[0].timestamp),
       lastTimestamp: premium.at(-1) == null ? null : instantString(premium.at(-1).timestamp),
       maximumGapMillis: premiumCoverage.maximumGapMillis,
+      sourceGapCount: premiumCoverage.gaps.length,
+      sourceGaps: premiumCoverage.gaps.slice(0, 20),
     },
+    decisionInputs,
     candleCounts,
     candleCoverage,
   };
@@ -463,9 +515,13 @@ async function importPremiumIfMissing(db, protocol, request, now, log) {
   const coverage = verifyIntervalCoverage(rowsFromLaunch, PREMIUM_INTERVAL_MILLIS, "premium", {
     requiredLastAtOrAfter: endExclusiveMillis - PREMIUM_INTERVAL_MILLIS,
     minimumRows: 90,
+    allowGaps: true,
   });
-  if (!coverage.complete || rowsFromLaunch[0]?.timestamp !== Date.parse(firstM15)) {
-    throw new Error([...coverage.failures, "Premium start does not match canonical M15 launch."].join("; "));
+  const startMatches = rowsFromLaunch[0]?.timestamp === Date.parse(firstM15);
+  if (!coverage.complete || !startMatches) {
+    const failures = [...coverage.failures];
+    if (!startMatches) failures.push("Premium start does not match canonical M15 launch.");
+    throw new Error(failures.join("; "));
   }
   const contentSha256 = hashNormalizedRows(rowsFromLaunch);
   inTransaction(db, () => {

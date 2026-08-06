@@ -8,6 +8,7 @@ import test from "node:test";
 
 import {
   auditFundingCrowdingCoverage,
+  auditFundingDecisionInputs,
   bindFundingCrowdingDatabase,
   copyDevelopmentCandles,
   ensureFundingCrowdingSchema,
@@ -79,6 +80,26 @@ test("interval coverage rejects silent gaps and stale tails", () => {
   assert.equal(gap.complete, false);
   assert.equal(gap.failures.some((failure) => failure.includes("gap")), true);
   assert.equal(gap.failures.some((failure) => failure.includes("required boundary")), true);
+  const recorded = verifyIntervalCoverage([
+    { timestamp: start },
+    { timestamp: start + 2 * interval },
+  ], interval, "premium", { allowGaps: true });
+  assert.equal(recorded.complete, true);
+  assert.equal(recorded.gaps[0].missingIntervals, 1);
+});
+
+test("funding decisions use only premium bars closed before settlement", () => {
+  const settlement = Date.parse("2020-01-01T08:00:00Z");
+  const funding = [{ timestamp: settlement }];
+  assert.equal(auditFundingDecisionInputs(funding, [
+    { timestamp: settlement - 15 * 60 * 1_000 },
+  ]).complete, true);
+  assert.equal(auditFundingDecisionInputs(funding, [
+    { timestamp: settlement },
+  ]).complete, false);
+  assert.equal(auditFundingDecisionInputs(funding, [
+    { timestamp: settlement - 60 * 60 * 1_000 },
+  ]).complete, false);
 });
 
 test("reverse pagination retains auditable raw responses including the terminal page", async () => {
@@ -203,13 +224,13 @@ test("development candle copy keeps source statements alive for full iteration",
   }
 });
 
-test("coverage audit requires funding warmup, continuous premium, and all candle frames", () => {
+test("coverage audit records premium gaps but requires usable funding inputs and candle frames", () => {
   const db = new DatabaseSync(":memory:");
   ensureFundingCrowdingSchema(db);
   const start = Date.parse("2020-01-01T00:00:00Z");
   const end = Date.parse("2020-02-15T00:00:00Z");
   const fundingInsert = db.prepare("INSERT INTO fundingRates VALUES ('BTCUSDT',?,?)");
-  for (let timestamp = start; timestamp < end; timestamp += 8 * 60 * 60 * 1_000) {
+  for (let timestamp = start + 8 * 60 * 60 * 1_000; timestamp < end; timestamp += 8 * 60 * 60 * 1_000) {
     fundingInsert.run(instant(timestamp), "0.0001");
   }
   const premiumInsert = db.prepare("INSERT INTO premiumIndexBars VALUES ('BTCUSDT','M15',?,'0','0','0','0')");
@@ -243,7 +264,17 @@ test("coverage audit requires funding warmup, continuous premium, and all candle
   assert.deepEqual(Object.keys(audit.candleCounts).sort(), ["M1", "M15", "M5"]);
   assert.equal(audit.candleCoverage.M1.rowCount, audit.candleCoverage.M1.expectedRows);
   db.prepare("DELETE FROM premiumIndexBars WHERE opened_at='2020-01-10T00:00:00Z'").run();
-  assert.equal(auditFundingCrowdingCoverage(db, protocol).complete, false);
+  const sourceGap = auditFundingCrowdingCoverage(db, protocol);
+  assert.equal(sourceGap.complete, true);
+  assert.equal(sourceGap.premium.sourceGapCount, 1);
+  db.exec(`
+    DELETE FROM premiumIndexBars WHERE opened_at IN (
+      '2020-01-10T23:15:00Z','2020-01-10T23:30:00Z','2020-01-10T23:45:00Z'
+    )
+  `);
+  const staleDecision = auditFundingCrowdingCoverage(db, protocol);
+  assert.equal(staleDecision.complete, false);
+  assert.equal(staleDecision.decisionInputs.missingSettlementCount, 1);
   db.close();
 });
 
