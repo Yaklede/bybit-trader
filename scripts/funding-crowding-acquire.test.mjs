@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   auditFundingCrowdingCoverage,
   bindFundingCrowdingDatabase,
+  copyDevelopmentCandles,
   ensureFundingCrowdingSchema,
   fetchReversePages,
   normalizeFundingRows,
@@ -156,6 +160,47 @@ test("database binding and normalized import receipts are immutable", () => {
   assert.throws(() => validateExistingImport(summary, [{ ...rows[0], fundingRate: "0.0002" }]), /immutable import receipt/);
   assert.throws(() => validateExistingImport(summary, rows, [{ ...pages[0], rawBody: "changed" }]), /content hash/);
   db.close();
+});
+
+test("development candle copy keeps source statements alive for full iteration", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "funding-crowding-copy-"));
+  const sourcePath = join(directory, "source.sqlite");
+  const source = new DatabaseSync(sourcePath);
+  const target = new DatabaseSync(":memory:");
+  try {
+    source.exec(`
+      CREATE TABLE marketCandles (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,timeframe TEXT NOT NULL,opened_at TEXT NOT NULL,
+        open TEXT NOT NULL,high TEXT NOT NULL,low TEXT NOT NULL,close TEXT NOT NULL,
+        volume TEXT NOT NULL,source_timestamp TEXT NOT NULL
+      );
+    `);
+    const insert = source.prepare(`
+      INSERT INTO marketCandles(symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp)
+      VALUES ('BTCUSDT',?,?,'1','2','0.5','1.5','10',?)
+    `);
+    const start = Date.parse("2020-01-01T00:00:00Z");
+    for (const [timeframe, interval] of [["M1", 60_000], ["M5", 300_000], ["M15", 900_000]]) {
+      for (let index = 0; index < 100; index += 1) {
+        insert.run(timeframe, instant(start + index * interval), instant(start + index * interval));
+      }
+    }
+    source.close();
+    ensureFundingCrowdingSchema(target);
+    copyDevelopmentCandles(target, sourcePath, {
+      sourceData: {
+        symbol: "BTCUSDT",
+        developmentStart: instant(start),
+        developmentEndExclusive: instant(start + 2 * 24 * 60 * 60 * 1_000),
+      },
+    });
+    assert.equal(Number(target.prepare("SELECT count(*) count FROM marketCandles").get().count), 300);
+  } finally {
+    try { source.close(); } catch {}
+    target.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("coverage audit requires funding warmup, continuous premium, and all candle frames", () => {

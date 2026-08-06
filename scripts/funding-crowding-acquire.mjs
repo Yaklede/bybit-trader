@@ -267,7 +267,8 @@ export function verifyIntervalCoverage(rows, expectedIntervalMillis, label, opti
 export function normalizedFundingFeatureFingerprint(db, symbol) {
   const hash = createHash("sha256");
   const update = (query, parameters) => {
-    for (const row of db.prepare(query).iterate(...parameters)) {
+    const statement = db.prepare(query);
+    for (const row of statement.iterate(...parameters)) {
       hash.update(JSON.stringify(row));
       hash.update("\n");
     }
@@ -497,7 +498,7 @@ async function importPremiumIfMissing(db, protocol, request, now, log) {
   return importSummary(db, "premium");
 }
 
-function copyDevelopmentCandles(db, sourceDatabasePath, protocol) {
+export function copyDevelopmentCandles(db, sourceDatabasePath, protocol) {
   const source = new DatabaseSync(sourceDatabasePath, { readOnly: true });
   try {
     const symbol = protocol.sourceData.symbol;
@@ -518,11 +519,12 @@ function copyDevelopmentCandles(db, sourceDatabasePath, protocol) {
           INSERT INTO marketCandles(symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp)
           VALUES (?,?,?,?,?,?,?,?,?)
         `);
-        for (const row of source.prepare(`
+        const sourceCandles = source.prepare(`
           SELECT symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp
           FROM marketCandles WHERE symbol=? AND timeframe IN ('M1','M5','M15')
             AND opened_at>=? AND opened_at<? ORDER BY timeframe,opened_at
-        `).iterate(symbol, start, end)) {
+        `);
+        for (const row of sourceCandles.iterate(symbol, start, end)) {
           insert.run(
             row.symbol,
             row.timeframe,
@@ -763,11 +765,12 @@ function loadPersistedPremiumRows(db, protocol) {
 
 function candleSubsetFingerprint(db, symbol, start, end) {
   const hash = createHash("sha256");
-  for (const row of db.prepare(`
+  const statement = db.prepare(`
     SELECT symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp
     FROM marketCandles WHERE symbol=? AND timeframe IN ('M1','M5','M15')
       AND opened_at>=? AND opened_at<? ORDER BY timeframe,opened_at
-  `).iterate(symbol, start, end)) {
+  `);
+  for (const row of statement.iterate(symbol, start, end)) {
     hash.update(JSON.stringify(row));
     hash.update("\n");
   }
