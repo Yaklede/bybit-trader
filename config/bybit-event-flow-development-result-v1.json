@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-event-flow-development-result-v1",
+  "status": "REJECTED_EXECUTION_INCOMPATIBLE_ZERO_TRADES",
+  "protocolId": "bybit-event-flow-development-v1",
+  "protocolSha256": "0568fe88bacc55d6ab83f79e642d14a832716b06bc6b036116b298ef481e8a2d",
+  "analysisId": "bybit-event-flow-development-analysis-v1",
+  "analysisContractSha256": "10a69cbf42452346e26e983634c3377fede3c67076ba2e35c494301789f157b9",
+  "implementationSha256": "e97cbcc953c8dd461151dcb5f4e9115e913357e17e32c375c04bbf38ed858a1a",
+  "acquisitionReportSha256": "25bb3636e13a20928e1ff282055965ff7888d3fbd33ddc748c8de310af15ce32",
+  "developmentSourceFingerprintSha256": "a4de3485e49a81ee3cd23a03ece58abecd339d389f90fcdb20bc41eb597ad047",
+  "researchDatabaseSha256": "054e55a07629e17a50131e06c444b044089de70a9d6511f6256e55d63278500d",
+  "resultArtifactSha256": "6b1bbe0068826fbe317488d3bbd2ec04e1f981172e6f30ebd11c04d757929de3",
+  "generatedAt": "2026-08-06T08:09:30.244Z",
+  "trialAccounting": {
+    "priorEvidenceContractCandidates": 60,
+    "stageCandidates": 32,
+    "cumulativeCandidates": 92,
+    "maximumCumulativeCandidates": 192
+  },
+  "families": [
+    {
+      "family": "EVENT_DEPLETION_CONTINUATION",
+      "status": "REJECTED",
+      "candidateSignalCountRange": {
+        "minimum": 15,
+        "maximum": 122
+      },
+      "candidateExecutableTradeCountRange": {
+        "minimum": 0,
+        "maximum": 0
+      },
+      "selectedNestedFoldCount": 0,
+      "pooledValidationTradeCount": 0,
+      "positiveValidationFoldCount": 0
+    },
+    {
+      "family": "EVENT_ABSORPTION_REVERSAL",
+      "status": "REJECTED",
+      "candidateSignalCountRange": {
+        "minimum": 0,
+        "maximum": 44
+      },
+      "candidateExecutableTradeCountRange": {
+        "minimum": 0,
+        "maximum": 0
+      },
+      "selectedNestedFoldCount": 0,
+      "pooledValidationTradeCount": 0,
+      "positiveValidationFoldCount": 0
+    }
+  ],
+  "rootCause": {
+    "classification": "M1_ATR_STOP_DISTANCE_BELOW_FROZEN_COST_AWARE_MINIMUM_RISK",
+    "representativeCandidateId": "edc_ti0p15_rn1p5_ob0_dp0p1",
+    "representativeSignalCount": 122,
+    "representativeM1AtrStopRiskPct": {
+      "minimum": 0.00266543,
+      "p10": 0.00796617,
+      "p25": 0.01255904,
+      "median": 0.02532772,
+      "p75": 0.04076366,
+      "p90": 0.06340463,
+      "p95": 0.07544974,
+      "maximum": 0.25296818
+    },
+    "frozenMinimumInitialRiskPct": 0.4,
+    "frozenRoundTripFeeAndSlippagePct": 0.16,
+    "interpretation": "SIGNALS_EXISTED_BUT_EVERY_ORDER_PLAN_WAS_REJECTED_BEFORE_ENTRY; PROFIT_EXPECTANCY_WAS_NOT_OBSERVED"
+  },
+  "gate": {
+    "everyFoldSelectedCandidate": false,
+    "minimumPooledValidationTrades": false,
+    "minimumPositiveValidationFolds": false,
+    "minimumPooledProfitFactor": false,
+    "minimumPooledMeanNetR": false,
+    "minimumBootstrapLowerMeanNetR": false,
+    "maximumPooledDrawdownPct": true,
+    "maximumLiquidationCount": true
+  },
+  "nextStageBoundary": {
+    "allowed": "PREDECLARE_A_NEW_EXECUTION_HYPOTHESIS_THAT_USES_THE_EXISTING_0P4_PERCENT_MINIMUM_AS_A_STOP_FLOOR",
+    "notAllowed": [
+      "LOWER_THE_COST_AWARE_RISK_FLOOR_TO_FORCE_TRADES",
+      "OPEN_VALIDATION_EXTERNAL_OR_FRESH_SEALED_DATA",
+      "CLAIM_POSITIVE_OR_NEGATIVE_STRATEGY_EXPECTANCY_FROM_ZERO_TRADES"
+    ]
+  },
+  "validationDataRead": false,
+  "externalDataRead": false,
+  "freshSealedDataRead": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
