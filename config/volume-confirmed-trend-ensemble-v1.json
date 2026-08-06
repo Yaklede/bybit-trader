@@ -40,8 +40,7 @@
     "maximumRoundedExposureFraction": "0.85",
     "quantityStepBtc": "0.001",
     "minimumQuantityBtc": "0.001",
-    "absoluteMaximumNotionalUsdt": null,
-    "maximumEffectiveLeverage": "0.85"
+    "absoluteMaximumNotionalUsdt": null
   },
   "costs": {
     "oneWayFeeRate": "0.0006",
