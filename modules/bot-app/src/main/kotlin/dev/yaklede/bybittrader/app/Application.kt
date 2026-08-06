@@ -197,6 +197,8 @@ fun main() {
                         protectionGracePeriod = config.execution.protectionGracePeriod,
                         maximumEntryDelay = config.execution.maximumEntryDelay,
                         maximumActualRiskOverrunFraction = config.execution.maximumActualRiskOverrunFraction,
+                        safetyVerificationAttempts = config.execution.safetyVerificationAttempts,
+                        safetyVerificationInterval = config.execution.safetyVerificationInterval,
                     ),
                 runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                 positionPolicy = aggressiveRuntimeProfile.strategyConfig.positionPolicy(),
@@ -447,6 +449,7 @@ fun main() {
                 paperTradingService = paperTradingService,
                 paperTradingReportStore = ledger,
                 executionService = executionService,
+                controlSymbol = config.marketData.symbol,
                 strategyProfileService = strategyProfileService,
                 runtimeMode = config.runtimeMode.name,
                 forwardMarketCaptureStatusService =

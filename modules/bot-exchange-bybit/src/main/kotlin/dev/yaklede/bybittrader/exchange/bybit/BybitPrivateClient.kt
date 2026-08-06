@@ -156,6 +156,7 @@ class BybitPrivateClient(
             bybitQueryString(
                 "category" to config.category.apiValue,
                 "symbol" to symbol.value,
+                "limit" to "50",
             )
         val response =
             signedGet<BybitOpenOrdersResponse>(
@@ -407,6 +408,8 @@ private fun BybitOpenOrderItem.toExchangeOpenOrder(fallbackSymbol: Symbol): Exch
         status = orderStatus.toOrderStatus(),
         quantity = qty.toBigDecimalOrNull(),
         createdAt = createdTime.toInstantFromMillisOrNull(),
+        reduceOnly = reduceOnly,
+        stopOrderType = stopOrderType,
     )
 }
 
@@ -605,6 +608,8 @@ private data class BybitOpenOrderItem(
     val orderStatus: String? = null,
     val qty: String? = null,
     val createdTime: String? = null,
+    val reduceOnly: Boolean = false,
+    val stopOrderType: String? = null,
 )
 
 @Serializable

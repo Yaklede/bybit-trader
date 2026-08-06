@@ -222,6 +222,98 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
+        "safe stop cancels entry orders and keeps a protected position" {
+            val symbol = Symbol("BTCUSDT")
+            val entryOrder =
+                ExchangeOpenOrder(
+                    exchangeOrderId = "entry-order-1",
+                    clientOrderId = "entry-client-1",
+                    symbol = symbol,
+                    side = Side.BUY,
+                    orderType = OrderType.LIMIT,
+                    status = OrderStatus.SUBMITTED,
+                    quantity = BigDecimal.ONE,
+                    createdAt = Instant.parse("2024-06-29T23:59:00Z"),
+                    reduceOnly = false,
+                )
+            val gateway =
+                RecordingExecutionGateway(
+                    openOrders = listOf(entryOrder),
+                    positions = listOf(testManagedPosition(symbol)),
+                )
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.PAUSE_ALL),
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.action shouldBe ExchangeSafetyAction.SAFE_STOP
+            result.status shouldBe ExchangeSafetyStatus.CONFIRMED
+            result.cancelledEntryOrderCount shouldBe 1
+            result.submittedCloseOrderCount shouldBe 0
+            result.protectedPositionCount shouldBe 1
+            result.remainingOpenOrderCount shouldBe 0
+            result.remainingPositionCount shouldBe 1
+        }
+
+        "emergency stop cancels entries and confirms a reduce-only flatten" {
+            val symbol = Symbol("BTCUSDT")
+            val gateway =
+                RecordingExecutionGateway(
+                    openOrders =
+                        listOf(
+                            ExchangeOpenOrder(
+                                exchangeOrderId = "entry-order-1",
+                                clientOrderId = "entry-client-1",
+                                symbol = symbol,
+                                side = Side.BUY,
+                                orderType = OrderType.LIMIT,
+                                status = OrderStatus.SUBMITTED,
+                                quantity = BigDecimal.ONE,
+                                createdAt = Instant.parse("2024-06-29T23:59:00Z"),
+                            ),
+                        ),
+                    positions = listOf(testManagedPosition(symbol)),
+                    closeImmediatelyOnReduceOnly = true,
+                )
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.EMERGENCY_STOP),
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            val result = service.enforceCurrentSafetyMode(symbol)
+
+            result.action shouldBe ExchangeSafetyAction.FLATTEN
+            result.status shouldBe ExchangeSafetyStatus.CONFIRMED
+            result.cancelledEntryOrderCount shouldBe 1
+            result.submittedCloseOrderCount shouldBe 1
+            result.remainingOpenOrderCount shouldBe 0
+            result.remainingPositionCount shouldBe 0
+            gateway.placedOrders.single().reduceOnly shouldBe true
+            gateway.placedOrders.single().side shouldBe Side.SELL
+        }
+
+        "reconciliation retries emergency flatten while a position remains open" {
+            val symbol = Symbol("BTCUSDT")
+            val gateway = RecordingExecutionGateway(positions = listOf(testManagedPosition(symbol)))
+            val service =
+                testService(
+                    stateStore = InMemoryStateStore(BotMode.EMERGENCY_STOP),
+                    gateway = gateway,
+                    config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                )
+
+            service.persistExchangeState(symbol)
+
+            gateway.placedOrders.single().reduceOnly shouldBe true
+            gateway.placedOrders.single().side shouldBe Side.SELL
+        }
+
         "evaluation ignores the current open candle and reports closed warmup shortage" {
             val symbol = Symbol("BTCUSDT")
             val service =
@@ -1960,11 +2052,12 @@ private class InMemoryTradingStore :
 }
 
 private class RecordingExecutionGateway(
-    private val openOrders: List<ExchangeOpenOrder> = emptyList(),
+    openOrders: List<ExchangeOpenOrder> = emptyList(),
     positions: List<ExchangePosition> = emptyList(),
     private val executions: List<ExchangeExecutionFill> = emptyList(),
     private val closedPnls: List<ExchangeClosedPnl> = emptyList(),
     private val protectionFailure: Throwable? = null,
+    private val closeImmediatelyOnReduceOnly: Boolean = false,
     private val accountBalance: ExchangeAccountBalance =
         ExchangeAccountBalance(
             accountType = "UNIFIED",
@@ -1979,6 +2072,7 @@ private class RecordingExecutionGateway(
             capturedAt = Instant.parse("2024-06-30T00:00:00Z"),
         ),
 ) : ExchangeExecutionGateway {
+    private var currentOpenOrders = openOrders
     private var currentPositions = positions
     val leverageRequests = mutableListOf<Pair<Symbol, BigDecimal>>()
     val placedOrders = mutableListOf<ExchangeOrderRequest>()
@@ -1997,6 +2091,9 @@ private class RecordingExecutionGateway(
 
     override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult {
         placedOrders += request
+        if (request.reduceOnly && closeImmediatelyOnReduceOnly) {
+            currentPositions = emptyList()
+        }
         return ExchangeOrderResult(
             exchangeOrderId = "exchange-1",
             clientOrderId = request.clientOrderId,
@@ -2017,15 +2114,21 @@ private class RecordingExecutionGateway(
             }
     }
 
-    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
-        ExchangeCancelResult(
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult {
+        currentOpenOrders =
+            currentOpenOrders.filterNot { order ->
+                (!request.exchangeOrderId.isNullOrBlank() && order.exchangeOrderId == request.exchangeOrderId) ||
+                    (!request.clientOrderId.isNullOrBlank() && order.clientOrderId == request.clientOrderId)
+            }
+        return ExchangeCancelResult(
             exchangeOrderId = request.exchangeOrderId,
             clientOrderId = request.clientOrderId,
         )
+    }
 
     override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> {
         openOrderRequests += 1
-        return openOrders
+        return currentOpenOrders
     }
 
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> {

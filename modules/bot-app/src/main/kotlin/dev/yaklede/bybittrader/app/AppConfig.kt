@@ -507,6 +507,8 @@ data class ExecutionSettings(
     val protectionGracePeriod: Duration,
     val maximumEntryDelay: Duration,
     val maximumActualRiskOverrunFraction: BigDecimal,
+    val safetyVerificationAttempts: Int,
+    val safetyVerificationInterval: Duration,
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -541,6 +543,12 @@ data class ExecutionSettings(
         }
         require(maximumActualRiskOverrunFraction >= BigDecimal.ZERO && maximumActualRiskOverrunFraction <= BigDecimal.ONE) {
             "Execution maximum actual-risk overrun fraction must be between 0 and 1."
+        }
+        require(safetyVerificationAttempts in 1..20) {
+            "Execution safety verification attempts must be between 1 and 20."
+        }
+        require(!safetyVerificationInterval.isNegative && !safetyVerificationInterval.isZero) {
+            "Execution safety verification interval must be positive."
         }
     }
 
@@ -578,6 +586,12 @@ data class ExecutionSettings(
                     environment["BOT_EXECUTION_MAX_ACTUAL_RISK_OVERRUN_FRACTION"]
                         ?.let(::BigDecimal)
                         ?: BigDecimal("0.05"),
+                safetyVerificationAttempts =
+                    environment["BOT_EXECUTION_SAFETY_VERIFICATION_ATTEMPTS"]?.toIntOrNull() ?: 5,
+                safetyVerificationInterval =
+                    Duration.ofMillis(
+                        environment["BOT_EXECUTION_SAFETY_VERIFICATION_INTERVAL_MILLIS"]?.toLongOrNull() ?: 250,
+                    ),
             )
     }
 }

@@ -129,6 +129,8 @@ export BOT_EXECUTION_MIN_QTY="0.001"
 export BOT_EXECUTION_MAX_QTY=""
 export BOT_EXECUTION_MAX_NOTIONAL="<initial-live-notional-cap>"
 export BOT_EXECUTION_LEVERAGE="15"
+export BOT_EXECUTION_SAFETY_VERIFICATION_ATTEMPTS="5"
+export BOT_EXECUTION_SAFETY_VERIFICATION_INTERVAL_MILLIS="250"
 ```
 
 Keep `BOT_EXECUTION_LOOP_ENABLED=false` for the first live smoke order. Turn it
@@ -228,6 +230,30 @@ curl -X POST \
   http://127.0.0.1:8080/execution/orders/cancel
 ```
 
+9. Use safe stop when new entries must stop while protected positions continue
+   to be managed. The response must report `safety.status=CONFIRMED`; `PENDING`
+   or `FAILED` means the exchange state still requires review.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"reason":"operator safe stop"}' \
+  http://127.0.0.1:8080/control/safe-stop
+```
+
+10. Use flatten only when every open position must be closed. It cancels active
+    entry orders, submits reduce-only market exits, and verifies that positions
+    and orders are gone. `emergency-stop` is a backward-compatible alias.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"reason":"operator flatten"}' \
+  http://127.0.0.1:8080/control/flatten
+```
+
 ## Operator Checks
 
 - Twingate should be the only network path to the private API or to the host
@@ -235,8 +261,10 @@ curl -X POST \
 - `/health` is public but local/private only.
 - `/status`, `/control/*`, `/market-data/*`, `/paper/evaluate`,
   `/execution/*`, and backtest endpoints require `BOT_CONTROL_TOKEN`.
-- `pause-all`, `resume`, and `emergency-stop` write control events and emit
-  alerts when an alert sink is configured.
+- `pause-all`/`safe-stop`, `resume`, and `emergency-stop`/`flatten` write control
+  events and emit alerts when an alert sink is configured. Safe stop keeps
+  protected positions managed; flatten requires exchange-confirmed zero
+  positions and zero active orders before it reports `CONFIRMED`.
 - Paper runtime state prevents a closed candle from being evaluated twice and
   restores pending/open positions after restart.
 - A signal is persisted as `ENTRY_PENDING` and can fill only at the next

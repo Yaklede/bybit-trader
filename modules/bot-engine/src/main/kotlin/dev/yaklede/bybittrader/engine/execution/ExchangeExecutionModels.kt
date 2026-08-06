@@ -28,6 +28,8 @@ data class ExchangeExecutionConfig(
     val protectionGracePeriod: Duration = Duration.ofSeconds(120),
     val maximumEntryDelay: Duration = Duration.ofSeconds(30),
     val maximumActualRiskOverrunFraction: BigDecimal = BigDecimal("0.05"),
+    val safetyVerificationAttempts: Int = 5,
+    val safetyVerificationInterval: Duration = Duration.ofMillis(250),
 ) {
     init {
         require(accountEquity > BigDecimal.ZERO) { "Execution account equity must be positive." }
@@ -63,6 +65,12 @@ data class ExchangeExecutionConfig(
         }
         require(maximumActualRiskOverrunFraction >= BigDecimal.ZERO && maximumActualRiskOverrunFraction <= BigDecimal.ONE) {
             "Execution maximum actual-risk overrun fraction must be between 0 and 1."
+        }
+        require(safetyVerificationAttempts in 1..20) {
+            "Execution safety verification attempts must be between 1 and 20."
+        }
+        require(!safetyVerificationInterval.isNegative && !safetyVerificationInterval.isZero) {
+            "Execution safety verification interval must be positive."
         }
     }
 }
@@ -128,6 +136,8 @@ data class ExchangeOpenOrder(
     val status: OrderStatus,
     val quantity: BigDecimal?,
     val createdAt: Instant?,
+    val reduceOnly: Boolean = false,
+    val stopOrderType: String? = null,
 )
 
 data class ExchangePosition(
@@ -292,6 +302,32 @@ data class ExchangeManualOrderResult(
     val status: String,
     val submittedAt: Instant,
 )
+
+data class ExchangeSafetyResult(
+    val action: ExchangeSafetyAction,
+    val status: ExchangeSafetyStatus,
+    val mode: String,
+    val symbol: Symbol,
+    val requestedAt: Instant,
+    val verifiedAt: Instant,
+    val cancelledEntryOrderCount: Int,
+    val submittedCloseOrderCount: Int,
+    val protectedPositionCount: Int,
+    val remainingOpenOrderCount: Int?,
+    val remainingPositionCount: Int?,
+    val issueCodes: List<String>,
+)
+
+enum class ExchangeSafetyAction {
+    SAFE_STOP,
+    FLATTEN,
+}
+
+enum class ExchangeSafetyStatus {
+    CONFIRMED,
+    PENDING,
+    FAILED,
+}
 
 enum class ExchangeEvaluationStatus {
     DISABLED,

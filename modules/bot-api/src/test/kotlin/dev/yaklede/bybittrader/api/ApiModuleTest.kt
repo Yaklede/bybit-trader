@@ -219,6 +219,46 @@ class ApiModuleTest :
             }
         }
 
+        "authorized safe stop returns exchange verification state" {
+            testApplication {
+                val stateStore = InMemoryStateStore()
+                application {
+                    configureApi(
+                        stateStore = stateStore,
+                        controlService = BotControlService(stateStore, InMemoryControlEventRecorder()),
+                        marketDataSyncService = testMarketDataSyncService(),
+                        backtestService = testBacktestService(),
+                        meanReversionSweepService = testMeanReversionSweepService(),
+                        volumeFlowBacktestService = testVolumeFlowBacktestService(),
+                        executionService =
+                            ExchangeExecutionService(
+                                stateStore = stateStore,
+                                candleStore = InMemoryMarketCandleStore(backtestCandles()),
+                                tradingStore = InMemoryPaperTradingStore(),
+                                strategy = NoTradeApiStrategy(),
+                                gateway = RecordingExecutionGateway(),
+                                config = ExchangeExecutionConfig(enabled = true, safetyVerificationAttempts = 1),
+                            ),
+                        controlSymbol = Symbol("BTCUSDT"),
+                        controlCredential = "test-control-credential",
+                    )
+                }
+
+                val response =
+                    client
+                        .post("/control/safe-stop") {
+                            bearerAuth("test-control-credential")
+                            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                            setBody("""{"reason":"operator safe stop"}""")
+                        }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText() shouldContain """"newMode":"PAUSE_ALL""""
+                response.bodyAsText() shouldContain """"action":"SAFE_STOP","status":"CONFIRMED""""
+                stateStore.current().mode shouldBe BotMode.PAUSE_ALL
+            }
+        }
+
         "authorized strategy profile request returns aggressive default" {
             testApplication {
                 val stateStore = InMemoryStateStore()

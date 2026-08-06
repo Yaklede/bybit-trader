@@ -19,6 +19,7 @@ import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.api.status.configureStatusRoutes
 import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
 import dev.yaklede.bybittrader.api.strategy.configureStrategyProfileRoutes
+import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.backtest.BacktestService
 import dev.yaklede.bybittrader.engine.backtest.MeanReversionSweepService
 import dev.yaklede.bybittrader.engine.backtest.VolumeFlowAggressiveBacktestService
@@ -65,6 +66,7 @@ fun Application.configureApi(
     paperTradingService: PaperTradingService? = null,
     paperTradingReportStore: PaperTradingReportStore = EmptyPaperTradingReportStore,
     executionService: ExchangeExecutionService? = null,
+    controlSymbol: Symbol? = null,
     strategyProfileService: StrategyProfileService? = null,
     runtimeMode: String? = null,
     forwardMarketCaptureStatusService: ForwardMarketCaptureStatusService? = null,
@@ -140,7 +142,12 @@ fun Application.configureApi(
             forwardMarketCaptureStatusService = forwardMarketCaptureStatusService,
             forwardMarketCaptureEnabled = forwardMarketCaptureEnabled,
         )
-        configureControlRoutes(controlService, onControlResult)
+        configureControlRoutes(
+            controlService = controlService,
+            executionService = executionService,
+            controlSymbol = controlSymbol,
+            onControlResult = onControlResult,
+        )
         configureMarketDataRoutes(marketDataSyncService)
         strategyProfileService?.let(::configureStrategyProfileRoutes)
         configureOperationsSmokeRoutes(

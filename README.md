@@ -31,6 +31,9 @@ Milestone 1 is the operational backend shell:
 
 - Kotlin/JVM Gradle multi-module project.
 - Ktor server with public health and private status/control APIs.
+- Exchange-verified safe-stop and flatten controls. Safe stop cancels pending
+  entries while maintaining protected positions; flatten submits reduce-only
+  exits and reports `CONFIRMED`, `PENDING`, or `FAILED` from exchange readback.
 - SQLDelight + SQLite event ledger for bot state, control events, alerts, and
   public market candles, and future trading records.
 - Bybit public REST kline sync through a protected operator endpoint.

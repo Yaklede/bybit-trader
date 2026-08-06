@@ -47,6 +47,26 @@ class ExchangeExecutionService(
     private val lifecycleMutex = Mutex()
     private val automaticPositionPolicyEngine =
         positionPolicy?.let { policy -> AutomaticPositionPolicyEngine(policy, config.feeRate, config.priceTick) }
+    private val safetyCoordinator by lazy {
+        ExchangeSafetyCoordinator(
+            gateway = gateway,
+            lifecycleStore = lifecycleStore,
+            runtimeMode = runtimeMode,
+            config = config,
+            submitClose = { position, reasonCode ->
+                submitManualOrder(
+                    symbol = position.symbol,
+                    side = position.side.opposite(),
+                    quantity = position.size,
+                    reduceOnly = true,
+                    strategyName = "exchange-safety",
+                    reasonCode = reasonCode,
+                    clientOrderPrefix = if (reasonCode == "EMERGENCY_FLATTEN") "flatten" else "safe",
+                )
+            },
+            clock = clock,
+        )
+    }
 
     suspend fun evaluateAndSubmit(
         symbol: Symbol,
@@ -624,10 +644,51 @@ class ExchangeExecutionService(
         persistExecutionFills(report.executions)
         val persistedClosures = persistDiscoveredClosures(symbol, report.closedPnls, report.executions)
         val lifecycleEvent = persistLifecycleObservation(report)
+        enforcePersistedSafetyMode(report)
         return report.copy(
             persistedClosures = persistedClosures,
             lifecycleEvent = lifecycleEvent,
         )
+    }
+
+    suspend fun enforceCurrentSafetyMode(symbol: Symbol): ExchangeSafetyResult =
+        lifecycleMutex.withLock {
+            val mode = stateStore.current().mode
+            val result = safetyCoordinator.enforce(mode, symbol)
+            logger.warn(
+                "execution safety action completed action={} status={} symbol={} cancelledEntries={} submittedCloses={} remainingOrders={} remainingPositions={} issues={}",
+                result.action.name,
+                result.status.name,
+                symbol.value,
+                result.cancelledEntryOrderCount,
+                result.submittedCloseOrderCount,
+                result.remainingOpenOrderCount,
+                result.remainingPositionCount,
+                result.issueCodes,
+            )
+            result
+        }
+
+    private suspend fun enforcePersistedSafetyMode(report: ExchangeReconciliationReport) {
+        val mode = stateStore.current().mode
+        if (mode != BotMode.PAUSE_ALL && mode != BotMode.EMERGENCY_STOP) return
+        val attempt =
+            safetyCoordinator.enforceOnce(
+                mode = mode,
+                openOrders = report.openOrders,
+                positions = report.positions,
+                observedAt = report.reconciledAt,
+            )
+        if (attempt.cancelledEntryOrderCount > 0 || attempt.submittedCloseOrderCount > 0 || attempt.issueCodes.isNotEmpty()) {
+            logger.warn(
+                "execution persisted safety action applied mode={} symbol={} cancelledEntries={} submittedCloses={} issues={}",
+                mode.name,
+                report.symbol.value,
+                attempt.cancelledEntryOrderCount,
+                attempt.submittedCloseOrderCount,
+                attempt.issueCodes,
+            )
+        }
     }
 
     suspend fun observeOrderUpdate(update: ExchangeOrderUpdate): ExecutionLifecycleEvent? =
@@ -2141,7 +2202,7 @@ data class ExchangeTradingLoopConfig(
 
 private fun BotMode.blocksNewEntries(): Boolean = this != BotMode.RUNNING
 
-private fun BotMode.allowsPositionManagement(): Boolean = this == BotMode.RUNNING || this == BotMode.PAUSE_NEW_ENTRIES
+private fun BotMode.allowsPositionManagement(): Boolean = this != BotMode.EMERGENCY_STOP
 
 private fun OrderStatus.isActive(): Boolean = this == OrderStatus.SUBMITTED || this == OrderStatus.PARTIALLY_FILLED
 

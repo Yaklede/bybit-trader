@@ -253,7 +253,9 @@ class BybitPrivateClientTest :
                                         "orderType": "Market",
                                         "orderStatus": "New",
                                         "qty": "0.2",
-                                        "createdTime": "1719748800000"
+                                        "createdTime": "1719748800000",
+                                        "reduceOnly": true,
+                                        "stopOrderType": "UNKNOWN"
                                       }
                                     ]
                                   }
@@ -332,6 +334,8 @@ class BybitPrivateClientTest :
             )
             openOrders.single().status shouldBe OrderStatus.SUBMITTED
             openOrders.single().side shouldBe Side.SELL
+            openOrders.single().reduceOnly shouldBe true
+            openOrders.single().stopOrderType shouldBe "UNKNOWN"
             positions.single().unrealizedPnl shouldBe BigDecimal("20")
             positions.single().openedAt shouldBe Instant.ofEpochMilli(1719748500000)
             positions.single().takeProfit shouldBe BigDecimal("68000")
