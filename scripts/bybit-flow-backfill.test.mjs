@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { gzipSync } from "node:zlib";
 import {
+  aggregateTradeArchive,
   applyTrade,
   completeTradeBarsForCandles,
   coverageReport,
@@ -9,6 +11,7 @@ import {
   hasCompleteTakerFlowDay,
   minuteEpochMillis,
   parseArgs,
+  verifyExistingTradeArchiveHash,
 } from "./bybit-flow-backfill.mjs";
 
 test("parseArgs validates date ranges and dataset names", () => {
@@ -34,6 +37,34 @@ test("applyTrade aggregates taker sides without mixing counts", () => {
   assert.equal(bar.sellBase, 0.2);
   assert.equal(bar.buyCount, 1);
   assert.equal(bar.sellCount, 1);
+  assert.equal(bar.largestBuyNotional, 4_000);
+  assert.equal(bar.largestSellNotional, 8_002);
+  assert.equal(bar.openPrice, 40_000);
+  assert.equal(bar.closePrice, 40_010);
+});
+
+test("trade archive aggregation records compressed provenance and event detail", async () => {
+  const csv = [
+    "timestamp,symbol,side,size,price",
+    "1704067200.100,BTCUSDT,Buy,0.1,40000",
+    "1704067201.100,BTCUSDT,Sell,0.2,40010",
+    "",
+  ].join("\n");
+  const compressed = gzipSync(csv);
+  const result = await aggregateTradeArchive(new Response(compressed).body, "BTCUSDT");
+  assert.equal(result.archiveSizeBytes, compressed.length);
+  assert.match(result.archiveSha256, /^[a-f0-9]{64}$/);
+  assert.equal(result.eventCount, 2);
+  assert.equal(result.bars.size, 1);
+  assert.equal([...result.bars.values()][0].largestSellNotional, 8_002);
+});
+
+test("trade provenance rejects an upstream archive mutation", () => {
+  assert.doesNotThrow(() => verifyExistingTradeArchiveHash("same", "same", "2024-01-01"));
+  assert.throws(
+    () => verifyExistingTradeArchiveHash("recorded", "changed", "2024-01-01"),
+    /refusing to replace the recorded provenance/,
+  );
 });
 
 test("ensureSchema is idempotent and coverage reports missing positive-volume minutes", () => {
@@ -97,6 +128,12 @@ test("official zero-volume candles complete a trade archive without fabricating 
     sellNotional: 0,
     buyCount: 0,
     sellCount: 0,
+    largestBuyNotional: 0,
+    largestSellNotional: 0,
+    openPrice: 0,
+    highPrice: 0,
+    lowPrice: 0,
+    closePrice: 0,
   });
 
   const positiveGap = new Map(bars);

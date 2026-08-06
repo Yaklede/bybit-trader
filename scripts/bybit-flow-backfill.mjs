@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { createInterface } from "node:readline";
-import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
+import { Readable, Transform } from "node:stream";
 import { createGunzip } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
@@ -11,6 +12,8 @@ const DEFAULT_START = "2020-03-25";
 const DEFAULT_BASE_URL = "https://api.bybit.com";
 const DEFAULT_ARCHIVE_URL = "https://public.bybit.com/trading";
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,30}$/;
+const TRADE_IMPORTER_VERSION = "bybit-public-trades-v2-event-flow";
+const MINUTES_PER_DAY = 1_440;
 
 export function parseArgs(argv) {
   const values = new Map();
@@ -71,18 +74,30 @@ export function applyTrade(fields, columns, bars) {
     sellNotional: 0,
     buyCount: 0,
     sellCount: 0,
+    largestBuyNotional: 0,
+    largestSellNotional: 0,
+    openPrice: price,
+    highPrice: price,
+    lowPrice: price,
+    closePrice: price,
   };
+  const notional = size * price;
   if (side === "Buy") {
     bar.buyBase += size;
-    bar.buyNotional += size * price;
+    bar.buyNotional += notional;
     bar.buyCount += 1;
+    bar.largestBuyNotional = Math.max(bar.largestBuyNotional, notional);
   } else if (side === "Sell") {
     bar.sellBase += size;
-    bar.sellNotional += size * price;
+    bar.sellNotional += notional;
     bar.sellCount += 1;
+    bar.largestSellNotional = Math.max(bar.largestSellNotional, notional);
   } else {
     throw new Error(`Unsupported taker side: ${side}`);
   }
+  bar.highPrice = Math.max(bar.highPrice, price);
+  bar.lowPrice = Math.min(bar.lowPrice, price);
+  bar.closePrice = price;
   bars.set(minute, bar);
 }
 
@@ -104,6 +119,40 @@ export function ensureSchema(db) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS takerFlowBars_symbol_openedAt_idx
       ON takerFlowBars(symbol, opened_at);
+    CREATE TABLE IF NOT EXISTS takerEventFlowBars (
+      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      trade_count INTEGER NOT NULL,
+      buy_vwap TEXT NOT NULL,
+      sell_vwap TEXT NOT NULL,
+      largest_buy_notional TEXT NOT NULL,
+      largest_sell_notional TEXT NOT NULL,
+      open_trade_price TEXT NOT NULL,
+      high_trade_price TEXT NOT NULL,
+      low_trade_price TEXT NOT NULL,
+      close_trade_price TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS takerEventFlowBars_symbol_openedAt_idx
+      ON takerEventFlowBars(symbol, opened_at);
+    CREATE TABLE IF NOT EXISTS historicalTradeImports (
+      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      dataset TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      source_date TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      archive_size_bytes INTEGER NOT NULL,
+      archive_sha256 TEXT NOT NULL,
+      event_count INTEGER NOT NULL,
+      first_event_at TEXT NOT NULL,
+      last_event_at TEXT NOT NULL,
+      minute_bar_count INTEGER NOT NULL,
+      imported_at TEXT NOT NULL,
+      importer_version TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS historicalTradeImports_source_idx
+      ON historicalTradeImports(provider, dataset, symbol, source_date);
     CREATE TABLE IF NOT EXISTS openInterestSnapshots (
       id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       symbol TEXT NOT NULL,
@@ -179,9 +228,41 @@ async function backfillTrades(db, options, fetchImpl, log) {
       buy_trade_count=excluded.buy_trade_count,
       sell_trade_count=excluded.sell_trade_count
   `);
+  const insertEventFlow = db.prepare(`
+    INSERT INTO takerEventFlowBars(
+      symbol, opened_at, trade_count, buy_vwap, sell_vwap,
+      largest_buy_notional, largest_sell_notional,
+      open_trade_price, high_trade_price, low_trade_price, close_trade_price
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(symbol, opened_at) DO UPDATE SET
+      trade_count=excluded.trade_count,
+      buy_vwap=excluded.buy_vwap,
+      sell_vwap=excluded.sell_vwap,
+      largest_buy_notional=excluded.largest_buy_notional,
+      largest_sell_notional=excluded.largest_sell_notional,
+      open_trade_price=excluded.open_trade_price,
+      high_trade_price=excluded.high_trade_price,
+      low_trade_price=excluded.low_trade_price,
+      close_trade_price=excluded.close_trade_price
+  `);
+  const insertManifest = db.prepare(`
+    INSERT INTO historicalTradeImports(
+      provider, dataset, symbol, source_date, source_url, archive_size_bytes, archive_sha256,
+      event_count, first_event_at, last_event_at, minute_bar_count, imported_at, importer_version
+    ) VALUES ('bybit', 'public-trades', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(provider, dataset, symbol, source_date) DO UPDATE SET
+      source_url=excluded.source_url,
+      archive_size_bytes=excluded.archive_size_bytes,
+      event_count=excluded.event_count,
+      first_event_at=excluded.first_event_at,
+      last_event_at=excluded.last_event_at,
+      minute_bar_count=excluded.minute_bar_count,
+      imported_at=excluded.imported_at,
+      importer_version=excluded.importer_version
+  `);
   let completed = 0;
   for (const date of datesBetween(options.start, options.end)) {
-    if (!options.force && hasCompleteTakerFlowDay(db, options.symbol, date)) {
+    if (!options.force && hasCompleteTradeImportDay(db, options.symbol, date)) {
       completed += 1;
       continue;
     }
@@ -192,10 +273,16 @@ async function backfillTrades(db, options, fetchImpl, log) {
       continue;
     }
     if (!response.ok || !response.body) throw new Error(`Trade archive ${date} failed with HTTP ${response.status}.`);
-    const bars = await aggregateTradeArchive(response.body, options.symbol);
-    completeTradeBarsForCandles(db, options.symbol, date, bars);
+    const aggregate = await aggregateTradeArchive(response.body, options.symbol);
+    completeTradeBarsForCandles(db, options.symbol, date, aggregate.bars);
+    const existing = db.prepare(`
+      SELECT archive_sha256 FROM historicalTradeImports
+      WHERE provider='bybit' AND dataset='public-trades' AND symbol=? AND source_date=?
+      LIMIT 1
+    `).get(options.symbol, date);
+    verifyExistingTradeArchiveHash(existing?.archive_sha256, aggregate.archiveSha256, date);
     inTransaction(db, () => {
-      for (const [minute, bar] of bars) {
+      for (const [minute, bar] of aggregate.bars) {
         insert.run(
           options.symbol,
           instantString(minute),
@@ -206,11 +293,56 @@ async function backfillTrades(db, options, fetchImpl, log) {
           bar.buyCount,
           bar.sellCount,
         );
+        insertEventFlow.run(
+          options.symbol,
+          instantString(minute),
+          bar.buyCount + bar.sellCount,
+          decimalString(bar.buyBase === 0 ? 0 : bar.buyNotional / bar.buyBase),
+          decimalString(bar.sellBase === 0 ? 0 : bar.sellNotional / bar.sellBase),
+          decimalString(bar.largestBuyNotional),
+          decimalString(bar.largestSellNotional),
+          decimalString(bar.openPrice),
+          decimalString(bar.highPrice),
+          decimalString(bar.lowPrice),
+          decimalString(bar.closePrice),
+        );
       }
+      insertManifest.run(
+        options.symbol,
+        date,
+        url,
+        aggregate.archiveSizeBytes,
+        aggregate.archiveSha256,
+        aggregate.eventCount,
+        instantString(aggregate.firstEventAt),
+        instantString(aggregate.lastEventAt),
+        aggregate.bars.size,
+        new Date().toISOString(),
+        TRADE_IMPORTER_VERSION,
+      );
     });
     completed += 1;
     if (completed % 30 === 0) log(`trade archives completed=${completed} latest=${date}`);
   }
+}
+
+export function hasCompleteTradeImportDay(db, symbol, date) {
+  if (!hasCompleteTakerFlowDay(db, symbol, date)) return false;
+  const nextDate = addUtcDays(date, 1);
+  const manifest = db.prepare(`
+    SELECT importer_version, minute_bar_count
+    FROM historicalTradeImports
+    WHERE provider='bybit' AND dataset='public-trades' AND symbol=? AND source_date=?
+    LIMIT 1
+  `).get(symbol, date);
+  if (manifest?.importer_version !== TRADE_IMPORTER_VERSION || Number(manifest.minute_bar_count) !== MINUTES_PER_DAY) {
+    return false;
+  }
+  const eventFlowCount = db.prepare(`
+    SELECT count(*) AS count FROM takerEventFlowBars
+    WHERE symbol=? AND opened_at>=? AND opened_at<?
+  `).get(symbol, `${date}T00:00:00Z`, `${nextDate}T00:00:00Z`).count;
+  return Number(eventFlowCount) === MINUTES_PER_DAY;
 }
 
 export function hasCompleteTakerFlowDay(db, symbol, date) {
@@ -283,10 +415,22 @@ export function completeTradeBarsForCandles(db, symbol, date, bars) {
   return bars;
 }
 
-async function aggregateTradeArchive(webBody, expectedSymbol) {
-  const lines = createInterface({input: Readable.fromWeb(webBody).pipe(createGunzip()), crlfDelay: Infinity});
+export async function aggregateTradeArchive(webBody, expectedSymbol) {
+  const archiveHash = createHash("sha256");
+  let archiveSizeBytes = 0;
+  const hashingStream = new Transform({
+    transform(chunk, _encoding, callback) {
+      archiveHash.update(chunk);
+      archiveSizeBytes += chunk.length;
+      callback(null, chunk);
+    },
+  });
+  const lines = createInterface({ input: Readable.fromWeb(webBody).pipe(hashingStream).pipe(createGunzip()), crlfDelay: Infinity });
   const bars = new Map();
   let columns;
+  let eventCount = 0;
+  let firstEventAt = null;
+  let lastEventAt = null;
   for await (const line of lines) {
     if (!line) continue;
     const fields = line.split(",");
@@ -299,9 +443,32 @@ async function aggregateTradeArchive(webBody, expectedSymbol) {
       continue;
     }
     if (fields[columns.symbol] !== expectedSymbol) throw new Error(`Unexpected archive symbol ${fields[columns.symbol]}.`);
+    const eventAt = Number(fields[columns.timestamp]);
+    const eventAtMillis = eventAt >= 10_000_000_000 ? eventAt : eventAt * 1_000;
+    if (!Number.isFinite(eventAtMillis)) throw new Error("Trade archive contains an invalid event timestamp.");
+    if (lastEventAt != null && eventAtMillis < lastEventAt) throw new Error("Trade archive timestamps must be non-decreasing.");
+    firstEventAt ??= eventAtMillis;
+    lastEventAt = eventAtMillis;
+    eventCount += 1;
     applyTrade(fields, columns, bars);
   }
-  return bars;
+  if (eventCount === 0 || firstEventAt == null || lastEventAt == null) {
+    throw new Error("Trade archive contains no events.");
+  }
+  return {
+    bars,
+    eventCount,
+    firstEventAt,
+    lastEventAt,
+    archiveSizeBytes,
+    archiveSha256: archiveHash.digest("hex"),
+  };
+}
+
+export function verifyExistingTradeArchiveHash(existingHash, archiveHash, sourceDate) {
+  if (existingHash != null && existingHash !== archiveHash) {
+    throw new Error(`Official trade archive hash changed for ${sourceDate}; refusing to replace the recorded provenance.`);
+  }
 }
 
 async function backfillOpenInterest(db, options, request, log) {
@@ -512,6 +679,12 @@ function zeroTakerFlowBar() {
     sellNotional: 0,
     buyCount: 0,
     sellCount: 0,
+    largestBuyNotional: 0,
+    largestSellNotional: 0,
+    openPrice: 0,
+    highPrice: 0,
+    lowPrice: 0,
+    closePrice: 0,
   };
 }
 
