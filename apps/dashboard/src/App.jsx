@@ -14,6 +14,8 @@ import {
   RotateCcw,
   Send,
   Settings2,
+  ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Sun,
   Zap,
@@ -60,6 +62,7 @@ const EMPTY_SUMMARY = {
   },
   recentSignals: [],
   recentTrades: [],
+  riskReadiness: false,
 };
 
 const EMPTY_STRATEGY_STATE = {
@@ -76,6 +79,7 @@ const EMPTY_MOBILE_SUMMARY = {
   recentClosedTrades: [],
   recentSignals: [],
   alerts: {},
+  riskReadiness: false,
 };
 
 function App() {
@@ -438,6 +442,7 @@ function App() {
     livePerformance || mobileSummary.livePerformance
       ? { ...(livePerformance || {}), ...(mobileSummary.livePerformance || {}) }
       : false;
+  const riskReadiness = mostRecentRiskReadiness(summary.riskReadiness, mobileSummary.riskReadiness);
   const latestSignal = activitySignals[0];
   const lastCapturedAt = mobileSummary.capturedAt || account?.capturedAt || summary.bot?.updatedAt;
   const forwardMarketCapture = summary.forwardMarketCapture || EMPTY_SUMMARY.forwardMarketCapture;
@@ -627,6 +632,7 @@ function App() {
                 <StateRow label="마지막 업데이트" value={formatDateTime(bot?.updatedAt)} />
                 <StateRow label="계정 조회 시각" value={formatDateTime(account?.capturedAt)} />
               </dl>
+              <RiskReadinessSection readiness={riskReadiness} />
             </section>
 
             <section className="panel">
@@ -768,6 +774,11 @@ function App() {
               </div>
               <dl className="detail-list compact">
                 <StateRow label="계정 연결" value={formatExecution(summary.executionAvailable, hasLoaded)} />
+                <StateRow label="자동 진입" value={formatRiskReadinessStatus(riskReadiness)} />
+                <StateRow
+                  label="잔고 기록 대사"
+                  value={formatWalletReconciliation(riskReadiness?.walletReconciliation)}
+                />
                 <StateRow label="최근 변경" value={formatDateTime(bot?.updatedAt)} />
               </dl>
             </section>
@@ -1139,6 +1150,103 @@ function SummaryMetric({ label, value, unit, tone = "neutral" }) {
   );
 }
 
+function RiskReadinessSection({ readiness }) {
+  if (!readiness) {
+    return (
+      <section className="risk-readiness" aria-labelledby="risk-readiness-title">
+        <div className="risk-readiness-heading">
+          <div>
+            <p className="section-kicker">계좌 보호</p>
+            <h3 id="risk-readiness-title">자동 진입 준비</h3>
+          </div>
+          <StatusBadge label="확인 전" tone="neutral" />
+        </div>
+        <EmptyInline
+          title="위험 기준을 아직 확인하지 않았어요"
+          message="계정을 동기화한 뒤 새로고침하면 진입 가능 여부가 표시돼요."
+        />
+      </section>
+    );
+  }
+
+  const reasonCodes = readiness.reasonCodes || [];
+  const primaryReason = reasonCodes[0];
+  const tone = riskReadinessTone(readiness);
+  const StatusIcon = readiness.allowsEntry ? ShieldCheck : ShieldAlert;
+  const accountRisk = readiness.accountRisk;
+  const wallet = readiness.walletReconciliation;
+
+  return (
+    <section className={`risk-readiness ${tone}`} aria-labelledby="risk-readiness-title" aria-live="polite">
+      <div className="risk-readiness-heading">
+        <div>
+          <p className="section-kicker">계좌 보호</p>
+          <h3 id="risk-readiness-title">자동 진입 준비</h3>
+        </div>
+        <StatusBadge label={formatRiskReadinessStatus(readiness)} tone={tone} />
+      </div>
+
+      <div className="risk-readiness-summary">
+        <StatusIcon size={20} aria-hidden="true" />
+        <p>
+          <strong>{primaryReason ? formatRiskReason(primaryReason) : "위험 기준과 잔고 기록을 확인했어요."}</strong>
+          <span>{primaryReason ? riskReasonGuidance(primaryReason) : "새 전략 신호가 오면 주문 조건을 평가할 수 있어요."}</span>
+        </p>
+      </div>
+
+      {accountRisk ? (
+        <dl className="risk-metrics">
+          <RiskMetric
+            label="오늘 손실"
+            value={formatFractionPercent(accountRisk.currentDailyLossFraction)}
+            limit={formatFractionPercent(accountRisk.maximumDailyLossFraction)}
+          />
+          <RiskMetric
+            label="계좌 낙폭"
+            value={formatFractionPercent(accountRisk.currentAccountDrawdownFraction)}
+            limit={formatFractionPercent(accountRisk.maximumAccountDrawdownFraction)}
+          />
+          <RiskMetric
+            label="연속 손실"
+            value={`${formatCount(accountRisk.consecutiveLosses)}회`}
+            limit={`${formatCount(accountRisk.maximumConsecutiveLosses)}회`}
+          />
+        </dl>
+      ) : false}
+
+      <dl className="risk-readiness-details detail-list compact">
+        <StateRow label="성과 기준" value={formatNavStatus(accountRisk?.navStatus)} />
+        <StateRow label="잔고 기록 대사" value={formatWalletReconciliation(wallet)} />
+        <StateRow label="위험 상태 갱신 시각" value={formatDateTime(accountRisk?.updatedAt || readiness.evaluatedAt)} />
+      </dl>
+
+      {reasonCodes.length > 0 ? (
+        <details className="risk-reason-details">
+          <summary>차단 사유 {formatCount(reasonCodes.length)}개 보기</summary>
+          <ul>
+            {reasonCodes.map((code) => (
+              <li key={code}>
+                <strong>{formatRiskReason(code)}</strong>
+                <code>{code}</code>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : false}
+    </section>
+  );
+}
+
+function RiskMetric({ label, value, limit }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+      <span>한도 {limit}</span>
+    </div>
+  );
+}
+
 function StatBlock({ label, value, tone = "neutral" }) {
   return (
     <div className="stat-block">
@@ -1383,6 +1491,14 @@ function mostRecentBot(summaryBot, mobileBot) {
   return new Date(mobileBot.updatedAt).getTime() >= new Date(summaryBot.updatedAt).getTime() ? mobileBot : summaryBot;
 }
 
+function mostRecentRiskReadiness(summaryReadiness, mobileReadiness) {
+  if (!mobileReadiness?.evaluatedAt) return summaryReadiness || false;
+  if (!summaryReadiness?.evaluatedAt) return mobileReadiness;
+  return new Date(mobileReadiness.evaluatedAt).getTime() >= new Date(summaryReadiness.evaluatedAt).getTime()
+    ? mobileReadiness
+    : summaryReadiness;
+}
+
 function resolveInitialTheme() {
   const storedTheme = localStorage.getItem(STORAGE_KEYS.theme);
   if (storedTheme === "light" || storedTheme === "dark") return storedTheme;
@@ -1511,6 +1627,12 @@ function formatPercentValue(value) {
   return `${parsed.toFixed(2)}%`;
 }
 
+function formatFractionPercent(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "확인 전";
+  return `${(parsed * 100).toFixed(2)}%`;
+}
+
 function formatRatioValue(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "조회 전";
@@ -1551,6 +1673,90 @@ function formatShortDateTime(value) {
 function formatExecution(value, hasLoaded) {
   if (!hasLoaded) return "조회 전";
   return value ? "연결됨" : "확인 필요";
+}
+
+function formatRiskReadinessStatus(readiness) {
+  if (!readiness) return "확인 전";
+  return readiness.allowsEntry ? "진입 가능" : "진입 차단";
+}
+
+function riskReadinessTone(readiness) {
+  if (!readiness) return "neutral";
+  if (readiness.allowsEntry) return "success";
+  const hasCriticalReason = readiness.reasonCodes?.some((code) => {
+    const normalized = String(code);
+    return (
+      normalized.endsWith("LIMIT_REACHED") ||
+      normalized.includes("MISMATCH_CONFIRMED") ||
+      normalized.includes("SYNC") ||
+      normalized.includes("WALLET") ||
+      (normalized.includes("NAV") && !normalized.includes("BASELINE")) ||
+      normalized.includes("STORE")
+    );
+  });
+  return hasCriticalReason ? "danger" : "warning";
+}
+
+function formatRiskReason(code) {
+  const labels = {
+    PRIVATE_EXECUTION_DISABLED: "실거래 주문 기능이 꺼져 있어요.",
+    BOT_MODE_NOT_RUNNING: "봇이 신규 진입을 받지 않는 상태예요.",
+    RISK_STATE_STORE_UNAVAILABLE: "위험 상태 기록을 읽을 수 없어요. 계정을 다시 동기화해 주세요.",
+    RISK_STATE_UNAVAILABLE: "계좌 위험 기준점이 없어요. 계정을 다시 동기화해 주세요.",
+    RISK_STATE_STALE: "계좌 위험 상태가 오래됐어요.",
+    RISK_STATE_CLOCK_SKEW: "서버와 위험 기록의 시간이 맞지 않아요.",
+    RISK_NAV_UNAVAILABLE: "입출금을 반영한 성과 기준이 없어요. 계정을 다시 동기화해 주세요.",
+    RISK_NAV_BASELINE_PENDING: "입출금을 반영한 성과 기준을 수집 중이에요.",
+    RISK_NAV_INVALID: "입출금을 반영한 성과 기준을 쓸 수 없어요. 최근 잔고 기록을 확인해 주세요.",
+    DAILY_EQUITY_LOSS_LIMIT_REACHED: "오늘 손실 한도에 도달했어요.",
+    ACCOUNT_DRAWDOWN_LIMIT_REACHED: "계좌 낙폭 한도에 도달했어요.",
+    CONSECUTIVE_LOSS_LIMIT_REACHED: "연속 손실 한도에 도달했어요.",
+    ACCOUNT_RECONCILIATION_UNAVAILABLE: "잔고와 거래 기록의 기준점이 없어요. 계정을 다시 동기화해 주세요.",
+    ACCOUNT_RECONCILIATION_CLOCK_SKEW: "잔고 대사 기록의 시간이 맞지 않아요.",
+    ACCOUNT_RECONCILIATION_STALE: "잔고 대사 결과가 오래됐어요.",
+    ACCOUNT_RECONCILIATION_BASELINE_PENDING: "잔고와 거래 기록의 기준점을 수집 중이에요.",
+    ACCOUNT_TRANSACTION_SYNC_UNAVAILABLE: "거래 내역을 동기화하지 못했어요. 잠시 후 계정을 다시 동기화해 주세요.",
+    ACCOUNT_WALLET_DATA_UNAVAILABLE: "USDT 지갑 잔고를 확인하지 못했어요. Bybit 잔고를 확인해 주세요.",
+    ACCOUNT_LEDGER_MISMATCH_PENDING: "잔고와 거래 기록의 차이를 다시 확인하고 있어요.",
+    ACCOUNT_LEDGER_MISMATCH_CONFIRMED: "잔고와 거래 기록의 차이가 반복 확인됐어요.",
+  };
+  return labels[code] || "자동 진입 조건을 확인해야 해요.";
+}
+
+function riskReasonGuidance(code) {
+  if (code === "BOT_MODE_NOT_RUNNING") return "의도한 정지인지 확인한 뒤 봇을 시작해 주세요.";
+  if (code === "PRIVATE_EXECUTION_DISABLED") return "배포 설정을 확인하기 전에는 실제 주문이 제출되지 않아요.";
+  if (code === "DAILY_EQUITY_LOSS_LIMIT_REACHED") return "오늘은 신규 진입을 멈추고 종료 거래와 수수료를 검토해 주세요.";
+  if (code === "ACCOUNT_DRAWDOWN_LIMIT_REACHED" || code === "CONSECUTIVE_LOSS_LIMIT_REACHED") {
+    return "자동 주문을 재개하기 전에 최근 손실과 전략 승인 상태를 검토해 주세요.";
+  }
+  if (code?.includes("MISMATCH") || code?.includes("TRANSACTION") || code?.includes("WALLET")) {
+    return "Bybit 잔고와 거래 내역을 확인한 뒤 계정을 다시 동기화해 주세요.";
+  }
+  return "계정을 동기화한 뒤 상태가 갱신되는지 확인해 주세요.";
+}
+
+function formatNavStatus(status) {
+  const labels = {
+    READY: "사용 가능",
+    BASELINE: "기준점 수집 중",
+    UNAVAILABLE: "확인 불가",
+    INVALID: "재확인 필요",
+  };
+  return labels[status] || "확인 전";
+}
+
+function formatWalletReconciliation(wallet) {
+  if (!wallet) return "확인 전";
+  if (!wallet.enabled) return "사용 안 함";
+  const labels = {
+    MATCHED: "잔고와 기록 일치",
+    BASELINE: "기준점 수집 중",
+    MISMATCH: "차이 확인 필요",
+    SYNC_ERROR: "거래 내역 확인 실패",
+    DATA_UNAVAILABLE: "잔고 확인 불가",
+  };
+  return labels[wallet.status] || "확인 전";
 }
 
 function formatForwardMarketCaptureStatus(capture) {
