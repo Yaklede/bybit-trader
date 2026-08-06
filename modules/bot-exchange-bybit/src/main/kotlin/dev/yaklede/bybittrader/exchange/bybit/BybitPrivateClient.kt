@@ -237,6 +237,43 @@ class BybitPrivateClient(
             .mapNotNull { item -> item.toExchangeOpenOrder(symbol) }
     }
 
+    override suspend fun order(
+        symbol: Symbol,
+        clientOrderId: String,
+    ): ExchangeOpenOrder? {
+        require(clientOrderId.isNotBlank()) { "Bybit client order ID must not be blank." }
+        val query =
+            bybitQueryString(
+                "category" to config.category.apiValue,
+                "orderLinkId" to clientOrderId,
+                "limit" to "1",
+            )
+        val realtime =
+            signedGet<BybitOpenOrdersResponse>(
+                path = "/v5/order/realtime",
+                queryString = query,
+            )
+        realtime.requireSuccess("get order by client ID")
+        realtime.result
+            ?.list
+            .orEmpty()
+            .firstOrNull { item -> item.orderLinkId == clientOrderId }
+            ?.toExchangeOpenOrder(symbol)
+            ?.let { return it }
+
+        val history =
+            signedGet<BybitOpenOrdersResponse>(
+                path = "/v5/order/history",
+                queryString = query,
+            )
+        history.requireSuccess("get order history by client ID")
+        return history.result
+            ?.list
+            .orEmpty()
+            .firstOrNull { item -> item.orderLinkId == clientOrderId }
+            ?.toExchangeOpenOrder(symbol)
+    }
+
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> {
         val response = positionResponse(symbol)
         return response.result
@@ -505,11 +542,16 @@ private fun String?.toOrderStatus(): OrderStatus =
         "New",
         "Created",
         "Untriggered",
+        "PendingCancel",
+        "Triggered",
+        "Active",
         -> OrderStatus.SUBMITTED
         "PartiallyFilled" -> OrderStatus.PARTIALLY_FILLED
         "Filled" -> OrderStatus.FILLED
         "Cancelled",
         "Deactivated",
+        "PartiallyFilledCanceled",
+        "PartiallyFilledCancelled",
         -> OrderStatus.CANCELLED
         "Rejected" -> OrderStatus.REJECTED
         else -> OrderStatus.SUBMITTED
@@ -555,6 +597,11 @@ private fun BybitOpenOrderItem.toExchangeOpenOrder(fallbackSymbol: Symbol): Exch
         createdAt = createdTime.toInstantFromMillisOrNull(),
         reduceOnly = reduceOnly,
         stopOrderType = stopOrderType,
+        filledQuantity = cumExecQty.toBigDecimalOrNull(),
+        updatedAt = updatedTime.toInstantFromMillisOrNull(),
+        providerStatus = orderStatus,
+        cancelType = cancelType,
+        rejectReason = rejectReason,
     )
 }
 
@@ -810,9 +857,13 @@ private data class BybitOpenOrderItem(
     val orderType: String? = null,
     val orderStatus: String? = null,
     val qty: String? = null,
+    val cumExecQty: String? = null,
     val createdTime: String? = null,
+    val updatedTime: String? = null,
     val reduceOnly: Boolean = false,
     val stopOrderType: String? = null,
+    val cancelType: String? = null,
+    val rejectReason: String? = null,
 )
 
 @Serializable

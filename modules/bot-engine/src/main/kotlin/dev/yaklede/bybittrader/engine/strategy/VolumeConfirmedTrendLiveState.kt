@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.strategy
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import java.math.BigDecimal
+import java.time.Duration
 import java.time.Instant
 
 enum class VolumeConfirmedTrendLiveStatus {
@@ -10,9 +11,11 @@ enum class VolumeConfirmedTrendLiveStatus {
     FLAT,
     ENTRY_INTENT_RECORDED,
     ENTRY_SUBMITTED,
+    ENTRY_NOT_FILLED,
     OPEN,
     EXIT_INTENT_RECORDED,
     EXIT_SUBMITTED,
+    EXIT_NOT_FILLED,
     HALTED,
 }
 
@@ -68,32 +71,37 @@ data class VolumeConfirmedTrendLiveState(
         require(status == VolumeConfirmedTrendLiveStatus.HALTED || haltedReasonCode == null) {
             "Only a halted trend live state may retain a halt reason."
         }
-        require(status !in ORDER_INTENT_STATES || activeDecisionKey != null) {
+        require(status !in ORDER_LIFECYCLE_STATES || activeDecisionKey != null) {
             "A trend live order lifecycle state requires a decision key."
         }
-        require(status !in ORDER_INTENT_STATES || pendingTargetSide != null) {
+        require(status !in ORDER_LIFECYCLE_STATES || pendingTargetSide != null) {
             "A trend live order lifecycle state requires a pending target side."
         }
-        require(status !in SUBMITTED_STATES || clientOrderId != null) {
-            "A submitted trend live state requires a client order ID."
+        require(status !in ORDER_LIFECYCLE_STATES || clientOrderId != null) {
+            "A trend live order lifecycle state requires a client order ID."
         }
-        require(status != VolumeConfirmedTrendLiveStatus.OPEN || observedPositionSide != null) {
-            "An open trend live state requires an observed exchange position."
+        require(status !in POSITION_STATES || observedPositionSide != null) {
+            "A trend live position state requires an observed exchange position."
+        }
+        require(status != VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED || observedPositionSide == null) {
+            "An unfilled trend entry cannot retain an observed exchange position."
         }
     }
 
     private companion object {
-        val ORDER_INTENT_STATES =
+        val ORDER_LIFECYCLE_STATES =
             setOf(
                 VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED,
                 VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
+                VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED,
                 VolumeConfirmedTrendLiveStatus.EXIT_INTENT_RECORDED,
                 VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
+                VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED,
             )
-        val SUBMITTED_STATES =
+        val POSITION_STATES =
             setOf(
-                VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
-                VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
+                VolumeConfirmedTrendLiveStatus.OPEN,
+                VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED,
             )
     }
 }
@@ -103,9 +111,11 @@ enum class VolumeConfirmedTrendLiveEventType {
     ENTRY_INTENT_RECORDED,
     ENTRY_SUBMITTED,
     ENTRY_FILL_OBSERVED,
+    ENTRY_NOT_FILLED,
     EXIT_INTENT_RECORDED,
     EXIT_SUBMITTED,
     EXIT_FILL_OBSERVED,
+    EXIT_NOT_FILLED,
     RECONCILED,
     HALTED,
     RESUMED,
@@ -176,3 +186,43 @@ interface VolumeConfirmedTrendLiveStore {
         limit: Int,
     ): List<VolumeConfirmedTrendLiveEvent>
 }
+
+data class VolumeConfirmedTrendLiveConfig(
+    val protocolId: String,
+    val candidateId: String,
+    val protocolSha256: String,
+    val symbol: Symbol,
+    val recoveryRetryDelay: Duration = Duration.ofSeconds(10),
+    val recoveryEventLimit: Int = 100,
+) {
+    init {
+        require(protocolId.isNotBlank() && candidateId.isNotBlank()) { "Trend live config identities must not be blank." }
+        require(protocolSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "Trend live config protocol fingerprint must be a lowercase SHA-256."
+        }
+        require(symbol.value == "BTCUSDT") { "The frozen trend live service supports BTCUSDT only." }
+        require(!recoveryRetryDelay.isNegative && !recoveryRetryDelay.isZero) {
+            "Trend live recovery retry delay must be positive."
+        }
+        require(recoveryEventLimit in 1..100_000) { "Trend live recovery event limit must be valid." }
+    }
+}
+
+enum class VolumeConfirmedTrendLiveEvaluationStatus {
+    APPROVAL_BLOCKED,
+    HALTED,
+    NO_ACTION,
+    NO_TRADE,
+    ORDER_SUBMITTED,
+    ORDER_NOT_FILLED,
+    RECOVERED,
+    RECOVERY_PENDING,
+}
+
+data class VolumeConfirmedTrendLiveEvaluationResult(
+    val status: VolumeConfirmedTrendLiveEvaluationStatus,
+    val state: VolumeConfirmedTrendLiveState,
+    val plan: VolumeConfirmedTrendTargetPlan?,
+    val approvalFailures: List<VolumeConfirmedTrendLiveApprovalFailure> = emptyList(),
+    val contractFailures: List<VolumeConfirmedTrendExchangeContractFailure> = emptyList(),
+)

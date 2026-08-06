@@ -168,6 +168,11 @@ data class ExchangeOpenOrder(
     val createdAt: Instant?,
     val reduceOnly: Boolean = false,
     val stopOrderType: String? = null,
+    val filledQuantity: BigDecimal? = null,
+    val updatedAt: Instant? = null,
+    val providerStatus: String? = null,
+    val cancelType: String? = null,
+    val rejectReason: String? = null,
 )
 
 data class ExchangePosition(
@@ -485,6 +490,11 @@ interface ExchangeExecutionGateway {
     suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult
 
     suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder>
+
+    suspend fun order(
+        symbol: Symbol,
+        clientOrderId: String,
+    ): ExchangeOpenOrder? = openOrders(symbol).firstOrNull { order -> order.clientOrderId == clientOrderId }
 
     suspend fun positions(symbol: Symbol): List<ExchangePosition>
 

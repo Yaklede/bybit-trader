@@ -351,6 +351,53 @@ class BybitPrivateClientTest :
             executions.single().stopOrderType shouldBe "StopLoss"
         }
 
+        "order lookup falls back to history for a completed IOC" {
+            val requestedPaths = mutableListOf<String>()
+            val engine =
+                MockEngine { request ->
+                    requestedPaths += request.url.encodedPath
+                    request.url.parameters["category"] shouldBe "linear"
+                    request.url.parameters["orderLinkId"] shouldBe "vct-e-b-1786060800-abcd1234"
+                    val list =
+                        if (request.url.encodedPath == "/v5/order/realtime") {
+                            "[]"
+                        } else {
+                            """
+                            [{
+                              "orderId":"exchange-history-1",
+                              "orderLinkId":"vct-e-b-1786060800-abcd1234",
+                              "symbol":"BTCUSDT",
+                              "side":"Buy",
+                              "orderType":"Limit",
+                              "orderStatus":"Cancelled",
+                              "qty":"0.007",
+                              "cumExecQty":"0",
+                              "createdTime":"1786060800000",
+                              "updatedTime":"1786060800100",
+                              "reduceOnly":false,
+                              "cancelType":"CancelByNoImmediateQtyToFill",
+                              "rejectReason":"EC_NoError"
+                            }]
+                            """.trimIndent()
+                        }
+                    respond(
+                        content = """{"retCode":0,"retMsg":"OK","result":{"list":$list}}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val order = client.order(Symbol("BTCUSDT"), "vct-e-b-1786060800-abcd1234")
+
+            requestedPaths.shouldContainExactly(listOf("/v5/order/realtime", "/v5/order/history"))
+            order?.status shouldBe OrderStatus.CANCELLED
+            order?.filledQuantity shouldBe BigDecimal.ZERO
+            order?.providerStatus shouldBe "Cancelled"
+            order?.cancelType shouldBe "CancelByNoImmediateQtyToFill"
+            order?.rejectReason shouldBe "EC_NoError"
+        }
+
         "accountBalance maps Bybit unified wallet balance" {
             val engine =
                 MockEngine { request ->
