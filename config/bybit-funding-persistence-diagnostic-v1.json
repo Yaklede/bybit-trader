@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "diagnosticId": "bybit-funding-persistence-diagnostic-v1",
+  "status": "PREDECLARED_ON_DISCLOSED_2023_THROUGH_2026_H1_EVIDENCE",
+  "declaredAt": "2026-08-06",
+  "parentSealedResult": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-sealed-result-v3.json",
+    "sha256": "5bae6b8da85800a204f95380759d33c9b289c7f9b21eaed19d47d2ed6a711264",
+    "requiredProgramStatus": "REJECTED_SEALED_2026_H1_VALIDATION"
+  },
+  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+  "developmentEvidence": [
+    {
+      "year": 2023,
+      "snapshotPath": "build/research/bybit-multi-asset-delta-neutral-funding-carry-development-v1-snapshot.sqlite",
+      "snapshotSha256": "c4d1166f0f92f6a342b8e39a5c36680060c0036481fd1f1f6d02105af2c5622f"
+    },
+    {
+      "year": 2024,
+      "snapshotPath": "build/research/bybit-multi-asset-delta-neutral-funding-carry-internal-v1-snapshot.sqlite",
+      "snapshotSha256": "876a5230f369854663d42ee7da1a2d36116b88e43b5aeeea44f1f8d596a2514e"
+    },
+    {
+      "year": 2025,
+      "snapshotPath": "build/research/bybit-multi-asset-delta-neutral-funding-carry-external-v2-snapshot.sqlite",
+      "snapshotSha256": "29bf7e59de7f2af3bf59ea91d70ddf8377bb58e7b70b14350027e29a9d219d8e"
+    }
+  ],
+  "diagnosticEvidence": {
+    "period": "2026H1",
+    "snapshotPath": "build/research/bybit-multi-asset-cost-recovery-carry-sealed-2026-h1-v3-snapshot.sqlite",
+    "snapshotSha256": "182fa998d8dcdb594d55667f29a63f6d2768535950cf41b98d1a16c7cff2b2b5"
+  },
+  "analysis": {
+    "trailingSettlementWindows": [21, 45, 90],
+    "forwardSettlementWindows": [90, 180, 270],
+    "primaryTrailingSettlements": 90,
+    "primaryForwardSettlements": 90,
+    "nonOverlappingAnchorStrideSettlements": 90,
+    "highPersistenceQuantile": 0.8,
+    "baseRoundTripCostRateOnMatchedNotional": 0.0041
+  },
+  "viabilityGate": {
+    "minimumEligibleSymbolCount": 2,
+    "minimumAnchoredPearsonCorrelation": 0.15,
+    "minimumDevelopmentHighPersistenceObservationCount": 6,
+    "minimumDevelopmentCostRecoveryRate": 0.6,
+    "minimumDiagnosticHighPersistenceObservationCount": 2,
+    "minimumDiagnosticCostRecoveryRate": 0.5
+  },
+  "outcomePolicy": {
+    "diagnosticMayApproveExecution": false,
+    "carryV4ResearchAllowedOnlyWhenGatePasses": true,
+    "future2026AfterH1Read": false,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
