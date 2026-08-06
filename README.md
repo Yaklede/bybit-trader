@@ -77,6 +77,17 @@ Initial public repository placeholder for a Bybit trading automation project.
 > most profit was concentrated in 2021 H1. The 2023 and later evidence remains
 > unread for this family. See the
 > [funding crowding closure](docs/backend/funding-crowding-research-closure-2026-08-06.md).
+>
+> **Delta-neutral funding carry v1 rejected (2026-08-06):** buying BTC spot
+> while shorting the same net BTC perpetual quantity produced positive
+> after-cost returns in both 2023 development (`+0.96170%`) and frozen 2024
+> internal validation (`+2.50695%`). The 2024 replay also remained positive
+> under 1.5x costs and a one-bar second-leg delay, with MDD `0.21266%`.
+> However, one winning position contributed `38.5118%` of positive-position
+> profit against the predeclared `35%` cap, so the candidate is rejected and
+> 2025/2026 evidence remains unread. No strategy is approved for automatic or
+> live execution. See the
+> [delta-neutral carry closure](docs/backend/delta-neutral-funding-carry-v1-closure-2026-08-06.md).
 
 Milestone 1 is the operational backend shell:
 
