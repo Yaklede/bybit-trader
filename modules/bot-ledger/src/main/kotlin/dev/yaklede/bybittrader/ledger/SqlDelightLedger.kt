@@ -50,6 +50,8 @@ import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
 import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
+import dev.yaklede.bybittrader.engine.market.maker.MakerShadowLedger
+import dev.yaklede.bybittrader.engine.market.maker.MakerShadowLedgerEvent
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
 import dev.yaklede.bybittrader.engine.paper.PaperPerformanceSnapshot
@@ -106,7 +108,8 @@ class SqlDelightLedger(
     ExecutionLifecycleStore,
     ExecutionPositionRuntimeStateStore,
     PaperTradingStore,
-    PaperRuntimeStateStore {
+    PaperRuntimeStateStore,
+    MakerShadowLedger {
     override suspend fun current(): BotRuntimeStatus {
         val row = database.ledgerQueries.selectBotState().executeAsOneOrNull()
         if (row != null) {
@@ -126,6 +129,38 @@ class SqlDelightLedger(
             )
         update(status)
         return status
+    }
+
+    override suspend fun append(events: List<MakerShadowLedgerEvent>) {
+        if (events.isEmpty()) return
+        database.ledgerQueries.transaction {
+            events.forEach { event ->
+                database.ledgerQueries.insertMakerShadowEvent(
+                    event_id = event.eventId,
+                    session_id = event.sessionId,
+                    engine_version = event.engineVersion,
+                    config_fingerprint = event.configFingerprint,
+                    event_type = event.type.name,
+                    symbol = event.symbol.value,
+                    event_at = event.eventAt.toString(),
+                    received_at = event.receivedAt.toString(),
+                    book_epoch = event.bookEpoch,
+                    cross_sequence = event.crossSequence,
+                    quote_id = event.quoteId,
+                    trade_id = event.tradeId,
+                    side = event.side?.name,
+                    price = event.price?.toPlainString(),
+                    quantity = event.quantity?.toPlainString(),
+                    fee = event.fee?.toPlainString(),
+                    queue_ahead = event.queueAhead?.toPlainString(),
+                    inventory_quantity = event.inventoryQuantity.toPlainString(),
+                    cash = event.cash.toPlainString(),
+                    equity = event.equity.toPlainString(),
+                    mark_out_bps = event.markOutBps?.toPlainString(),
+                    reason = event.reason,
+                )
+            }
+        }
     }
 
     override suspend fun update(status: BotRuntimeStatus) {

@@ -40,6 +40,9 @@ import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
 import dev.yaklede.bybittrader.engine.market.flow.TakerFlowBar
+import dev.yaklede.bybittrader.engine.market.maker.MAKER_SHADOW_ENGINE_VERSION
+import dev.yaklede.bybittrader.engine.market.maker.MakerShadowLedgerEvent
+import dev.yaklede.bybittrader.engine.market.maker.MakerShadowLedgerEventType
 import dev.yaklede.bybittrader.engine.paper.PaperFillRecord
 import dev.yaklede.bybittrader.engine.paper.PaperOpenPosition
 import dev.yaklede.bybittrader.engine.paper.PaperOrderRecord
@@ -129,6 +132,29 @@ class SqlDelightLedgerTest :
             )
 
             database.ledgerQueries.countAlertEvents().executeAsOne() shouldBe 1L
+        }
+
+        "maker shadow events append atomically and remain idempotent by event ID" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val database = createLedgerDatabase(driver)
+            val ledger = SqlDelightLedger(database = database)
+            val events =
+                listOf(
+                    sampleMakerShadowEvent("shadow-e-1", MakerShadowLedgerEventType.QUOTE_OPENED),
+                    sampleMakerShadowEvent("shadow-e-2", MakerShadowLedgerEventType.FILL),
+                )
+
+            ledger.append(events)
+            ledger.append(events)
+
+            val rows = database.ledgerQueries.selectMakerShadowEventsBySession("shadow-session").executeAsList()
+            rows.size shouldBe 2
+            rows.map { it.event_id } shouldBe listOf("shadow-e-1", "shadow-e-2")
+            rows.last().event_type shouldBe MakerShadowLedgerEventType.FILL.name
+            rows.last().price shouldBe "100.5"
+            rows.last().inventory_quantity shouldBe "0.001"
+            database.ledgerQueries.countMakerShadowEventsBySession("shadow-session").executeAsOne() shouldBe 2L
         }
 
         "upserts and reads recent market candles" {
@@ -944,6 +970,7 @@ class SqlDelightLedgerTest :
                     "executionAccountTransactions",
                     "executionPositionRuntimeStates",
                     "paperRuntimeStates",
+                    "makerShadowEvents",
                 ),
             ) shouldBe true
         }
@@ -1132,6 +1159,35 @@ private fun sampleCandle(
         low = BigDecimal("90"),
         close = BigDecimal("105"),
         volume = BigDecimal("10.5"),
+    )
+
+private fun sampleMakerShadowEvent(
+    eventId: String,
+    type: MakerShadowLedgerEventType,
+): MakerShadowLedgerEvent =
+    MakerShadowLedgerEvent(
+        eventId = eventId,
+        sessionId = "shadow-session",
+        engineVersion = MAKER_SHADOW_ENGINE_VERSION,
+        configFingerprint = "maker-shadow-config-fingerprint",
+        type = type,
+        symbol = Symbol("BTCUSDT"),
+        eventAt = Instant.parse("2026-08-06T00:00:00Z"),
+        receivedAt = Instant.parse("2026-08-06T00:00:00.010Z"),
+        bookEpoch = 1,
+        crossSequence = 100,
+        quoteId = "shadow-q-1",
+        tradeId = "trade-1",
+        side = Side.BUY,
+        price = BigDecimal("100.5"),
+        quantity = BigDecimal("0.001"),
+        fee = BigDecimal("0.0000201"),
+        queueAhead = BigDecimal.ZERO,
+        inventoryQuantity = BigDecimal("0.001"),
+        cash = BigDecimal("99.8994799"),
+        equity = BigDecimal("100.0001"),
+        markOutBps = null,
+        reason = "test",
     )
 
 private fun sampleTakerFlowBar(

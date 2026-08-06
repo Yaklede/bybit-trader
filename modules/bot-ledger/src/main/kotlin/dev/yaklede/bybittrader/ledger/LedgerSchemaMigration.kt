@@ -456,6 +456,34 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         )
         """.trimIndent(),
         "CREATE INDEX IF NOT EXISTS livePerformanceSnapshots_mode_window_id_idx ON livePerformanceSnapshots(mode, window, id DESC)",
+        """
+        CREATE TABLE IF NOT EXISTS makerShadowEvents (
+          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          event_id TEXT NOT NULL UNIQUE,
+          session_id TEXT NOT NULL,
+          engine_version TEXT NOT NULL,
+          config_fingerprint TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          event_at TEXT NOT NULL,
+          received_at TEXT NOT NULL,
+          book_epoch INTEGER,
+          cross_sequence INTEGER,
+          quote_id TEXT,
+          trade_id TEXT,
+          side TEXT,
+          price TEXT,
+          quantity TEXT,
+          fee TEXT,
+          queue_ahead TEXT,
+          inventory_quantity TEXT NOT NULL,
+          cash TEXT NOT NULL,
+          equity TEXT NOT NULL,
+          mark_out_bps TEXT,
+          reason TEXT
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS makerShadowEvents_session_id_idx ON makerShadowEvents(session_id, id)",
     )
 
 private val EXECUTION_CLOSURE_IDENTITY_BACKFILL =

@@ -426,6 +426,35 @@ CREATE TABLE livePerformanceSnapshots (
 CREATE INDEX livePerformanceSnapshots_mode_window_id_idx
 ON livePerformanceSnapshots(mode, window, id DESC);
 
+CREATE TABLE makerShadowEvents (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  session_id TEXT NOT NULL,
+  engine_version TEXT NOT NULL,
+  config_fingerprint TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  event_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  book_epoch INTEGER,
+  cross_sequence INTEGER,
+  quote_id TEXT,
+  trade_id TEXT,
+  side TEXT,
+  price TEXT,
+  quantity TEXT,
+  fee TEXT,
+  queue_ahead TEXT,
+  inventory_quantity TEXT NOT NULL,
+  cash TEXT NOT NULL,
+  equity TEXT NOT NULL,
+  mark_out_bps TEXT,
+  reason TEXT
+);
+
+CREATE INDEX makerShadowEvents_session_id_idx
+ON makerShadowEvents(session_id, id);
+
 selectBotState:
 SELECT mode, updated_at, heartbeat_at
 FROM botState
@@ -1271,3 +1300,43 @@ WHERE (:mode IS NULL OR mode = :mode)
   AND window = :window
 ORDER BY id DESC
 LIMIT 1;
+
+insertMakerShadowEvent:
+INSERT OR IGNORE INTO makerShadowEvents(
+  event_id,
+  session_id,
+  engine_version,
+  config_fingerprint,
+  event_type,
+  symbol,
+  event_at,
+  received_at,
+  book_epoch,
+  cross_sequence,
+  quote_id,
+  trade_id,
+  side,
+  price,
+  quantity,
+  fee,
+  queue_ahead,
+  inventory_quantity,
+  cash,
+  equity,
+  mark_out_bps,
+  reason
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectMakerShadowEventsBySession:
+SELECT id, event_id, session_id, engine_version, config_fingerprint, event_type, symbol,
+  event_at, received_at, book_epoch, cross_sequence, quote_id, trade_id, side, price,
+  quantity, fee, queue_ahead, inventory_quantity, cash, equity, mark_out_bps, reason
+FROM makerShadowEvents
+WHERE session_id = ?
+ORDER BY id ASC;
+
+countMakerShadowEventsBySession:
+SELECT COUNT(*)
+FROM makerShadowEvents
+WHERE session_id = ?;
