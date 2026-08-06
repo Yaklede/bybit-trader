@@ -3,18 +3,21 @@
 ## Scope
 
 This runbook prepares the bot for Docker-based on-prem operation behind
-Twingate. `PAPER` mode runs closed public Bybit M5 candles through the
-`multi-horizon-momentum-development-v2` candidate and records persistent paper
-signals, pending entries, orders, fills, positions, exits, and equity. This
-candidate is `UNVERIFIED` and cannot submit private orders.
+Twingate. The current deployment target is the frozen
+`volume-confirmed-trend-ensemble-v1` H4 candidate in isolated Shadow mode. It
+uses closed public Bybit H4 candles, records persistent decisions, trades,
+funding, equity, integrity state, and forward-approval progress, and cannot
+submit private orders. The older `multi-horizon-momentum-development-v2` Paper
+loop remains available for development but is not the current approval
+candidate.
 `LIVE` and `TESTNET` modes can submit private Bybit V5 linear futures market
 orders with TP/SL, reconcile open orders/positions/executions, send alerts, and
 accept authenticated control commands.
 
-For the intended live-observation workflow, start `LIVE` with a small
-`BOT_EXECUTION_MAX_NOTIONAL`, `BOT_EXECUTION_LOOP_ENABLED=false`, and
-`BOT_EXECUTION_RECONCILIATION_ENABLED=true`. Run one manual order and confirm
-that background reconciliation observes its full lifecycle.
+For the current observation workflow, start `PAPER` with every order-producing
+loop and all private exchange clients disabled. A fresh continuous 90-day
+session is required before human live review; historical replay alone cannot
+satisfy this gate.
 
 ## Docker Host Layout
 
@@ -23,11 +26,18 @@ that background reconciliation observes its full lifecycle.
   compose.yaml
   .env
   config/volume-flow-composite-current.json
+  config/volume-confirmed-trend-ensemble-v1.json
+  config/volume-confirmed-trend-ensemble-v1-bootstrap.json
+  config/volume-confirmed-trend-ensemble-v1-external-result.json
+  config/volume-confirmed-trend-ensemble-v1-kotlin-parity-result.json
+  config/volume-confirmed-trend-ensemble-v1-runtime-parity-result.json
+  config/volume-confirmed-trend-ensemble-v1-forward-policy.json
   env/bybit-trader.env
   images/
 ```
 
-`/opt/bybit-trader/.env` contains Docker Compose deployment values only:
+The `.env` file at the deploy root contains Docker Compose deployment values
+only:
 
 ```bash
 BOT_IMAGE=bybit-trader:<git-sha>
@@ -36,15 +46,15 @@ BOT_API_PORT=8080
 BOT_ENV_FILE=/opt/bybit-trader/env/bybit-trader.env
 ```
 
-`/opt/bybit-trader/env/bybit-trader.env` contains application secrets and bot
-runtime settings. For GitHub Actions deployment, this file is generated from
-the `onprem-live` GitHub Environment secrets and variables. It must never be
-committed.
+The `bybit-trader.env` file under the deploy root's `env` directory contains
+application secrets and bot runtime settings. For GitHub Actions deployment,
+this file is generated from the `onprem-live` GitHub Environment secrets and
+variables. It must never be committed.
 
 ## Required Application Environment
 
 ```bash
-export BOT_MODE="LIVE"
+export BOT_MODE="PAPER"
 export BOT_API_HOST="0.0.0.0"
 export BOT_API_PORT="8080"
 export BOT_CONTROL_TOKEN="<operator-control-token>"
@@ -53,6 +63,25 @@ export BOT_SYMBOL="BTCUSDT"
 export BOT_TIMEFRAMES="M1,M5,M15"
 export BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH="/opt/bybit-trader/config/volume-flow-composite-current.json"
 ```
+
+For the frozen trend forward observation, add this isolated configuration:
+
+```bash
+export BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED="true"
+export BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH="/opt/bybit-trader/config/volume-confirmed-trend-ensemble-v1.json"
+export BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH="/opt/bybit-trader/config/volume-confirmed-trend-ensemble-v1-bootstrap.json"
+export BOT_VOLUME_CONFIRMED_TREND_SHADOW_INITIAL_EQUITY="660"
+export BOT_PAPER_LOOP_ENABLED="false"
+export BOT_MAKER_SHADOW_ENABLED="false"
+export BOT_PRIVATE_EXECUTION_ENABLED="false"
+export BOT_PRIVATE_EXECUTION_STREAM_ENABLED="false"
+export BOT_EXECUTION_LOOP_ENABLED="false"
+export BOT_EXECUTION_RECONCILIATION_ENABLED="false"
+```
+
+Do not enable another strategy loop in the same container. The deploy workflow
+fails before upload when this isolation contract is violated. It also strips
+Bybit API credentials from the generated runtime env in `PAPER` mode.
 
 Optional forward-only market collection for later strategy research:
 

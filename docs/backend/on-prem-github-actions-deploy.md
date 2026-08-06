@@ -32,8 +32,13 @@ Required runtime secrets:
 
 - `BOT_CONTROL_TOKEN`: private API control token for status/control/backtest
   endpoints.
-- `BYBIT_API_KEY`: Bybit API key.
-- `BYBIT_API_SECRET`: Bybit API secret.
+- `BYBIT_API_KEY`: Bybit API key. Required only outside isolated `PAPER` mode.
+- `BYBIT_API_SECRET`: Bybit API secret. Required only outside isolated `PAPER`
+  mode.
+
+In `PAPER` mode, the workflow writes both Bybit credentials as empty values to
+the remote runtime env even when the GitHub secrets exist. This keeps the
+forward Shadow container unable to submit a private order.
 
 Optional runtime secrets:
 
@@ -44,14 +49,15 @@ Runtime variables can be set in the GitHub Environment Variables tab. The
 workflow has safe defaults for all of these, so only set values you want to
 override:
 
-- `BOT_MODE`: default `LIVE`. Use `TESTNET` with testnet keys.
+- `BOT_MODE`: default `PAPER`. Use `TESTNET` with testnet keys only for private
+  exchange contract testing.
 - `BOT_API_HOST`: default `0.0.0.0`.
 - `BOT_API_PORT`: default `8080`.
 - `BOT_DATABASE_PATH`: default `/data/bybit-trader.sqlite`.
 - `BOT_SYMBOL`: default `BTCUSDT`.
 - `BOT_TIMEFRAMES`: default `M1,M5,M15`.
-- `BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH`: default
-  `/opt/bybit-trader/config/volume-flow-composite-current.json`.
+- `BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH`: defaults to the packaged
+  `volume-flow-composite-current.json` file under the container config mount.
 - `BOT_STRATEGY_PROFILE_STATE_PATH`: default
   `/data/strategy-profile-current.txt`.
 - `BOT_FORWARD_MARKET_CAPTURE_ENABLED`: default `false`. Set `true` to record
@@ -72,13 +78,14 @@ override:
   `wss://stream-testnet.bybit.com/v5/private` for `TESTNET`.
 - `BYBIT_RECV_WINDOW_MILLIS`: default `5000`.
 - `BYBIT_POSITION_IDX`: default `0`.
-- `BOT_PRIVATE_EXECUTION_ENABLED`: default `true`.
+- `BOT_PRIVATE_EXECUTION_ENABLED`: default `false`.
 - `BOT_PRIVATE_EXECUTION_STREAM_ENABLED`: defaults to the private execution
-  setting. Private execution and order updates persist fills, classify IOC
-  terminal states, and wake reconciliation immediately; REST remains the
-  recovery path.
+  setting, which is `false`. Private execution and order updates persist fills,
+  classify IOC terminal states, and wake reconciliation immediately; REST
+  remains the recovery path.
 - `BOT_EXECUTION_LOOP_ENABLED`: default `false`.
-- `BOT_EXECUTION_RECONCILIATION_ENABLED`: default `true`; observes private
+- `BOT_EXECUTION_RECONCILIATION_ENABLED`: deployment default `false`; when
+  explicitly enabled outside `PAPER`, it observes private
   order, position, fill, and closed-PnL state without enabling automatic entry.
 - `BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS`: default `60`.
 - `BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED`: default `true`; automatic
@@ -119,6 +126,34 @@ override:
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.
 
+The deploy workflow rejects `BOT_EXECUTION_LOOP_ENABLED=true` while the frozen
+forward policy has `decision.liveExecutionAllowed=false`. It also rejects a
+trend Shadow deployment if Paper execution, maker Shadow, private execution, or
+private reconciliation is enabled in the same runtime.
+
+## Frozen Trend Shadow Rollout
+
+The current candidate is not approved for automatic orders. Its next required
+gate is one continuous 90-day forward observation using public Bybit data only.
+Set the `onprem-live` Environment variables to this isolated configuration
+before dispatching the workflow:
+
+```bash
+gh variable set BOT_MODE --env onprem-live --body PAPER
+gh variable set BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED --env onprem-live --body true
+gh variable set BOT_PAPER_LOOP_ENABLED --env onprem-live --body false
+gh variable set BOT_MAKER_SHADOW_ENABLED --env onprem-live --body false
+gh variable set BOT_PRIVATE_EXECUTION_ENABLED --env onprem-live --body false
+gh variable set BOT_PRIVATE_EXECUTION_STREAM_ENABLED --env onprem-live --body false
+gh variable set BOT_EXECUTION_LOOP_ENABLED --env onprem-live --body false
+gh variable set BOT_EXECUTION_RECONCILIATION_ENABLED --env onprem-live --body false
+```
+
+The deployment package includes the frozen protocol, bootstrap, external
+validation, Kotlin parity, runtime parity, and forward-policy JSON files. The
+Compose `config` bind mount therefore cannot hide the evidence required by the
+runtime approval loader.
+
 Recommended optional secret:
 
 - `ONPREM_SSH_FINGERPRINT`: SHA256 host key fingerprint for SSH host
@@ -143,9 +178,9 @@ Templates:
 
 ## Runtime Env Generation
 
-The workflow generates `ONPREM_DEPLOY_DIR/env/bybit-trader.env` from the
-`onprem-live` GitHub Environment secrets and variables on every deploy. Keep
-`.env.example` as the local shape reference:
+The workflow generates the application runtime env beneath the configured
+deploy directory from the `onprem-live` GitHub Environment secrets and
+variables on every deploy. Keep `.env.example` as the local shape reference:
 
 ```bash
 cp .env.example .env
