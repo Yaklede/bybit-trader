@@ -25,6 +25,10 @@ const analysisContractV2 = JSON.parse(await fs.readFile(
   path.join(repositoryRoot, "config/bybit-event-flow-development-analysis-v2.json"),
   "utf8",
 ));
+const analysisContractV3 = JSON.parse(await fs.readFile(
+  path.join(repositoryRoot, "config/bybit-event-flow-development-analysis-v3.json"),
+  "utf8",
+));
 
 test("frozen event-flow candidate IDs expand to exactly 32 unique trials", () => {
   const candidates = buildEventCandidates(protocol);
@@ -136,6 +140,92 @@ test("v2 widens a sub-floor stop to 0.4 percent and resizes instead of forcing t
   assert.equal(v2.trades[0].effectiveTriggerRiskPct, 0.004);
 });
 
+test("v3 expands 16 confirmed-reversal candidates with unique causal state-machine IDs", () => {
+  const candidates = buildEventCandidates(protocol, analysisContractV3);
+  assert.equal(candidates.length, 16);
+  assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 16);
+  assert.equal(candidates.every((candidate) => candidate.family === "CONFIRMED_ABSORPTION_REVERSAL"), true);
+  assert.match(candidates[0].id, /^car_/);
+});
+
+test("v3 arms on absorption, confirms on a later opposite flow minute, and fills one minute later", () => {
+  const candidate = buildEventCandidates(protocol, analysisContractV3)[0];
+  const start = Date.parse("2024-01-02T00:00:00Z");
+  const setup = signalRow({
+    openedAtMs: start,
+    closeTimeMs: start + 60_000,
+    closeTradePrice: 100,
+    consumedSideReplenishment: 0.5,
+    opposingSideDepletion: -0.5,
+    alignedEndTop5Imbalance: -0.2,
+    m15Regime: "SELL",
+  });
+  const confirmation = signalRow({
+    openedAtMs: start + 60_000,
+    closeTimeMs: start + 120_000,
+    takerDirection: "SELL",
+    takerImbalance: -0.3,
+    relativeTakerNotional: 1.5,
+    endTop5Imbalance: -0.2,
+    closeTradePrice: 99.8,
+    m15Regime: "SELL",
+  });
+  const entry = signalRow({
+    openedAtMs: start + 120_000,
+    closeTimeMs: start + 180_000,
+    open: 99.8,
+    high: 100,
+    low: 99.5,
+    close: 99.7,
+    takerDirection: "NEUTRAL",
+    takerImbalance: 0,
+  });
+  const result = simulateEventCandidateBlock(candidate, {
+    id: "T04",
+    era: "TEST",
+    replayStartAt: "2024-01-02T00:00:00Z",
+    replayEndAt: "2024-01-02T00:03:00Z",
+    rows: [setup, confirmation, entry],
+  }, protocol.executionContract);
+  assert.equal(result.trades.length, 1);
+  assert.equal(result.trades[0].side, "SELL");
+  assert.equal(result.trades[0].signalAt, "2024-01-02T00:02:00.000Z");
+  assert.equal(result.trades[0].openedAt, "2024-01-02T00:02:00.000Z");
+  assert.equal(result.trades[0].confirmationTakerImbalance, -0.3);
+});
+
+test("v3 selects once on 2023 and never reselects from better-looking 2024 outcomes", () => {
+  const candidates = buildEventCandidates(protocol, analysisContractV3);
+  const selectedId = candidates[0].id;
+  const validationOnlyId = candidates[1].id;
+  const replay = {
+    candidateCount: candidates.length,
+    candidates: candidates.map((candidate) => {
+      let trades = [];
+      if (candidate.id === selectedId) {
+        trades = [
+          ...Array.from({ length: 15 }, (_, index) => syntheticTrade("D01", index, 0.2)),
+          ...Array.from({ length: 8 }, (_, index) => syntheticTrade("D07", 100 + index, -0.2)),
+          ...Array.from({ length: 8 }, (_, index) => syntheticTrade("D10", 200 + index, -0.2)),
+        ];
+      } else if (candidate.id === validationOnlyId) {
+        trades = [
+          ...Array.from({ length: 20 }, (_, index) => syntheticTrade("D07", 300 + index, 0.5)),
+          ...Array.from({ length: 20 }, (_, index) => syntheticTrade("D10", 400 + index, 0.5)),
+        ];
+      }
+      return { id: candidate.id, family: candidate.family, trades };
+    }),
+  };
+  const evaluation = evaluateEventDevelopment(replay, protocol, analysisContractV3);
+  const report = evaluation.familyReports[0];
+  assert.equal(report.selectedCandidateId, selectedId);
+  assert.equal(report.eraValidations.every((era) => era.metrics.netReturnPct < 0), true);
+  assert.equal(evaluation.status, "REJECTED");
+  assert.equal(evaluation.freezeRecommendation, null);
+  assert.equal(evaluation.validationDataAcquisitionAllowed, false);
+});
+
 test("an empty frozen replay rejects both families and cannot unlock later data", () => {
   const candidates = buildEventCandidates(protocol);
   const replay = {
@@ -216,6 +306,16 @@ function signalRow(overrides = {}) {
     consumedSideReplenishment: -0.5,
     m15Regime: "BUY",
     ...overrides,
+  };
+}
+
+function syntheticTrade(blockId, index, netR) {
+  return {
+    blockId,
+    closedAtMs: Date.parse("2024-01-01T00:00:00Z") + index * 60_000,
+    netR,
+    maeR: Math.min(netR, -0.1),
+    exitReason: netR > 0 ? "TARGET" : "STOP",
   };
 }
 

@@ -10,6 +10,9 @@ const DAY_MS = 86_400_000;
 export function buildEventCandidates(protocol, analysisContract = null) {
   validateEventFlowProtocol(protocol);
   if (analysisContract != null) validateAnalysisContract(analysisContract);
+  if (analysisContract?.analysisId === "bybit-event-flow-development-analysis-v3") {
+    return buildConfirmedReversalCandidates(analysisContract);
+  }
   const v2 = analysisContract?.analysisId === "bybit-event-flow-development-analysis-v2";
   const candidates = expandEventFlowCandidates(protocol).map((candidate) => ({
     id: `${v2 ? analysisContract.candidateSet.candidateIdPrefix : ""}${candidateId(candidate)}`,
@@ -178,11 +181,14 @@ export function prepareEventBlock(block) {
 }
 
 export function detectEventSignal(candidate, row) {
+  const minimumTakerImbalance = candidate.family === "CONFIRMED_ABSORPTION_REVERSAL"
+    ? candidate.minimumSetupAbsoluteTakerImbalance
+    : candidate.minimumAbsoluteTakerImbalance;
   if (
     row.atr == null || row.atr <= 0 ||
     row.relativeTakerNotional == null ||
     row.takerDirection === "NEUTRAL" ||
-    Math.abs(row.takerImbalance) < candidate.minimumAbsoluteTakerImbalance ||
+    Math.abs(row.takerImbalance) < minimumTakerImbalance ||
     row.relativeTakerNotional < candidate.minimumRelativeTakerNotional
   ) return null;
   if (candidate.family === "EVENT_DEPLETION_CONTINUATION") {
@@ -195,7 +201,7 @@ export function detectEventSignal(candidate, row) {
     ) return null;
     return signalRecord(candidate, row, row.takerDirection);
   }
-  if (candidate.family === "EVENT_ABSORPTION_REVERSAL") {
+  if (["EVENT_ABSORPTION_REVERSAL", "CONFIRMED_ABSORPTION_REVERSAL"].includes(candidate.family)) {
     const orderSide = opposite(row.takerDirection);
     if (
       row.directionalPriceImpactBps == null ||
@@ -218,6 +224,7 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
     peakEquity: 1,
     maxDrawdownPct: 0,
     pending: null,
+    arm: null,
     position: null,
     trades: [],
     tradesByDay: new Map(),
@@ -227,6 +234,7 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
   let lastReplayRow = null;
   for (const row of block.rows) {
     if (row.openedAtMs < replayStartMs) {
+      if (candidate.family === "CONFIRMED_ABSORPTION_REVERSAL") continue;
       if (row.closeTimeMs === replayStartMs) {
         const signal = detectEventSignal(candidate, row);
         if (signal != null) state.pending = { signal, expectedEntryAtMs: replayStartMs };
@@ -237,7 +245,9 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
     lastReplayRow = row;
     fillPending(state, candidate, row, executionContract, block.id);
     processPosition(state, row, executionContract);
-    if (state.position == null) {
+    if (state.position == null && candidate.family === "CONFIRMED_ABSORPTION_REVERSAL") {
+      processConfirmedReversalState(state, candidate, row);
+    } else if (state.position == null) {
       const signal = detectEventSignal(candidate, row);
       if (signal != null && row.closeTimeMs < replayEndMs) {
         state.pending = {
@@ -265,7 +275,8 @@ export function simulateEventCandidateBlock(candidate, block, executionContract)
 export function runEventDevelopmentReplay({ blocks, candidates, protocol, analysisContract }) {
   validateEventFlowProtocol(protocol);
   validateAnalysisContract(analysisContract);
-  if (candidates.length !== protocol.trials.stageCandidateCount) throw new Error("Replay must run every frozen event-flow candidate.");
+  const expectedCandidateCount = analysisContract.trialAccounting?.stageCandidates ?? protocol.trials.stageCandidateCount;
+  if (candidates.length !== expectedCandidateCount) throw new Error("Replay must run every frozen event-flow candidate.");
   const results = candidates.map((candidate) => {
     const blockResults = blocks.map((block) => simulateEventCandidateBlock(candidate, block, protocol.executionContract));
     return {
@@ -291,10 +302,13 @@ export function runEventDevelopmentReplay({ blocks, candidates, protocol, analys
 export function evaluateEventDevelopment(replay, protocol, analysisContract) {
   validateEventFlowProtocol(protocol);
   validateAnalysisContract(analysisContract);
+  if (analysisContract.analysisId === "bybit-event-flow-development-analysis-v3") {
+    return evaluateConfirmedReversalDevelopment(replay, protocol, analysisContract);
+  }
   const blocks = protocol.stages.development.primaryBlocks;
   const byEra = Map.groupBy(blocks, (block) => block.era);
   const familyReports = [];
-  for (const family of ["EVENT_DEPLETION_CONTINUATION", "EVENT_ABSORPTION_REVERSAL"]) {
+  for (const family of [...new Set(replay.candidates.map((candidate) => candidate.family))]) {
     const familyCandidates = replay.candidates.filter((candidate) => candidate.family === family);
     const folds = [];
     const pooledValidationTrades = [];
@@ -466,6 +480,59 @@ function signalRecord(candidate, row, orderSide) {
     opposingSideDepletion: row.opposingSideDepletion,
     consumedSideReplenishment: row.consumedSideReplenishment,
     m15Regime: row.m15Regime,
+    closeTradePrice: row.closeTradePrice,
+  };
+}
+
+function processConfirmedReversalState(state, candidate, row) {
+  let confirmed = false;
+  if (state.arm != null && row.closeTimeMs > state.arm.signalCloseTimeMs) {
+    const expiresAt = state.arm.signalCloseTimeMs + candidate.confirmationWindowMinutes * MINUTE_MS;
+    if (row.closeTimeMs <= expiresAt) {
+      const confirmation = confirmReversal(state.arm, candidate, row);
+      if (confirmation != null) {
+        state.pending = { signal: confirmation, expectedEntryAtMs: row.closeTimeMs };
+        state.arm = null;
+        confirmed = true;
+      }
+    } else {
+      state.arm = null;
+    }
+  }
+  if (!confirmed && state.pending == null) {
+    const setup = detectEventSignal(candidate, row);
+    if (setup != null) state.arm = setup;
+  }
+}
+
+function confirmReversal(setup, candidate, row) {
+  if (
+    !Number.isFinite(setup.closeTradePrice) ||
+    !Number.isFinite(row.closeTradePrice) ||
+    !Number.isFinite(row.endTop5Imbalance) ||
+    !Number.isFinite(row.takerImbalance)
+  ) return null;
+  const side = setup.orderSide;
+  const alignedBook = (side === "BUY" ? 1 : -1) * row.endTop5Imbalance;
+  const priceConfirmed = side === "BUY"
+    ? row.closeTradePrice > setup.closeTradePrice
+    : row.closeTradePrice < setup.closeTradePrice;
+  if (
+    row.takerDirection !== side ||
+    Math.abs(row.takerImbalance) < candidate.minimumConfirmationAbsoluteTakerImbalance ||
+    row.relativeTakerNotional == null || row.relativeTakerNotional < 1 ||
+    alignedBook < candidate.minimumConfirmationAlignedTop5Imbalance ||
+    !priceConfirmed
+  ) return null;
+  return {
+    ...setup,
+    atr: row.atr,
+    signalCloseTimeMs: row.closeTimeMs,
+    confirmationOpenedAtMs: row.openedAtMs,
+    confirmationTakerImbalance: row.takerImbalance,
+    confirmationRelativeTakerNotional: row.relativeTakerNotional,
+    confirmationAlignedTop5Imbalance: alignedBook,
+    confirmationCloseTradePrice: row.closeTradePrice,
   };
 }
 
@@ -485,6 +552,7 @@ function fillPending(state, candidate, row, contract, blockId) {
   const position = buildPosition(state, candidate, pending.signal, row, contract, blockId);
   if (position == null) return;
   state.position = position;
+  state.arm = null;
   state.tradesByDay.set(day, tradesToday + 1);
 }
 
@@ -612,6 +680,9 @@ function closePosition(state, triggerPrice, closedAtMs, reason, contract) {
     opposingSideDepletion: nullableRound(position.signal.opposingSideDepletion),
     consumedSideReplenishment: nullableRound(position.signal.consumedSideReplenishment),
     m15Regime: position.signal.m15Regime,
+    confirmationTakerImbalance: nullableRound(position.signal.confirmationTakerImbalance),
+    confirmationRelativeTakerNotional: nullableRound(position.signal.confirmationRelativeTakerNotional),
+    confirmationAlignedTop5Imbalance: nullableRound(position.signal.confirmationAlignedTop5Imbalance),
   });
   state.cooldownUntilMs = closedAtMs + contract.cooldownMinutes * MINUTE_MS;
   state.position = null;
@@ -655,6 +726,72 @@ function developmentFamilyGate(metrics, positiveFolds, folds, protocol) {
     maximumLiquidationCount: metrics.liquidationCount <= gate.maximumLiquidationCount,
   };
   return { passed: Object.values(checks).every(Boolean), checks };
+}
+
+function evaluateConfirmedReversalDevelopment(replay, protocol, analysisContract) {
+  const contract = analysisContract.chronologicalDevelopment;
+  const blocks = protocol.stages.development.primaryBlocks;
+  const byEra = Map.groupBy(blocks, (block) => block.era);
+  const selectionBlocks = contract.selectionEras.flatMap((era) => byEra.get(era) ?? []);
+  const validationBlocksByEra = contract.validationEras.map((era) => ({ era, blocks: byEra.get(era) ?? [] }));
+  const rankedTraining = replay.candidates
+    .map((candidate) => ({
+      candidateId: candidate.id,
+      metrics: metricsForEventTrades(candidate.trades, selectionBlocks, protocol),
+    }))
+    .filter((entry) => trainingEligible(entry.metrics, contract.trainingEligibility))
+    .sort(compareRanked);
+  const selected = rankedTraining[0] ?? null;
+  const selectedResult = selected == null ? null : replay.candidates.find((candidate) => candidate.id === selected.candidateId);
+  const eraValidations = validationBlocksByEra.map(({ era, blocks: eraBlocks }) => ({
+    era,
+    metrics: metricsForEventTrades(selectedResult?.trades ?? [], eraBlocks, protocol),
+  }));
+  const validationBlocks = validationBlocksByEra.flatMap((entry) => entry.blocks);
+  const pooledValidation = metricsForEventTrades(selectedResult?.trades ?? [], validationBlocks, protocol);
+  const positiveEraCount = eraValidations.filter((entry) => entry.metrics.netReturnPct > 0).length;
+  const gate = contract.validationGate;
+  const checks = {
+    selectedCandidateExists: selected != null,
+    minimumPooledTrades: pooledValidation.tradeCount >= gate.minimumPooledTrades,
+    minimumPositiveEraCount: positiveEraCount >= gate.minimumPositiveEraCount,
+    minimumProfitFactor: pooledValidation.profitFactor >= gate.minimumProfitFactor,
+    minimumMeanNetR: pooledValidation.meanNetR > gate.minimumMeanNetR,
+    minimumBootstrapLowerMeanNetR: (pooledValidation.bootstrap?.lowerBound ?? -Infinity) > gate.minimumBootstrapLowerMeanNetR,
+    maximumDrawdownPct: pooledValidation.maxDrawdownPct <= gate.maximumDrawdownPct,
+    maximumLiquidationCount: pooledValidation.liquidationCount <= gate.maximumLiquidationCount,
+  };
+  const passed = Object.values(checks).every(Boolean);
+  return {
+    schemaVersion: 1,
+    protocolId: protocol.protocolId,
+    analysisId: analysisContract.analysisId,
+    status: passed ? "CANDIDATE_FREEZE_REQUIRED" : "REJECTED",
+    stageCandidateCount: replay.candidateCount,
+    familyReports: [{
+      family: "CONFIRMED_ABSORPTION_REVERSAL",
+      status: passed ? "DEVELOPMENT_PASSED" : "REJECTED",
+      selectedCandidateId: selected?.candidateId ?? null,
+      training: selected?.metrics ?? null,
+      trainingRanking: rankedTraining,
+      eraValidations,
+      positiveValidationEraCount: positiveEraCount,
+      pooledValidation,
+      gate: { passed, checks },
+    }],
+    freezeRecommendation: passed ? {
+      family: "CONFIRMED_ABSORPTION_REVERSAL",
+      candidateId: selected.candidateId,
+      training: selected.metrics,
+      validation: pooledValidation,
+    } : null,
+    candidateFreezeCommitted: false,
+    validationDataAcquisitionAllowed: false,
+    externalDataAcquisitionAllowed: false,
+    freshSealedDataOpened: false,
+    automaticExecutionAllowed: false,
+    liveExecutionAllowed: false,
+  };
 }
 
 function trainingEligible(metrics, gate) {
@@ -761,6 +898,40 @@ function average(values) {
 
 function numberId(value) {
   return String(value).replace(".", "p");
+}
+
+function buildConfirmedReversalCandidates(analysisContract) {
+  const fixed = analysisContract.hypothesis.setupFixed;
+  const grid = analysisContract.hypothesis.grid;
+  const candidates = [];
+  for (const minimumSetupAbsoluteTakerImbalance of grid.minimumSetupAbsoluteTakerImbalance) {
+    for (const confirmationWindowMinutes of grid.confirmationWindowMinutes) {
+      for (const minimumConfirmationAbsoluteTakerImbalance of grid.minimumConfirmationAbsoluteTakerImbalance) {
+        for (const minimumConfirmationAlignedTop5Imbalance of grid.minimumConfirmationAlignedTop5Imbalance) {
+          candidates.push({
+            id: [
+              "car",
+              `ti${numberId(minimumSetupAbsoluteTakerImbalance)}`,
+              `cw${numberId(confirmationWindowMinutes)}`,
+              `ci${numberId(minimumConfirmationAbsoluteTakerImbalance)}`,
+              `ob${numberId(minimumConfirmationAlignedTop5Imbalance)}`,
+            ].join("_"),
+            family: analysisContract.hypothesis.family,
+            ...fixed,
+            minimumSetupAbsoluteTakerImbalance,
+            confirmationWindowMinutes,
+            minimumConfirmationAbsoluteTakerImbalance,
+            minimumConfirmationAlignedTop5Imbalance,
+          });
+        }
+      }
+    }
+  }
+  if (candidates.length !== analysisContract.trialAccounting.stageCandidates ||
+      new Set(candidates.map((candidate) => candidate.id)).size !== candidates.length) {
+    throw new Error("Confirmed reversal candidate expansion does not match the frozen trial ledger.");
+  }
+  return candidates;
 }
 
 function nullableRound(value) {
