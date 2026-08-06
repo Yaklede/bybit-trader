@@ -33,6 +33,15 @@ Initial public repository placeholder for a Bybit trading automation project.
 > parity, and independent Shadow/Paper evidence. All previously declared
 > historical seals are recorded as consumed. No current profile passes this
 > gate, and research reports cannot enable automatic exchange execution.
+>
+> **Event-flow program closed (2026-08-06):** six predeclared continuation and
+> reversal families used 191 of the fixed 192-candidate budget without finding
+> an eligible 2023 development candidate. The final pullback-reacceleration
+> family remained negative before fees; its highest-ranked row produced
+> `-0.40533R` per trade after costs and a bootstrap 95% upper bound of
+> `-0.14276R`. The 2025 validation, 2026 external, and fresh sealed windows
+> remain unread. See the
+> [event-flow research closure](docs/backend/event-flow-research-closure-2026-08-06.md).
 
 Milestone 1 is the operational backend shell:
 
