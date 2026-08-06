@@ -53,3 +53,7 @@ node --max-old-space-size=4096 scripts/frozen-candidate-diagnostic.mjs \
   --db build/runtime-test/bybit-trader-full-history.sqlite \
   --out build/research/asymmetric-cluster-post2024-diagnostic-v1
 ```
+
+## 실행 결과
+
+2026-08-06 실행에서 후보는 기본 비용 기준 `-6.34%`, 평균 `-0.2878R`, PF `0.5729`로 탈락했다. 예약된 신규 봉인 구간은 열지 않았다. 전체 근거는 [진단 결과](asymmetric-cluster-post2024-diagnostic-result-2026-08-06.md)에 고정한다.

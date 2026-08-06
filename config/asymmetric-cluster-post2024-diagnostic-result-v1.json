@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "resultId": "asymmetric-cluster-post2024-diagnostic-result-v1",
+  "protocolId": "asymmetric-cluster-post2024-diagnostic-v1",
+  "executedAt": "2026-08-06",
+  "status": "REJECTED",
+  "independence": "NON_INDEPENDENT_PREVIOUSLY_INSPECTED_HISTORY",
+  "codeGitSha": "039f750",
+  "candidateId": "acar_lrv2p1_smax2p5_cf4",
+  "inputs": {
+    "databaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+    "replayStartAt": "2024-01-01T00:00:00Z",
+    "replayEndAt": "2026-07-02T05:40:00Z",
+    "costMultipliers": [1, 1.5, 2],
+    "diagnosticWindowCount": 10
+  },
+  "outputs": {
+    "diagnosticSha256": "0ce3238840c299ec8abd989a2fb8c80cf0d341d25c55efc4f0e2b4d511157f9f",
+    "summarySha256": "5cdc006975f57885500d50f206ad642a6039f828a5a984b7a0fa9019b3c54e87"
+  },
+  "baseCost": {
+    "tradeCount": 45,
+    "positiveWindowCount": 5,
+    "winRatePct": 31.11111111,
+    "netReturnPct": -6.33812842,
+    "compoundDailyReturnPct": -0.00716974,
+    "meanNetR": -0.28784719,
+    "profitFactor": 0.5729172,
+    "maxDrawdownPct": 9.36680899,
+    "liquidationCount": 0,
+    "bootstrapLowerMeanNetR": -0.4785663,
+    "bootstrapUpperMeanNetR": -0.0851138
+  },
+  "twoXCost": {
+    "tradeCount": 50,
+    "positiveWindowCount": 3,
+    "winRatePct": 28,
+    "netReturnPct": -9.94936567,
+    "meanNetR": -0.41673553,
+    "profitFactor": 0.38648377,
+    "maxDrawdownPct": 12.06055703,
+    "liquidationCount": 0,
+    "bootstrapLowerMeanNetR": -0.57884454,
+    "bootstrapUpperMeanNetR": -0.23961496
+  },
+  "failedChecks": [
+    "MINIMUM_POSITIVE_WINDOW_COUNT",
+    "MINIMUM_BASE_PROFIT_FACTOR",
+    "MINIMUM_BASE_MEAN_NET_R",
+    "MINIMUM_BASE_BOOTSTRAP_LOWER_MEAN_NET_R",
+    "MINIMUM_TWO_X_COST_MEAN_NET_R"
+  ],
+  "conclusion": "The post-development expectancy sign reversed and the entire base-cost bootstrap interval is negative. Reject the candidate without reading the reserved fresh seal.",
+  "nextAction": "REJECT_OHLCV_CLUSTER_CANDIDATE_AND_MOVE_TO_EVENT_FLOW_HYPOTHESES",
+  "reservedSealedProtocolId": "fresh-sealed-validation-2026-08-v1",
+  "reservedSealedWindowOpened": false,
+  "automaticExecutionAllowed": false
+}
