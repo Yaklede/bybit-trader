@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "bybit-subminute-sequence-normalized-v2",
+  "status": "PREDECLARED_AFTER_V1_SCALE_FAILURE_BEFORE_NORMALIZED_OUTCOME_REPLAY",
+  "declaredAt": "2026-08-06",
+  "parentEvidence": {
+    "resultPath": "config/bybit-subminute-sequence-selection-result-v1.json",
+    "resultSha256": "b20b5da6298194da4c3c4951b985976f98f208b743050283173787a88f3d38a0",
+    "requiredProgramStatus": "CLOSED_NO_APPROVABLE_SUBMINUTE_SEQUENCE_STRATEGY_V1",
+    "protocolPath": "config/bybit-subminute-sequence-development-v1.json",
+    "protocolSha256": "24b5ffe11cf86ecf9452cfb5caa937e49358729198cf4e9b5aad074693e5dbb9",
+    "acquisitionReceiptPath": "config/bybit-subminute-sequence-selection-acquisition-receipt-v1.json",
+    "acquisitionReceiptSha256": "05e98d5b7628b3a75ff89f4150209538a21eb45058fc8856197a5a088eeb3ad9",
+    "selectionSnapshot": "build/research/bybit-subminute-sequence-development-v1-selection.sqlite",
+    "selectionSnapshotSha256": "bb7b95dda9de96835b4288a0e35ff03a4ed27d39d32caf5a85923b8b6e93e15f",
+    "normalizedSourceFeatureSha256": "ba3265dd57cae8b008fbb433e131c94c4b9521342e64b77238a763a4b85a83c9"
+  },
+  "researchBoundary": {
+    "v1OutcomesMayMotivateScaleNormalizationOnly": true,
+    "v1OutcomesMayRetuneSetupOrExitThresholds": false,
+    "selectionReusesExplicit2023DevelopmentEvidence": true,
+    "internalValidation2024RemainsUnread": true,
+    "normalizedCandidateOutcomesReadBeforeDeclaration": false,
+    "locked2025And2026DataMayBeRead": false
+  },
+  "trialAccounting": {
+    "priorObservedCandidates": 223,
+    "newCandidateBudget": 32,
+    "absorptionReversalCandidates": 16,
+    "depletionContinuationCandidates": 16,
+    "cumulativeCandidateCountAfterReplay": 255,
+    "candidateBudgetMayIncreaseAfterOutcomes": false
+  },
+  "inheritedContracts": {
+    "acquisitionSha256": "133e54ba977a981f14b6f06c7f39f45a8be48557efe7050f138a66a5843e4b06",
+    "executionContractSha256": "3d0f4e0e5acf5c9b628cf0303ef4bde4eb4ff2cd20f91706856a88ea8d57075a",
+    "selectionGateSha256": "15c1759d73d303f5f56bc73bf6dc6f1c968ea6b7da8feaffc94e142792a2a3b7",
+    "internalValidationGateSha256": "6237509ffe4516fb2ce985931ecea69733abe76058b0c75b458300ef83e6947d",
+    "statisticsSha256": "9dc2f6e31c9059dfba4c5b1ea0b11a7cb007df97f7ec2acbd382b212249b42ef"
+  },
+  "featureContract": {
+    "micropriceConfirmation": {
+      "mode": "CLOSE_SPREAD_NORMALIZED_CLAMPED",
+      "formula": "clamp(meanMicropriceEdgeBps / (closeSpreadBps / 2), -1, 1)",
+      "closeSpreadFormula": "(closeBestAsk-closeBestBid)/closeMid*10000",
+      "minimumDirectionalValue": 0.2,
+      "interpretation": "AT_LEAST_APPROXIMATELY_60_40_TOP_OF_BOOK_PRESSURE",
+      "sameClosedFiveSecondBucketOnly": true,
+      "zeroOrCrossedSpreadPolicy": "NO_CONFIRMATION",
+      "proxyLimitation": "MEAN_EDGE_USES_ALL_BUCKET_OBSERVATIONS_WHILE_DENOMINATOR_USES_BUCKET_CLOSE_SPREAD"
+    },
+    "allOtherFeaturesInheritedWithoutChange": true
+  },
+  "hypotheses": [
+    {
+      "family": "SUBMINUTE_ABSORPTION_REVERSAL",
+      "parentFamily": "SUBMINUTE_ABSORPTION_REVERSAL",
+      "statement": "A shock against the closed M15 regime reverses when impact stalls, the consumed side replenishes, open interest contracts, and opposite flow plus spread-normalized microprice confirms absorption.",
+      "fixed": {
+        "minimumAbsoluteTakerImbalance": 0.5,
+        "minimumRelativeTakerNotional": 3.0,
+        "confirmationWindowSeconds": 30,
+        "minimumConfirmationAbsoluteTakerImbalance": 0.2,
+        "micropriceConfirmationMode": "CLOSE_SPREAD_NORMALIZED_CLAMPED",
+        "minimumNormalizedMicropriceEdge": 0.2,
+        "shockMustOpposeClosedM15Regime": true
+      },
+      "grid": {
+        "shockWindowSeconds": [10, 20],
+        "maximumDirectionalPriceImpactBps": [2.0, 5.0],
+        "minimumConsumedSideReplenishmentRatio": [0.75, 1.25],
+        "maximumOpenInterestChangePct": [-0.001, -0.003]
+      },
+      "candidateCount": 16
+    },
+    {
+      "family": "SUBMINUTE_DEPLETION_CONTINUATION",
+      "parentFamily": "SUBMINUTE_DEPLETION_CONTINUATION",
+      "statement": "A shock aligned with the closed M15 regime continues when impact expands, opposing liquidity is depleted without replenishment, open interest expands, and same-side flow plus spread-normalized microprice confirms continuation.",
+      "fixed": {
+        "minimumAbsoluteTakerImbalance": 0.5,
+        "minimumRelativeTakerNotional": 3.0,
+        "confirmationWindowSeconds": 30,
+        "minimumConfirmationAbsoluteTakerImbalance": 0.2,
+        "micropriceConfirmationMode": "CLOSE_SPREAD_NORMALIZED_CLAMPED",
+        "minimumNormalizedMicropriceEdge": 0.2,
+        "shockMustAlignWithClosedM15Regime": true
+      },
+      "grid": {
+        "shockWindowSeconds": [10, 20],
+        "minimumDirectionalPriceImpactBps": [2.0, 5.0],
+        "maximumConsumedSideReplenishmentRatio": [0.5, 0.8],
+        "minimumOpenInterestChangePct": [0.001, 0.003]
+      },
+      "candidateCount": 16
+    }
+  ],
+  "hypothesisSha256": "95259c390ba2be6b8791f999f45a0bf5b77fc0996378b54cd69cfb4b4cebc777",
+  "outcomePolicy": {
+    "selectionUsesParent2023SnapshotOnly": true,
+    "oneCandidatePerFamilyMaximum": true,
+    "retuneFromSelection": false,
+    "internalValidation2024MayBeAcquiredOnlyAfterSelectionPass": true,
+    "retuneFromInternalValidation": false,
+    "lockedExpansionMayBeAcquiredOnlyAfterInternalPass": true,
+    "validation2025MayBeAcquiredOnlyAfterExpansionPass": true,
+    "external2026MayBeAcquiredOnlyAfterValidationPassAndRefreeze": true,
+    "freshSealedMayBeAcquiredOnlyAfterExternalPassAndRefreeze": true,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
