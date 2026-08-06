@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import java.time.Instant
+import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 import kotlin.math.pow
@@ -20,9 +21,14 @@ class BacktestRunner(
         val sortedCandles = candles.sortedBy { it.openedAt }
         require(sortedCandles.map { it.symbol }.distinct().size <= 1) { "Backtest candles must use a single symbol." }
         require(sortedCandles.map { it.timeframe }.distinct().size <= 1) { "Backtest candles must use a single timeframe." }
+        val replayCandles =
+            sortedCandles.filter { candle ->
+                (config.replayStartAt == null || !candle.openedAt.isBefore(config.replayStartAt)) &&
+                    (config.replayEndAtExclusive == null || candle.openedAt.isBefore(config.replayEndAtExclusive))
+            }
 
-        if (sortedCandles.size < strategy.warmupCandles + 2) {
-            return emptyResult(sortedCandles, config)
+        if (sortedCandles.size < strategy.warmupCandles + 2 || replayCandles.isEmpty()) {
+            return emptyResult(replayCandles, config)
         }
 
         var equity = config.initialEquity
@@ -32,9 +38,19 @@ class BacktestRunner(
         var skippedSignals = 0
         val noTradeReasonCounts = mutableMapOf<String, Int>()
         val trades = mutableListOf<BacktestTrade>()
-        var index = strategy.warmupCandles
+        val tradesByUtcDay = mutableMapOf<java.time.LocalDate, Int>()
+        val firstReplayIndex =
+            config.replayStartAt?.let { replayStartAt ->
+                sortedCandles.indexOfFirst { !it.openedAt.isBefore(replayStartAt) }
+            } ?: 0
+        val lastReplayIndex =
+            config.replayEndAtExclusive?.let { replayEndAtExclusive ->
+                sortedCandles.indexOfLast { it.openedAt.isBefore(replayEndAtExclusive) }
+            } ?: sortedCandles.lastIndex
+        var index = maxOf(strategy.warmupCandles, firstReplayIndex)
 
-        while (index < sortedCandles.lastIndex) {
+        while (index < lastReplayIndex) {
+            if (config.requireFullHoldWindow && index + 1 + config.maxHoldCandles > lastReplayIndex) break
             evaluatedWindows += 1
             val decisionCandle = sortedCandles[index]
             val decisionCandles =
@@ -61,7 +77,33 @@ class BacktestRunner(
             }
             val entryCandle = entryFill.candle
             val entryPrice = entryFill.effectivePrice
-            val initialStopPrice = signal.invalidationPrice.value.toDouble()
+            val entryUtcDay = entryCandle.openedAt.atZone(ZoneOffset.UTC).toLocalDate()
+            val dayTrades = tradesByUtcDay[entryUtcDay] ?: 0
+            if (config.maxTradesPerUtcDay != null && dayTrades >= config.maxTradesPerUtcDay) {
+                skippedSignals += 1
+                listOf("MAX_TRADES_PER_UTC_DAY").incrementReasons(noTradeReasonCounts)
+                index += 1
+                continue
+            }
+            val structuralStopPrice = signal.invalidationPrice.value.toDouble()
+            val initialStopPrice =
+                signal.entryAnchoredStopDistance?.toDouble()?.let { stopDistance ->
+                    when (signal.side) {
+                        Side.BUY -> minOf(structuralStopPrice, entryPrice - stopDistance)
+                        Side.SELL -> maxOf(structuralStopPrice, entryPrice + stopDistance)
+                    }
+                } ?: structuralStopPrice
+            val directionalStopIsValid =
+                when (signal.side) {
+                    Side.BUY -> initialStopPrice > 0.0 && initialStopPrice < entryPrice
+                    Side.SELL -> initialStopPrice > entryPrice
+                }
+            if (!directionalStopIsValid) {
+                skippedSignals += 1
+                listOf("INVALID_STOP_DIRECTION").incrementReasons(noTradeReasonCounts)
+                index += 1
+                continue
+            }
             val riskPerUnit = abs(entryPrice - initialStopPrice)
             if (riskPerUnit <= 0.0) {
                 skippedSignals += 1
@@ -69,10 +111,23 @@ class BacktestRunner(
                 index += 1
                 continue
             }
+            val entryRiskFraction = riskPerUnit / entryPrice
+            if (config.minimumEntryRiskFraction != null && entryRiskFraction < config.minimumEntryRiskFraction) {
+                skippedSignals += 1
+                listOf("ENTRY_RISK_BELOW_MINIMUM").incrementReasons(noTradeReasonCounts)
+                index += 1
+                continue
+            }
+            if (config.maximumEntryRiskFraction != null && entryRiskFraction > config.maximumEntryRiskFraction) {
+                skippedSignals += 1
+                listOf("ENTRY_RISK_ABOVE_MAXIMUM").incrementReasons(noTradeReasonCounts)
+                index += 1
+                continue
+            }
 
             val riskAmount = equity * config.riskFraction
             val quantity = riskAmount / riskPerUnit
-            val plannedExitIndex = minOf(entryIndex + config.maxHoldCandles, sortedCandles.lastIndex)
+            val plannedExitIndex = minOf(entryIndex + config.maxHoldCandles, lastReplayIndex)
             val exit =
                 simulateExit(
                     candles = sortedCandles,
@@ -86,7 +141,7 @@ class BacktestRunner(
                     quantity = quantity,
                     config = config,
                 )
-            val finalExitPrice = CausalReplay.applyExitSlippage(signal.side, exit.finalExitPrice, config.slippageRate)
+            val finalExitPrice = CausalReplay.applyExitSlippage(signal.side, exit.finalExitPrice, config.exitSlippageRate)
             val finalGrossPnl = grossPnl(signal.side, entryPrice, finalExitPrice, exit.remainingQuantity)
             val grossPnl = exit.partialGrossPnl + finalGrossPnl
             val entryFees = entryPrice * quantity * config.feeRate
@@ -107,9 +162,13 @@ class BacktestRunner(
             trades +=
                 BacktestTrade(
                     side = signal.side,
+                    signalAt = decisionCandle.openedAt,
                     entryAt = entryCandle.openedAt,
                     exitAt = sortedCandles[exit.finalExitIndex].openedAt,
                     entryPrice = entryPrice,
+                    initialStopPrice = initialStopPrice,
+                    targetPrice = exit.targetPrice,
+                    exitTriggerPrice = exit.finalExitPrice,
                     exitPrice = finalExitPrice,
                     quantity = quantity,
                     remainingQuantity = exit.remainingQuantity,
@@ -118,16 +177,18 @@ class BacktestRunner(
                     fundingCost = fundingCost,
                     pnl = pnl,
                     returnR = pnl / riskAmount,
+                    equityAfter = equity,
                     exitReason = exit.finalExitReason,
                     partialTakeProfitAt = exit.partialTakeProfitAt,
                     partialExitPrice = exit.partialExitPrice,
                     partialQuantity = exit.partialQuantity,
                 )
+            tradesByUtcDay[entryUtcDay] = dayTrades + 1
             index = exit.finalExitIndex + 1
         }
 
         return resultFromTrades(
-            candles = sortedCandles,
+            candles = replayCandles,
             config = config,
             finalEquity = equity,
             maxDrawdownPct = maxDrawdownPct,
@@ -150,9 +211,16 @@ class BacktestRunner(
         quantity: Double,
         config: BacktestConfig,
     ): SimulatedExit {
-        val fullTargetPrice = targetPrice(side, entryPrice, riskPerUnit, expectedR)
+        val fullTargetPrice =
+            if (config.fixedTargetEnabled) {
+                targetPrice(side, entryPrice, riskPerUnit, expectedR)
+            } else {
+                null
+            }
         val partialTargetPrice = targetPrice(side, entryPrice, riskPerUnit, config.partialTakeProfitR)
         var stopPrice = initialStopPrice
+        var bestHigh = entryPrice
+        var bestLow = entryPrice
         var partialTaken = false
         var partialTakeProfitAt: Instant? = null
         var partialExitPrice: Double? = null
@@ -163,16 +231,6 @@ class BacktestRunner(
 
         for (index in entryIndex..plannedExitIndex) {
             val candle = candles[index]
-            if (config.atrTrailingMultiplier > 0.0) {
-                trailingStopPrice(candles, side, index, config)?.let { candidate ->
-                    stopPrice =
-                        when (side) {
-                            Side.BUY -> maxOf(stopPrice, candidate)
-                            Side.SELL -> minOf(stopPrice, candidate)
-                        }
-                }
-            }
-
             val exitTouch = CausalReplay.resolveExitTouch(candle, side, stopPrice, fullTargetPrice)
             when (exitTouch) {
                 CausalExitTouch.STOP -> {
@@ -191,6 +249,7 @@ class BacktestRunner(
                         partialQuantity = partialQuantity,
                         partialGrossPnl = partialGrossPnl,
                         partialFees = partialFees,
+                        targetPrice = fullTargetPrice,
                     )
                 }
 
@@ -217,9 +276,10 @@ class BacktestRunner(
             }
 
             if (exitTouch == CausalExitTouch.TARGET) {
+                val targetExitPrice = requireNotNull(fullTargetPrice)
                 return SimulatedExit(
                     finalExitIndex = index,
-                    finalExitPrice = fullTargetPrice,
+                    finalExitPrice = targetExitPrice,
                     finalExitReason = BacktestExitReason.TARGET,
                     remainingQuantity = remainingQuantity,
                     partialTakeProfitAt = partialTakeProfitAt,
@@ -227,7 +287,20 @@ class BacktestRunner(
                     partialQuantity = partialQuantity,
                     partialGrossPnl = partialGrossPnl,
                     partialFees = partialFees,
+                    targetPrice = fullTargetPrice,
                 )
+            }
+
+            bestHigh = maxOf(bestHigh, candle.high.toDouble())
+            bestLow = minOf(bestLow, candle.low.toDouble())
+            if (config.atrTrailingMultiplier > 0.0) {
+                trailingStopPrice(candles, side, index, bestHigh, bestLow, config)?.let { candidate ->
+                    stopPrice =
+                        when (side) {
+                            Side.BUY -> maxOf(stopPrice, candidate)
+                            Side.SELL -> minOf(stopPrice, candidate)
+                        }
+                }
             }
         }
 
@@ -241,6 +314,7 @@ class BacktestRunner(
             partialQuantity = partialQuantity,
             partialGrossPnl = partialGrossPnl,
             partialFees = partialFees,
+            targetPrice = fullTargetPrice,
         )
     }
 
@@ -268,15 +342,22 @@ class BacktestRunner(
         candles: List<Candle>,
         side: Side,
         index: Int,
+        bestHigh: Double,
+        bestLow: Double,
         config: BacktestConfig,
     ): Double? {
-        if (index <= config.atrTrailingPeriod) return null
-        val window = candles.subList(index - config.atrTrailingPeriod, index + 1)
+        if (index < config.atrTrailingPeriod) return null
         val trueRanges =
-            window.zipWithNext().map { (previous, current) ->
+            (index - config.atrTrailingPeriod until index).map { currentIndex ->
+                val current = candles[currentIndex]
                 val high = current.high.toDouble()
                 val low = current.low.toDouble()
-                val previousClose = previous.close.toDouble()
+                val previousClose =
+                    if (currentIndex == 0) {
+                        current.close.toDouble()
+                    } else {
+                        candles[currentIndex - 1].close.toDouble()
+                    }
                 maxOf(
                     high - low,
                     abs(high - previousClose),
@@ -284,10 +365,9 @@ class BacktestRunner(
                 )
             }
         val atr = trueRanges.average()
-        val close = candles[index].close.toDouble()
         return when (side) {
-            Side.BUY -> close - (atr * config.atrTrailingMultiplier)
-            Side.SELL -> close + (atr * config.atrTrailingMultiplier)
+            Side.BUY -> bestHigh - (atr * config.atrTrailingMultiplier)
+            Side.SELL -> bestLow + (atr * config.atrTrailingMultiplier)
         }
     }
 
@@ -442,4 +522,5 @@ private data class SimulatedExit(
     val partialQuantity: Double,
     val partialGrossPnl: Double,
     val partialFees: Double,
+    val targetPrice: Double?,
 )

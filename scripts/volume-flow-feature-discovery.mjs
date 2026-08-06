@@ -38,13 +38,14 @@ const traceOut = args.traceOut ?? path.join(outDir, "trace.json");
 const binanceDir = args.binanceDir;
 const binanceDepthDir = args.binanceDepthDir;
 const binanceMetricsDir = args.binanceMetricsDir;
+const historyStartAt = normalizeOptionalTimestamp(args.historyStartAt, "historyStartAt");
 
 await fs.mkdir(outDir, { recursive: true });
 
 const windowsPayload = JSON.parse(await fs.readFile(windowsPath, "utf8"));
 const windows = Array.isArray(windowsPayload) ? windowsPayload : windowsPayload.folds ?? windowsPayload.windows;
 if (!Array.isArray(windows)) throw new Error(`Window file must be an array or contain folds/windows: ${windowsPath}`);
-const candles = loadCandles({ dbPath, timeframe });
+const candles = loadCandles({ dbPath, timeframe, historyStartAt });
 attachIndicators(candles);
 const m15Candles = aggregateM15Candles(candles);
 attachIndicators(m15Candles);
@@ -97,6 +98,7 @@ console.log(
   [
     `timeframe=${timeframe}`,
     `candles=${candles.length}`,
+    `historyStartAt=${historyStartAt ?? "database-start"}`,
     `windows=${windows.length}`,
     `candidates=${candidates.length}`,
     `offset=${candidateOffset}`,
@@ -174,6 +176,13 @@ function parseArgs(items) {
   return parsed;
 }
 
+function normalizeOptionalTimestamp(value, name) {
+  if (value == null) return null;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw new Error(`${name} must be an ISO-8601 timestamp: ${value}`);
+  return new Date(timestamp).toISOString();
+}
+
 function applyCostMultiplier(candidate) {
   if (costMultiplier === 1.0) return candidate;
   return {
@@ -185,12 +194,13 @@ function applyCostMultiplier(candidate) {
   };
 }
 
-function loadCandles({ dbPath, timeframe }) {
+function loadCandles({ dbPath, timeframe, historyStartAt }) {
   const sql = [
     `select opened_at, open, high, low, close, volume from marketCandles`,
     `where symbol = 'BTCUSDT' and timeframe = '${timeframe}'`,
+    historyStartAt == null ? null : `and opened_at >= '${historyStartAt}'`,
     `order by opened_at;`,
-  ].join(" ");
+  ].filter(Boolean).join(" ");
   const output = execFileSync("sqlite3", ["-tabs", "-noheader", dbPath, sql], {
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
@@ -1465,6 +1475,8 @@ function buildMultiHorizonMomentumCandidates() {
               feeRate: 0.0006,
               entrySlippageRate: 0.0002,
               exitSlippageRate: 0.0002,
+              replayWarmupCandles: 0,
+              replayEndExclusive: true,
             });
           }
         }
@@ -2011,7 +2023,9 @@ function evaluateWindow(candidate, window, options = {}) {
   const startMs = Date.parse(window.replayStartAt);
   const endMs = Date.parse(window.replayEndAt);
   const startIndex = lowerBound(candles, startMs);
-  const endIndex = upperBound(candles, endMs);
+  const endIndex = candidate.replayEndExclusive === true
+    ? lowerBound(candles, endMs)
+    : upperBound(candles, endMs);
   const observedDays = Math.max(1, Math.round((endMs - startMs) / 86_400_000));
 
   let equity = 1_000_000.0;
@@ -2025,9 +2039,9 @@ function evaluateWindow(candidate, window, options = {}) {
   const activeDays = new Set();
   const tradesByDay = new Map();
   const trades = [];
-  let index = Math.max(startIndex + 60, 60);
+  let index = Math.max(startIndex + (candidate.replayWarmupCandles ?? 60), 60);
 
-  while (index < endIndex - candidate.maxHoldCandles - 2) {
+  while (index <= endIndex - candidate.maxHoldCandles - 2) {
     const setup = findSetup(candidate, index, endIndex);
     if (setup == null) {
       index += 1;
@@ -2935,6 +2949,7 @@ function simulateExit(candidate, setup, endIndex) {
 function simulateTrailingExit(candidate, setup, endIndex) {
   const end = Math.min(setup.entryIndex + candidate.maxHoldCandles, endIndex - 1);
   let trailingStop = setup.stopPrice;
+  let trailingMoved = false;
   let bestHigh = setup.entryPrice;
   let bestLow = setup.entryPrice;
 
@@ -2942,21 +2957,25 @@ function simulateTrailingExit(candidate, setup, endIndex) {
     const candle = candles[index];
     if (setup.side === "BUY") {
       if (candle.low <= trailingStop) {
-        return { exitIndex: index, exitPrice: trailingStop, reason: "TRAILING_STOP" };
+        return { exitIndex: index, exitPrice: trailingStop, reason: trailingMoved ? "TRAILING_STOP" : "STOP" };
       }
       bestHigh = Math.max(bestHigh, candle.high);
       const atr = candle.atr20 ?? candles[setup.entryIndex].atr20;
       if (atr != null && atr > 0.0) {
-        trailingStop = Math.max(trailingStop, bestHigh - atr * candidate.trailAtr);
+        const nextTrailingStop = Math.max(trailingStop, bestHigh - atr * candidate.trailAtr);
+        trailingMoved ||= nextTrailingStop > trailingStop;
+        trailingStop = nextTrailingStop;
       }
     } else {
       if (candle.high >= trailingStop) {
-        return { exitIndex: index, exitPrice: trailingStop, reason: "TRAILING_STOP" };
+        return { exitIndex: index, exitPrice: trailingStop, reason: trailingMoved ? "TRAILING_STOP" : "STOP" };
       }
       bestLow = Math.min(bestLow, candle.low);
       const atr = candle.atr20 ?? candles[setup.entryIndex].atr20;
       if (atr != null && atr > 0.0) {
-        trailingStop = Math.min(trailingStop, bestLow + atr * candidate.trailAtr);
+        const nextTrailingStop = Math.min(trailingStop, bestLow + atr * candidate.trailAtr);
+        trailingMoved ||= nextTrailingStop < trailingStop;
+        trailingStop = nextTrailingStop;
       }
     }
   }

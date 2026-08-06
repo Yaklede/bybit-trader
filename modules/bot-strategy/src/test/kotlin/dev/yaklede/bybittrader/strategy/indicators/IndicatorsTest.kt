@@ -19,4 +19,10 @@ class IndicatorsTest :
             bands.upper shouldBe (19.65 plusOrMinus 0.1)
             bands.lower shouldBe (8.35 plusOrMinus 0.1)
         }
+
+        "calculates the research EMA from the first close seed" {
+            val ema = Indicators.emaFromFirstClose(listOf(10.0, 20.0, 30.0, 40.0), period = 3)
+
+            ema!! shouldBe (31.25 plusOrMinus 0.000001)
+        }
     })

@@ -442,7 +442,7 @@ fun main() {
     server.start(wait = true)
 }
 
-private fun openLedgerDatabase(path: Path): LedgerDatabase {
+internal fun openLedgerDatabase(path: Path): LedgerDatabase {
     path.parent?.let(Files::createDirectories)
     val shouldCreateSchema = Files.notExists(path)
     val driver = JdbcSqliteDriver("jdbc:sqlite:${path.toAbsolutePath()}")

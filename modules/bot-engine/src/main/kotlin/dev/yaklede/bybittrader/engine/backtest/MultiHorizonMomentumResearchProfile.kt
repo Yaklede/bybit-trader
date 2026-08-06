@@ -3,8 +3,8 @@ package dev.yaklede.bybittrader.engine.backtest
 import dev.yaklede.bybittrader.strategy.MultiHorizonMomentumParameters
 import dev.yaklede.bybittrader.strategy.MultiHorizonMomentumStrategy
 
-const val MULTI_HORIZON_MOMENTUM_PROFILE_ID = "multi-horizon-momentum-development-v1"
-const val MULTI_HORIZON_MOMENTUM_EXECUTION_CONTRACT = "causal-next-contiguous-open-v1"
+const val MULTI_HORIZON_MOMENTUM_PROFILE_ID = "multi-horizon-momentum-development-v2"
+const val MULTI_HORIZON_MOMENTUM_EXECUTION_CONTRACT = "causal-next-contiguous-open-v2"
 
 /** The research profile is intentionally not wired into live execution. */
 data class MultiHorizonMomentumResearchProfile(
@@ -18,14 +18,21 @@ data class MultiHorizonMomentumResearchProfile(
 
     fun backtestConfig(): BacktestConfig =
         BacktestConfig(
+            initialEquity = 1_000_000.0,
             riskFraction = 0.01,
             feeRate = 0.0006,
             slippageRate = 0.0002,
+            exitSlippageRate = 0.0002,
             partialTakeProfitFraction = 0.0,
             breakevenAfterPartialTakeProfit = false,
             atrTrailingPeriod = 20,
             atrTrailingMultiplier = 16.0,
+            fixedTargetEnabled = false,
             maxHoldCandles = 4_032,
+            maxTradesPerUtcDay = 1,
+            minimumEntryRiskFraction = 0.002,
+            maximumEntryRiskFraction = 0.035,
+            requireFullHoldWindow = true,
         )
 }
 

@@ -8,11 +8,15 @@ class MultiHorizonMomentumResearchProfileTest :
         "research profile is unverified and cannot execute automatically" {
             val profile = MultiHorizonMomentumResearchProfiles.current()
 
-            profile.profileId shouldBe "multi-horizon-momentum-development-v1"
-            profile.executionContract shouldBe "causal-next-contiguous-open-v1"
+            profile.profileId shouldBe "multi-horizon-momentum-development-v2"
+            profile.executionContract shouldBe "causal-next-contiguous-open-v2"
             profile.validationStatus shouldBe StrategyValidationStatus.UNVERIFIED
             profile.automaticExecutionAllowed shouldBe false
             profile.backtestConfig().maxHoldCandles shouldBe 4_032
             profile.backtestConfig().atrTrailingMultiplier shouldBe 16.0
+            profile.backtestConfig().fixedTargetEnabled shouldBe false
+            profile.backtestConfig().maxTradesPerUtcDay shouldBe 1
+            profile.backtestConfig().minimumEntryRiskFraction shouldBe 0.002
+            profile.backtestConfig().maximumEntryRiskFraction shouldBe 0.035
         }
     })

@@ -7,6 +7,13 @@ application {
     mainClass.set("dev.yaklede.bybittrader.app.ApplicationKt")
 }
 
+tasks.register<JavaExec>("runMultiHorizonParity") {
+    group = "verification"
+    description = "Replays the frozen multi-horizon research profile and writes a trade trace."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.yaklede.bybittrader.app.research.MultiHorizonParityMainKt")
+}
+
 dependencies {
     implementation(project(":modules:bot-api"))
     implementation(project(":modules:bot-alerts"))

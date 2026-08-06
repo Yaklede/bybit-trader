@@ -52,7 +52,7 @@ internal object CausalReplay {
         candle: Candle,
         side: Side,
         stopPrice: Double,
-        targetPrice: Double,
+        targetPrice: Double?,
     ): CausalExitTouch {
         val stopHit =
             when (side) {
@@ -60,6 +60,8 @@ internal object CausalReplay {
                 Side.SELL -> candle.high.toDouble() >= stopPrice
             }
         if (stopHit) return CausalExitTouch.STOP
+
+        if (targetPrice == null) return CausalExitTouch.NONE
 
         val targetHit =
             when (side) {

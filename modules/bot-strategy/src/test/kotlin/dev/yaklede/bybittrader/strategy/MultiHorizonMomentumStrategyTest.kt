@@ -20,6 +20,8 @@ class MultiHorizonMomentumStrategyTest :
 
             decision.intent?.side shouldBe Side.BUY
             decision.intent?.expectedR shouldBe BigDecimal.valueOf(12.0)
+            decision.intent?.invalidationPrice?.value shouldBe candles.last().low
+            (decision.intent?.entryAnchoredStopDistance != null) shouldBe true
             decision.reasonCodes shouldBe
                 listOf(
                     "MOMENTUM_288_CANDLES",

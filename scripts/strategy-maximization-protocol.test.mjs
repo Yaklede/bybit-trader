@@ -10,8 +10,11 @@ test("strategy maximization protocol treats 0.2 percent as an evaluation gate", 
   assert.equal(protocol.status, "DEVELOPMENT");
   assert.equal(protocol.selectionPolicy.dailyCompoundReturnIsSearchObjective, false);
   assert.equal(protocol.selectionPolicy.automaticPromotionAllowed, false);
-  assert.equal(protocol.baseline.validationStatus, "UNVERIFIED");
+  assert.equal(protocol.baseline.validationStatus, "REJECTED");
   assert.equal(protocol.baseline.automaticExecutionAllowed, false);
+  assert.equal(protocol.currentResearchProfile.validationStatus, "UNVERIFIED");
+  assert.equal(protocol.currentResearchProfile.automaticExecutionAllowed, false);
+  assert.equal(protocol.currentResearchProfile.executionContract, "causal-next-contiguous-open-v2");
   assert.equal(protocol.approvalGates.minimumExternalPositiveFoldRatio, 0.75);
   assert.equal(protocol.approvalGates.maximumLiquidationCount, 0);
 });

@@ -10,19 +10,30 @@ data class BacktestConfig(
     val riskFraction: Double = 0.005,
     val feeRate: Double = 0.0006,
     val slippageRate: Double = 0.0002,
+    val exitSlippageRate: Double = slippageRate,
     val fundingRatePer8h: Double = 0.0,
     val partialTakeProfitR: Double = 1.0,
     val partialTakeProfitFraction: Double = 0.5,
     val breakevenAfterPartialTakeProfit: Boolean = true,
     val atrTrailingPeriod: Int = 14,
     val atrTrailingMultiplier: Double = 0.0,
+    val fixedTargetEnabled: Boolean = true,
     val maxHoldCandles: Int = 16,
+    val maxTradesPerUtcDay: Int? = null,
+    val minimumEntryRiskFraction: Double? = null,
+    val maximumEntryRiskFraction: Double? = null,
+    val replayStartAt: Instant? = null,
+    val replayEndAtExclusive: Instant? = null,
+    val requireFullHoldWindow: Boolean = false,
 ) {
     init {
         require(initialEquity > 0.0) { "Initial equity must be positive." }
         require(riskFraction > 0.0 && riskFraction <= 0.05) { "Risk fraction must be between 0 and 0.05." }
         require(feeRate >= 0.0 && feeRate <= 0.01) { "Fee rate must be between 0 and 0.01." }
         require(slippageRate >= 0.0 && slippageRate <= 0.01) { "Slippage rate must be between 0 and 0.01." }
+        require(exitSlippageRate >= 0.0 && exitSlippageRate <= 0.01) {
+            "Exit slippage rate must be between 0 and 0.01."
+        }
         require(fundingRatePer8h >= -0.01 && fundingRatePer8h <= 0.01) {
             "Funding rate per 8h must be between -0.01 and 0.01."
         }
@@ -33,6 +44,23 @@ data class BacktestConfig(
         require(atrTrailingPeriod > 1) { "ATR trailing period must be greater than 1." }
         require(atrTrailingMultiplier >= 0.0) { "ATR trailing multiplier must not be negative." }
         require(maxHoldCandles > 0) { "Max hold candles must be positive." }
+        require(maxTradesPerUtcDay == null || maxTradesPerUtcDay > 0) {
+            "Max trades per UTC day must be positive when configured."
+        }
+        require(minimumEntryRiskFraction == null || minimumEntryRiskFraction > 0.0) {
+            "Minimum entry risk fraction must be positive when configured."
+        }
+        require(maximumEntryRiskFraction == null || maximumEntryRiskFraction > 0.0) {
+            "Maximum entry risk fraction must be positive when configured."
+        }
+        require(
+            minimumEntryRiskFraction == null ||
+                maximumEntryRiskFraction == null ||
+                minimumEntryRiskFraction <= maximumEntryRiskFraction,
+        ) { "Minimum entry risk fraction must not exceed maximum entry risk fraction." }
+        require(
+            replayStartAt == null || replayEndAtExclusive == null || replayStartAt.isBefore(replayEndAtExclusive),
+        ) { "Replay start must be before the exclusive replay end." }
     }
 }
 
@@ -66,9 +94,13 @@ data class BacktestResult(
 
 data class BacktestTrade(
     val side: Side,
+    val signalAt: Instant,
     val entryAt: Instant,
     val exitAt: Instant,
     val entryPrice: Double,
+    val initialStopPrice: Double,
+    val targetPrice: Double?,
+    val exitTriggerPrice: Double,
     val exitPrice: Double,
     val quantity: Double,
     val remainingQuantity: Double,
@@ -77,6 +109,7 @@ data class BacktestTrade(
     val fundingCost: Double,
     val pnl: Double,
     val returnR: Double,
+    val equityAfter: Double,
     val exitReason: BacktestExitReason,
     val partialTakeProfitAt: Instant?,
     val partialExitPrice: Double?,

@@ -19,6 +19,20 @@ object Indicators {
         return current
     }
 
+    fun emaFromFirstClose(
+        values: List<Double>,
+        period: Int,
+    ): Double? {
+        require(period > 1) { "EMA period must be greater than 1." }
+        if (values.size < period) return null
+        val multiplier = 2.0 / (period + 1.0)
+        var current = values.first()
+        values.drop(1).forEach { value ->
+            current += (value - current) * multiplier
+        }
+        return current
+    }
+
     fun rsi(
         closes: List<Double>,
         period: Int,

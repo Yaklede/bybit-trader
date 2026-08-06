@@ -37,10 +37,14 @@ data class SignalIntent(
     val score: SignalScore,
     val invalidationPrice: Price,
     val expectedR: BigDecimal,
+    val entryAnchoredStopDistance: BigDecimal? = null,
 ) {
     init {
         require(strategy.isNotBlank()) { "Strategy must not be blank." }
         require(expectedR > BigDecimal.ZERO) { "Expected R must be positive." }
+        require(entryAnchoredStopDistance == null || entryAnchoredStopDistance > BigDecimal.ZERO) {
+            "Entry-anchored stop distance must be positive when configured."
+        }
     }
 }
 

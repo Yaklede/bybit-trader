@@ -8,7 +8,6 @@ import dev.yaklede.bybittrader.domain.SignalScore
 import dev.yaklede.bybittrader.strategy.indicators.Indicators
 import java.math.BigDecimal
 import kotlin.math.max
-import kotlin.math.min
 
 /** Research-only port of the predeclared multi-horizon momentum candidate. */
 class MultiHorizonMomentumStrategy(
@@ -35,19 +34,13 @@ class MultiHorizonMomentumStrategy(
         val atr = Indicators.atr(candles, parameters.atrPeriod) ?: return StrategyDecision.noTrade("NO_ATR")
         if (atr <= 0.0) return StrategyDecision.noTrade("INVALID_ATR")
 
-        val referencePrice = latest.close.toDouble()
         val atrDistance = atr * parameters.stopAtr
         val structuralStop =
             when (direction) {
                 Side.BUY -> latest.low.toDouble()
                 Side.SELL -> latest.high.toDouble()
             }
-        val invalidationPrice =
-            when (direction) {
-                Side.BUY -> min(structuralStop, referencePrice - atrDistance)
-                Side.SELL -> max(structuralStop, referencePrice + atrDistance)
-            }
-        if (invalidationPrice <= 0.0) return StrategyDecision.noTrade("INVALID_STOP_PRICE")
+        if (structuralStop <= 0.0) return StrategyDecision.noTrade("INVALID_STOP_PRICE")
 
         val reasons =
             parameters.momentumLookbackCandles.mapIndexed { index, lookback ->
@@ -60,8 +53,9 @@ class MultiHorizonMomentumStrategy(
                     side = direction,
                     strategy = name,
                     score = SignalScore(total = 85, reasonCodes = reasons),
-                    invalidationPrice = Price(BigDecimal.valueOf(invalidationPrice)),
+                    invalidationPrice = Price(BigDecimal.valueOf(structuralStop)),
                     expectedR = BigDecimal.valueOf(parameters.expectedR),
+                    entryAnchoredStopDistance = BigDecimal.valueOf(atrDistance),
                 ),
             reasonCodes = reasons,
         )
@@ -110,13 +104,10 @@ class MultiHorizonMomentumStrategy(
         endExclusive: Int = candles.size,
     ): Double? {
         if (endExclusive < period || endExclusive > candles.size) return null
-        val multiplier = 2.0 / (period + 1.0)
-        var current = candles.take(period).map { it.close.toDouble() }.average()
-        for (index in period until endExclusive) {
-            val value = candles[index].close.toDouble()
-            current = ((value - current) * multiplier) + current
-        }
-        return current
+        return Indicators.emaFromFirstClose(
+            values = candles.subList(0, endExclusive).map { it.close.toDouble() },
+            period = period,
+        )
     }
 }
 

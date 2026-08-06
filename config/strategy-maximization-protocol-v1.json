@@ -20,8 +20,16 @@
     "profileId": "multi-horizon-momentum-development-v1",
     "candidateCount": 108,
     "status": "RESEARCH_ONLY",
-    "validationStatus": "UNVERIFIED",
+    "validationStatus": "REJECTED",
+    "rejectionReason": "FAILED_EXTERNAL_VALIDATION",
     "automaticExecutionAllowed": false
+  },
+  "currentResearchProfile": {
+    "profileId": "multi-horizon-momentum-development-v2",
+    "executionContract": "causal-next-contiguous-open-v2",
+    "validationStatus": "UNVERIFIED",
+    "automaticExecutionAllowed": false,
+    "tradeParityEvidence": "build/multi-horizon-momentum-parity-v2/parity-report.json"
   },
   "selectionPolicy": {
     "dailyCompoundReturnIsSearchObjective": false,
