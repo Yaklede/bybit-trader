@@ -21,6 +21,10 @@ const analysisContract = JSON.parse(await fs.readFile(
   path.join(repositoryRoot, "config/bybit-event-flow-development-analysis-v1.json"),
   "utf8",
 ));
+const analysisContractV2 = JSON.parse(await fs.readFile(
+  path.join(repositoryRoot, "config/bybit-event-flow-development-analysis-v2.json"),
+  "utf8",
+));
 
 test("frozen event-flow candidate IDs expand to exactly 32 unique trials", () => {
   const candidates = buildEventCandidates(protocol);
@@ -100,6 +104,36 @@ test("signal fills only at the next M1 open and a same-minute stop wins over tar
   assert.equal(result.trades[0].openedAt, "2024-01-02T00:01:00.000Z");
   assert.equal(result.trades[0].exitReason, "STOP");
   assert.ok(result.trades[0].netR < 0);
+});
+
+test("v2 widens a sub-floor stop to 0.4 percent and resizes instead of forcing the v1 raw ATR risk", () => {
+  const v1Candidate = buildEventCandidates(protocol, analysisContract)[0];
+  const v2Candidate = buildEventCandidates(protocol, analysisContractV2)[0];
+  const start = Date.parse("2024-01-02T00:00:00Z");
+  const signal = signalRow({ openedAtMs: start, closeTimeMs: start + 60_000, atr: 0.01 });
+  const next = signalRow({
+    openedAtMs: start + 60_000,
+    closeTimeMs: start + 120_000,
+    open: 100,
+    high: 101,
+    low: 99,
+    close: 100,
+    takerDirection: "NEUTRAL",
+    takerImbalance: 0,
+  });
+  const block = {
+    id: "T03",
+    era: "TEST",
+    replayStartAt: "2024-01-02T00:00:00Z",
+    replayEndAt: "2024-01-02T00:02:00Z",
+    rows: [signal, next],
+  };
+  assert.equal(simulateEventCandidateBlock(v1Candidate, block, protocol.executionContract).trades.length, 0);
+  const v2 = simulateEventCandidateBlock(v2Candidate, block, protocol.executionContract);
+  assert.match(v2Candidate.id, /^sf04_/);
+  assert.equal(v2.trades.length, 1);
+  assert.equal(v2.trades[0].rawTriggerRiskPct < 0.004, true);
+  assert.equal(v2.trades[0].effectiveTriggerRiskPct, 0.004);
 });
 
 test("an empty frozen replay rejects both families and cannot unlock later data", () => {

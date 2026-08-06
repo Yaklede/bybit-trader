@@ -7,11 +7,14 @@ import { validateAnalysisContract } from "../event-flow-development-analysis-con
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 
-export function buildEventCandidates(protocol) {
+export function buildEventCandidates(protocol, analysisContract = null) {
   validateEventFlowProtocol(protocol);
+  if (analysisContract != null) validateAnalysisContract(analysisContract);
+  const v2 = analysisContract?.analysisId === "bybit-event-flow-development-analysis-v2";
   const candidates = expandEventFlowCandidates(protocol).map((candidate) => ({
-    id: candidateId(candidate),
+    id: `${v2 ? analysisContract.candidateSet.candidateIdPrefix : ""}${candidateId(candidate)}`,
     ...candidate,
+    minimumEffectiveStopFloorPct: v2 ? analysisContract.executionRepair.minimumStopFloorPct : null,
   }));
   if (new Set(candidates.map((candidate) => candidate.id)).size !== candidates.length) {
     throw new Error("Event-flow candidate IDs must be unique.");
@@ -488,7 +491,10 @@ function fillPending(state, candidate, row, contract, blockId) {
 function buildPosition(state, candidate, signal, row, contract, blockId) {
   const side = signal.orderSide;
   const entryPrice = adverseEntryFill(row.open, side, contract.entrySlippageRate);
-  const triggerRiskPerUnit = signal.atr * candidate.initialStopAtr;
+  const rawTriggerRiskPerUnit = signal.atr * candidate.initialStopAtr;
+  const triggerRiskPerUnit = candidate.minimumEffectiveStopFloorPct == null
+    ? rawTriggerRiskPerUnit
+    : Math.max(rawTriggerRiskPerUnit, entryPrice * candidate.minimumEffectiveStopFloorPct);
   const triggerRiskPct = triggerRiskPerUnit / entryPrice;
   if (triggerRiskPct < contract.minimumInitialRiskPct || triggerRiskPct > contract.maximumInitialRiskPct) return null;
   const stopPrice = side === "BUY" ? entryPrice - triggerRiskPerUnit : entryPrice + triggerRiskPerUnit;
@@ -511,6 +517,7 @@ function buildPosition(state, candidate, signal, row, contract, blockId) {
     signal,
     openedAtMs: row.openedAtMs,
     entryPrice,
+    rawTriggerRiskPerUnit,
     triggerRiskPerUnit,
     riskAmount,
     quantity,
@@ -583,6 +590,8 @@ function closePosition(state, triggerPrice, closedAtMs, reason, contract) {
     closedAtMs,
     exitReason: reason,
     entryPrice: round(position.entryPrice),
+    rawTriggerRiskPct: round(position.rawTriggerRiskPerUnit / position.entryPrice),
+    effectiveTriggerRiskPct: round(position.triggerRiskPerUnit / position.entryPrice),
     exitPrice: round(exitPrice),
     stopPrice: round(position.stopPrice),
     targetPrice: round(position.targetPrice),
