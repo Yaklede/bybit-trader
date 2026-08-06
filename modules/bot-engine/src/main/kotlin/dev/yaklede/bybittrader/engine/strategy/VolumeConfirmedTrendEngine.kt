@@ -1,0 +1,443 @@
+package dev.yaklede.bybittrader.engine.strategy
+
+import dev.yaklede.bybittrader.domain.Candle
+import dev.yaklede.bybittrader.domain.Side
+import dev.yaklede.bybittrader.domain.Timeframe
+import java.time.Duration
+import java.time.Instant
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.round
+import kotlin.math.sign
+
+private const val H4_SECONDS = 4L * 60L * 60L
+private const val M15_SECONDS = 15L * 60L
+private const val ROUND_EPSILON = 1e-12
+
+data class VolumeConfirmedTrendEmaPair(
+    val fast: Int,
+    val slow: Int,
+) {
+    init {
+        require(fast >= 1 && slow > fast) { "Trend EMA periods must satisfy 1 <= fast < slow." }
+    }
+}
+
+data class VolumeConfirmedTrendParameters(
+    val emaVotePairs: List<VolumeConfirmedTrendEmaPair> =
+        listOf(
+            VolumeConfirmedTrendEmaPair(3, 72),
+            VolumeConfirmedTrendEmaPair(6, 42),
+            VolumeConfirmedTrendEmaPair(18, 180),
+            VolumeConfirmedTrendEmaPair(42, 180),
+            VolumeConfirmedTrendEmaPair(42, 540),
+        ),
+    val minimumMajorityVotes: Int = 3,
+    val volumeMedianLookbackBars: Int = 42,
+    val executionDelayBars: Int = 1,
+    val warmupDecisionBars: Int = 540,
+) {
+    init {
+        require(emaVotePairs.isNotEmpty() && emaVotePairs.size % 2 == 1) {
+            "Trend EMA vote pairs must contain an odd number of entries."
+        }
+        require(minimumMajorityVotes > emaVotePairs.size / 2 && minimumMajorityVotes <= emaVotePairs.size) {
+            "Trend minimum majority must be a strict majority."
+        }
+        require(volumeMedianLookbackBars >= 1) { "Trend volume median lookback must be positive." }
+        require(executionDelayBars == 1) { "Frozen trend execution delay must be one H4 bar." }
+        require(warmupDecisionBars >= emaVotePairs.maxOf { it.slow }) {
+            "Trend warmup must cover the longest EMA."
+        }
+    }
+}
+
+data class VolumeConfirmedTrendExecutionContract(
+    val targetExposureFraction: Double = 0.65,
+    val maximumRoundedExposureFraction: Double = 0.85,
+    val quantityStepBtc: Double = 0.001,
+    val minimumQuantityBtc: Double = 0.001,
+    val absoluteMaximumNotionalUsdt: Double? = null,
+    val oneWayFeeRate: Double = 0.0006,
+    val oneWaySlippageRate: Double = 0.0002,
+) {
+    init {
+        require(targetExposureFraction > 0.0 && targetExposureFraction <= maximumRoundedExposureFraction) {
+            "Trend target exposure must be positive and no greater than its rounded ceiling."
+        }
+        require(maximumRoundedExposureFraction in 0.0..1.0 && maximumRoundedExposureFraction < 1.0) {
+            "Trend rounded exposure ceiling must be below one."
+        }
+        require(quantityStepBtc > 0.0 && minimumQuantityBtc > 0.0) {
+            "Trend quantity step and minimum must be positive."
+        }
+        require(absoluteMaximumNotionalUsdt == null || absoluteMaximumNotionalUsdt > 0.0) {
+            "Trend absolute maximum notional must be positive when configured."
+        }
+        require(oneWayFeeRate >= 0.0 && oneWaySlippageRate >= 0.0) {
+            "Trend costs must not be negative."
+        }
+    }
+}
+
+data class VolumeConfirmedTrendBar(
+    val openedAt: Instant,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val volume: Double,
+) {
+    init {
+        require(open > 0.0 && high > 0.0 && low > 0.0 && close > 0.0) { "Trend OHLC must be positive." }
+        require(high >= max(open, close) && low <= min(open, close) && high >= low) { "Trend OHLC is invalid." }
+        require(volume >= 0.0) { "Trend volume must not be negative." }
+        require(openedAt.epochSecond % H4_SECONDS == 0L && openedAt.nano == 0) {
+            "Trend H4 bar must open on a UTC four-hour boundary."
+        }
+    }
+}
+
+data class VolumeConfirmedTrendCommand(
+    val side: Side,
+    val decisionAt: Instant,
+    val executionAt: Instant,
+    val decisionIndex: Int,
+    val executionIndex: Int,
+    val netVotes: Int,
+    val decisionVolume: Double,
+    val priorVolumeMedian: Double,
+)
+
+object VolumeConfirmedTrendEngine {
+    fun aggregateM15(candles: List<Candle>): List<VolumeConfirmedTrendBar> {
+        require(candles.isNotEmpty()) { "M15 trend evidence is empty." }
+        val ordered = candles.sortedBy(Candle::openedAt)
+        require(ordered.all { it.timeframe == Timeframe.M15 }) { "Trend aggregation requires M15 candles." }
+        ordered.zipWithNext().forEach { (previous, current) ->
+            require(current.openedAt.isAfter(previous.openedAt)) { "M15 trend evidence must be strictly ordered." }
+        }
+        val groups = ordered.groupBy { candle -> h4Bucket(candle.openedAt) }.toSortedMap()
+        val entries = groups.entries.toList()
+        val bars = mutableListOf<VolumeConfirmedTrendBar>()
+        entries.forEachIndexed { groupIndex, (openedAt, group) ->
+            val boundaryPartial = groupIndex == 0 || groupIndex == entries.lastIndex
+            if (group.size != 16) {
+                if (boundaryPartial) return@forEachIndexed
+                error("Incomplete internal H4 bucket at $openedAt: ${group.size} bars.")
+            }
+            group.forEachIndexed { index, candle ->
+                val expected = openedAt.plusSeconds(index * M15_SECONDS)
+                require(candle.openedAt == expected) { "Non-contiguous M15 evidence at $expected." }
+            }
+            bars +=
+                VolumeConfirmedTrendBar(
+                    openedAt = openedAt,
+                    open = group.first().open.toDouble(),
+                    high = group.maxOf { it.high.toDouble() },
+                    low = group.minOf { it.low.toDouble() },
+                    close = group.last().close.toDouble(),
+                    volume = group.sumOf { it.volume.toDouble() },
+                )
+        }
+        require(bars.isNotEmpty()) { "M15 trend evidence contains no complete H4 bars." }
+        requireContiguousH4(bars)
+        return bars
+    }
+
+    fun commands(
+        bars: List<VolumeConfirmedTrendBar>,
+        parameters: VolumeConfirmedTrendParameters = VolumeConfirmedTrendParameters(),
+    ): List<VolumeConfirmedTrendCommand?> {
+        require(bars.size >= parameters.warmupDecisionBars + parameters.executionDelayBars) {
+            "Trend evidence is shorter than the configured warmup."
+        }
+        requireContiguousH4(bars)
+        val states = parameters.emaVotePairs.map { EmaState() }
+        val commands = MutableList<VolumeConfirmedTrendCommand?>(bars.size) { null }
+        var targetSide: Side? = null
+        bars.forEachIndexed { index, bar ->
+            val votes =
+                parameters.emaVotePairs.mapIndexed { pairIndex, pair ->
+                    states[pairIndex].vote(bar.close, pair)
+                }
+            if (index + 1 < parameters.warmupDecisionBars) return@forEachIndexed
+            val positiveVotes = votes.count { it > 0 }
+            val negativeVotes = votes.count { it < 0 }
+            val desiredSide =
+                when {
+                    positiveVotes >= parameters.minimumMajorityVotes -> Side.BUY
+                    negativeVotes >= parameters.minimumMajorityVotes -> Side.SELL
+                    else -> targetSide
+                }
+            if (desiredSide == null || desiredSide == targetSide) return@forEachIndexed
+            val volumeStart = index - parameters.volumeMedianLookbackBars
+            if (volumeStart < 0) return@forEachIndexed
+            val priorMedian = median(bars.subList(volumeStart, index).map(VolumeConfirmedTrendBar::volume))
+            if (bar.volume < priorMedian) return@forEachIndexed
+            val executionIndex = index + parameters.executionDelayBars
+            if (executionIndex >= bars.size) return@forEachIndexed
+            targetSide = desiredSide
+            check(commands[executionIndex] == null) { "Trend command collision detected." }
+            commands[executionIndex] =
+                VolumeConfirmedTrendCommand(
+                    side = desiredSide,
+                    decisionAt = bar.openedAt.plusSeconds(H4_SECONDS),
+                    executionAt = bars[executionIndex].openedAt,
+                    decisionIndex = index,
+                    executionIndex = executionIndex,
+                    netVotes = positiveVotes - negativeVotes,
+                    decisionVolume = bar.volume,
+                    priorVolumeMedian = priorMedian,
+                )
+        }
+        return commands
+    }
+
+    fun quantity(
+        equity: Double,
+        price: Double,
+        contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+    ): Double {
+        require(equity > 0.0 && price > 0.0) { "Trend quantity equity and price must be positive." }
+        val absoluteMaximum = contract.absoluteMaximumNotionalUsdt ?: Double.POSITIVE_INFINITY
+        val targetNotional = min(equity * contract.targetExposureFraction, absoluteMaximum)
+        val maximumNotional = min(equity * contract.maximumRoundedExposureFraction, absoluteMaximum)
+        var quantity = floorStep(targetNotional / price, contract.quantityStepBtc)
+        if (quantity + ROUND_EPSILON < contract.minimumQuantityBtc &&
+            contract.minimumQuantityBtc * price <= maximumNotional + 1e-9
+        ) {
+            quantity = contract.minimumQuantityBtc
+        }
+        if (quantity + ROUND_EPSILON < contract.minimumQuantityBtc || quantity * price > maximumNotional + 1e-9) {
+            return 0.0
+        }
+        return round12(quantity)
+    }
+
+    private fun requireContiguousH4(bars: List<VolumeConfirmedTrendBar>) {
+        bars.zipWithNext().forEach { (previous, current) ->
+            require(current.openedAt == previous.openedAt.plusSeconds(H4_SECONDS)) {
+                "H4 trend evidence gap before ${current.openedAt}."
+            }
+        }
+    }
+
+    private fun h4Bucket(value: Instant): Instant = Instant.ofEpochSecond((value.epochSecond / H4_SECONDS) * H4_SECONDS)
+
+    private class EmaState {
+        private var fast: Double? = null
+        private var slow: Double? = null
+
+        fun vote(
+            close: Double,
+            pair: VolumeConfirmedTrendEmaPair,
+        ): Int {
+            fast = nextEma(fast, close, pair.fast)
+            slow = nextEma(slow, close, pair.slow)
+            return (fast!! - slow!!).sign.toInt()
+        }
+    }
+}
+
+data class VolumeConfirmedTrendFundingRate(
+    val timestamp: Instant,
+    val rate: Double,
+)
+
+data class VolumeConfirmedTrendTrade(
+    val side: Side,
+    val quantity: Double,
+    val entryAt: Instant,
+    val exitAt: Instant,
+    val entryPrice: Double,
+    val exitPrice: Double,
+    val grossPnl: Double,
+    val fundingPnl: Double,
+    val fees: Double,
+    val netPnl: Double,
+    val reason: String,
+)
+
+data class VolumeConfirmedTrendSimulation(
+    val startingEquity: Double,
+    val endingEquity: Double,
+    val maximumConservativeIntrabarDrawdownPct: Double,
+    val maximumEntryExposureFraction: Double,
+    val maximumAdverseExposureFraction: Double,
+    val totalFees: Double,
+    val totalSlippage: Double,
+    val totalFundingPnl: Double,
+    val liquidationCount: Int,
+    val firstActiveAt: Instant?,
+    val evaluationEndAt: Instant,
+    val trades: List<VolumeConfirmedTrendTrade>,
+) {
+    val netReturnPct: Double = ((endingEquity / startingEquity) - 1.0) * 100.0
+    val compoundDailyReturnPct: Double =
+        firstActiveAt?.let { start ->
+            val days = Duration.between(start, evaluationEndAt).seconds / 86_400.0
+            if (days <= 0.0 || endingEquity <= 0.0) -100.0 else ((endingEquity / startingEquity).pow(1.0 / days) - 1.0) * 100.0
+        } ?: 0.0
+}
+
+object VolumeConfirmedTrendSimulator {
+    fun run(
+        bars: List<VolumeConfirmedTrendBar>,
+        fundingRates: List<VolumeConfirmedTrendFundingRate>,
+        commands: List<VolumeConfirmedTrendCommand?>,
+        startingEquity: Double,
+        costMultiplier: Double,
+        contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+    ): VolumeConfirmedTrendSimulation {
+        require(bars.isNotEmpty() && commands.size == bars.size) { "Trend simulation evidence and commands must align." }
+        require(startingEquity > 0.0 && costMultiplier >= 1.0) { "Trend simulation capital and cost multiplier are invalid." }
+        val feeRate = contract.oneWayFeeRate * costMultiplier
+        val slippageRate = contract.oneWaySlippageRate * costMultiplier
+        val fundingByTimestamp = fundingRates.associate { funding -> funding.timestamp to funding.rate }
+        var cash = startingEquity
+        var position: MutablePosition? = null
+        var peakEquity = startingEquity
+        var maximumDrawdown = 0.0
+        var maximumEntryExposure = 0.0
+        var maximumAdverseExposure = 0.0
+        var totalFees = 0.0
+        var totalSlippage = 0.0
+        var totalFunding = 0.0
+        var liquidationCount = 0
+        var firstActiveAt: Instant? = null
+        val trades = mutableListOf<VolumeConfirmedTrendTrade>()
+
+        fun markEquity(price: Double): Double =
+            cash + (position?.let { it.side.sign * it.quantity * (price - it.entryPrice) } ?: 0.0)
+
+        fun closePosition(
+            referencePrice: Double,
+            at: Instant,
+            reason: String,
+        ) {
+            val current = position ?: return
+            val exitPrice = referencePrice * (1.0 - current.side.sign * slippageRate)
+            val grossPnl = current.side.sign * current.quantity * (exitPrice - current.entryPrice)
+            val fee = current.quantity * exitPrice * feeRate
+            val slippage = current.quantity * abs(exitPrice - referencePrice)
+            cash += grossPnl - fee
+            totalFees += fee
+            totalSlippage += slippage
+            trades +=
+                VolumeConfirmedTrendTrade(
+                    side = current.side,
+                    quantity = current.quantity,
+                    entryAt = current.entryAt,
+                    exitAt = at,
+                    entryPrice = current.entryPrice,
+                    exitPrice = exitPrice,
+                    grossPnl = grossPnl,
+                    fundingPnl = current.fundingPnl,
+                    fees = current.entryFee + fee,
+                    netPnl = grossPnl + current.fundingPnl - current.entryFee - fee,
+                    reason = reason,
+                )
+            position = null
+        }
+
+        bars.forEachIndexed { index, bar ->
+            val fundingRate = fundingByTimestamp[bar.openedAt] ?: 0.0
+            position?.let { current ->
+                if (fundingRate != 0.0) {
+                    val fundingPnl = -current.side.sign * current.quantity * bar.open * fundingRate
+                    cash += fundingPnl
+                    current.fundingPnl += fundingPnl
+                    totalFunding += fundingPnl
+                }
+            }
+            val command = commands[index]
+            if (command != null && command.side != position?.side) {
+                closePosition(bar.open, bar.openedAt, "OPPOSITE_VOLUME_CONFIRMED_TREND")
+                val equityBeforeEntry = cash
+                val entryPrice = bar.open * (1.0 + command.side.sign * slippageRate)
+                val quantity = VolumeConfirmedTrendEngine.quantity(equityBeforeEntry, entryPrice, contract)
+                if (quantity > 0.0) {
+                    maximumEntryExposure = max(maximumEntryExposure, quantity * entryPrice / equityBeforeEntry)
+                    val fee = quantity * entryPrice * feeRate
+                    val slippage = quantity * abs(entryPrice - bar.open)
+                    cash -= fee
+                    totalFees += fee
+                    totalSlippage += slippage
+                    position = MutablePosition(command.side, quantity, entryPrice, bar.openedAt, fee)
+                    if (firstActiveAt == null) firstActiveAt = bar.openedAt
+                }
+            }
+            val openEquity = markEquity(bar.open)
+            position?.let { current ->
+                val favorablePrice = if (current.side == Side.BUY) bar.high else bar.low
+                val adversePrice = if (current.side == Side.BUY) bar.low else bar.high
+                val favorableEquity = markEquity(favorablePrice)
+                val adverseEquity = markEquity(adversePrice)
+                peakEquity = max(peakEquity, max(openEquity, favorableEquity))
+                if (adverseEquity <= 0.0) liquidationCount += 1
+                maximumAdverseExposure =
+                    max(maximumAdverseExposure, current.quantity * bar.open / max(adverseEquity, 1e-12))
+                maximumDrawdown =
+                    max(maximumDrawdown, if (peakEquity <= 0.0) 100.0 else ((peakEquity - adverseEquity) / peakEquity) * 100.0)
+            }
+            val closeEquity = markEquity(bar.close)
+            peakEquity = max(peakEquity, closeEquity)
+        }
+        val finalBar = bars.last()
+        closePosition(finalBar.close, finalBar.openedAt.plusSeconds(H4_SECONDS), "EVIDENCE_END")
+        return VolumeConfirmedTrendSimulation(
+            startingEquity = startingEquity,
+            endingEquity = cash,
+            maximumConservativeIntrabarDrawdownPct = maximumDrawdown,
+            maximumEntryExposureFraction = maximumEntryExposure,
+            maximumAdverseExposureFraction = maximumAdverseExposure,
+            totalFees = totalFees,
+            totalSlippage = totalSlippage,
+            totalFundingPnl = totalFunding,
+            liquidationCount = liquidationCount,
+            firstActiveAt = firstActiveAt,
+            evaluationEndAt = finalBar.openedAt.plusSeconds(H4_SECONDS),
+            trades = trades,
+        )
+    }
+
+    private data class MutablePosition(
+        val side: Side,
+        val quantity: Double,
+        val entryPrice: Double,
+        val entryAt: Instant,
+        val entryFee: Double,
+        var fundingPnl: Double = 0.0,
+    )
+}
+
+private val Side.sign: Int
+    get() = if (this == Side.BUY) 1 else -1
+
+private fun nextEma(
+    previous: Double?,
+    value: Double,
+    period: Int,
+): Double {
+    if (previous == null) return value
+    val alpha = 2.0 / (period + 1.0)
+    return alpha * value + (1.0 - alpha) * previous
+}
+
+private fun median(values: List<Double>): Double {
+    require(values.isNotEmpty()) { "Median requires at least one value." }
+    val sorted = values.sorted()
+    val middle = sorted.size / 2
+    return if (sorted.size % 2 == 1) sorted[middle] else (sorted[middle - 1] + sorted[middle]) / 2.0
+}
+
+private fun floorStep(
+    value: Double,
+    step: Double,
+): Double = floor((value + ROUND_EPSILON) / step) * step
+
+private fun round12(value: Double): Double = round((value + Math.ulp(1.0)) * 1e12) / 1e12
