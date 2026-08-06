@@ -4,6 +4,9 @@ import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.position.CausalEntryPlanRequest
+import dev.yaklede.bybittrader.engine.position.CausalEntryPlanner
+import dev.yaklede.bybittrader.engine.position.CausalEntryPolicyConfig
 import dev.yaklede.bybittrader.engine.position.CausalPositionExitReason
 import dev.yaklede.bybittrader.engine.position.CausalPositionOpenRequest
 import dev.yaklede.bybittrader.engine.position.CausalPositionPolicy
@@ -43,6 +46,16 @@ class BacktestRunner(
         val noTradeReasonCounts = mutableMapOf<String, Int>()
         val trades = mutableListOf<BacktestTrade>()
         val tradesByUtcDay = mutableMapOf<java.time.LocalDate, Int>()
+        val entryPlanner =
+            CausalEntryPlanner(
+                CausalEntryPolicyConfig(
+                    riskFraction = config.riskFraction,
+                    entrySlippageRate = config.slippageRate,
+                    maxTradesPerUtcDay = config.maxTradesPerUtcDay,
+                    minimumEntryRiskFraction = config.minimumEntryRiskFraction,
+                    maximumEntryRiskFraction = config.maximumEntryRiskFraction,
+                ),
+            )
         val firstReplayIndex =
             config.replayStartAt?.let { replayStartAt ->
                 sortedCandles.indexOfFirst { !it.openedAt.isBefore(replayStartAt) }
@@ -80,57 +93,25 @@ class BacktestRunner(
                 continue
             }
             val entryCandle = entryFill.candle
-            val entryPrice = entryFill.effectivePrice
             val entryUtcDay = entryCandle.openedAt.atZone(ZoneOffset.UTC).toLocalDate()
             val dayTrades = tradesByUtcDay[entryUtcDay] ?: 0
-            if (config.maxTradesPerUtcDay != null && dayTrades >= config.maxTradesPerUtcDay) {
+            val entryResult =
+                entryPlanner.plan(
+                    CausalEntryPlanRequest(
+                        signal = signal,
+                        signalAt = decisionCandle.openedAt,
+                        entryCandle = entryCandle,
+                        equity = equity,
+                        entriesOnEntryUtcDay = dayTrades,
+                    ),
+                )
+            val entryPlan = entryResult.plan
+            if (entryPlan == null) {
                 skippedSignals += 1
-                listOf("MAX_TRADES_PER_UTC_DAY").incrementReasons(noTradeReasonCounts)
+                listOf(requireNotNull(entryResult.rejectionReason)).incrementReasons(noTradeReasonCounts)
                 index += 1
                 continue
             }
-            val structuralStopPrice = signal.invalidationPrice.value.toDouble()
-            val initialStopPrice =
-                signal.entryAnchoredStopDistance?.toDouble()?.let { stopDistance ->
-                    when (signal.side) {
-                        Side.BUY -> minOf(structuralStopPrice, entryPrice - stopDistance)
-                        Side.SELL -> maxOf(structuralStopPrice, entryPrice + stopDistance)
-                    }
-                } ?: structuralStopPrice
-            val directionalStopIsValid =
-                when (signal.side) {
-                    Side.BUY -> initialStopPrice > 0.0 && initialStopPrice < entryPrice
-                    Side.SELL -> initialStopPrice > entryPrice
-                }
-            if (!directionalStopIsValid) {
-                skippedSignals += 1
-                listOf("INVALID_STOP_DIRECTION").incrementReasons(noTradeReasonCounts)
-                index += 1
-                continue
-            }
-            val riskPerUnit = abs(entryPrice - initialStopPrice)
-            if (riskPerUnit <= 0.0) {
-                skippedSignals += 1
-                listOf("INVALID_RISK_DISTANCE").incrementReasons(noTradeReasonCounts)
-                index += 1
-                continue
-            }
-            val entryRiskFraction = riskPerUnit / entryPrice
-            if (config.minimumEntryRiskFraction != null && entryRiskFraction < config.minimumEntryRiskFraction) {
-                skippedSignals += 1
-                listOf("ENTRY_RISK_BELOW_MINIMUM").incrementReasons(noTradeReasonCounts)
-                index += 1
-                continue
-            }
-            if (config.maximumEntryRiskFraction != null && entryRiskFraction > config.maximumEntryRiskFraction) {
-                skippedSignals += 1
-                listOf("ENTRY_RISK_ABOVE_MAXIMUM").incrementReasons(noTradeReasonCounts)
-                index += 1
-                continue
-            }
-
-            val riskAmount = equity * config.riskFraction
-            val quantity = riskAmount / riskPerUnit
             val plannedExitIndex = minOf(entryIndex + config.maxHoldCandles, lastReplayIndex)
             val exit =
                 simulateExit(
@@ -138,23 +119,23 @@ class BacktestRunner(
                     side = signal.side,
                     entryIndex = entryIndex,
                     plannedExitIndex = plannedExitIndex,
-                    entryPrice = entryPrice,
-                    initialStopPrice = initialStopPrice,
-                    riskPerUnit = riskPerUnit,
-                    expectedR = signal.expectedR.toDouble(),
-                    quantity = quantity,
+                    entryPrice = entryPlan.entryPrice,
+                    initialStopPrice = entryPlan.initialStopPrice,
+                    riskPerUnit = entryPlan.riskPerUnit,
+                    expectedR = entryPlan.expectedR,
+                    quantity = entryPlan.quantity,
                     config = config,
                 )
             val finalExitPrice = CausalReplay.applyExitSlippage(signal.side, exit.finalExitPrice, config.exitSlippageRate)
-            val finalGrossPnl = grossPnl(signal.side, entryPrice, finalExitPrice, exit.remainingQuantity)
+            val finalGrossPnl = grossPnl(signal.side, entryPlan.entryPrice, finalExitPrice, exit.remainingQuantity)
             val grossPnl = exit.partialGrossPnl + finalGrossPnl
-            val entryFees = entryPrice * quantity * config.feeRate
+            val entryFees = entryPlan.entryPrice * entryPlan.quantity * config.feeRate
             val finalFees = finalExitPrice * exit.remainingQuantity * config.feeRate
             val fees = entryFees + exit.partialFees + finalFees
             val fundingCost =
                 fundingCost(
                     side = signal.side,
-                    notional = entryPrice * quantity,
+                    notional = entryPlan.entryPrice * entryPlan.quantity,
                     entryAt = entryCandle.openedAt,
                     exitAt = sortedCandles[exit.finalExitIndex].openedAt,
                     fundingRatePer8h = config.fundingRatePer8h,
@@ -169,18 +150,18 @@ class BacktestRunner(
                     signalAt = decisionCandle.openedAt,
                     entryAt = entryCandle.openedAt,
                     exitAt = sortedCandles[exit.finalExitIndex].openedAt,
-                    entryPrice = entryPrice,
-                    initialStopPrice = initialStopPrice,
+                    entryPrice = entryPlan.entryPrice,
+                    initialStopPrice = entryPlan.initialStopPrice,
                     targetPrice = exit.targetPrice,
                     exitTriggerPrice = exit.finalExitPrice,
                     exitPrice = finalExitPrice,
-                    quantity = quantity,
+                    quantity = entryPlan.quantity,
                     remainingQuantity = exit.remainingQuantity,
                     grossPnl = grossPnl,
                     fees = fees,
                     fundingCost = fundingCost,
                     pnl = pnl,
-                    returnR = pnl / riskAmount,
+                    returnR = pnl / entryPlan.riskAmount,
                     equityAfter = equity,
                     exitReason = exit.finalExitReason,
                     partialTakeProfitAt = exit.partialTakeProfitAt,
