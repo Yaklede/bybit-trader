@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-funding-persistence-diagnostic-result-v1",
+  "programStatus": "CLOSED_NO_FUNDING_PERSISTENCE_FOR_CARRY_V4",
+  "protocol": {
+    "path": "config/bybit-funding-persistence-diagnostic-v1.json",
+    "sha256": "bc2e0e23bae9e5c6648f1997bd56986db6fcd7e8adf6fe2cb73b45f029209e20"
+  },
+  "sourceReportSha256": "0f12dbb161eb1066fc4074404d6353bf590ca6df480abb54455def87be5b1392",
+  "primaryWindow": {
+    "trailingSettlements": 90,
+    "forwardSettlements": 90,
+    "anchorStrideSettlements": 90,
+    "baseRoundTripCostRate": 0.0041
+  },
+  "symbols": {
+    "BTCUSDT": {
+      "anchoredPearsonCorrelation": 0.43033313,
+      "developmentHighPersistenceThreshold": 0.00941314,
+      "developmentHighPersistenceObservationCount": 7,
+      "developmentCostRecoveryRate": 1,
+      "diagnosticHighPersistenceObservationCount": 0,
+      "diagnosticCostRecoveryRate": 0
+    },
+    "ETHUSDT": {
+      "anchoredPearsonCorrelation": 0.47709914,
+      "developmentHighPersistenceThreshold": 0.0095397,
+      "developmentHighPersistenceObservationCount": 7,
+      "developmentCostRecoveryRate": 1,
+      "diagnosticHighPersistenceObservationCount": 0,
+      "diagnosticCostRecoveryRate": 0
+    },
+    "SOLUSDT": {
+      "anchoredPearsonCorrelation": 0.38230523,
+      "developmentHighPersistenceThreshold": 0.01145076,
+      "developmentHighPersistenceObservationCount": 7,
+      "developmentCostRecoveryRate": 1,
+      "diagnosticHighPersistenceObservationCount": 0,
+      "diagnosticCostRecoveryRate": 0
+    }
+  },
+  "gate": {
+    "passed": false,
+    "eligibleSymbols": [],
+    "requiredEligibleSymbolCount": 2
+  },
+  "decision": {
+    "carryV4ResearchAllowed": false,
+    "longHorizonFundingFilterMayBeUsedAsNoTradeRiskFilter": true,
+    "riskFilterMayBePresentedAsProfitEvidence": false,
+    "makerShadowResearchIsNext": true
+  },
+  "evidenceBoundary": {
+    "development2023Through2025Read": true,
+    "diagnostic2026H1Read": true,
+    "future2026AfterH1Read": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
