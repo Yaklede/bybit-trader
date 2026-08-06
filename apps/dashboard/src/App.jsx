@@ -46,6 +46,11 @@ const ACTIVITY_SUMMARY_REFRESH_MS = 60000;
 const CLOSED_TRADES_REFRESH_MS = 30000;
 const SYNC_STATUS_REFRESH_MS = 30000;
 const STRATEGY_PROFILE_REFRESH_MS = 300000;
+const TREND_REVIEW_REFRESH_MS = 60000;
+const TREND_STATUS_MISSING = "UNAVAILABLE";
+const TREND_STATUS_SESSION_BLOCKED = "SHADOW_SESSION_FAILED";
+const TREND_EVENT_SESSION_RESET = "SESSION_INVALIDATED";
+const TREND_GATE_MISSING_VALUE = "UNAVAILABLE";
 
 const EMPTY_SUMMARY = {
   runtimeMode: "",
@@ -69,6 +74,20 @@ const EMPTY_STRATEGY_STATE = {
   activeProfileId: "",
   runtimeProfileId: "",
   profiles: [],
+};
+
+const EMPTY_TREND_APPROVAL = {
+  available: false,
+  status: TREND_STATUS_MISSING,
+  gates: [],
+  readyForHumanReview: false,
+  automaticExecutionAllowed: false,
+  liveExecutionAllowed: false,
+};
+
+const EMPTY_TREND_SHADOW = {
+  enabled: false,
+  recentEvents: [],
 };
 
 const EMPTY_MOBILE_SUMMARY = {
@@ -95,6 +114,8 @@ function App() {
   const [activeView, setActiveView] = useState("overview");
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
   const [strategyState, setStrategyState] = useState(EMPTY_STRATEGY_STATE);
+  const [trendApproval, setTrendApproval] = useState(EMPTY_TREND_APPROVAL);
+  const [trendShadow, setTrendShadow] = useState(EMPTY_TREND_SHADOW);
   const [mobileSummary, setMobileSummary] = useState(EMPTY_MOBILE_SUMMARY);
   const [livePerformance, setLivePerformance] = useState(false);
   const [closedTrades, setClosedTrades] = useState([]);
@@ -165,6 +186,12 @@ function App() {
       } else if (scope === "profiles") {
         value = await client.request("/strategy/profiles");
         setStrategyState(value || EMPTY_STRATEGY_STATE);
+      } else if (scope === "trendApproval") {
+        value = await client.request("/strategy/volume-confirmed-trend/approval");
+        setTrendApproval({ ...EMPTY_TREND_APPROVAL, ...(value || {}) });
+      } else if (scope === "trendShadow") {
+        value = await client.request("/strategy/volume-confirmed-trend/shadow?limit=40");
+        setTrendShadow({ ...EMPTY_TREND_SHADOW, ...(value || {}) });
       } else if (scope === "mobile") {
         value = await client.request(
           `/dashboard/mobile-summary?symbol=${encodeURIComponent(symbol)}&coin=${encodeURIComponent(coin)}&tradeLimit=20&signalLimit=20`,
@@ -283,6 +310,12 @@ function App() {
       scopeIsDue(lastFetchedAtRef.current, "profiles", STRATEGY_PROFILE_REFRESH_MS)
     ) {
       scopes.push("profiles");
+    }
+    if (activeView === "overview" && scopeIsDue(lastFetchedAtRef.current, "trendApproval", TREND_REVIEW_REFRESH_MS)) {
+      scopes.push("trendApproval");
+    }
+    if (activeView === "overview" && scopeIsDue(lastFetchedAtRef.current, "trendShadow", TREND_REVIEW_REFRESH_MS)) {
+      scopes.push("trendShadow");
     }
     void refreshData(scopes, { clearFeedback: true });
   }, [accessKey, activeView, apiBase, coin, refreshData, symbol]);
@@ -666,6 +699,13 @@ function App() {
                 <StateRow label="최근 종료 알림" value={formatDateTime(mobileSummary.alerts?.latestExitAlertAt)} />
               </dl>
             </section>
+
+            <TrendReviewSection
+              approval={trendApproval}
+              shadow={trendShadow}
+              isLoading={isLoading}
+              dataState={dataState}
+            />
 
             <section className="panel">
               <PanelHeader title="시장 흐름 수집" description="호가, 테이커 체결, 강제청산 데이터를 저장해 이후 전략 검증에 써요." />
@@ -1247,6 +1287,157 @@ function RiskMetric({ label, value, limit }) {
   );
 }
 
+function TrendReviewSection({ approval, shadow, isLoading, dataState }) {
+  const state = shadow?.state;
+  const gates = approval?.gates || [];
+  const meaningfulEvents = (shadow?.recentEvents || []).filter((event) => event.type !== "H4_EVALUATED");
+  const recentEvents = (meaningfulEvents.length > 0 ? meaningfulEvents : shadow?.recentEvents || []).slice(0, 8);
+  const tone = trendApprovalTone(approval?.status);
+  const StatusIcon = approval?.readyForHumanReview ? ShieldCheck : ShieldAlert;
+  const approvalMissing = !approval?.available;
+
+  return (
+    <section className={`panel full-width strategy-review ${tone}`} aria-labelledby="trend-review-title">
+      <PanelHeader
+        title="전진 검증"
+        description="고정된 과거 검증 결과와 새 관측 구간을 같은 기준으로 확인해요."
+        action={
+          <StatusBadge
+            label={approvalMissing ? "확인 전" : formatTrendApprovalStatus(approval.status)}
+            tone={approvalMissing ? "neutral" : tone}
+          />
+        }
+      />
+
+      {isLoading && approvalMissing ? (
+        <SkeletonRows columns={4} />
+      ) : approvalMissing ? (
+        <EmptyInline
+          title={emptyTitle(dataState)}
+          message={emptyMessage(
+            dataState,
+            "전략 검증 상태를 제공하지 않아요. API 배포 버전을 확인해 주세요.",
+            "새로고침하면 전략 검증 상태가 여기에 표시돼요.",
+          )}
+        />
+      ) : (
+        <>
+          <div className="strategy-review-banner" aria-live="polite">
+            <StatusIcon size={20} aria-hidden="true" />
+            <p>
+              <strong>{formatTrendApprovalStatus(approval.status)}</strong>
+              <span>{trendApprovalGuidance(approval.status)}</span>
+            </p>
+            <StatusBadge
+              label={approval.liveExecutionAllowed ? "실거래 허용됨" : "실거래 승인 안 됨"}
+              tone="danger"
+            />
+          </div>
+
+          <dl className="review-metrics">
+            <ReviewMetric label="검증 잔고" value={state ? formatMoney(state.equity) : "측정 전"} unit="USDT" />
+            <ReviewMetric
+              label="세션 수익률"
+              value={formatOptionalPercent(approval.sessionReturnPct, "측정 전")}
+              tone={numberTone(approval.sessionReturnPct)}
+            />
+            <ReviewMetric
+              label="관측 기간"
+              value={formatObservedDays(approval.observedCalendarDays)}
+              unit={formatGateRequirement(gates, "FRESH_SHADOW_DAYS")}
+            />
+            <ReviewMetric
+              label="최대 낙폭"
+              value={formatOptionalPercent(state?.maximumDrawdownPct, "측정 전")}
+              tone={findGateStatus(gates, "MAXIMUM_DRAWDOWN_PCT") === "FAIL" ? "negative" : "neutral"}
+            />
+            <ReviewMetric
+              label="종료 거래"
+              value={state ? `${formatCount(state.closedTrades)}회` : "측정 전"}
+              unit={formatGateRequirement(gates, "CLOSED_TRADES")}
+            />
+            <ReviewMetric label="현재 포지션" value={formatTrendPosition(state?.position)} />
+          </dl>
+
+          <dl className="review-meta detail-list compact">
+            <StateRow label="관측 상태" value={formatTrendShadowStatus(state?.status, shadow?.enabled)} />
+            <StateRow label="종료 거래 손익비" value={formatOptionalRatio(approval.closedTradeProfitFactor, "측정 전")} />
+            <StateRow label="최근 관측" value={formatDateTime(state?.lastObservedAt)} />
+            <StateRow label="검증 상태 갱신" value={formatDateTime(approval.evaluatedAt)} />
+          </dl>
+
+          <div className="review-tables">
+            <section className="review-table-block review-gate-table" aria-labelledby="trend-gates-title">
+              <div className="review-table-heading">
+                <h3 id="trend-gates-title">승인 기준</h3>
+                <span>{formatGateProgress(gates)}</span>
+              </div>
+              <DataTable
+                columns={["기준", "상태", "현재", "요구"]}
+                isLoading={isLoading}
+                emptyTitle="승인 기준이 없어요"
+                emptyMessage="서버의 검증 정책을 확인해 주세요."
+              >
+                {gates.map((gate) => (
+                  <tr key={gate.id}>
+                    <td data-label="기준">{formatTrendGateLabel(gate.id)}</td>
+                    <td data-label="상태">
+                      <StatusBadge label={formatTrendGateStatus(gate.status)} tone={trendGateTone(gate.status)} />
+                    </td>
+                    <td data-label="현재" className="numeric-cell">
+                      {formatTrendGateValue(gate.id, gate.actual)}
+                    </td>
+                    <td data-label="요구" className="numeric-cell">
+                      {formatTrendGateValue(gate.id, gate.required)}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            </section>
+
+            <section className="review-table-block review-event-table" aria-labelledby="trend-events-title">
+              <div className="review-table-heading">
+                <h3 id="trend-events-title">최근 관측 기록</h3>
+                <span>{shadow?.enabled ? formatTrendShadowStatus(state?.status, true) : "꺼짐"}</span>
+              </div>
+              <DataTable
+                columns={["시각", "구분", "방향", "순손익", "잔고"]}
+                isLoading={isLoading}
+                emptyTitle={shadow?.enabled ? "관측 기록을 기다리고 있어요" : "전진 검증이 꺼져 있어요"}
+                emptyMessage={
+                  shadow?.enabled
+                    ? "첫 번째 닫힌 4시간 봉을 처리하면 기록이 표시돼요."
+                    : "전진 검증을 켜기 전에는 승인 기간이 누적되지 않아요."
+                }
+              >
+                {recentEvents.map((event) => (
+                  <tr key={event.eventId}>
+                    <td data-label="시각">{formatDateTime(event.eventAt)}</td>
+                    <td data-label="구분">{formatTrendEventType(event.type)}</td>
+                    <td data-label="방향">{event.side ? <SideText side={event.side} /> : "해당 없음"}</td>
+                    <td data-label="순손익" className={numberClass(event.netPnl)}>{formatMoney(event.netPnl)}</td>
+                    <td data-label="잔고">{formatMoney(event.equity)}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            </section>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ReviewMetric({ label, value, unit, tone = "neutral" }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd className={tone}>{value}</dd>
+      {unit ? <span>{unit}</span> : false}
+    </div>
+  );
+}
+
 function StatBlock({ label, value, tone = "neutral" }) {
   return (
     <div className="stat-block">
@@ -1447,14 +1638,14 @@ function activationScopes(activeView) {
   if (activeView === "trading") return ["summary"];
   if (activeView === "activity") return ["mobile", "closedTrades", "summary"];
   if (activeView === "settings") return ["sync"];
-  return ["mobile"];
+  return ["mobile", "trendApproval", "trendShadow"];
 }
 
 function manualRefreshScopes(activeView) {
   if (activeView === "trading") return ["summary", "mobile", "profiles"];
   if (activeView === "activity") return ["mobile", "closedTrades", "summary"];
   if (activeView === "settings") return ["sync"];
-  return ["mobile", "performance", "summary", "profiles"];
+  return ["mobile", "performance", "summary", "profiles", "trendApproval", "trendShadow"];
 }
 
 function pollingScopes(activeView, lastFetchedAt) {
@@ -1473,6 +1664,8 @@ function pollingScopes(activeView, lastFetchedAt) {
     "mobile",
     ...(scopeIsDue(lastFetchedAt, "summary", OVERVIEW_SUMMARY_REFRESH_MS) ? ["summary"] : []),
     ...(scopeIsDue(lastFetchedAt, "performance", PERFORMANCE_REFRESH_MS) ? ["performance"] : []),
+    ...(scopeIsDue(lastFetchedAt, "trendApproval", TREND_REVIEW_REFRESH_MS) ? ["trendApproval"] : []),
+    ...(scopeIsDue(lastFetchedAt, "trendShadow", TREND_REVIEW_REFRESH_MS) ? ["trendShadow"] : []),
   ];
 }
 
@@ -1637,6 +1830,179 @@ function formatRatioValue(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "조회 전";
   return parsed.toFixed(2);
+}
+
+function formatOptionalPercent(value, fallback = "조회 전") {
+  if (value == void 0 || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return `${parsed.toFixed(2)}%`;
+}
+
+function formatOptionalRatio(value, fallback = "조회 전") {
+  if (value == void 0 || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed.toFixed(2);
+}
+
+function formatObservedDays(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "측정 전";
+  return `${parsed.toFixed(parsed >= 10 ? 0 : 1)}일`;
+}
+
+function formatTrendApprovalStatus(status) {
+  const labels = {
+    HISTORICAL_EVIDENCE_REJECTED: "과거 검증 미충족",
+    RUNTIME_PARITY_REQUIRED: "실행 일치 검증 필요",
+    SHADOW_DISABLED: "전진 검증 꺼짐",
+    SHADOW_NOT_STARTED: "첫 관측 대기",
+    SHADOW_BOOTSTRAPPING: "지표 복원 중",
+    SHADOW_COLLECTING: "전진 검증 수집 중",
+    SHADOW_STALE: "최근 관측 지연",
+    [TREND_STATUS_SESSION_BLOCKED]: "현재 세션 기준 미충족",
+    READY_FOR_HUMAN_REVIEW: "사람 검토 가능",
+    [TREND_STATUS_MISSING]: "확인 전",
+  };
+  return labels[status] || "확인 필요";
+}
+
+function trendApprovalTone(status) {
+  if (status === "READY_FOR_HUMAN_REVIEW" || status === "SHADOW_COLLECTING" || status === "SHADOW_BOOTSTRAPPING") {
+    return "warning";
+  }
+  if (status === "HISTORICAL_EVIDENCE_REJECTED" || status === "RUNTIME_PARITY_REQUIRED" || status === "SHADOW_STALE" || status === TREND_STATUS_SESSION_BLOCKED) {
+    return "danger";
+  }
+  return "neutral";
+}
+
+function trendApprovalGuidance(status) {
+  const messages = {
+    HISTORICAL_EVIDENCE_REJECTED: "고정된 과거 검증 기준을 통과하지 못했어요.",
+    RUNTIME_PARITY_REQUIRED: "과거 재생과 현재 실행 결과가 같은지 확인해야 해요.",
+    SHADOW_DISABLED: "새 관측 구간이 쌓이지 않아 승인 기간을 계산할 수 없어요.",
+    SHADOW_NOT_STARTED: "전진 검증 세션의 첫 관측을 기다리고 있어요.",
+    SHADOW_BOOTSTRAPPING: "닫힌 봉을 이용해 지표 상태를 복원하고 있어요.",
+    SHADOW_COLLECTING: "고정된 승인 기준 중 아직 충족하지 않은 항목이 있어요.",
+    SHADOW_STALE: "최근 관측이 허용된 지연 시간을 넘었어요.",
+    [TREND_STATUS_SESSION_BLOCKED]: "낙폭, 노출, 청산 또는 세션 연속성 기준을 통과하지 못했어요.",
+    READY_FOR_HUMAN_REVIEW: "사전 기준을 통과했지만 사람의 최종 검토가 남아 있어요.",
+  };
+  return messages[status] || "검증 상태를 확인할 수 없어요.";
+}
+
+function formatTrendShadowStatus(status, enabled) {
+  if (!enabled) return "꺼짐";
+  const labels = {
+    BOOTSTRAPPING: "지표 복원 중",
+    OBSERVING: "관측 중",
+  };
+  return labels[status] || "첫 관측 대기";
+}
+
+function formatTrendPosition(position) {
+  if (!position) return "없음";
+  return `${formatSide(position.side)} ${formatNumber(position.quantity)} BTC`;
+}
+
+function formatGateProgress(gates) {
+  const passed = gates.filter((gate) => gate.status === "PASS").length;
+  return `${formatCount(passed)} / ${formatCount(gates.length)} 통과`;
+}
+
+function findGateStatus(gates, id) {
+  return gates.find((gate) => gate.id === id)?.status;
+}
+
+function formatGateRequirement(gates, id) {
+  const required = gates.find((gate) => gate.id === id)?.required;
+  return required ? formatTrendGateValue(id, required) : "정책 기준";
+}
+
+function formatTrendGateLabel(id) {
+  const labels = {
+    EXTERNAL_VENUE_HISTORY: "외부 거래소 과거 검증",
+    KOTLIN_CORE_PARITY: "핵심 계산 일치",
+    RUNTIME_REPLAY_PARITY: "실행 재생 일치",
+    FRESH_SHADOW_DAYS: "새 관측 기간",
+    CLOSED_TRADES: "종료 거래 수",
+    EXECUTED_TRANSITIONS: "포지션 전환 수",
+    SESSION_RETURN_PCT: "세션 수익률",
+    CLOSED_TRADE_PROFIT_FACTOR: "종료 거래 수익 팩터",
+    MAXIMUM_DRAWDOWN_PCT: "최대 낙폭",
+    MAXIMUM_ENTRY_EXPOSURE_FRACTION: "진입 노출",
+    MAXIMUM_ADVERSE_EXPOSURE_FRACTION: "불리한 가격 최대 노출",
+    LIQUIDATION_COUNT: "강제청산",
+    OBSERVATION_STALENESS_SECONDS: "관측 지연",
+    CURRENT_SESSION_CONTINUITY: "세션 연속성",
+  };
+  return labels[id] || id;
+}
+
+function formatTrendGateStatus(status) {
+  const labels = {
+    PASS: "통과",
+    PENDING: "수집 중",
+    FAIL: "미충족",
+  };
+  return labels[status] || "확인 필요";
+}
+
+function trendGateTone(status) {
+  if (status === "PASS") return "success";
+  if (status === "FAIL") return "danger";
+  return "warning";
+}
+
+function formatTrendGateValue(id, value) {
+  if (value == void 0 || value === "" || value === TREND_GATE_MISSING_VALUE) return "측정 전";
+  if (value === "FROZEN_FORWARD_POLICY") return "고정 정책";
+
+  const text = String(value);
+  const comparison = text.match(/^(>=|<=|>|<)(.+)$/);
+  const operator = comparison?.[1] || "";
+  const raw = comparison?.[2] || text;
+  if (raw === "true" || raw === "false") return raw === "true" ? "충족" : "미충족";
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return text;
+  let formatted;
+  if (id === "FRESH_SHADOW_DAYS") {
+    formatted = `${parsed.toFixed(parsed >= 10 ? 0 : 1)}일`;
+  } else if (id === "SESSION_RETURN_PCT" || id === "MAXIMUM_DRAWDOWN_PCT") {
+    formatted = `${parsed.toFixed(2)}%`;
+  } else if (id === "MAXIMUM_ENTRY_EXPOSURE_FRACTION" || id === "MAXIMUM_ADVERSE_EXPOSURE_FRACTION") {
+    formatted = `${(parsed * 100).toFixed(1)}%`;
+  } else if (id === "OBSERVATION_STALENESS_SECONDS") {
+    formatted = `${(parsed / 60).toFixed(parsed >= 600 ? 0 : 1)}분`;
+  } else if (id === "CLOSED_TRADES" || id === "EXECUTED_TRANSITIONS" || id === "LIQUIDATION_COUNT") {
+    formatted = `${formatCount(parsed)}회`;
+  } else if (id === "CLOSED_TRADE_PROFIT_FACTOR") {
+    formatted = parsed.toFixed(2);
+  } else {
+    formatted = formatNumber(parsed);
+  }
+
+  if (operator === ">=") return `${formatted} 이상`;
+  if (operator === "<=") return `${formatted} 이하`;
+  if (operator === ">") return `${formatted} 초과`;
+  if (operator === "<") return `${formatted} 미만`;
+  return formatted;
+}
+
+function formatTrendEventType(type) {
+  const labels = {
+    SESSION_STARTED: "검증 시작",
+    [TREND_EVENT_SESSION_RESET]: "세션 무효화",
+    H4_EVALUATED: "4시간 봉 평가",
+    FUNDING_APPLIED: "펀딩 반영",
+    POSITION_OPENED: "포지션 진입",
+    POSITION_CLOSED: "포지션 종료",
+    MINIMUM_QUANTITY_SKIPPED: "최소 수량 미달",
+  };
+  return labels[type] || "관측 기록";
 }
 
 function formatCount(value) {

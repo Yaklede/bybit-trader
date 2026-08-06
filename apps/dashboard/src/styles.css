@@ -686,6 +686,183 @@ a:focus-visible {
   font-size: 11px;
 }
 
+.strategy-review {
+  display: grid;
+  gap: 16px;
+}
+
+.strategy-review .panel-header {
+  margin-bottom: 0;
+}
+
+.strategy-review-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border-left: 3px solid var(--border);
+  padding: 11px 12px;
+  background: var(--surface-muted);
+}
+
+.strategy-review.warning .strategy-review-banner {
+  border-left-color: var(--warning);
+}
+
+.strategy-review.danger .strategy-review-banner {
+  border-left-color: var(--danger);
+}
+
+.strategy-review-banner > svg {
+  margin-top: 1px;
+  color: var(--muted);
+}
+
+.strategy-review.warning .strategy-review-banner > svg {
+  color: var(--warning);
+}
+
+.strategy-review.danger .strategy-review-banner > svg {
+  color: var(--danger);
+}
+
+.strategy-review-banner p,
+.strategy-review-banner strong,
+.strategy-review-banner span,
+.review-table-heading h3,
+.review-table-heading span {
+  margin: 0;
+}
+
+.strategy-review-banner p {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.strategy-review-banner strong {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.strategy-review-banner p span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.review-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 0;
+}
+
+.review-metrics > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  padding: 2px 14px;
+}
+
+.review-metrics > div:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.review-metrics dt,
+.review-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.review-metrics dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.review-metrics dd.positive {
+  color: var(--success);
+}
+
+.review-metrics dd.negative {
+  color: var(--danger);
+}
+
+.review-meta {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.review-meta div,
+.review-meta.compact div {
+  display: grid;
+  align-content: start;
+  justify-content: stretch;
+  gap: 4px;
+  min-height: 64px;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+  padding: 10px 12px;
+}
+
+.review-meta div:first-child {
+  padding-left: 0;
+}
+
+.review-meta div:last-child {
+  border-right: 0;
+}
+
+.review-meta dd {
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.review-tables {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.review-table-block {
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.review-table-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  margin-bottom: 6px;
+}
+
+.review-table-heading h3 {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.review-table-heading span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.numeric-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .action-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1121,6 +1298,20 @@ tbody tr:last-child td {
   .account-board {
     grid-row: auto;
   }
+
+  .review-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 14px;
+  }
+
+  .review-metrics > div:nth-child(4) {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .review-tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 720px) {
@@ -1149,6 +1340,32 @@ tbody tr:last-child td {
     border-top: 1px solid var(--border);
     border-left: 0;
     padding: 10px 0 0;
+  }
+
+  .review-metrics,
+  .review-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .review-metrics > div,
+  .review-metrics > div:first-child,
+  .review-metrics > div:nth-child(4) {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding: 10px 10px 0 0;
+  }
+
+  .review-meta div,
+  .review-meta.compact div,
+  .review-meta div:first-child {
+    min-height: 60px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 8px;
+  }
+
+  .review-meta div:nth-last-child(-n + 2) {
+    border-bottom: 0;
   }
 }
 
@@ -1225,6 +1442,19 @@ tbody tr:last-child td {
     font-size: 24px;
   }
 
+  .strategy-review-banner {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .strategy-review-banner > .status-badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .review-metrics dd {
+    font-size: 17px;
+  }
+
   .table-wrap {
     overflow: visible;
   }
@@ -1291,6 +1521,84 @@ tbody tr:last-child td {
   td > * {
     min-width: 0;
     max-width: 100%;
+  }
+
+  .review-gate-table tbody tr,
+  .review-event-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+    padding: 8px 10px;
+  }
+
+  .review-gate-table td,
+  .review-event-table td {
+    display: block;
+    width: auto;
+    min-height: 0;
+    padding: 7px 0;
+    text-align: left;
+  }
+
+  .review-gate-table td::before,
+  .review-event-table td::before {
+    display: none;
+  }
+
+  .review-gate-table td:nth-child(1),
+  .review-event-table td:nth-child(1) {
+    grid-column: 1;
+    font-weight: 800;
+  }
+
+  .review-gate-table td:nth-child(2),
+  .review-event-table td:nth-child(2) {
+    grid-column: 2;
+    text-align: right;
+  }
+
+  .review-gate-table td:nth-child(3)::before,
+  .review-gate-table td:nth-child(4)::before,
+  .review-event-table td:nth-child(3)::before,
+  .review-event-table td:nth-child(4)::before,
+  .review-event-table td:nth-child(5)::before {
+    display: inline;
+    margin-right: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .review-gate-table td:nth-child(3)::before {
+    content: "현재";
+  }
+
+  .review-gate-table td:nth-child(4)::before {
+    content: "요구";
+  }
+
+  .review-gate-table td:nth-child(4) {
+    text-align: right;
+  }
+
+  .review-event-table td:nth-child(3)::before {
+    content: "방향";
+  }
+
+  .review-event-table td:nth-child(4)::before {
+    content: "순손익";
+  }
+
+  .review-event-table td:nth-child(4) {
+    text-align: right;
+  }
+
+  .review-event-table td:nth-child(5) {
+    grid-column: 1 / -1;
+  }
+
+  .review-event-table td:nth-child(5)::before {
+    content: "잔고";
   }
 
   .signal-list div,
