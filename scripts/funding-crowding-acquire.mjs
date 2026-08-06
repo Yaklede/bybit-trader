@@ -266,18 +266,15 @@ export function verifyIntervalCoverage(rows, expectedIntervalMillis, label, opti
 
 export function normalizedFundingFeatureFingerprint(db, symbol) {
   const hash = createHash("sha256");
-  const update = (query, parameters) => {
-    const statement = db.prepare(query);
-    for (const row of statement.iterate(...parameters)) {
-      hash.update(JSON.stringify(row));
-      hash.update("\n");
-    }
-  };
-  update("SELECT symbol,timestamp,funding_rate FROM fundingRates WHERE symbol=? ORDER BY timestamp", [symbol]);
-  update(`
+  hashTimestampRows(db, `
+    SELECT symbol,timestamp,funding_rate FROM fundingRates
+    WHERE symbol=? AND timestamp>? ORDER BY timestamp LIMIT ?
+  `, [symbol], "timestamp", hash);
+  hashTimestampRows(db, `
     SELECT symbol,timeframe,opened_at,open,high,low,close
-    FROM premiumIndexBars WHERE symbol=? AND timeframe='M15' ORDER BY opened_at
-  `, [symbol]);
+    FROM premiumIndexBars WHERE symbol=? AND timeframe='M15' AND opened_at>?
+    ORDER BY opened_at LIMIT ?
+  `, [symbol], "opened_at", hash);
   return hash.digest("hex");
 }
 
@@ -519,12 +516,7 @@ export function copyDevelopmentCandles(db, sourceDatabasePath, protocol) {
           INSERT INTO marketCandles(symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp)
           VALUES (?,?,?,?,?,?,?,?,?)
         `);
-        const sourceCandles = source.prepare(`
-          SELECT symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp
-          FROM marketCandles WHERE symbol=? AND timeframe IN ('M1','M5','M15')
-            AND opened_at>=? AND opened_at<? ORDER BY timeframe,opened_at
-        `);
-        for (const row of sourceCandles.iterate(symbol, start, end)) {
+        forEachCandleRow(source, symbol, start, end, (row) => {
           insert.run(
             row.symbol,
             row.timeframe,
@@ -536,7 +528,7 @@ export function copyDevelopmentCandles(db, sourceDatabasePath, protocol) {
             row.volume,
             row.source_timestamp,
           );
-        }
+        });
       });
     }
     const sourceFingerprint = candleSubsetFingerprint(source, symbol, start, end);
@@ -765,16 +757,46 @@ function loadPersistedPremiumRows(db, protocol) {
 
 function candleSubsetFingerprint(db, symbol, start, end) {
   const hash = createHash("sha256");
-  const statement = db.prepare(`
-    SELECT symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp
-    FROM marketCandles WHERE symbol=? AND timeframe IN ('M1','M5','M15')
-      AND opened_at>=? AND opened_at<? ORDER BY timeframe,opened_at
-  `);
-  for (const row of statement.iterate(symbol, start, end)) {
+  forEachCandleRow(db, symbol, start, end, (row) => {
     hash.update(JSON.stringify(row));
     hash.update("\n");
-  }
+  });
   return hash.digest("hex");
+}
+
+function forEachCandleRow(db, symbol, start, end, action) {
+  const statement = db.prepare(`
+    SELECT symbol,timeframe,opened_at,open,high,low,close,volume,source_timestamp
+    FROM marketCandles WHERE symbol=? AND timeframe=? AND opened_at>=? AND opened_at<? AND opened_at>?
+    ORDER BY opened_at LIMIT ?
+  `);
+  for (const timeframe of ["M1", "M5", "M15"]) {
+    let cursor = "";
+    while (true) {
+      const rows = statement.all(symbol, timeframe, start, end, cursor, 10_000);
+      if (rows.length === 0) break;
+      for (const row of rows) action(row);
+      const nextCursor = rows.at(-1).opened_at;
+      if (nextCursor <= cursor) throw new Error(`Candle pagination did not advance for ${timeframe}.`);
+      cursor = nextCursor;
+    }
+  }
+}
+
+function hashTimestampRows(db, query, parameters, cursorField, hash) {
+  const statement = db.prepare(query);
+  let cursor = "";
+  while (true) {
+    const rows = statement.all(...parameters, cursor, 10_000);
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      hash.update(JSON.stringify(row));
+      hash.update("\n");
+    }
+    const nextCursor = rows.at(-1)[cursorField];
+    if (nextCursor <= cursor) throw new Error(`${cursorField} pagination did not advance.`);
+    cursor = nextCursor;
+  }
 }
 
 async function sealDevelopmentSnapshot(targetPath, snapshotPath, db, protocol, expectedFingerprint, hashFile) {
