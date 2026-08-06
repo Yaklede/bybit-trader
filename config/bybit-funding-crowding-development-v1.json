@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "bybit-funding-crowding-development-v1",
+  "status": "PREDECLARED_BEFORE_FUNDING_PREMIUM_DEVELOPMENT_ACQUISITION",
+  "declaredAt": "2026-08-06",
+  "parentResult": {
+    "path": "config/bybit-subminute-sequence-normalized-v2-result.json",
+    "sha256": "4d3bd81884f5110bd4cb0804d44d5643fff629d931815f913fc8ad51f93b10f3",
+    "requiredProgramStatus": "CLOSED_NO_APPROVABLE_SUBMINUTE_SEQUENCE_STRATEGY_V2"
+  },
+  "researchBoundary": {
+    "kind": "ECONOMICALLY_DISTINCT_LOW_TURNOVER_FUNDING_CARRY",
+    "priorEventFlowOutcomesMayRetuneFundingCandidates": false,
+    "fundingPremiumDevelopmentPayloadsReadBeforeDeclaration": false,
+    "developmentUses2020Through2022Only": true,
+    "internalValidation2023Through2024RemainsUnread": true,
+    "external2025And2026RemainLocked": true,
+    "freshForwardSealRequiredBeforeLive": true
+  },
+  "trialAccounting": {
+    "priorObservedCandidates": 255,
+    "newCandidateBudget": 32,
+    "cumulativeCandidateCountAfterReplay": 287,
+    "candidateBudgetMayIncreaseAfterOutcomes": false
+  },
+  "sourceData": {
+    "symbol": "BTCUSDT",
+    "canonicalCandleDatabase": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "canonicalCandleDatabaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+    "researchDatabase": "build/research/bybit-funding-crowding-development-v1.sqlite",
+    "provider": "BYBIT_V5_PUBLIC_REST",
+    "baseUrl": "https://api.bybit.com",
+    "fundingEndpoint": "/v5/market/funding/history",
+    "premiumEndpoint": "/v5/market/premium-index-price-kline",
+    "premiumInterval": "15",
+    "requestLimit": {"funding": 200, "premium": 1000},
+    "developmentStart": "2020-03-25T00:00:00Z",
+    "developmentEndExclusive": "2023-01-01T00:00:00Z"
+  },
+  "evidenceSchedule": {
+    "developmentBlocks": [
+      {"id":"F01","era":"2020H2","startAt":"2020-07-01T00:00:00Z","endAt":"2021-01-01T00:00:00Z"},
+      {"id":"F02","era":"2021H1","startAt":"2021-01-01T00:00:00Z","endAt":"2021-07-01T00:00:00Z"},
+      {"id":"F03","era":"2021H2","startAt":"2021-07-01T00:00:00Z","endAt":"2022-01-01T00:00:00Z"},
+      {"id":"F04","era":"2022H1","startAt":"2022-01-01T00:00:00Z","endAt":"2022-07-01T00:00:00Z"},
+      {"id":"F05","era":"2022H2","startAt":"2022-07-01T00:00:00Z","endAt":"2023-01-01T00:00:00Z"}
+    ],
+    "internalValidationBlocks": [
+      {"id":"I01","era":"2023Q1","startAt":"2023-01-01T00:00:00Z","endAt":"2023-04-01T00:00:00Z"},
+      {"id":"I02","era":"2023Q2","startAt":"2023-04-01T00:00:00Z","endAt":"2023-07-01T00:00:00Z"},
+      {"id":"I03","era":"2023Q3","startAt":"2023-07-01T00:00:00Z","endAt":"2023-10-01T00:00:00Z"},
+      {"id":"I04","era":"2023Q4","startAt":"2023-10-01T00:00:00Z","endAt":"2024-01-01T00:00:00Z"},
+      {"id":"I05","era":"2024Q1","startAt":"2024-01-01T00:00:00Z","endAt":"2024-04-01T00:00:00Z"},
+      {"id":"I06","era":"2024Q2","startAt":"2024-04-01T00:00:00Z","endAt":"2024-07-01T00:00:00Z"},
+      {"id":"I07","era":"2024Q3","startAt":"2024-07-01T00:00:00Z","endAt":"2024-10-01T00:00:00Z"},
+      {"id":"I08","era":"2024Q4","startAt":"2024-10-01T00:00:00Z","endAt":"2025-01-01T00:00:00Z"}
+    ],
+    "lockedExternal2025BlockIds": ["E01", "E02", "E03", "E04"],
+    "lockedExternal2026BlockIds": ["X01", "X02", "X03", "X04"],
+    "freshForwardSeal": "REQUIRED_AFTER_ALL_HISTORICAL_APPROVALS"
+  },
+  "featureContract": {
+    "fundingDecision": {
+      "currentSettledRateAvailableOnlyAtOrAfterTimestamp": true,
+      "baseline": "PRIOR_SETTLED_RATES_EXCLUDING_CURRENT",
+      "robustCenter": "MEDIAN",
+      "robustScale": "MAD_TIMES_1_4826",
+      "zeroMadPolicy": "NO_SIGNAL"
+    },
+    "premiumConfirmation": {
+      "source": "LATEST_CLOSED_M15_PREMIUM_BAR_AT_OR_BEFORE_SETTLEMENT",
+      "mustShareFundingSign": true,
+      "maximumStalenessMinutes": 30
+    },
+    "direction": "OPPOSITE_SETTLED_FUNDING_SIGN",
+    "economicMechanism": "CONTRARIAN_PRICE_REVERSION_PLUS_SUBSEQUENT_FAVORABLE_FUNDING_CARRY"
+  },
+  "candidateDefinition": {
+    "family": "FUNDING_CROWDING_CONTRARIAN_CARRY",
+    "fixed": {
+      "minimumPriorFundingObservations": 30,
+      "premiumMustShareFundingSign": true,
+      "entryDelayMinutes": 5,
+      "initialStopAtrPeriod": 14,
+      "initialStopAtrMultiple": 4.0,
+      "minimumStopPct": 0.02,
+      "targetR": 2.0,
+      "exitWhenFundingNoLongerFavorable": true
+    },
+    "grid": {
+      "fundingLookbackSettlements": [30, 90],
+      "minimumAbsoluteRobustZ": [2.0, 3.0],
+      "minimumAbsoluteFundingRate": [0.0003, 0.0005],
+      "minimumAbsolutePremium": [0.0, 0.0002],
+      "maximumHoldingHours": [24, 48]
+    },
+    "candidateCount": 32
+  },
+  "candidateDefinitionSha256": "acb619a51706222df7fef6965844ab45e1fc67b323620cc62ed63928748bab80",
+  "executionContract": {
+    "decision": "AFTER_FUNDING_SETTLEMENT_AND_CLOSED_PREMIUM_BAR",
+    "entry": "NEXT_CONTIGUOUS_M5_OPEN_AT_LEAST_FIVE_MINUTES_AFTER_SETTLEMENT",
+    "sameM1Conflict": "STOP_FIRST",
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002,
+    "maximumTradesPerUtcDay": 1,
+    "overlappingPositionsAllowed": false,
+    "startingEquityUsdt": 660,
+    "riskFractionPerTrade": 0.01,
+    "minimumQuantityBtc": 0.001,
+    "quantityStepBtc": 0.001,
+    "maximumNotionalUsdt": 660,
+    "maximumLeverage": 3,
+    "liquidationBufferPct": 0.6,
+    "funding": "ACTUAL_SUBSEQUENT_SETTLED_RATES_ONLY",
+    "oneHundredUsdtPolicy": "NO_TRADE_WHEN_MINIMUM_QUANTITY_EXCEEDS_RISK_OR_NOTIONAL_LIMIT"
+  },
+  "developmentGate": {
+    "minimumTrades": 30,
+    "minimumLongTrades": 5,
+    "minimumShortTrades": 5,
+    "minimumPositiveBlockCount": 4,
+    "totalBlockCount": 5,
+    "minimumProfitFactor": 1.15,
+    "minimumMeanNetR": 0,
+    "minimumBootstrapLowerMeanNetR": 0,
+    "maximumDrawdownPct": 20,
+    "maximumLiquidationCount": 0,
+    "maximumWinnerProfitConcentration": 0.25
+  },
+  "internalValidationGate": {
+    "minimumTrades": 40,
+    "minimumLongTrades": 8,
+    "minimumShortTrades": 8,
+    "minimumPositiveBlockCount": 6,
+    "totalBlockCount": 8,
+    "minimumProfitFactor": 1.15,
+    "minimumMeanNetR": 0,
+    "minimumBootstrapLowerMeanNetR": 0,
+    "maximumDrawdownPct": 20,
+    "maximumLiquidationCount": 0,
+    "maximumWinnerProfitConcentration": 0.25,
+    "costStressMultiplier": 1.5,
+    "costStressMinimumMeanNetR": 0
+  },
+  "statistics": {
+    "bootstrapKind": "MOVING_BLOCK_BOOTSTRAP_DAILY_NET_R",
+    "bootstrapSamples": 10000,
+    "bootstrapConfidence": 0.95,
+    "bootstrapBlockDays": 7,
+    "randomSeed": "bybit-funding-crowding-development-v1|20260806",
+    "compoundDailyReturnIsSelectionObjective": false
+  },
+  "outcomePolicy": {
+    "oneCandidateMaximum": true,
+    "retuneFromDevelopment": false,
+    "internalValidationMayBeAcquiredOnlyAfterDevelopmentPass": true,
+    "retuneFromInternalValidation": false,
+    "external2025MayBeAcquiredOnlyAfterInternalPass": true,
+    "external2026MayBeAcquiredOnlyAfter2025PassAndRefreeze": true,
+    "freshForwardSealRequiredBeforeLive": true,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
