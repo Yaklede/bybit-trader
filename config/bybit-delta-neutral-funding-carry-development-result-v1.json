@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-delta-neutral-funding-carry-development-result-v1",
+  "programStatus": "DEVELOPMENT_CANDIDATE_FROZEN_FOR_INTERNAL_VALIDATION",
+  "protocolId": "bybit-delta-neutral-funding-carry-development-v1",
+  "protocolSha256": "6a3cdf6c4f56c37343e106b54fda9474f1b08d1b78e85fa73e6752c0d9c961b3",
+  "acquisitionReceiptSha256": "632a54f429de718a2d0fbce8e458b40bb5cdbb9d9375ffe40d0f9520bb677a38",
+  "developmentSnapshotSha256": "8e469a14e1895462158649531d4e27950a31665aac52bd42896f7ffcc5404e6e",
+  "normalizedEvidenceSha256": "0709d302565a9805820adf5dc9fbdfe76b6591886fc15a0bc243ea9d2314a39e",
+  "implementationSha256": "6055ed484bd9fe7ae00594aae90c020175b90124fe99eb0f04d2509324a3a00b",
+  "developmentReportSha256": "6403301e63576baeb4688e71470bd54fbbf2ea82b95ac164c03d8dc6afa7f14c",
+  "rankedCandidatesSha256": "3cf6a20fb610507a6295902a8a8b1c6f4fecbc743bd01fe84e49661dadf728c2",
+  "selectedCandidateTradesSha256": "845d13735f339e406e817f203008711658472d5f1e5285d965fe7918c9ccf1ca",
+  "simulatorCorrection": {
+    "invalidInitialReplayDiscarded": true,
+    "reason": "NON_SYNCHRONOUS_SPOT_LOW_AND_PERPETUAL_HIGH_WERE_COMBINED_AS_OBSERVED_BASIS",
+    "candidateDefinitionChanged": false,
+    "costContractChanged": false,
+    "gateChanged": false,
+    "correctedBasisObservation": "SYNCHRONIZED_M5_CLOSE_WITH_NEXT_M5_OPEN_EXIT"
+  },
+  "trialAccounting": {
+    "priorObservedCandidates": 287,
+    "evaluatedCandidates": 24,
+    "cumulativeObservedCandidates": 311,
+    "passedCandidates": 1
+  },
+  "selectedCandidate": {
+    "candidate": {
+      "id": "delta_neutral_funding_carry_02",
+      "family": "DELTA_NEUTRAL_POSITIVE_FUNDING_CARRY",
+      "entryDelayMinutes": 5,
+      "maximumHoldingDays": 30,
+      "maximumEntryBasisPct": 0.03,
+      "maximumAbsoluteMarkIndexPremiumPct": 0.01,
+      "basisDivergenceStopPctFromEntry": 0.03,
+      "reentryCooldownHours": 8,
+      "projectedCarryHorizonDays": 30,
+      "minimumProjectedGrossCarryToBaseCostRatio": 1,
+      "minimumPositiveFundingStreak": 3,
+      "minimumTrailingMedianFundingRate": 0.0001,
+      "minimumEntryBasisPct": 0,
+      "exitConsecutiveNonPositiveFundingCount": 2
+    },
+    "candidateSha256": "eba52739bfa5d266de0e3b21f49a71637c9080e44cfd3821f601b3d2ef6be509",
+    "metrics": {
+      "tradeCount": 9,
+      "activeCalendarDays": 173,
+      "capturedFundingSettlements": 495,
+      "startingEquityUsdt": 660,
+      "endingEquityUsdt": 666.347251,
+      "netReturnPct": 0.9617047,
+      "compoundDailyReturnPct": 0.00262225,
+      "meanDailyReturnPct": 0.00262455,
+      "bootstrapLowerMeanDailyReturnPct": 0.00003106,
+      "bootstrapUpperMeanDailyReturnPct": 0.00525752,
+      "profitFactor": 4.73729469,
+      "winRatePct": 66.66666667,
+      "maximumDrawdownPct": 0.67682127,
+      "positiveBlockCount": 3,
+      "totalBlockCount": 4,
+      "fundingPnlUsdt": 14.88558851,
+      "pricePnlUsdt": -1.38092655,
+      "feeCostUsdt": 7.11295183,
+      "costStressNetReturnPct": 0.24793588,
+      "secondLegDelayStressNetReturnPct": 0.46076578,
+      "liquidationCount": 0,
+      "maximumNetHedgeMismatchBtc": 0.000000993,
+      "positivePositionProfitConcentration": 0.34372032
+    },
+    "allDevelopmentGateChecksPassed": true
+  },
+  "evidenceBoundary": {
+    "development2023Read": true,
+    "internalValidation2024Read": false,
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "internalValidation": {
+    "acquisitionAllowed": true,
+    "startAt": "2024-01-01T00:00:00Z",
+    "endExclusive": "2025-01-01T00:00:00Z",
+    "candidateMayBeRetuned": false,
+    "candidateSha256": "eba52739bfa5d266de0e3b21f49a71637c9080e44cfd3821f601b3d2ef6be509"
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
