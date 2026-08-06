@@ -27,6 +27,14 @@ Safety issue codes:
 - `SAFETY_VERIFICATION_UNAVAILABLE`
 - `SAFETY_VERIFICATION_PENDING`
 
+`GET /dashboard/summary` and `GET /dashboard/mobile-summary` expose the last
+persisted account gate as `riskReadiness`. It includes the unitized NAV state,
+current daily loss and account drawdown fractions, configured limits,
+consecutive losses, wallet-ledger reconciliation values, and the exact entry
+blocking reason codes. This projection performs no Bybit request and never
+refreshes or mutates a risk baseline; the reconciliation loop owns those
+updates.
+
 ## POST /execution/evaluate-and-submit
 
 Evaluates the runtime aggressive M5 strategy and submits a private Bybit market

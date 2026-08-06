@@ -11,6 +11,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionService
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangeReconciliationReport
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskReadiness
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.market.MarketDataException
@@ -60,6 +61,7 @@ fun Route.configureDashboardRoutes(
                 }
             val balance = executionService?.accountBalance(request.coin)
             val reconciliation = executionService?.reconcile(request.symbol)
+            val riskReadiness = executionService?.riskReadiness()
             val forwardMarketCapture =
                 forwardMarketCaptureStatusService
                     ?.status(symbol = request.symbol, enabled = forwardMarketCaptureEnabled)
@@ -73,6 +75,7 @@ fun Route.configureDashboardRoutes(
                     market = market?.toResponse(),
                     account = balance?.toResponse(),
                     reconciliation = reconciliation?.toResponse(),
+                    riskReadiness = riskReadiness?.toResponse(),
                     forwardMarketCapture = forwardMarketCapture.toResponse(),
                     performance = paperTradingReportStore.latestPerformanceSummary().toResponse(),
                     recentSignals =
@@ -99,6 +102,7 @@ fun Route.configureDashboardRoutes(
             val checkpoints = marketDataSyncService.closedCandleStatus(request.symbol).checkpoints
             val marketSync = checkpoints.firstOrNull { it.timeframe == Timeframe.M5 } ?: checkpoints.firstOrNull()
             val livePerformance = executionService?.livePerformanceSummary(null, LivePerformanceWindow.ALL)
+            val riskReadiness = executionService?.riskReadiness()
             val recentClosedTrades =
                 executionService
                     ?.closedTrades(symbol = request.symbol, mode = null, limit = request.tradeLimit, cursor = null)
@@ -127,6 +131,7 @@ fun Route.configureDashboardRoutes(
                             winRatePct = livePerformance?.winRatePct?.toPlainString() ?: "0",
                             maxClosedTradeDrawdownPct = livePerformance?.maxClosedTradeDrawdownPct?.toPlainString() ?: "0",
                         ),
+                    riskReadiness = riskReadiness?.toResponse(),
                     recentClosedTrades = recentClosedTrades.map(ExecutionTradeClosure::toMobileResponse),
                     recentSignals = recentSignals,
                     alerts =
@@ -208,6 +213,7 @@ data class DashboardSummaryResponse(
     val market: DashboardMarketResponse?,
     val account: DashboardAccountBalanceResponse?,
     val reconciliation: DashboardReconciliationResponse?,
+    val riskReadiness: DashboardRiskReadinessResponse?,
     val forwardMarketCapture: DashboardForwardMarketCaptureResponse,
     val performance: DashboardPerformanceResponse,
     val recentSignals: List<DashboardSignalResponse>,
@@ -300,6 +306,51 @@ data class DashboardReconciliationResponse(
 )
 
 @Serializable
+data class DashboardRiskReadinessResponse(
+    val runtimeMode: String,
+    val botMode: String,
+    val executionEnabled: Boolean,
+    val allowsEntry: Boolean,
+    val reasonCodes: List<String>,
+    val evaluatedAt: String,
+    val accountRisk: DashboardAccountRiskResponse?,
+    val walletReconciliation: DashboardWalletReconciliationResponse,
+)
+
+@Serializable
+data class DashboardAccountRiskResponse(
+    val navStatus: String,
+    val latestEquity: String,
+    val peakEquity: String,
+    val dayStartEquity: String,
+    val strategyUnits: String,
+    val latestUnitizedNav: String,
+    val peakUnitizedNav: String,
+    val dayStartUnitizedNav: String,
+    val cumulativeExternalCashFlow: String,
+    val currentDailyLossFraction: String?,
+    val currentAccountDrawdownFraction: String?,
+    val maximumDailyLossFraction: String,
+    val maximumAccountDrawdownFraction: String,
+    val consecutiveLosses: Int,
+    val maximumConsecutiveLosses: Int,
+    val updatedAt: String,
+)
+
+@Serializable
+data class DashboardWalletReconciliationResponse(
+    val enabled: Boolean,
+    val status: String?,
+    val currency: String?,
+    val observedWalletChange: String?,
+    val ledgerChange: String?,
+    val difference: String?,
+    val tolerance: String?,
+    val consecutiveMismatches: Int?,
+    val reconciledAt: String?,
+)
+
+@Serializable
 data class DashboardOpenOrderResponse(
     val exchangeOrderId: String?,
     val clientOrderId: String?,
@@ -385,6 +436,7 @@ data class DashboardMobileSummaryResponse(
     val bot: DashboardBotStatusResponse,
     val marketSync: DashboardMobileMarketSyncResponse?,
     val livePerformance: DashboardMobileLivePerformanceResponse,
+    val riskReadiness: DashboardRiskReadinessResponse?,
     val recentClosedTrades: List<DashboardMobileClosedTradeResponse>,
     val recentSignals: List<DashboardSignalResponse>,
     val alerts: DashboardMobileAlertsResponse,
@@ -507,6 +559,49 @@ private fun ExchangeReconciliationReport.toResponse(): DashboardReconciliationRe
         openOrders = openOrders.map(ExchangeOpenOrder::toResponse),
         positions = positions.map(ExchangePosition::toResponse),
         executions = executions.map(ExchangeExecutionFill::toResponse),
+    )
+
+private fun ExecutionRiskReadiness.toResponse(): DashboardRiskReadinessResponse =
+    DashboardRiskReadinessResponse(
+        runtimeMode = runtimeMode.name,
+        botMode = botMode,
+        executionEnabled = executionEnabled,
+        allowsEntry = allowsEntry,
+        reasonCodes = reasonCodes,
+        evaluatedAt = evaluatedAt.toString(),
+        accountRisk =
+            riskState?.let { state ->
+                DashboardAccountRiskResponse(
+                    navStatus = state.navStatus.name,
+                    latestEquity = state.latestEquity.toPlainString(),
+                    peakEquity = state.peakEquity.toPlainString(),
+                    dayStartEquity = state.dayStartEquity.toPlainString(),
+                    strategyUnits = state.strategyUnits.toPlainString(),
+                    latestUnitizedNav = state.latestUnitizedNav.toPlainString(),
+                    peakUnitizedNav = state.peakUnitizedNav.toPlainString(),
+                    dayStartUnitizedNav = state.dayStartUnitizedNav.toPlainString(),
+                    cumulativeExternalCashFlow = state.cumulativeExternalCashFlow.toPlainString(),
+                    currentDailyLossFraction = currentDailyLossFraction?.toPlainString(),
+                    currentAccountDrawdownFraction = currentAccountDrawdownFraction?.toPlainString(),
+                    maximumDailyLossFraction = maximumDailyLossFraction.toPlainString(),
+                    maximumAccountDrawdownFraction = maximumAccountDrawdownFraction.toPlainString(),
+                    consecutiveLosses = state.consecutiveLosses,
+                    maximumConsecutiveLosses = maximumConsecutiveLosses,
+                    updatedAt = state.updatedAt.toString(),
+                )
+            },
+        walletReconciliation =
+            DashboardWalletReconciliationResponse(
+                enabled = walletReconciliationEnabled,
+                status = walletReconciliationState?.status?.name,
+                currency = walletReconciliationState?.currency,
+                observedWalletChange = walletReconciliationState?.observedWalletChange?.toPlainString(),
+                ledgerChange = walletReconciliationState?.ledgerChange?.toPlainString(),
+                difference = walletReconciliationState?.difference?.toPlainString(),
+                tolerance = walletReconciliationState?.tolerance?.toPlainString(),
+                consecutiveMismatches = walletReconciliationState?.consecutiveMismatches,
+                reconciledAt = walletReconciliationState?.reconciledAt?.toString(),
+            ),
     )
 
 private fun ExchangeOpenOrder.toResponse(): DashboardOpenOrderResponse =

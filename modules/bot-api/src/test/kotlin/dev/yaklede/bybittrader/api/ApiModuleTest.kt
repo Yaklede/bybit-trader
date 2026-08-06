@@ -1097,7 +1097,11 @@ class ApiModuleTest :
                 client
                     .get("/dashboard/mobile-summary?symbol=BTCUSDT&tradeLimit=5&signalLimit=5") {
                         bearerAuth("test-control-credential")
-                    }.bodyAsText() shouldContain """"recentClosedTrades":[{"""
+                    }.bodyAsText()
+                    .also { body ->
+                        body shouldContain """"recentClosedTrades":[{"""
+                        body shouldContain """"riskReadiness":{"runtimeMode":"LIVE""""
+                    }
             }
         }
 
@@ -1199,6 +1203,8 @@ class ApiModuleTest :
                 body shouldContain """"positions":[{"""
                 body shouldContain """"openedAt":"2026-06-29T23:30:00Z""""
                 body shouldContain """"unrealizedPnl":"10""""
+                body shouldContain """"riskReadiness":{"runtimeMode":"TESTNET","botMode":"RUNNING""""
+                body shouldContain """"reasonCodes":["RISK_STATE_UNAVAILABLE"]"""
                 body shouldContain "\"forwardMarketCapture\":{\"enabled\":false,\"orderBookFresh\":false"
                 body shouldContain "\"rawArchive\":{\"enabled\":false,\"archiveSessionId\":null,\"archivedEventCount\":0"
             }

@@ -303,6 +303,70 @@ class ExchangeExecutionServiceTest :
             gateway.placedOrders shouldBe emptyList()
         }
 
+        "risk readiness exposes the persisted gate without private exchange calls" {
+            val now = Instant.parse("2024-06-30T00:00:00Z")
+            val store = InMemoryTradingStore()
+            store.riskStates[ExecutionRuntimeMode.TESTNET] =
+                ExecutionRiskState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    peakEquity = BigDecimal("110"),
+                    utcDayStartedAt = now,
+                    dayStartEquity = BigDecimal("100"),
+                    latestEquity = BigDecimal("98"),
+                    consecutiveLosses = 1,
+                    lastClosureId = 1,
+                    updatedAt = now,
+                    navStatus = ExecutionRiskNavStatus.READY,
+                    strategyUnits = BigDecimal("100"),
+                    latestUnitizedNav = BigDecimal("0.98"),
+                    peakUnitizedNav = BigDecimal("1.10"),
+                    dayStartUnitizedNav = BigDecimal("1.00"),
+                )
+            store.walletReconciliationStates[ExecutionRuntimeMode.TESTNET to "USDT"] =
+                ExecutionWalletReconciliationState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    currency = "USDT",
+                    status = ExecutionWalletReconciliationStatus.MISMATCH,
+                    baselineSnapshotId = 1,
+                    baselineCapturedAt = now.minusSeconds(60),
+                    baselineWalletBalance = BigDecimal("100"),
+                    currentSnapshotId = 2,
+                    currentCapturedAt = now,
+                    currentWalletBalance = BigDecimal("98"),
+                    observedWalletChange = BigDecimal("-2"),
+                    ledgerChange = BigDecimal.ZERO,
+                    difference = BigDecimal("-2"),
+                    tolerance = BigDecimal("0.01"),
+                    consecutiveMismatches = 3,
+                    lastMatchedAt = null,
+                    reconciledAt = now,
+                )
+            val gateway = RecordingExecutionGateway()
+            val service =
+                testService(
+                    store = store,
+                    gateway = gateway,
+                    config =
+                        ExchangeExecutionConfig(
+                            enabled = true,
+                            walletReconciliationEnabled = true,
+                            walletReconciliationConfirmedMismatchCount = 3,
+                        ),
+                )
+
+            val readiness = service.riskReadiness()
+
+            readiness.allowsEntry shouldBe false
+            readiness.reasonCodes shouldBe listOf("ACCOUNT_LEDGER_MISMATCH_CONFIRMED")
+            readiness.currentDailyLossFraction shouldBe BigDecimal("0.02")
+            readiness.currentAccountDrawdownFraction shouldBe BigDecimal("0.1090909090909091")
+            readiness.walletReconciliationState?.difference shouldBe BigDecimal("-2")
+            gateway.openOrderRequests shouldBe 0
+            gateway.positionRequests shouldBe 0
+            gateway.accountTransactionRequests shouldBe 0
+            gateway.accountBalanceRequests shouldBe 0
+        }
+
         "account risk circuit breaker does not prevent an expired position exit" {
             val now = Instant.parse("2024-06-30T00:00:00Z")
             val store = InMemoryTradingStore()
@@ -2535,6 +2599,7 @@ private class RecordingExecutionGateway(
     var executionRequests: Int = 0
     var closedPnlRequests: Int = 0
     var accountTransactionRequests: Int = 0
+    var accountBalanceRequests: Int = 0
 
     override suspend fun setLeverage(
         symbol: Symbol,
@@ -2608,7 +2673,10 @@ private class RecordingExecutionGateway(
         return closedPnls
     }
 
-    override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = accountBalance
+    override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {
+        accountBalanceRequests += 1
+        return accountBalance
+    }
 
     override suspend fun accountTransactions(
         currency: String,

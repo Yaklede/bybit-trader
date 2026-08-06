@@ -645,6 +645,73 @@ class ExchangeExecutionService(
 
     suspend fun reconcile(symbol: Symbol): ExchangeReconciliationReport = fetchReconciliation(symbol)
 
+    suspend fun riskReadiness(): ExecutionRiskReadiness {
+        val now = Instant.now(clock)
+        val botMode = stateStore.current().mode
+        val store = projectionStore
+        val riskState = store?.executionRiskState(runtimeMode)
+        val walletState =
+            if (config.walletReconciliationEnabled) {
+                store?.walletReconciliationState(runtimeMode, ACCOUNT_LEDGER_CURRENCY)
+            } else {
+                null
+            }
+        val reasonCodes = mutableListOf<String>()
+        if (!config.enabled) reasonCodes += "PRIVATE_EXECUTION_DISABLED"
+        if (botMode != BotMode.RUNNING) reasonCodes += "BOT_MODE_NOT_RUNNING"
+        if (store == null) {
+            reasonCodes += "RISK_STATE_STORE_UNAVAILABLE"
+        } else {
+            reasonCodes += config.evaluateRiskState(riskState, now).reasonCodes
+            if (config.walletReconciliationEnabled) {
+                reasonCodes +=
+                    ExecutionWalletReconciler
+                        .evaluate(
+                            state = walletState,
+                            now = now,
+                            maximumAge = config.walletReconciliationMaximumAge,
+                            confirmedMismatchCount = config.walletReconciliationConfirmedMismatchCount,
+                        ).reasonCodes
+            }
+        }
+        val useUnitizedNav = config.walletReconciliationEnabled
+        val navReady = !useUnitizedNav || riskState?.navStatus == ExecutionRiskNavStatus.READY
+        val latest =
+            if (useUnitizedNav) {
+                riskState?.latestUnitizedNav
+            } else {
+                riskState?.latestEquity
+            }
+        val dayStart =
+            if (useUnitizedNav) {
+                riskState?.dayStartUnitizedNav
+            } else {
+                riskState?.dayStartEquity
+            }
+        val peak =
+            if (useUnitizedNav) {
+                riskState?.peakUnitizedNav
+            } else {
+                riskState?.peakEquity
+            }
+        return ExecutionRiskReadiness(
+            runtimeMode = runtimeMode,
+            botMode = botMode.name,
+            executionEnabled = config.enabled,
+            evaluatedAt = now,
+            allowsEntry = reasonCodes.isEmpty(),
+            reasonCodes = reasonCodes.distinct(),
+            riskState = riskState,
+            walletReconciliationEnabled = config.walletReconciliationEnabled,
+            walletReconciliationState = walletState,
+            currentDailyLossFraction = if (navReady) readinessLossFraction(dayStart, latest) else null,
+            currentAccountDrawdownFraction = if (navReady) readinessLossFraction(peak, latest) else null,
+            maximumDailyLossFraction = config.maximumDailyLossFraction,
+            maximumAccountDrawdownFraction = config.maximumAccountDrawdownFraction,
+            maximumConsecutiveLosses = config.maximumConsecutiveLosses,
+        )
+    }
+
     suspend fun persistDiscoveredClosures(symbol: Symbol): List<ExecutionTradeClosure> {
         logger.info("execution closure discovery requested symbol={}", symbol.value)
         val executions = gateway.executions(symbol)
@@ -2587,6 +2654,15 @@ private fun manualClientOrderId(
             Side.SELL -> "S"
         }
     return "$prefix-${symbol.value}-${now.toEpochMilli()}-$sideCode".take(36)
+}
+
+private fun readinessLossFraction(
+    baseline: BigDecimal?,
+    current: BigDecimal?,
+): BigDecimal? {
+    if (baseline == null || current == null || baseline <= BigDecimal.ZERO) return null
+    if (current >= baseline) return BigDecimal.ZERO
+    return baseline.subtract(current).divide(baseline, MathContext.DECIMAL64)
 }
 
 private fun ExchangeClosedPnl.toTradeClosure(mode: ExecutionRuntimeMode): ExecutionTradeClosure =

@@ -37,6 +37,23 @@ data class ExecutionRiskDecision(
     val allowsEntry: Boolean = reasonCodes.isEmpty()
 }
 
+data class ExecutionRiskReadiness(
+    val runtimeMode: ExecutionRuntimeMode,
+    val botMode: String,
+    val executionEnabled: Boolean,
+    val evaluatedAt: Instant,
+    val allowsEntry: Boolean,
+    val reasonCodes: List<String>,
+    val riskState: ExecutionRiskState?,
+    val walletReconciliationEnabled: Boolean,
+    val walletReconciliationState: ExecutionWalletReconciliationState?,
+    val currentDailyLossFraction: BigDecimal?,
+    val currentAccountDrawdownFraction: BigDecimal?,
+    val maximumDailyLossFraction: BigDecimal,
+    val maximumAccountDrawdownFraction: BigDecimal,
+    val maximumConsecutiveLosses: Int,
+)
+
 internal object ExecutionRiskCircuitBreaker {
     fun update(
         previous: ExecutionRiskState?,
