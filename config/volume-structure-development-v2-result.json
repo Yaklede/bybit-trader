@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-structure-development-v2-result",
+  "protocolId": "volume-structure-development-v2",
+  "executedAt": "2026-08-06",
+  "status": "REJECTED",
+  "codeGitSha": "79e1be0",
+  "inputs": {
+    "databaseSha256": "b8b07efa6c2215afe371d8c52c710aa86a630a4f1cd68c9d2b57c41a94fe8798",
+    "replayStartAt": "2020-06-01T00:00:00Z",
+    "replayEndAt": "2024-01-01T00:00:00Z",
+    "observedM1": 1884960,
+    "candidateCount": 24
+  },
+  "outputs": {
+    "candidateTradesSha256": "b399f66ca90611a38186e7fa1da07c0dc497a2de1ffb8e6797ac9a5d8c1d51bd",
+    "nestedWalkForwardSha256": "a433762483f149280c3305396ac482bdbbcb1702f588223417309c916a66230a",
+    "summarySha256": "24a48f09b88bd4df4f682103665baeff07220a91bbd631576c40acf123f27eb6"
+  },
+  "families": [
+    {
+      "family": "VOLUME_BREAKOUT_RETEST_CONTINUATION",
+      "status": "REJECTED",
+      "bestDiagnosticCandidate": {
+        "id": "vbr_rv2_lb12_rt15",
+        "tradeCount": 130,
+        "winRatePct": 19.23076923,
+        "netReturnPct": -13.74353924,
+        "meanNetR": -0.2230224,
+        "profitFactor": 0.58036499,
+        "maxDrawdownPct": 15.11228879,
+        "bootstrapLowerMeanNetR": -0.35303,
+        "bootstrapUpperMeanNetR": -0.09195641
+      },
+      "failureReason": "Retest entry reduced trade count but did not reverse the negative expectancy; the entire bootstrap interval remained below zero."
+    },
+    {
+      "family": "CLUSTERED_VOLUME_EXHAUSTION_REVERSAL",
+      "status": "REJECTED_INSUFFICIENT_EVIDENCE",
+      "bestDiagnosticCandidate": {
+        "id": "cve_rv2p25_lb24_cf4",
+        "tradeCount": 32,
+        "positiveValidationFolds": 4,
+        "winRatePct": 37.5,
+        "netReturnPct": 1.80008145,
+        "meanNetR": 0.11638474,
+        "profitFactor": 1.19547199,
+        "maxDrawdownPct": 2.15687429,
+        "bootstrapLowerMeanNetR": -0.1198022,
+        "bootstrapUpperMeanNetR": 0.35371302,
+        "longNetR": 5.81794615,
+        "shortNetR": -2.09363447
+      },
+      "failureReason": "Four of six diagnostic folds were positive, but only 32 trades were observed and the bootstrap lower bound remained negative."
+    }
+  ],
+  "diagnosis": {
+    "continuation": "Both immediate breakout pursuit and level-retest continuation are rejected on wholly negative bootstrap intervals.",
+    "clusteredReversal": "Moderately elevated volume had different behavior by side: long reversals remained viable at higher volume while extreme-volume short reversals behaved like squeezes and lost expectancy.",
+    "methodCorrection": "For sparse event strategies, positive-month ratio must be measured over active months while zero-trade months remain visible as coverage, not counted as losing months."
+  },
+  "nextResearchDirection": "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL",
+  "reservedSealedProtocolId": "fresh-sealed-validation-2026-08-v1",
+  "reservedSealedWindowOpened": false,
+  "automaticExecutionAllowed": false
+}
