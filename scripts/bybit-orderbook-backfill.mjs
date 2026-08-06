@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const DEFAULT_START = "2023-01-19";
 const DEFAULT_HISTORY_API_BASE_URL = "https://api2.bybit.com";
@@ -223,7 +224,6 @@ async function importArchiveFileOnce(file, options, fetchImpl) {
   const { stream: archive, localArchive } = await openArchiveStream(file, options, fetchImpl);
   const archiveHash = createHash("sha256");
   let archiveSizeBytes = 0;
-  const archiveCompletion = waitForReadableEnd(archive);
   archive.on("data", (chunk) => {
     archiveHash.update(chunk);
     archiveSizeBytes += chunk.length;
@@ -237,16 +237,17 @@ async function importArchiveFileOnce(file, options, fetchImpl) {
   funzip.stderr.on("data", (chunk) => stderr.push(chunk));
   if (funzip.stdin != null) funzip.stdin.on("error", () => {});
   const processCompletion = waitForProcess(funzip, stderr, extractorName);
-  if (localArchive == null) archive.pipe(funzip.stdin);
+  const inputCompletion = localArchive == null
+    ? pipeline(archive, funzip.stdin)
+    : waitForReadableEnd(archive);
 
   try {
-    const aggregate = await aggregateArchiveLines(funzip.stdout, {
+    const aggregateCompletion = aggregateArchiveLines(funzip.stdout, {
       sourceDate: file.date,
       symbol: options.symbol,
       depth: options.orderBookDepth,
     });
-    await processCompletion;
-    await archiveCompletion;
+    const [aggregate] = await Promise.all([aggregateCompletion, processCompletion, inputCompletion]);
     if (archiveSizeBytes !== Number(file.size)) {
       throw new Error(`Order-book archive size mismatch date=${file.date}: expected=${file.size} actual=${archiveSizeBytes}.`);
     }

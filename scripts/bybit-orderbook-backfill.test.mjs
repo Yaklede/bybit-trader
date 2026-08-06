@@ -9,6 +9,7 @@ import {
   aggregateArchiveLines,
   assertCompleteDay,
   ensureSchema,
+  importArchiveFile,
   listArchiveFiles,
   parseArgs,
   retryArchiveOperation,
@@ -182,6 +183,34 @@ test("archive operation retries a transient decompression failure without changi
   );
   assert.equal(result, "complete");
   assert.deepEqual(attempts, [1, 2, 3]);
+});
+
+test("remote stream termination is contained and retried instead of escaping as an unhandled rejection", async () => {
+  const options = parseArgs([
+    "--start=2024-01-01",
+    "--end=2024-01-01",
+    "--archive-attempts=3",
+    "--archive-retry-delay-millis=0",
+    "--funzip-command=cat",
+  ]);
+  let attempts = 0;
+  await assert.rejects(() => importArchiveFile({
+    date: "2024-01-01",
+    filename: "broken.zip",
+    size: "100",
+    url: "https://example.com/broken.zip",
+  }, options, async () => {
+    attempts += 1;
+    return {
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.error(new TypeError("terminated"));
+        },
+      }),
+    };
+  }), /terminated/);
+  assert.equal(attempts, 3);
 });
 
 test("archive directory takes precedence over a network request for a verified filename", async () => {
