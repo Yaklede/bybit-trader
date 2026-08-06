@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
   BarChart3,
@@ -100,7 +99,7 @@ const EMPTY_MOBILE_SUMMARY = {
   riskReadiness: false,
 };
 
-function App() {
+export default function App() {
   const [apiBase, setApiBase] = useState(() => localStorage.getItem(STORAGE_KEYS.apiBase) || "/api");
   const [accessKey, setAccessKey] = useState(() => localStorage.getItem(STORAGE_KEYS.accessKey) || "");
   const [apiBaseDraft, setApiBaseDraft] = useState(() => localStorage.getItem(STORAGE_KEYS.apiBase) || "/api");
@@ -2253,5 +2252,3 @@ function emptyMessage(dataState, readyMessage, idleMessage) {
   if (dataState === ATTENTION_DATA_STATE) return "접근키와 API 주소를 확인한 뒤 다시 시도해 주세요.";
   return readyMessage;
 }
-
-createRoot(document.getElementById("root")).render(<App />);
