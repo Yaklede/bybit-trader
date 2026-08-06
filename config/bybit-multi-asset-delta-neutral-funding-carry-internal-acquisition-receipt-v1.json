@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bybit-multi-asset-delta-neutral-funding-carry-internal-acquisition-receipt-v1",
+  "status": "COMPLETE_MULTI_ASSET_INTERNAL_EVIDENCE_SEALED",
+  "protocolId": "bybit-multi-asset-delta-neutral-funding-carry-internal-v1",
+  "protocolSha256": "b2e3b132e9cfa30322aeabf3e167863c9b4c65ccd2f7c2c27703aa0915a25da0",
+  "parentDevelopmentResultSha256": "a7ad78340bd57fc74117cf9590705e29e028b5fec00292a5b15ba95ad245ab35",
+  "selectedCandidateSha256": "2b46f1abe6caef9fb31eb6ad85de2ff4973985e52d76a1f377cc8ef2e6d974e9",
+  "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+  "implementationSha256": "39688bdcc12aec03c3d24ca853762ffbb6730cd2a3e078fea77a889639ad945a",
+  "acquisitionReportSha256": "958109f61569c44432b8a640394e57988fc5f64edeaff0c59bdcd5f6d892008b",
+  "stage": "internal",
+  "stageStart": "2024-01-01T00:00:00Z",
+  "stageEndExclusive": "2025-01-01T00:00:00Z",
+  "stageSnapshot": "build/research/bybit-multi-asset-delta-neutral-funding-carry-internal-v1-snapshot.sqlite",
+  "stageSnapshotSha256": "876a5230f369854663d42ee7da1a2d36116b88e43b5aeeea44f1f8d596a2514e",
+  "normalizedEvidenceSha256": "c1ecb7277f6e0e74e7a5e3ba3f4a311cab4d88ad917a87baa671c94048430fb8",
+  "officialRestEvidence": {
+    "BTCUSDT": {
+      "spotLast": {"pageCount":106,"rowCount":105408,"responseChainSha256":"37a6a39d552822124263dc66cde3a3bba24f4cb4b9bf2714eed6e09031ce3197","contentSha256":"23bb9c8e8fdfce9e3e7beee314de09afe63a43bea438140d0bd1355bb32e7299"},
+      "perpetualLast": {"pageCount":106,"rowCount":105408,"responseChainSha256":"f3903a872c121bd389a45b9e899b9295de878b5d8e6190ccd798233341b8c029","contentSha256":"f876980e88084e9c231dcf7e9d251550a2dcd0881c92754ed8849165b1b2a912"},
+      "perpetualMark": {"pageCount":106,"rowCount":105408,"responseChainSha256":"79e64b5cc26482d94123147dd6391b1a182af976af3133548dee5f7824ae7d14","contentSha256":"d221184795b5cda96040c18c80b0de33932d8bed45e2866020405517124224ed"},
+      "perpetualIndex": {"pageCount":106,"rowCount":105408,"responseChainSha256":"16d1449de261174dbfce97b1cebbdf8820ceb8a2cee633ee066c5d8496196d3a","contentSha256":"9d31320719f0481b764d1f5571c4bab0f2fe490e1c8ae0390bde9d8376c651d6"},
+      "funding": {"pageCount":6,"rowCount":1098,"responseChainSha256":"ddd5acacd9707f111d9089322e677903f515ec06cbb21118a79d099576c16961","contentSha256":"8bdec2abed5abc46fa097399f47bdf3ba2f7a6fe7c1e8e8e259b4cf2657c705c"}
+    },
+    "ETHUSDT": {
+      "spotLast": {"pageCount":106,"rowCount":105408,"responseChainSha256":"889f2ebc8accdb028f814e2ed0ea82cbe76a44b37a04cb4e033f9032090a3d5e","contentSha256":"713a56d4e2dac6d17fa53e9ad9e4e789ac7c5bfdb6cc885d0cb10bf56eb8e705"},
+      "perpetualLast": {"pageCount":106,"rowCount":105408,"responseChainSha256":"d64635ef38db7a9900157af25711c125157afaef78d6c57415f84d2af162373f","contentSha256":"47a4b22e7e3ce95a9d9259793ebc23f5a8fb25d90b7545100ddd0e4957021c3a"},
+      "perpetualMark": {"pageCount":106,"rowCount":105408,"responseChainSha256":"6c3f9c2c20f1e596c63e043c265c3858181f5782ba6cb236c1784a4698435b26","contentSha256":"68f3ac39dc9a26b66cc0270f0628c648d14e04e3f597deebe23e56cffab92ff9"},
+      "perpetualIndex": {"pageCount":106,"rowCount":105408,"responseChainSha256":"8598e59b2313d1a0a5f670e186d9773eef47534656be0ec4a669026509bf6c31","contentSha256":"e91eceeedecc365c3fac5e9c5a1f764c27488512be88360b55a93edf316d1a8d"},
+      "funding": {"pageCount":6,"rowCount":1098,"responseChainSha256":"f845ff85080de5b2777793b3b9b82b126577a95653b6ee545afa0bf12e445477","contentSha256":"559741003e17cc6dbbc5fae12869aebfec58ea44b5ca76159fc59655f76bb3ae"}
+    },
+    "SOLUSDT": {
+      "spotLast": {"pageCount":106,"rowCount":105408,"responseChainSha256":"0675f0d79df89207c10063cbb23310fcd903caac88dab1071f7b8d787ecd5382","contentSha256":"a3b0d6c4b324029b920a161064df5ecabd6548590992b417228207e53c3d4b07"},
+      "perpetualLast": {"pageCount":106,"rowCount":105408,"responseChainSha256":"29d252418651eb9f8d7764cafba7c48b755b462989dafb9052897d273ea7c67e","contentSha256":"5473f9e6a6745a0ec8665839636172eb60e36b9fc58d4a808a1b985267482476"},
+      "perpetualMark": {"pageCount":106,"rowCount":105408,"responseChainSha256":"73ee60f55a123f7445eb440f51d27d979be383758e307e5bfb5cee34c8102a12","contentSha256":"9ca51ef23145a28c6f94c16b115c6813102f4603de1d9814886c6a166819ff19"},
+      "perpetualIndex": {"pageCount":106,"rowCount":105408,"responseChainSha256":"375b520e254490806d23b90cf937d0d1709f134f9571d2bd9534a5993466217c","contentSha256":"1d527f65a162714db319a8869489f3308abf1de7c868a0b099c2e9283f8ab208"},
+      "funding": {"pageCount":6,"rowCount":1098,"responseChainSha256":"fd35742800ceaae069ba0659bafbc3dde7e81624c2e34594c25eb6153ff96223","contentSha256":"c9ccd991f5effbae87c2194842385da8d35bfc0f8d0e9dc8b3100a2fe0608b9a"}
+    }
+  },
+  "coverage": {
+    "symbolCount": 3,
+    "seriesPerSymbol": 4,
+    "expectedM5RowsPerSeries": 105408,
+    "matchingM5RowsPerSymbol": 105408,
+    "totalMatchingM5Rows": 316224,
+    "fundingRowsPerSymbol": 1098,
+    "totalFundingRows": 3294,
+    "offGridRowCount": 0,
+    "invalidPriceRowCount": 0,
+    "missingDecisionInputCount": 0
+  },
+  "integrity": {
+    "allTwelveM5SeriesContinuousAndOnGrid": true,
+    "allFourSeriesShareExactTimelineWithinEverySymbol": true,
+    "allThreeSymbolsShareExactPortfolioTimeline": true,
+    "allFundingIntervalsContinuous": true,
+    "allFundingSettlementsHaveCausalDecisionAndEntryBars": true,
+    "allRawRestPagesRetainedAndHashed": true,
+    "stageSnapshotStableAcrossResume": true,
+    "acquisitionReportStableAcrossResume": true,
+    "temporarySqliteSidecarsRemoved": true
+  },
+  "priorObservationDisclosure": {
+    "BTCUSDT2024SingleAssetMetricsRead": true,
+    "ETHUSDT2024SingleAssetMetricsRead": false,
+    "SOLUSDT2024SingleAssetMetricsRead": false,
+    "multiAssetPortfolio2024MetricsReadBeforeFreeze": false
+  },
+  "lockedEvidence": {
+    "external2025Read": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "internalEvaluationAllowed": true,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
