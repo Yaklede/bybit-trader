@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "freezeId": "bybit-multi-asset-cost-recovery-carry-sealed-replay-freeze-v3",
+  "status": "FROZEN_BEFORE_SEALED_2026_H1_OUTCOME_REPLAY",
+  "frozenAt": "2026-08-06",
+  "protocol": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-sealed-2026-h1-v3.json",
+    "sha256": "7ec481bf092749a2b414b338d94b206b47f013e867aa53bcc57291ab38074041"
+  },
+  "acquisitionReceipt": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-sealed-acquisition-receipt-v3.json",
+    "sha256": "96b88f7ceb83ac744580ffc9da1ad07e6899ff76d5645b7c074b33c1c16a4b3d"
+  },
+  "implementation": {
+    "simulatorPath": "scripts/lib/multi-asset-delta-neutral-funding-carry-research.mjs",
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "replayPath": "scripts/multi-asset-cost-recovery-carry-sealed-replay.mjs",
+    "replaySha256": "472e047772bcc1ecf2541b2492e13a3b80910f502580098fa5f537a9eabd0d33",
+    "compositeSha256": "26d7e88b70f358356f1eeafb6f9a21969e06cbee338addfb2a5dcaee9ea31293"
+  },
+  "outcomeBoundary": {
+    "sealedPortfolioMetricsReadBeforeFreeze": false,
+    "freshForwardSealRead": false
+  },
+  "candidatePolicy": {
+    "evaluatedCandidateCount": 1,
+    "candidateMayBeRetunedAfterOutcome": false
+  },
+  "gatePolicy": {
+    "allSealedGatesMustPass": true,
+    "gateMayBeChangedAfterOutcome": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
