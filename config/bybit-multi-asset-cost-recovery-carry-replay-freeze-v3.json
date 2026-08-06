@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "freezeId": "bybit-multi-asset-cost-recovery-carry-replay-freeze-v3",
+  "status": "FROZEN_BEFORE_COST_RECOVERY_DEVELOPMENT_REPLAY",
+  "frozenAt": "2026-08-06",
+  "protocol": {
+    "path": "config/bybit-multi-asset-cost-recovery-carry-development-v3.json",
+    "sha256": "cc79d223ed4c4cf3e68b9d8bf449513f18d37e7f6a988083996279bd4652f7f2"
+  },
+  "implementation": {
+    "simulatorPath": "scripts/lib/multi-asset-delta-neutral-funding-carry-research.mjs",
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "replayPath": "scripts/multi-asset-cost-recovery-carry-replay.mjs",
+    "replaySha256": "c062c5aa3f6bd576e2f92b9dad6546ca202a3686f68bbd83128aa2a0dc897535",
+    "compositeSha256": "c67ea21ed0ce55742f3859fd87c464f64cc24d161b307fc57bc0c88a01d14f61"
+  },
+  "outcomeBoundary": {
+    "developmentGridMetricsReadBeforeFreeze": false,
+    "sealed2026Read": false,
+    "freshForwardSealRead": false
+  },
+  "trialAccounting": {
+    "frozenCandidatesToEvaluate": 54,
+    "cumulativeObservedCandidatesAndProtocolsAfterReplay": 390
+  },
+  "selectionPolicy": {
+    "maximumSelectedCandidateCount": 1,
+    "allDevelopmentGatesMustPass": true,
+    "candidateMayBeRetunedAfterOutcome": false,
+    "gateMayBeChangedAfterOutcome": false
+  },
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
