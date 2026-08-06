@@ -93,6 +93,50 @@ class VolumeConfirmedTrendShadowServiceTest :
             fixture.store.state shouldBe null
             fixture.events shouldBe emptyList()
         }
+
+        "matches historical execution fills for the same reversal sequence" {
+            val fixture = ShadowFixture()
+            fixture.service().evaluate(fixture.ticker("2026-01-01T12:01:00Z", "110"))
+            fixture.candles += h4Candles("2026-01-01T12:00:00Z", "110", "50", "30")
+            fixture.service().evaluate(fixture.ticker("2026-01-01T16:01:00Z", "50"))
+            fixture.candles += h4Candles("2026-01-01T16:00:00Z", "50", "90", "30")
+            fixture.service().evaluate(fixture.ticker("2026-01-01T20:01:00Z", "90"))
+
+            val historicalBars =
+                listOf(
+                    h4Bar("2026-01-01T16:00:00Z", open = 50.0, close = 90.0, volume = 30.0),
+                    h4Bar("2026-01-01T20:00:00Z", open = 90.0, close = 90.0, volume = 10.0),
+                )
+            val historical =
+                VolumeConfirmedTrendSimulator.run(
+                    bars = historicalBars,
+                    fundingRates = emptyList(),
+                    commands =
+                        listOf(
+                            historicalCommand(Side.SELL, historicalBars, 0),
+                            historicalCommand(Side.BUY, historicalBars, 1),
+                        ),
+                    startingEquity = 100.0,
+                    costMultiplier = 1.0,
+                )
+            val shadowOpen =
+                fixture.events.first {
+                    it.type == VolumeConfirmedTrendShadowEventType.POSITION_OPENED && it.side == Side.SELL
+                }
+            val shadowClose =
+                fixture.events.first {
+                    it.type == VolumeConfirmedTrendShadowEventType.POSITION_CLOSED && it.side == Side.SELL
+                }
+            val historicalShort = historical.trades.first()
+
+            shadowOpen.quantity shouldBe historicalShort.quantity
+            shadowOpen.fillPrice shouldBe historicalShort.entryPrice
+            shadowClose.fillPrice shouldBe historicalShort.exitPrice
+            shadowClose.grossPnl shouldBe historicalShort.grossPnl
+            shadowClose.fundingPnl shouldBe historicalShort.fundingPnl
+            shadowOpen.fee + shadowClose.fee shouldBe historicalShort.fees
+            shadowClose.netPnl shouldBe historicalShort.netPnl
+        }
     })
 
 private class ShadowFixture {
@@ -333,14 +377,37 @@ private fun h4Candles(
 
 private fun h4Bar(
     at: String,
+    open: Double,
     close: Double,
     volume: Double,
 ): VolumeConfirmedTrendBar =
     VolumeConfirmedTrendBar(
         openedAt = Instant.parse(at),
-        open = close,
-        high = close + 1.0,
-        low = close - 1.0,
+        open = open,
+        high = maxOf(open, close) + 1.0,
+        low = minOf(open, close) - 1.0,
         close = close,
         volume = volume,
+    )
+
+private fun h4Bar(
+    at: String,
+    close: Double,
+    volume: Double,
+): VolumeConfirmedTrendBar = h4Bar(at = at, open = close, close = close, volume = volume)
+
+private fun historicalCommand(
+    side: Side,
+    bars: List<VolumeConfirmedTrendBar>,
+    index: Int,
+): VolumeConfirmedTrendCommand =
+    VolumeConfirmedTrendCommand(
+        side = side,
+        decisionAt = bars[index].openedAt,
+        executionAt = bars[index].openedAt,
+        decisionIndex = index,
+        executionIndex = index,
+        netVotes = if (side == Side.BUY) 1 else -1,
+        decisionVolume = bars[index].volume,
+        priorVolumeMedian = bars[index].volume,
     )

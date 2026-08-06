@@ -11,7 +11,6 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
-import kotlin.math.abs
 import kotlin.math.max
 
 private const val SHADOW_H4_SECONDS = 4L * 60L * 60L
@@ -62,14 +61,7 @@ enum class VolumeConfirmedTrendShadowStatus {
     OBSERVING,
 }
 
-data class VolumeConfirmedTrendShadowPosition(
-    val side: Side,
-    val quantity: Double,
-    val entryAt: Instant,
-    val entryPrice: Double,
-    val entryFee: Double,
-    val fundingPnl: Double,
-)
+typealias VolumeConfirmedTrendShadowPosition = VolumeConfirmedTrendOpenPosition
 
 data class VolumeConfirmedTrendShadowState(
     val protocolId: String,
@@ -95,6 +87,9 @@ data class VolumeConfirmedTrendShadowState(
     val executedTransitions: Int,
     val invalidatedSessionCount: Int,
     val updatedAt: Instant,
+    val maximumEntryExposureFraction: Double = 0.0,
+    val maximumAdverseExposureFraction: Double = 0.0,
+    val liquidationCount: Int = 0,
 ) {
     init {
         require(sessionId.isNotBlank()) { "Trend shadow session ID must not be blank." }
@@ -106,6 +101,9 @@ data class VolumeConfirmedTrendShadowState(
         }
         require(closedTrades >= 0 && executedTransitions >= 0 && invalidatedSessionCount >= 0) {
             "Trend shadow counters must not be negative."
+        }
+        require(maximumEntryExposureFraction >= 0.0 && maximumAdverseExposureFraction >= 0.0 && liquidationCount >= 0) {
+            "Trend shadow exposure and liquidation state must not be negative."
         }
     }
 }
@@ -433,10 +431,17 @@ class VolumeConfirmedTrendShadowService(
                             "Funding rate is missing at $timestamp while a shadow position is open.",
                         )
                 val price = priceAt(timestamp)
-                val fundingPnl = -position.side.sign * position.quantity * price * rate
-                working.cash += fundingPnl
-                working.totalFundingPnl += fundingPnl
-                working.position = position.copy(fundingPnl = position.fundingPnl + fundingPnl)
+                val execution =
+                    VolumeConfirmedTrendExecutionModel.applyFunding(
+                        cash = working.cash,
+                        position = position,
+                        settlementPrice = price,
+                        fundingRate = rate,
+                    )
+                working.cash = execution.cashAfter
+                working.totalFundingPnl += execution.fundingPnl
+                working.position = execution.position
+                working.equity = execution.equityAfter
                 working.mark(price)
                 events +=
                     working.event(
@@ -446,8 +451,8 @@ class VolumeConfirmedTrendShadowService(
                         side = position.side,
                         referencePrice = price,
                         quantity = position.quantity,
-                        fundingPnl = fundingPnl,
-                        netPnl = fundingPnl,
+                        fundingPnl = execution.fundingPnl,
+                        netPnl = execution.fundingPnl,
                         reason = "ACTUAL_SETTLED_FUNDING_RATE=$rate",
                     )
             }
@@ -518,6 +523,9 @@ class VolumeConfirmedTrendShadowService(
             executedTransitions = 0,
             invalidatedSessionCount = 0,
             updatedAt = observedAt,
+            maximumEntryExposureFraction = 0.0,
+            maximumAdverseExposureFraction = 0.0,
+            liquidationCount = 0,
         )
     }
 
@@ -547,15 +555,17 @@ class VolumeConfirmedTrendShadowService(
         var closedTrades = state.closedTrades
         var executedTransitions = state.executedTransitions
         var invalidatedSessionCount = state.invalidatedSessionCount
+        var maximumEntryExposureFraction = state.maximumEntryExposureFraction
+        var maximumAdverseExposureFraction = state.maximumAdverseExposureFraction
+        var liquidationCount = state.liquidationCount
 
         fun observeIntrabar(bar: VolumeConfirmedTrendBar) {
             val current = position ?: return
-            val openEquity = markEquity(bar.open)
-            val favorable = if (current.side == Side.BUY) bar.high else bar.low
-            val adverse = if (current.side == Side.BUY) bar.low else bar.high
-            peakEquity = max(peakEquity, max(openEquity, markEquity(favorable)))
-            val adverseEquity = markEquity(adverse)
-            maximumDrawdownPct = max(maximumDrawdownPct, drawdownPct(peakEquity, adverseEquity))
+            val risk = VolumeConfirmedTrendExecutionModel.observeIntrabar(cash, current, bar, peakEquity)
+            peakEquity = risk.peakEquity
+            maximumDrawdownPct = max(maximumDrawdownPct, risk.drawdownPct)
+            maximumAdverseExposureFraction = max(maximumAdverseExposureFraction, risk.adverseExposureFraction)
+            if (risk.liquidationObserved) liquidationCount += 1
         }
 
         fun closePosition(
@@ -566,13 +576,16 @@ class VolumeConfirmedTrendShadowService(
             events: MutableList<VolumeConfirmedTrendShadowEvent>,
         ) {
             val current = position ?: return
-            val exitPrice = referencePrice * (1.0 - current.side.sign * config.executionContract.oneWaySlippageRate)
-            val grossPnl = current.side.sign * current.quantity * (exitPrice - current.entryPrice)
-            val fee = current.quantity * exitPrice * config.executionContract.oneWayFeeRate
-            val slippage = current.quantity * abs(exitPrice - referencePrice)
-            cash += grossPnl - fee
-            totalFees += fee
-            totalSlippage += slippage
+            val execution =
+                VolumeConfirmedTrendExecutionModel.close(
+                    cash = cash,
+                    position = current,
+                    referencePrice = referencePrice,
+                    contract = config.executionContract,
+                )
+            cash = execution.cashAfter
+            totalFees += execution.fee
+            totalSlippage += execution.slippage
             closedTrades += 1
             position = null
             mark(referencePrice)
@@ -583,13 +596,13 @@ class VolumeConfirmedTrendShadowService(
                     observedAt = observedAt,
                     side = current.side,
                     referencePrice = referencePrice,
-                    fillPrice = exitPrice,
+                    fillPrice = execution.fillPrice,
                     quantity = current.quantity,
-                    fee = fee,
-                    slippage = slippage,
+                    fee = execution.fee,
+                    slippage = execution.slippage,
                     fundingPnl = current.fundingPnl,
-                    grossPnl = grossPnl,
-                    netPnl = grossPnl + current.fundingPnl - current.entryFee - fee,
+                    grossPnl = execution.grossPnl,
+                    netPnl = execution.netPnl,
                     reason = reason,
                 )
         }
@@ -602,9 +615,15 @@ class VolumeConfirmedTrendShadowService(
             h4OpenedAt: Instant,
             events: MutableList<VolumeConfirmedTrendShadowEvent>,
         ) {
-            val entryPrice = referencePrice * (1.0 + side.sign * config.executionContract.oneWaySlippageRate)
-            val quantity = VolumeConfirmedTrendEngine.quantity(cash, entryPrice, config.executionContract)
-            if (quantity <= 0.0) {
+            val execution =
+                VolumeConfirmedTrendExecutionModel.open(
+                    cash = cash,
+                    side = side,
+                    referencePrice = referencePrice,
+                    at = at,
+                    contract = config.executionContract,
+                )
+            if (execution == null) {
                 events +=
                     event(
                         type = VolumeConfirmedTrendShadowEventType.MINIMUM_QUANTITY_SKIPPED,
@@ -617,20 +636,11 @@ class VolumeConfirmedTrendShadowService(
                     )
                 return
             }
-            val fee = quantity * entryPrice * config.executionContract.oneWayFeeRate
-            val slippage = quantity * abs(entryPrice - referencePrice)
-            cash -= fee
-            totalFees += fee
-            totalSlippage += slippage
-            position =
-                VolumeConfirmedTrendShadowPosition(
-                    side = side,
-                    quantity = quantity,
-                    entryAt = at,
-                    entryPrice = entryPrice,
-                    entryFee = fee,
-                    fundingPnl = 0.0,
-                )
+            cash = execution.cashAfter
+            totalFees += execution.fee
+            totalSlippage += execution.slippage
+            maximumEntryExposureFraction = max(maximumEntryExposureFraction, execution.exposureFraction)
+            position = execution.position
             mark(referencePrice)
             events +=
                 event(
@@ -640,19 +650,19 @@ class VolumeConfirmedTrendShadowService(
                     h4OpenedAt = h4OpenedAt,
                     side = side,
                     referencePrice = referencePrice,
-                    fillPrice = entryPrice,
-                    quantity = quantity,
-                    fee = fee,
-                    slippage = slippage,
-                    netPnl = -fee,
+                    fillPrice = execution.fillPrice,
+                    quantity = execution.quantity,
+                    fee = execution.fee,
+                    slippage = execution.slippage,
+                    netPnl = -execution.fee,
                     reason = "VOLUME_CONFIRMED_TREND_TRANSITION",
                 )
         }
 
         fun mark(price: Double) {
-            equity = markEquity(price)
+            equity = VolumeConfirmedTrendExecutionModel.markEquity(cash, position, price)
             peakEquity = max(peakEquity, equity)
-            maximumDrawdownPct = max(maximumDrawdownPct, drawdownPct(peakEquity, equity))
+            maximumDrawdownPct = max(maximumDrawdownPct, trendDrawdownPct(peakEquity, equity))
         }
 
         fun event(
@@ -704,6 +714,9 @@ class VolumeConfirmedTrendShadowService(
             totalFundingPnl = 0.0
             closedTrades = 0
             executedTransitions = 0
+            maximumEntryExposureFraction = 0.0
+            maximumAdverseExposureFraction = 0.0
+            liquidationCount = 0
             invalidatedSessionCount += 1
         }
 
@@ -732,23 +745,23 @@ class VolumeConfirmedTrendShadowService(
                 executedTransitions = executedTransitions,
                 invalidatedSessionCount = invalidatedSessionCount,
                 updatedAt = updatedAt,
+                maximumEntryExposureFraction = maximumEntryExposureFraction,
+                maximumAdverseExposureFraction = maximumAdverseExposureFraction,
+                liquidationCount = liquidationCount,
             )
-
-        private fun markEquity(price: Double): Double =
-            cash + (position?.let { it.side.sign * it.quantity * (price - it.entryPrice) } ?: 0.0)
     }
 
     private fun VolumeConfirmedTrendShadowState.mark(
         referencePrice: Double,
         observedAt: Instant,
     ): VolumeConfirmedTrendShadowState {
-        val markedEquity = cash + (position?.let { it.side.sign * it.quantity * (referencePrice - it.entryPrice) } ?: 0.0)
+        val markedEquity = VolumeConfirmedTrendExecutionModel.markEquity(cash, position, referencePrice)
         val nextPeak = max(peakEquity, markedEquity)
         return copy(
             lastObservedAt = observedAt,
             equity = markedEquity,
             peakEquity = nextPeak,
-            maximumDrawdownPct = max(maximumDrawdownPct, drawdownPct(nextPeak, markedEquity)),
+            maximumDrawdownPct = max(maximumDrawdownPct, trendDrawdownPct(nextPeak, markedEquity)),
             updatedAt = observedAt,
         )
     }
@@ -805,9 +818,6 @@ class VolumeConfirmedTrendShadowService(
     }
 }
 
-private val Side.sign: Int
-    get() = if (this == Side.BUY) 1 else -1
-
 private fun latestClosedH4OpenedAt(observedAt: Instant): Instant =
     Instant.ofEpochSecond((observedAt.epochSecond / SHADOW_H4_SECONDS) * SHADOW_H4_SECONDS - SHADOW_H4_SECONDS)
 
@@ -826,11 +836,6 @@ private fun fundingBoundariesAfter(
         }
     }
 }
-
-private fun drawdownPct(
-    peak: Double,
-    equity: Double,
-): Double = if (peak <= 0.0) 100.0 else ((peak - equity) / peak * 100.0).coerceAtLeast(0.0)
 
 private fun requireValidSessionId(value: String): String {
     require(value.isNotBlank()) { "Trend shadow session ID must not be blank." }

@@ -5,7 +5,6 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Timeframe
 import java.time.Duration
 import java.time.Instant
-import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -413,11 +412,9 @@ object VolumeConfirmedTrendSimulator {
     ): VolumeConfirmedTrendSimulation {
         require(bars.isNotEmpty() && commands.size == bars.size) { "Trend simulation evidence and commands must align." }
         require(startingEquity > 0.0 && costMultiplier >= 1.0) { "Trend simulation capital and cost multiplier are invalid." }
-        val feeRate = contract.oneWayFeeRate * costMultiplier
-        val slippageRate = contract.oneWaySlippageRate * costMultiplier
         val fundingByTimestamp = fundingRates.associate { funding -> funding.timestamp to funding.rate }
         var cash = startingEquity
-        var position: MutablePosition? = null
+        var position: VolumeConfirmedTrendOpenPosition? = null
         var peakEquity = startingEquity
         var maximumDrawdown = 0.0
         var maximumEntryExposure = 0.0
@@ -429,7 +426,7 @@ object VolumeConfirmedTrendSimulator {
         var firstActiveAt: Instant? = null
         val trades = mutableListOf<VolumeConfirmedTrendTrade>()
 
-        fun markEquity(price: Double): Double = cash + (position?.let { it.side.sign * it.quantity * (price - it.entryPrice) } ?: 0.0)
+        fun markEquity(price: Double): Double = VolumeConfirmedTrendExecutionModel.markEquity(cash, position, price)
 
         fun closePosition(
             referencePrice: Double,
@@ -437,13 +434,17 @@ object VolumeConfirmedTrendSimulator {
             reason: String,
         ) {
             val current = position ?: return
-            val exitPrice = referencePrice * (1.0 - current.side.sign * slippageRate)
-            val grossPnl = current.side.sign * current.quantity * (exitPrice - current.entryPrice)
-            val fee = current.quantity * exitPrice * feeRate
-            val slippage = current.quantity * abs(exitPrice - referencePrice)
-            cash += grossPnl - fee
-            totalFees += fee
-            totalSlippage += slippage
+            val execution =
+                VolumeConfirmedTrendExecutionModel.close(
+                    cash = cash,
+                    position = current,
+                    referencePrice = referencePrice,
+                    contract = contract,
+                    costMultiplier = costMultiplier,
+                )
+            cash = execution.cashAfter
+            totalFees += execution.fee
+            totalSlippage += execution.slippage
             trades +=
                 VolumeConfirmedTrendTrade(
                     side = current.side,
@@ -451,11 +452,11 @@ object VolumeConfirmedTrendSimulator {
                     entryAt = current.entryAt,
                     exitAt = at,
                     entryPrice = current.entryPrice,
-                    exitPrice = exitPrice,
-                    grossPnl = grossPnl,
+                    exitPrice = execution.fillPrice,
+                    grossPnl = execution.grossPnl,
                     fundingPnl = current.fundingPnl,
-                    fees = current.entryFee + fee,
-                    netPnl = grossPnl + current.fundingPnl - current.entryFee - fee,
+                    fees = current.entryFee + execution.fee,
+                    netPnl = execution.netPnl,
                     reason = reason,
                 )
             position = null
@@ -465,41 +466,46 @@ object VolumeConfirmedTrendSimulator {
             val fundingRate = fundingByTimestamp[bar.openedAt] ?: 0.0
             position?.let { current ->
                 if (fundingRate != 0.0) {
-                    val fundingPnl = -current.side.sign * current.quantity * bar.open * fundingRate
-                    cash += fundingPnl
-                    current.fundingPnl += fundingPnl
-                    totalFunding += fundingPnl
+                    val execution =
+                        VolumeConfirmedTrendExecutionModel.applyFunding(
+                            cash = cash,
+                            position = current,
+                            settlementPrice = bar.open,
+                            fundingRate = fundingRate,
+                        )
+                    cash = execution.cashAfter
+                    position = execution.position
+                    totalFunding += execution.fundingPnl
                 }
             }
             val command = commands[index]
             if (command != null && command.side != position?.side) {
                 closePosition(bar.open, bar.openedAt, "OPPOSITE_VOLUME_CONFIRMED_TREND")
                 val equityBeforeEntry = cash
-                val entryPrice = bar.open * (1.0 + command.side.sign * slippageRate)
-                val quantity = VolumeConfirmedTrendEngine.quantity(equityBeforeEntry, entryPrice, contract)
-                if (quantity > 0.0) {
-                    maximumEntryExposure = max(maximumEntryExposure, quantity * entryPrice / equityBeforeEntry)
-                    val fee = quantity * entryPrice * feeRate
-                    val slippage = quantity * abs(entryPrice - bar.open)
-                    cash -= fee
-                    totalFees += fee
-                    totalSlippage += slippage
-                    position = MutablePosition(command.side, quantity, entryPrice, bar.openedAt, fee)
+                val execution =
+                    VolumeConfirmedTrendExecutionModel.open(
+                        cash = equityBeforeEntry,
+                        side = command.side,
+                        referencePrice = bar.open,
+                        at = bar.openedAt,
+                        contract = contract,
+                        costMultiplier = costMultiplier,
+                    )
+                if (execution != null) {
+                    maximumEntryExposure = max(maximumEntryExposure, execution.exposureFraction)
+                    cash = execution.cashAfter
+                    totalFees += execution.fee
+                    totalSlippage += execution.slippage
+                    position = execution.position
                     if (firstActiveAt == null) firstActiveAt = bar.openedAt
                 }
             }
-            val openEquity = markEquity(bar.open)
             position?.let { current ->
-                val favorablePrice = if (current.side == Side.BUY) bar.high else bar.low
-                val adversePrice = if (current.side == Side.BUY) bar.low else bar.high
-                val favorableEquity = markEquity(favorablePrice)
-                val adverseEquity = markEquity(adversePrice)
-                peakEquity = max(peakEquity, max(openEquity, favorableEquity))
-                if (adverseEquity <= 0.0) liquidationCount += 1
-                maximumAdverseExposure =
-                    max(maximumAdverseExposure, current.quantity * bar.open / max(adverseEquity, 1e-12))
-                maximumDrawdown =
-                    max(maximumDrawdown, if (peakEquity <= 0.0) 100.0 else ((peakEquity - adverseEquity) / peakEquity) * 100.0)
+                val risk = VolumeConfirmedTrendExecutionModel.observeIntrabar(cash, current, bar, peakEquity)
+                peakEquity = risk.peakEquity
+                if (risk.liquidationObserved) liquidationCount += 1
+                maximumAdverseExposure = max(maximumAdverseExposure, risk.adverseExposureFraction)
+                maximumDrawdown = max(maximumDrawdown, risk.drawdownPct)
             }
             val closeEquity = markEquity(bar.close)
             peakEquity = max(peakEquity, closeEquity)
@@ -521,19 +527,7 @@ object VolumeConfirmedTrendSimulator {
             trades = trades,
         )
     }
-
-    private data class MutablePosition(
-        val side: Side,
-        val quantity: Double,
-        val entryPrice: Double,
-        val entryAt: Instant,
-        val entryFee: Double,
-        var fundingPnl: Double = 0.0,
-    )
 }
-
-private val Side.sign: Int
-    get() = if (this == Side.BUY) 1 else -1
 
 private fun nextEma(
     previous: Double?,
