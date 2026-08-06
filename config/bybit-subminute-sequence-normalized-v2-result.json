@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "resultId": "bybit-subminute-sequence-normalized-v2-result",
+  "status": "REJECTED_NO_NORMALIZED_SELECTION_CANDIDATE",
+  "programStatus": "CLOSED_NO_APPROVABLE_SUBMINUTE_SEQUENCE_STRATEGY_V2",
+  "protocolId": "bybit-subminute-sequence-normalized-v2",
+  "protocolSha256": "a85f079873d139c820e7597d2a932490c9affc209a27cbe87d5d32249bab3e77",
+  "parentResultSha256": "b20b5da6298194da4c3c4951b985976f98f208b743050283173787a88f3d38a0",
+  "parentProtocolSha256": "24b5ffe11cf86ecf9452cfb5caa937e49358729198cf4e9b5aad074693e5dbb9",
+  "acquisitionReceiptSha256": "05e98d5b7628b3a75ff89f4150209538a21eb45058fc8856197a5a088eeb3ad9",
+  "selectionSnapshotSha256": "bb7b95dda9de96835b4288a0e35ff03a4ed27d39d32caf5a85923b8b6e93e15f",
+  "normalizedSourceFeatureSha256": "ba3265dd57cae8b008fbb433e131c94c4b9521342e64b77238a763a4b85a83c9",
+  "hypothesisSha256": "95259c390ba2be6b8791f999f45a0bf5b77fc0996378b54cd69cfb4b4cebc777",
+  "implementationSha256": "71a056412a21abe92aa715f270df031fa88e9aab6194256d1e5f81ac979421d2",
+  "resultArtifactSha256": "cee2b1d984b20b16f36ccde9a1e2c92c58777ef1d1bf48a76b2778ecd5eb3a7b",
+  "generatedAt": "2026-08-06T12:23:37.974Z",
+  "trialAccounting": {
+    "priorObservedCandidates": 223,
+    "stageCandidates": 32,
+    "cumulativeObservedCandidates": 255
+  },
+  "selection2023": {
+    "evaluationDays": 24,
+    "eligibleCandidateCount": 0,
+    "profitableCandidateCount": 0,
+    "candidateTradeCountRange": {"minimum": 24, "maximum": 120},
+    "candidateNetReturnPctRange": {"minimum": -18.08090477, "maximum": -2.92004247},
+    "candidateMeanNetRRange": {"minimum": -0.65632569, "maximum": -0.1624418},
+    "candidateProfitFactorRange": {"minimum": 0.03893809, "maximum": 0.57024049},
+    "candidateMaxDrawdownPctRange": {"minimum": 3.25715567, "maximum": 18.93073844},
+    "gateFailureCounts": {
+      "minimumPositiveQuarterCount": 32,
+      "minimumProfitFactor": 32,
+      "minimumMeanNetR": 32,
+      "minimumBootstrapLowerMeanNetR": 32,
+      "maximumDrawdownPct": 11,
+      "maximumWinnerProfitConcentration": 1
+    }
+  },
+  "bestNetCandidate": {
+    "candidateId": "subminute_depletion_continuation_14",
+    "family": "SUBMINUTE_DEPLETION_CONTINUATION",
+    "tradeCount": 24,
+    "longTrades": 9,
+    "shortTrades": 15,
+    "winRatePct": 20.83333333,
+    "netReturnPct": -2.92004247,
+    "compoundDailyReturnPct": -0.12340397,
+    "meanNetR": -0.25776281,
+    "profitFactor": 0.46571972,
+    "maxDrawdownPct": 3.25715567,
+    "positiveQuarterCount": 0,
+    "bootstrapLowerMeanNetR": -0.49992612,
+    "bootstrapUpperMeanNetR": -0.02867402,
+    "winnerProfitConcentration": 0.34044166,
+    "exitCounts": {"stop": 6, "time": 16, "target": 2}
+  },
+  "bestGrossBeforeFeeCandidate": {
+    "candidateId": "subminute_absorption_reversal_16",
+    "family": "SUBMINUTE_ABSORPTION_REVERSAL",
+    "tradeCount": 56,
+    "netReturnPct": -4.06360158,
+    "meanNetR": -0.1624418,
+    "profitFactor": 0.57024049,
+    "grossMeanRAfterSlippageBeforeFees": 0.05970791,
+    "meanFeeCostR": 0.22214971,
+    "positiveGrossQuarterCount": 2
+  },
+  "conclusion": [
+    "SPREAD_NORMALIZATION_RESTORED_CROSS_QUARTER_SIGNAL_COVERAGE_BUT_NOT_POSITIVE_EXPECTANCY",
+    "ALL_32_CANDIDATES_LOST_MONEY_AFTER_COSTS",
+    "THE_BEST_NET_CANDIDATE_BOOTSTRAP_95_PERCENT_UPPER_BOUND_REMAINED_NEGATIVE",
+    "THE_BEST_GROSS_CANDIDATE_EDGE_WAS_SMALLER_THAN_ONE_THIRD_OF_MEAN_FEE_COST_R",
+    "NEITHER_FAMILY_WAS_GROSS_PROFITABLE_IN_THREE_OF_FOUR_QUARTERS",
+    "THE_2024_INTERNAL_AND_ALL_LATER_EVIDENCE_REMAIN_UNREAD",
+    "THIS_RESULT_CANNOT_SUPPORT_AUTOMATIC_OR_LIVE_EXECUTION"
+  ],
+  "nextStageBoundary": {
+    "allowed": [
+      "DECLARE_A_NEW_ECONOMICALLY_DISTINCT_HYPOTHESIS_BEFORE_REPLAY",
+      "PREFER_LOWER_TURNOVER_EDGE_LARGE_ENOUGH_TO_CLEAR_OBSERVED_COSTS",
+      "COUNT_ALL_NEW_DEVELOPMENT_TRIALS",
+      "PRESERVE_2024_AS_UNREAD_INTERNAL_VALIDATION"
+    ],
+    "notAllowed": [
+      "RETUNE_THE_SAME_SUBMINUTE_SHOCK_THRESHOLDS_OR_EXIT_GRID_FROM_V2_OUTCOMES",
+      "ASSUME_MAKER_FEES_WITHOUT_QUEUE_AND_FILL_EVIDENCE",
+      "PROMOTE_A_GROSS_ONLY_OR_SINGLE_QUARTER_CANDIDATE",
+      "ACQUIRE_2024_FOR_THE_REJECTED_V2_PROGRAM",
+      "ENABLE_AUTOMATIC_OR_LIVE_EXECUTION"
+    ]
+  },
+  "internalValidation2024Read": false,
+  "expansionRead": false,
+  "validation2025Read": false,
+  "external2026Read": false,
+  "freshSealedRead": false,
+  "internalValidationAcquisitionAllowed": false,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}

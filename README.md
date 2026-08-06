@@ -51,6 +51,14 @@ Initial public repository placeholder for a Bybit trading automation project.
 > fell from 26,747 in Q1 to 5, 7, and 3 in the remaining quarters as observed
 > spreads contracted. The v1 program is closed; 2024 and later evidence remain
 > unread, and no profile is approved for automatic or live execution.
+>
+> **5-second normalized v2 rejected (2026-08-06):** spread normalization
+> restored cross-quarter signal coverage, but all 32 candidates lost after
+> costs. The least-bad row returned `-2.92004%` over 24 days and its bootstrap
+> 95% upper bound remained negative at `-0.02867R`. The strongest gross row
+> made only `+0.05971R` before fees against `0.22215R` average fee cost and was
+> gross-positive in two of four quarters. This family is closed without reading
+> 2024 or enabling execution.
 
 Milestone 1 is the operational backend shell:
 
