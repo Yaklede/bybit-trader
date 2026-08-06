@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bybit-multi-asset-cost-recovery-carry-sealed-acquisition-receipt-v3",
+  "status": "COMPLETE_MULTI_ASSET_SEALED_2026_H1_EVIDENCE",
+  "protocolId": "bybit-multi-asset-cost-recovery-carry-sealed-2026-h1-v3",
+  "protocolSha256": "7ec481bf092749a2b414b338d94b206b47f013e867aa53bcc57291ab38074041",
+  "developmentResultSha256": "e281833750f30e1b6188244525d2b694f36938e249d7d22fc667f25410c106dc",
+  "selectedCandidateSha256": "46bac80f02e00cdbcb4605e785a0f2dee6865d983c9082e326615381dd91dfcf",
+  "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+  "implementationSha256": "143f5695152eace6d8486b8f0ec2e4b1bfef10120f1f2b5d3de775f811f64e37",
+  "acquisitionReportSha256": "78b8acca8418864cee8b6ba302be42c58743d34f90d4adb8c1d40ce5aadd4530",
+  "stage": "sealed-2026-h1",
+  "stageStart": "2026-01-01T00:00:00Z",
+  "stageEndExclusive": "2026-07-01T00:00:00Z",
+  "stageSnapshot": "build/research/bybit-multi-asset-cost-recovery-carry-sealed-2026-h1-v3-snapshot.sqlite",
+  "stageSnapshotSha256": "182fa998d8dcdb594d55667f29a63f6d2768535950cf41b98d1a16c7cff2b2b5",
+  "normalizedEvidenceSha256": "082d463705ea8154934d837c9019f6542d5f2b992cdfa47c0b8bc44b72c835f8",
+  "officialRestEvidence": {
+    "BTCUSDT": {
+      "spotLast": {"pageCount":53,"rowCount":52128,"responseChainSha256":"ab82331065e6193a2846105c649ec31c84551635ce9dec4dab5809a8fc0dcbd0","contentSha256":"90e2b2a37681f107b9388196f13729d740a1ba3d8c097e44dd84e575a79a5deb"},
+      "perpetualLast": {"pageCount":53,"rowCount":52128,"responseChainSha256":"a66522ce4bad8dad7ab68bc9efa6a4bb6455106a249ff30676a3edcaaef2f45c","contentSha256":"c90c338be6096959bbeafbccaff61a15660575cad88cef792f23ab89faf37116"},
+      "perpetualMark": {"pageCount":53,"rowCount":52128,"responseChainSha256":"56785d7d8c4953df2df5e614a18a55f63814fce5b39a74085eda1a2b6464f868","contentSha256":"a3293057561d81b9a6884c61bbdd72e7936b64a10ef24c042415e0a7b156da12"},
+      "perpetualIndex": {"pageCount":53,"rowCount":52128,"responseChainSha256":"f96555a04c9e807222469a99ad62254de120c8c709e17ce6e7be9d6e1da37353","contentSha256":"0c370bd16dd00784cd70bfce0861521d99eb0d0d35bbf25a319ab69ccefd8bcd"},
+      "funding": {"pageCount":3,"rowCount":543,"responseChainSha256":"5af02b588887e68dd554a7de5288d6c6cecd1a9488bb39a91d4a11360ee029b5","contentSha256":"1f6275f6263d547c33eca6c90f6cce01552af0ec8fe350a9ad06264feb0e8035"}
+    },
+    "ETHUSDT": {
+      "spotLast": {"pageCount":53,"rowCount":52128,"responseChainSha256":"356d77e6eaaaf2ffcccf887cb600aae68847c2232919d98879bc530f79b70e5c","contentSha256":"e244dae0a1aec23b25411f811950ccea2b67829b84700dd821bfc0f34d7c52da"},
+      "perpetualLast": {"pageCount":53,"rowCount":52128,"responseChainSha256":"f367b6fe6c62fd0be68eeb62e3b9360ce4cc72d6c1da9ce939348503e2198b20","contentSha256":"07de3dc892014f80ce8f2c9ec67d48dc6f6cfb04581d5a5d44481e9400d096ba"},
+      "perpetualMark": {"pageCount":53,"rowCount":52128,"responseChainSha256":"dea931741ee34f8dabda3996e2f75406a5567d607d68d4de7936d71d04fea85a","contentSha256":"dd48bec9a00b18bd480a0110a9671112592d102b38a5a210193c3cdcd10fb488"},
+      "perpetualIndex": {"pageCount":53,"rowCount":52128,"responseChainSha256":"d7a093324c29b25f9c5f18f5844b5cfb9560787bd5fa439b90e2f112bf945096","contentSha256":"307d5aa5d117cd50b2ff3fe779ffe37bec4c3417d024ccf00433d0447b692c00"},
+      "funding": {"pageCount":3,"rowCount":543,"responseChainSha256":"273b67a4e3bccf79c83d193dec80d9e6ead0d674d19527d2bfdcc7ab564890b9","contentSha256":"806f0ee0582af11c23cb10c71bc13f6cddc97ffacdd397ee021474bd2b440424"}
+    },
+    "SOLUSDT": {
+      "spotLast": {"pageCount":53,"rowCount":52128,"responseChainSha256":"2752d2588e6e0d3b42966ae506801c2df87e7da02f2d76b4038fbaac89c01b16","contentSha256":"2266f8307f05fb0142a3377d0a51a372e06f86ba9abd74abd9c2e3d8ca1e1221"},
+      "perpetualLast": {"pageCount":53,"rowCount":52128,"responseChainSha256":"ba0606d192dfbb0e01bf46771836ea443baef6abcf72cbd8cd7849f2ef3e9922","contentSha256":"2ece23e8bc4b77ce283d86d7a4106310f56f6b5c5cc2cde6c61e474e7cd42601"},
+      "perpetualMark": {"pageCount":53,"rowCount":52128,"responseChainSha256":"b74e883e7987c883246432a63cd0cc4d7e9c01507748dad4142f5390de35e15f","contentSha256":"eec0dd74af6d7c5977b88158e0f3f6f0332aca571b66592c48412e4a1c13e624"},
+      "perpetualIndex": {"pageCount":53,"rowCount":52128,"responseChainSha256":"02e2e91e7c79bb7839a466c6d77022575a45d376ff69f5c4be766ec9c6cf65cd","contentSha256":"6c356ed456079433509f7e5f42b805a7ca03733f09d6ec73d13cffe92c230726"},
+      "funding": {"pageCount":3,"rowCount":543,"responseChainSha256":"15652c4e60626d506231a40ba2614876acc99747b0b94a18031d3ed334de3eb3","contentSha256":"2f65a19468e70e2dd357f22b7707d921d8fd0aa560200869fa600af3cd083e16"}
+    }
+  },
+  "coverage": {
+    "symbolCount": 3,
+    "seriesPerSymbol": 4,
+    "expectedM5RowsPerSeries": 52128,
+    "matchingM5RowsPerSymbol": 52128,
+    "totalMatchingM5Rows": 156384,
+    "fundingRowsPerSymbol": 543,
+    "totalFundingRows": 1629,
+    "offGridRowCount": 0,
+    "invalidPriceRowCount": 0,
+    "missingDecisionInputCount": 0
+  },
+  "integrity": {
+    "allTwelveM5SeriesContinuousAndOnGrid": true,
+    "allFourSeriesShareExactTimelineWithinEverySymbol": true,
+    "allThreeSymbolsShareExactPortfolioTimeline": true,
+    "allFundingIntervalsContinuous": true,
+    "allFundingSettlementsHaveCausalDecisionAndEntryBars": true,
+    "allRawRestPagesRetainedAndHashed": true,
+    "stageSnapshotStableAcrossResume": true,
+    "acquisitionReportStableAcrossResume": true,
+    "temporarySqliteSidecarsRemoved": true
+  },
+  "outcomeBoundary": {
+    "sealed2026H1PortfolioMetricsReadBeforeReceipt": false,
+    "freshForwardSealRead": false
+  },
+  "sealedEvaluationAllowed": true,
+  "automaticExecutionAllowed": false,
+  "liveExecutionAllowed": false
+}
