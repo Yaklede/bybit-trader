@@ -4,6 +4,10 @@ import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.position.CausalPositionExitReason
+import dev.yaklede.bybittrader.engine.position.CausalPositionOpenRequest
+import dev.yaklede.bybittrader.engine.position.CausalPositionPolicy
+import dev.yaklede.bybittrader.engine.position.CausalPositionPolicyConfig
 import dev.yaklede.bybittrader.strategy.TradingStrategy
 import java.time.Instant
 import java.time.ZoneOffset
@@ -211,96 +215,57 @@ class BacktestRunner(
         quantity: Double,
         config: BacktestConfig,
     ): SimulatedExit {
-        val fullTargetPrice =
-            if (config.fixedTargetEnabled) {
-                targetPrice(side, entryPrice, riskPerUnit, expectedR)
-            } else {
-                null
-            }
-        val partialTargetPrice = targetPrice(side, entryPrice, riskPerUnit, config.partialTakeProfitR)
-        var stopPrice = initialStopPrice
-        var bestHigh = entryPrice
-        var bestLow = entryPrice
-        var partialTaken = false
-        var partialTakeProfitAt: Instant? = null
-        var partialExitPrice: Double? = null
-        var partialQuantity = 0.0
-        var partialGrossPnl = 0.0
-        var partialFees = 0.0
-        var remainingQuantity = quantity
-
+        val policy =
+            CausalPositionPolicy(
+                CausalPositionPolicyConfig(
+                    feeRate = config.feeRate,
+                    partialTakeProfitR = config.partialTakeProfitR,
+                    partialTakeProfitFraction = config.partialTakeProfitFraction,
+                    breakevenAfterPartialTakeProfit = config.breakevenAfterPartialTakeProfit,
+                    atrTrailingMultiplier = config.atrTrailingMultiplier,
+                    fixedTargetEnabled = config.fixedTargetEnabled,
+                    maxHoldCandles = config.maxHoldCandles,
+                ),
+            )
+        var state =
+            policy.open(
+                CausalPositionOpenRequest(
+                    side = side,
+                    entryAt = candles[entryIndex].openedAt,
+                    entryPrice = entryPrice,
+                    initialStopPrice = initialStopPrice,
+                    riskPerUnit = riskPerUnit,
+                    expectedR = expectedR,
+                    quantity = quantity,
+                ),
+            )
         for (index in entryIndex..plannedExitIndex) {
             val candle = candles[index]
-            val exitTouch = CausalReplay.resolveExitTouch(candle, side, stopPrice, fullTargetPrice)
-            when (exitTouch) {
-                CausalExitTouch.STOP -> {
-                    return SimulatedExit(
-                        finalExitIndex = index,
-                        finalExitPrice = stopPrice,
-                        finalExitReason =
-                            when {
-                                stopPrice.isCloseTo(initialStopPrice) -> BacktestExitReason.STOP
-                                partialTaken && stopPrice.isCloseTo(entryPrice) -> BacktestExitReason.BREAKEVEN_STOP
-                                else -> BacktestExitReason.TRAILING_STOP
-                            },
-                        remainingQuantity = remainingQuantity,
-                        partialTakeProfitAt = partialTakeProfitAt,
-                        partialExitPrice = partialExitPrice,
-                        partialQuantity = partialQuantity,
-                        partialGrossPnl = partialGrossPnl,
-                        partialFees = partialFees,
-                        targetPrice = fullTargetPrice,
-                    )
-                }
-
-                CausalExitTouch.TARGET,
-                CausalExitTouch.NONE,
-                -> Unit
-            }
-
-            if (!partialTaken && config.partialTakeProfitFraction > 0.0 && candle.touches(side, partialTargetPrice)) {
-                partialTaken = true
-                partialTakeProfitAt = candle.openedAt
-                partialExitPrice = partialTargetPrice
-                partialQuantity = quantity * config.partialTakeProfitFraction
-                remainingQuantity -= partialQuantity
-                partialGrossPnl = grossPnl(side, entryPrice, partialTargetPrice, partialQuantity)
-                partialFees = partialTargetPrice * partialQuantity * config.feeRate
-                if (config.breakevenAfterPartialTakeProfit) {
-                    stopPrice =
-                        when (side) {
-                            Side.BUY -> maxOf(stopPrice, entryPrice)
-                            Side.SELL -> minOf(stopPrice, entryPrice)
-                        }
-                }
-            }
-
-            if (exitTouch == CausalExitTouch.TARGET) {
-                val targetExitPrice = requireNotNull(fullTargetPrice)
+            val step =
+                policy.onCandle(
+                    state = state,
+                    candle = candle,
+                    trailingAtr =
+                        CausalPositionPolicy.trailingAtr(
+                            candles = candles,
+                            currentIndex = index,
+                            period = config.atrTrailingPeriod,
+                        ),
+                )
+            state = step.state
+            step.exit?.let { exit ->
                 return SimulatedExit(
                     finalExitIndex = index,
-                    finalExitPrice = targetExitPrice,
-                    finalExitReason = BacktestExitReason.TARGET,
-                    remainingQuantity = remainingQuantity,
-                    partialTakeProfitAt = partialTakeProfitAt,
-                    partialExitPrice = partialExitPrice,
-                    partialQuantity = partialQuantity,
-                    partialGrossPnl = partialGrossPnl,
-                    partialFees = partialFees,
-                    targetPrice = fullTargetPrice,
+                    finalExitPrice = exit.triggerPrice,
+                    finalExitReason = exit.reason.toBacktestExitReason(),
+                    remainingQuantity = exit.remainingQuantity,
+                    partialTakeProfitAt = state.partialTakeProfitAt,
+                    partialExitPrice = state.partialExitPrice,
+                    partialQuantity = state.partialQuantity,
+                    partialGrossPnl = state.partialGrossPnl,
+                    partialFees = state.partialFees,
+                    targetPrice = state.fullTargetPrice,
                 )
-            }
-
-            bestHigh = maxOf(bestHigh, candle.high.toDouble())
-            bestLow = minOf(bestLow, candle.low.toDouble())
-            if (config.atrTrailingMultiplier > 0.0) {
-                trailingStopPrice(candles, side, index, bestHigh, bestLow, config)?.let { candidate ->
-                    stopPrice =
-                        when (side) {
-                            Side.BUY -> maxOf(stopPrice, candidate)
-                            Side.SELL -> minOf(stopPrice, candidate)
-                        }
-                }
             }
         }
 
@@ -308,67 +273,14 @@ class BacktestRunner(
             finalExitIndex = plannedExitIndex,
             finalExitPrice = candles[plannedExitIndex].close.toDouble(),
             finalExitReason = BacktestExitReason.TIME,
-            remainingQuantity = remainingQuantity,
-            partialTakeProfitAt = partialTakeProfitAt,
-            partialExitPrice = partialExitPrice,
-            partialQuantity = partialQuantity,
-            partialGrossPnl = partialGrossPnl,
-            partialFees = partialFees,
-            targetPrice = fullTargetPrice,
+            remainingQuantity = state.remainingQuantity,
+            partialTakeProfitAt = state.partialTakeProfitAt,
+            partialExitPrice = state.partialExitPrice,
+            partialQuantity = state.partialQuantity,
+            partialGrossPnl = state.partialGrossPnl,
+            partialFees = state.partialFees,
+            targetPrice = state.fullTargetPrice,
         )
-    }
-
-    private fun targetPrice(
-        side: Side,
-        entryPrice: Double,
-        riskPerUnit: Double,
-        targetR: Double,
-    ): Double =
-        when (side) {
-            Side.BUY -> entryPrice + (riskPerUnit * targetR)
-            Side.SELL -> entryPrice - (riskPerUnit * targetR)
-        }
-
-    private fun Candle.touches(
-        side: Side,
-        price: Double,
-    ): Boolean =
-        when (side) {
-            Side.BUY -> high.toDouble() >= price
-            Side.SELL -> low.toDouble() <= price
-        }
-
-    private fun trailingStopPrice(
-        candles: List<Candle>,
-        side: Side,
-        index: Int,
-        bestHigh: Double,
-        bestLow: Double,
-        config: BacktestConfig,
-    ): Double? {
-        if (index < config.atrTrailingPeriod) return null
-        val trueRanges =
-            (index - config.atrTrailingPeriod until index).map { currentIndex ->
-                val current = candles[currentIndex]
-                val high = current.high.toDouble()
-                val low = current.low.toDouble()
-                val previousClose =
-                    if (currentIndex == 0) {
-                        current.close.toDouble()
-                    } else {
-                        candles[currentIndex - 1].close.toDouble()
-                    }
-                maxOf(
-                    high - low,
-                    abs(high - previousClose),
-                    abs(low - previousClose),
-                )
-            }
-        val atr = trueRanges.average()
-        return when (side) {
-            Side.BUY -> bestHigh - (atr * config.atrTrailingMultiplier)
-            Side.SELL -> bestLow + (atr * config.atrTrailingMultiplier)
-        }
     }
 
     private fun grossPnl(
@@ -508,9 +420,16 @@ class BacktestRunner(
         }
         return max
     }
-
-    private fun Double.isCloseTo(other: Double): Boolean = abs(this - other) < 0.00000001
 }
+
+private fun CausalPositionExitReason.toBacktestExitReason(): BacktestExitReason =
+    when (this) {
+        CausalPositionExitReason.TARGET -> BacktestExitReason.TARGET
+        CausalPositionExitReason.STOP -> BacktestExitReason.STOP
+        CausalPositionExitReason.BREAKEVEN_STOP -> BacktestExitReason.BREAKEVEN_STOP
+        CausalPositionExitReason.TRAILING_STOP -> BacktestExitReason.TRAILING_STOP
+        CausalPositionExitReason.TIME -> BacktestExitReason.TIME
+    }
 
 private data class SimulatedExit(
     val finalExitIndex: Int,
