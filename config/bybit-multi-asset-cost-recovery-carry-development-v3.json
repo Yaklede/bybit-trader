@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "bybit-multi-asset-cost-recovery-carry-development-v3",
+  "status": "PREDECLARED_BEFORE_V3_DEVELOPMENT_GRID_REPLAY",
+  "declaredAt": "2026-08-06",
+  "parentExternalResult": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-external-result-v2.json",
+    "sha256": "ab8eb314aad8f6b0a203011657a1ae84a7c86e7f61a127c6fedcaec78a2de7f2",
+    "requiredProgramStatus": "REJECTED_MULTI_ASSET_EXTERNAL_VALIDATION"
+  },
+  "baseDevelopmentProtocol": {
+    "path": "config/bybit-multi-asset-delta-neutral-funding-carry-development-v1.json",
+    "sha256": "42e9a485e747cc12d50263fee26f20318c50e04108efeeed6fa1171811625479"
+  },
+  "implementationBinding": {
+    "simulatorPath": "scripts/lib/multi-asset-delta-neutral-funding-carry-research.mjs",
+    "simulatorSha256": "561d3b11a9d73cd8f82e35338aafeaab92d55f65728015be7510c7abc1a92c5c",
+    "simulatorMayChangeDuringGridReplay": false
+  },
+  "researchBoundary": {
+    "kind": "DISCLOSED_2023_2025_DEVELOPMENT_WITH_UNREAD_2026_SEAL",
+    "development2023Read": true,
+    "development2024Read": true,
+    "development2025Read": true,
+    "sealed2026OfficialPayloadsReadBeforeDeclaration": false,
+    "sealed2026OutcomeReadBeforeDeclaration": false,
+    "freshForwardSealRequiredBeforeLive": true
+  },
+  "trialAccounting": {
+    "priorObservedCandidatesAndProtocols": 336,
+    "frozenCandidatesToEvaluate": 54,
+    "cumulativeObservedCandidatesAndProtocolsAfterReplay": 390,
+    "gridMayExpandAfterOutcome": false
+  },
+  "evidence": [
+    {
+      "year": 2023,
+      "receiptPath": "config/bybit-multi-asset-delta-neutral-funding-carry-development-acquisition-receipt-v1.json",
+      "receiptSha256": "30dbad593918e8ad557a35222415b971dc36ada5b8749c420334ac605e5dd9cb",
+      "snapshotPath": "build/research/bybit-multi-asset-delta-neutral-funding-carry-development-v1-snapshot.sqlite",
+      "snapshotSha256": "c4d1166f0f92f6a342b8e39a5c36680060c0036481fd1f1f6d02105af2c5622f",
+      "startAt": "2023-01-01T00:00:00Z",
+      "endExclusive": "2024-01-01T00:00:00Z",
+      "blocks": [
+        {"id":"D23Q1","era":"2023Q1","startAt":"2023-01-01T00:00:00Z","endAt":"2023-04-01T00:00:00Z"},
+        {"id":"D23Q2","era":"2023Q2","startAt":"2023-04-01T00:00:00Z","endAt":"2023-07-01T00:00:00Z"},
+        {"id":"D23Q3","era":"2023Q3","startAt":"2023-07-01T00:00:00Z","endAt":"2023-10-01T00:00:00Z"},
+        {"id":"D23Q4","era":"2023Q4","startAt":"2023-10-01T00:00:00Z","endAt":"2024-01-01T00:00:00Z"}
+      ]
+    },
+    {
+      "year": 2024,
+      "receiptPath": "config/bybit-multi-asset-delta-neutral-funding-carry-internal-acquisition-receipt-v1.json",
+      "receiptSha256": "1f647717d71a70b13499b7861f5204706f24dcc1cbccfbf7e4393b8a888f58b6",
+      "snapshotPath": "build/research/bybit-multi-asset-delta-neutral-funding-carry-internal-v1-snapshot.sqlite",
+      "snapshotSha256": "876a5230f369854663d42ee7da1a2d36116b88e43b5aeeea44f1f8d596a2514e",
+      "startAt": "2024-01-01T00:00:00Z",
+      "endExclusive": "2025-01-01T00:00:00Z",
+      "blocks": [
+        {"id":"D24Q1","era":"2024Q1","startAt":"2024-01-01T00:00:00Z","endAt":"2024-04-01T00:00:00Z"},
+        {"id":"D24Q2","era":"2024Q2","startAt":"2024-04-01T00:00:00Z","endAt":"2024-07-01T00:00:00Z"},
+        {"id":"D24Q3","era":"2024Q3","startAt":"2024-07-01T00:00:00Z","endAt":"2024-10-01T00:00:00Z"},
+        {"id":"D24Q4","era":"2024Q4","startAt":"2024-10-01T00:00:00Z","endAt":"2025-01-01T00:00:00Z"}
+      ]
+    },
+    {
+      "year": 2025,
+      "receiptPath": "config/bybit-multi-asset-delta-neutral-funding-carry-external-acquisition-receipt-v2.json",
+      "receiptSha256": "561ed7a3c95f695d47063b510a4aefcfde037564060c97470576cefc4165f991",
+      "snapshotPath": "build/research/bybit-multi-asset-delta-neutral-funding-carry-external-v2-snapshot.sqlite",
+      "snapshotSha256": "29bf7e59de7f2af3bf59ea91d70ddf8377bb58e7b70b14350027e29a9d219d8e",
+      "startAt": "2025-01-01T00:00:00Z",
+      "endExclusive": "2026-01-01T00:00:00Z",
+      "blocks": [
+        {"id":"D25Q1","era":"2025Q1","startAt":"2025-01-01T00:00:00Z","endAt":"2025-04-01T00:00:00Z"},
+        {"id":"D25Q2","era":"2025Q2","startAt":"2025-04-01T00:00:00Z","endAt":"2025-07-01T00:00:00Z"},
+        {"id":"D25Q3","era":"2025Q3","startAt":"2025-07-01T00:00:00Z","endAt":"2025-10-01T00:00:00Z"},
+        {"id":"D25Q4","era":"2025Q4","startAt":"2025-10-01T00:00:00Z","endAt":"2026-01-01T00:00:00Z"}
+      ]
+    }
+  ],
+  "candidateGrid": {
+    "minimumPositiveFundingStreak": [3, 6, 12],
+    "minimumTrailingMedianFundingRate": [0.000075, 0.0001],
+    "maximumHoldingDays": [30, 60, 90],
+    "exitConsecutiveNonPositiveFundingCount": [6, 12, 24],
+    "projectedCarryHorizonSettlementsFormula": "ROUND_MAXIMUM_HOLDING_DAYS_TIMES_1_5",
+    "fixed": {
+      "family": "MULTI_ASSET_COST_RECOVERY_POSITIVE_FUNDING_CARRY",
+      "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      "entryDelayMinutes": 5,
+      "minimumEntryBasisPct": -0.001,
+      "maximumEntryBasisPct": 0.003,
+      "maximumAbsoluteMarkIndexPremiumPct": 0.003,
+      "basisDivergenceStopPctFromEntry": 0.01,
+      "reentryCooldownHours": 24,
+      "minimumProjectedNetCarryScore": 0.001,
+      "maximumConcurrentPairs": 2
+    }
+  },
+  "developmentGate": {
+    "minimumTotalClosedPositions": 15,
+    "minimumClosedPositionsPerYear": 3,
+    "minimumTradedAssetCountPerYear": 3,
+    "minimumPositiveAssetCountPerYear": 2,
+    "minimumPositiveQuarterCountPerYear": 2,
+    "minimumTotalPositiveQuarterCount": 8,
+    "minimumNetReturnPctPerYear": 0,
+    "minimumProfitFactorPerYear": 1.1,
+    "minimumMeanDailyReturnPctPerYear": 0,
+    "minimumBootstrapLowerMeanDailyReturnPctPerYear": 0,
+    "maximumDrawdownPctPerYear": 5,
+    "maximumLiquidationCount": 0,
+    "maximumPositivePositionProfitConcentrationPerYear": 0.6,
+    "maximumPositiveAssetProfitConcentrationPerYear": 0.75,
+    "maximumNetHedgeMismatchBySymbol": {"BTCUSDT":0.000001,"ETHUSDT":0.00001,"SOLUSDT":0.0001},
+    "minimumCostStressNetReturnPctPerYear": 0,
+    "minimumSecondLegDelayStressNetReturnPctPerYear": 0
+  },
+  "selectionPolicy": {
+    "maximumSelectedCandidateCount": 1,
+    "allDevelopmentGatesMustPass": true,
+    "rankBy": [
+      "WORST_YEAR_COST_STRESS_RETURN_DESC",
+      "WORST_YEAR_DELAY_STRESS_RETURN_DESC",
+      "WORST_YEAR_NET_RETURN_DESC",
+      "THREE_YEAR_COMPOUNDED_RETURN_DESC",
+      "CANDIDATE_ID_ASC"
+    ],
+    "candidateMayBeRetunedAfterOutcome": false,
+    "gateMayBeChangedAfterOutcome": false
+  },
+  "outcomePolicy": {
+    "sealed2026MayBeAcquiredOnlyAfterOneCandidatePassesEveryDevelopmentGate": true,
+    "freshForwardShadowAndPaperRequiredBeforeLive": true,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false
+  }
+}
