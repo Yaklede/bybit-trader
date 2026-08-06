@@ -25,6 +25,7 @@
 | Volume-impact state result | [volume-impact-state-development-result-2026-08-06.md](volume-impact-state-development-result-2026-08-06.md) | 24개 사전 고정 후보의 탈락 결과와 다음 독립 가설 근거 |
 | Volume-structure development v2 | [volume-structure-development-v2-protocol-2026-08-06.md](volume-structure-development-v2-protocol-2026-08-06.md) | 돌파 재시험 지속형과 2봉 군집 소진 반전형의 사전 고정 개발 계약 |
 | Volume-structure v2 result | [volume-structure-development-v2-result-2026-08-06.md](volume-structure-development-v2-result-2026-08-06.md) | 재시험 지속형 폐기와 군집 반전의 소표본 방향 비대칭 진단 |
+| Asymmetric cluster absorption v3 | [asymmetric-cluster-absorption-v3-protocol-2026-08-06.md](asymmetric-cluster-absorption-v3-protocol-2026-08-06.md) | 방향별 거래량 상태와 active-month 평가를 고정한 단일 12후보 계약 |
 | On-prem paper deployment | [on-prem-paper-deployment-runbook.md](on-prem-paper-deployment-runbook.md) | Twingate 뒤에서 인과적 paper loop를 운영하기 위한 배포 직전 절차 |
 
 ## 규칙

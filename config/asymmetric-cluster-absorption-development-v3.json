@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "asymmetric-cluster-absorption-development-v3",
+  "protocolRevision": 1,
+  "status": "PREDECLARED_DEVELOPMENT",
+  "declaredAt": "2026-08-06",
+  "parentResultId": "volume-structure-development-v2-result",
+  "purpose": "Test one bounded side-asymmetric clustered absorption hypothesis after the symmetric cluster family showed sparse, direction-dependent expectancy.",
+  "selectionPolicy": {
+    "dailyCompoundReturnIsSearchObjective": false,
+    "automaticPromotionAllowed": false,
+    "maximumStageCandidateCount": 12,
+    "candidateFamilies": 1,
+    "candidatesPerFamily": 12,
+    "ranking": [
+      "MOVING_BLOCK_BOOTSTRAP_90_LOWER_MEAN_NET_R_DESC",
+      "ACTIVE_MONTH_POSITIVE_RATIO_DESC",
+      "PROFIT_FACTOR_DESC",
+      "CANDIDATE_ID_ASC"
+    ]
+  },
+  "contaminationDisclosure": {
+    "legacyResultsThrough": "2026-07-02T05:45:00Z",
+    "legacyResultsWerePreviouslyInspected": true,
+    "legacyPost2024WindowsAreIndependentHoldout": false,
+    "developmentSelectionEndsAt": "2024-01-01T00:00:00Z",
+    "reservedSealedProtocolId": "fresh-sealed-validation-2026-08-v1",
+    "reservedSealedWindowMayBeReadDuringDevelopment": false,
+    "previousStageCandidateCounts": [24, 24],
+    "previousStageStatuses": ["REJECTED", "REJECTED"]
+  },
+  "sourceData": {
+    "database": "build/runtime-test/bybit-trader-full-history.sqlite",
+    "symbol": "BTCUSDT",
+    "timeframes": ["M1", "M5", "M15"],
+    "warmupMayStartAt": "2020-03-25T10:36:00Z",
+    "developmentReplayStartsAt": "2020-06-01T00:00:00Z",
+    "developmentReplayEndsAt": "2024-01-01T00:00:00Z"
+  },
+  "executionContract": {
+    "decisionClock": "M1_CLOSE",
+    "m15Input": "CLOSED_BARS_ONLY",
+    "m5SetupInput": "CLOSED_BARS_ONLY",
+    "m1ConfirmationMustBeStrictlyAfterM5Close": true,
+    "entry": "NEXT_CONTIGUOUS_M1_OPEN",
+    "sameBarConflict": "STOP_FIRST",
+    "discontinuousEntry": "NO_TRADE",
+    "entryFeeRate": 0.0006,
+    "exitFeeRate": 0.0006,
+    "entrySlippageRate": 0.0002,
+    "exitSlippageRate": 0.0002,
+    "riskFraction": 0.005,
+    "researchLeverage": 15,
+    "maintenanceMarginRate": 0.005,
+    "liquidationTriggerSource": "ADVERSE_M1_EXTREME_BEFORE_OTHER_FAVORABLE_EXITS",
+    "minimumInitialRiskPct": 0.004,
+    "maximumInitialRiskPct": 0.025,
+    "maximumTradesPerUtcDay": 2,
+    "cooldownMinutes": 60,
+    "quantityModel": "CONTINUOUS_RESEARCH_ONLY",
+    "capitalAndExchangeStepStressDeferredToStage": "M6"
+  },
+  "hypotheses": [
+    {
+      "family": "ASYMMETRIC_CLUSTER_ABSORPTION_REVERSAL",
+      "statement": "BTC downside-volume absorption can reverse long at a higher cluster-volume threshold, while upside exhaustion can reverse short only inside a moderate volume band that excludes squeeze-like extremes.",
+      "fixed": {
+        "m15FastEma": 20,
+        "m15SlowEma": 50,
+        "reversalDirectionMustMatchClosedM15Regime": true,
+        "m5VolumeLookbackBars": 48,
+        "m5AtrLookbackBars": 20,
+        "m5FailedBreakoutLookbackBars": 12,
+        "minimumShortClusterRelativeVolume": 1.75,
+        "maximumClusterDisplacementAtr": 0.6,
+        "minimumClusterRejectionRatio": 0.45,
+        "maximumDirectionalCloseLocation": 0.45,
+        "m1MinimumDirectionalCloseLocation": 0.65,
+        "m1MinimumRelativeVolume": 0.8,
+        "initialStopBufferAtr": 0.25,
+        "targetR": 2.5,
+        "maximumHoldingMinutes": 360
+      },
+      "grid": {
+        "minimumLongClusterRelativeVolume": [1.9, 2.0, 2.1],
+        "maximumShortClusterRelativeVolumeExclusive": [2.25, 2.5],
+        "m1ConfirmationWindowBars": [2, 4]
+      },
+      "candidateCount": 12
+    }
+  ],
+  "nestedWalkForward": {
+    "trainingMode": "EXPANDING",
+    "selectionOccursInsideEachTrainingPartition": true,
+    "validationIsNeverUsedToSelectThatFoldCandidate": true,
+    "folds": [
+      {"id":"NW01","trainStartAt":"2020-06-01T00:00:00Z","trainEndAt":"2021-01-01T00:00:00Z","validationStartAt":"2021-01-01T00:00:00Z","validationEndAt":"2021-07-01T00:00:00Z"},
+      {"id":"NW02","trainStartAt":"2020-06-01T00:00:00Z","trainEndAt":"2021-07-01T00:00:00Z","validationStartAt":"2021-07-01T00:00:00Z","validationEndAt":"2022-01-01T00:00:00Z"},
+      {"id":"NW03","trainStartAt":"2020-06-01T00:00:00Z","trainEndAt":"2022-01-01T00:00:00Z","validationStartAt":"2022-01-01T00:00:00Z","validationEndAt":"2022-07-01T00:00:00Z"},
+      {"id":"NW04","trainStartAt":"2020-06-01T00:00:00Z","trainEndAt":"2022-07-01T00:00:00Z","validationStartAt":"2022-07-01T00:00:00Z","validationEndAt":"2023-01-01T00:00:00Z"},
+      {"id":"NW05","trainStartAt":"2020-06-01T00:00:00Z","trainEndAt":"2023-01-01T00:00:00Z","validationStartAt":"2023-01-01T00:00:00Z","validationEndAt":"2023-07-01T00:00:00Z"},
+      {"id":"NW06","trainStartAt":"2020-06-01T00:00:00Z","trainEndAt":"2023-07-01T00:00:00Z","validationStartAt":"2023-07-01T00:00:00Z","validationEndAt":"2024-01-01T00:00:00Z"}
+    ]
+  },
+  "trainingEligibility": {
+    "minimumTrades": 15,
+    "minimumActiveMonthPositiveRatio": 0.5,
+    "minimumProfitFactor": 1.05,
+    "maximumDrawdownPct": 20,
+    "bootstrap": {
+      "method": "CIRCULAR_MOVING_BLOCK",
+      "iterations": 1000,
+      "blockLengthTrades": 5,
+      "confidenceLevel": 0.9,
+      "seed": 20260806
+    }
+  },
+  "familyDevelopmentGate": {
+    "minimumPooledValidationTrades": 60,
+    "minimumPositiveValidationFolds": 4,
+    "totalValidationFolds": 6,
+    "minimumPooledProfitFactor": 1.1,
+    "minimumPooledMeanNetR": 0,
+    "minimumBootstrapLowerMeanNetR": 0,
+    "maximumPooledDrawdownPct": 20,
+    "maximumLiquidationCount": 0
+  },
+  "outcomePolicy": {
+    "noPassingFamily": "REJECT_OHLCV_CLUSTER_THRESHOLD_RESEARCH_WITHOUT_OPENING_RESERVED_SEAL",
+    "passingFamily": "FREEZE_ONE_FULL_DEVELOPMENT_CANDIDATE_BEFORE_ANY_POST2024_REPLAY",
+    "liveExecutionAllowed": false
+  }
+}
