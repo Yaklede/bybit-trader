@@ -21,6 +21,8 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleStore
+import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
+import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeStateStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
@@ -93,6 +95,7 @@ class SqlDelightLedger(
     ForwardMarketCaptureStore,
     ExecutionProjectionStore,
     ExecutionLifecycleStore,
+    ExecutionPositionRuntimeStateStore,
     PaperTradingStore,
     PaperRuntimeStateStore {
     override suspend fun current(): BotRuntimeStatus {
@@ -652,6 +655,38 @@ class SqlDelightLedger(
             phase = state.phase.name,
             state_payload = state.toStatePayload(),
             updated_at = state.updatedAt.toString(),
+        )
+    }
+
+    override suspend fun executionPositionRuntimeState(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ): ExecutionPositionRuntimeState? =
+        database.ledgerQueries
+            .selectExecutionPositionRuntimeState(
+                mode = mode.name,
+                symbol = symbol.value,
+            ).executeAsOneOrNull()
+            ?.toExecutionPositionRuntimeState()
+
+    override suspend fun upsertExecutionPositionRuntimeState(state: ExecutionPositionRuntimeState) {
+        database.ledgerQueries.upsertExecutionPositionRuntimeState(
+            mode = state.mode.name,
+            symbol = state.symbol.value,
+            lifecycle_id = state.lifecycleId,
+            timeframe = state.timeframe.name,
+            state_payload = state.toStatePayload(),
+            updated_at = state.updatedAt.toString(),
+        )
+    }
+
+    override suspend fun deleteExecutionPositionRuntimeState(
+        mode: ExecutionRuntimeMode,
+        symbol: Symbol,
+    ) {
+        database.ledgerQueries.deleteExecutionPositionRuntimeState(
+            mode = mode.name,
+            symbol = symbol.value,
         )
     }
 

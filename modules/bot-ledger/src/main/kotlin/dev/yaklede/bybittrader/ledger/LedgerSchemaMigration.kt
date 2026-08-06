@@ -213,6 +213,17 @@ private val ADDITIVE_LEDGER_SCHEMA_STATEMENTS =
         )
         """.trimIndent(),
         """
+        CREATE TABLE IF NOT EXISTS executionPositionRuntimeStates (
+          mode TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          lifecycle_id TEXT NOT NULL,
+          timeframe TEXT NOT NULL,
+          state_payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (mode, symbol)
+        )
+        """.trimIndent(),
+        """
         CREATE TABLE IF NOT EXISTS marketSyncCheckpoints (
           id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
           symbol TEXT NOT NULL,

@@ -18,6 +18,7 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
 import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionLifecycleState
+import dev.yaklede.bybittrader.engine.execution.ExecutionPositionRuntimeState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
@@ -790,6 +791,7 @@ class SqlDelightLedgerTest :
                     "fundingRates",
                     "executionLifecycleEvents",
                     "executionAccountSnapshots",
+                    "executionPositionRuntimeStates",
                     "paperRuntimeStates",
                 ),
             ) shouldBe true
@@ -805,6 +807,29 @@ class SqlDelightLedgerTest :
             val restored = ledger.paperRuntimeState(state.strategy, state.symbol, state.timeframe)
 
             restored shouldBe state
+        }
+
+        "execution position runtime state round trips and can be deleted" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val symbol = Symbol("BTCUSDT")
+            val state =
+                ExecutionPositionRuntimeState(
+                    mode = ExecutionRuntimeMode.TESTNET,
+                    lifecycleId = "auto-BTCUSDT-1",
+                    symbol = symbol,
+                    timeframe = Timeframe.M5,
+                    lastProcessedCandleAt = Instant.parse("2026-06-30T00:20:00Z"),
+                    policyState = requireNotNull(samplePaperRuntimeState().openPosition).policyState,
+                    updatedAt = Instant.parse("2026-06-30T00:21:00Z"),
+                )
+
+            ledger.upsertExecutionPositionRuntimeState(state)
+            ledger.executionPositionRuntimeState(state.mode, symbol) shouldBe state
+
+            ledger.deleteExecutionPositionRuntimeState(state.mode, symbol)
+            ledger.executionPositionRuntimeState(state.mode, symbol) shouldBe null
         }
     })
 

@@ -107,7 +107,7 @@ private fun JsonObject.toPaperOpenPosition(): PaperOpenPosition =
         policyState = requiredObject("policyState").toCausalPositionState(),
     )
 
-private fun CausalPositionState.toJsonObject(): JsonObject =
+internal fun CausalPositionState.toJsonObject(): JsonObject =
     buildJsonObject {
         put("side", side.name)
         put("entryAt", entryAt.toString())
@@ -131,7 +131,7 @@ private fun CausalPositionState.toJsonObject(): JsonObject =
         put("partialFees", partialFees)
     }
 
-private fun JsonObject.toCausalPositionState(): CausalPositionState =
+internal fun JsonObject.toCausalPositionState(): CausalPositionState =
     CausalPositionState(
         side = Side.valueOf(requiredString("side")),
         entryAt = Instant.parse(requiredString("entryAt")),

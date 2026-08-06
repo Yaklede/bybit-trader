@@ -197,6 +197,16 @@ CREATE TABLE paperRuntimeStates (
   PRIMARY KEY (strategy, symbol, timeframe)
 );
 
+CREATE TABLE executionPositionRuntimeStates (
+  mode TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  lifecycle_id TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  state_payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (mode, symbol)
+);
+
 CREATE TABLE marketSyncCheckpoints (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL,
@@ -501,6 +511,26 @@ selectPaperRuntimeState:
 SELECT strategy, symbol, timeframe, phase, state_payload, updated_at
 FROM paperRuntimeStates
 WHERE strategy = ? AND symbol = ? AND timeframe = ?;
+
+upsertExecutionPositionRuntimeState:
+INSERT OR REPLACE INTO executionPositionRuntimeStates(
+  mode,
+  symbol,
+  lifecycle_id,
+  timeframe,
+  state_payload,
+  updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectExecutionPositionRuntimeState:
+SELECT mode, symbol, lifecycle_id, timeframe, state_payload, updated_at
+FROM executionPositionRuntimeStates
+WHERE mode = ? AND symbol = ?;
+
+deleteExecutionPositionRuntimeState:
+DELETE FROM executionPositionRuntimeStates
+WHERE mode = ? AND symbol = ?;
 
 upsertMarketCandle:
 INSERT OR REPLACE INTO marketCandles(
