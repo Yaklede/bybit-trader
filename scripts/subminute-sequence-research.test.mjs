@@ -8,6 +8,7 @@ import {
   detectSubminuteSetup,
   isConfirmation,
   movingBlockBootstrapMean,
+  normalizeMicropriceEdge,
   prepareBlockFeatures,
   rankAndSelectCandidates,
   rollingMedianBefore,
@@ -102,6 +103,36 @@ test("absorption setup enters with the M15 regime only after opposite flow confi
 
   rows[3].meanMicropriceEdgeBps = -0.1;
   assert.equal(isConfirmation(candidate, features, setup, 2, 3), false);
+});
+
+test("spread-normalized microprice confirmation is invariant to the absolute spread scale", () => {
+  const wide = flowRow(0, {
+    closeBestBid: 9_999.95,
+    closeBestAsk: 10_000.05,
+    closeMidPrice: 10_000,
+    meanMicropriceEdgeBps: 0.025,
+  });
+  const narrow = flowRow(1, {
+    closeBestBid: 9_999.99,
+    closeBestAsk: 10_000.01,
+    closeMidPrice: 10_000,
+    meanMicropriceEdgeBps: 0.005,
+  });
+  assert.ok(Math.abs(normalizeMicropriceEdge(wide) - 0.5) < 1e-9);
+  assert.ok(Math.abs(normalizeMicropriceEdge(narrow) - 0.5) < 1e-9);
+  assert.equal(normalizeMicropriceEdge({ ...wide, closeBestAsk: wide.closeBestBid }), null);
+
+  const rows = [
+    flowRow(0, { closeMidPrice: 9_999.99 }),
+    { ...narrow, closeMidPrice: 10_000, buyNotional: 70, sellNotional: 30 },
+  ];
+  const features = detectionFeatures(rows, { regime: 1, openInterestChange: 0.002 });
+  features.normalizedMicropriceEdge = rows.map(normalizeMicropriceEdge);
+  assert.equal(isConfirmation({
+    minimumConfirmationAbsoluteTakerImbalance: 0.2,
+    micropriceConfirmationMode: "CLOSE_SPREAD_NORMALIZED_CLAMPED",
+    minimumNormalizedMicropriceEdge: 0.2,
+  }, features, { entryDirection: 1 }, 0, 1), true);
 });
 
 test("trade simulation enters on the next bucket and resolves a TP/SL collision as stop first", () => {

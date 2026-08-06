@@ -65,6 +65,7 @@ export function prepareBlockFeatures({ block, rows, m1Candles, m15Candles, openI
   const tradeImbalance = rows.map((row, index) => totalNotional[index] === 0
     ? 0
     : (row.buyNotional - row.sellNotional) / totalNotional[index]);
+  const normalizedMicropriceEdge = rows.map(normalizeMicropriceEdge);
   const regimeTimeline = buildM15RegimeTimeline(m15Candles);
   const atrTimeline = buildAtrTimeline(m1Candles, 14);
   const regime = pointInTimeValues(rows, regimeTimeline, (value) => value.regime, 0);
@@ -75,6 +76,7 @@ export function prepareBlockFeatures({ block, rows, m1Candles, m15Candles, openI
     rows,
     totalNotional,
     tradeImbalance,
+    normalizedMicropriceEdge,
     baseline,
     regime,
     atr,
@@ -241,13 +243,29 @@ export function isConfirmation(candidate, features, setup, setupIndex, confirmat
   const direction = setup.entryDirection;
   const imbalance = features.tradeImbalance[confirmationIndex];
   if (direction * imbalance < candidate.minimumConfirmationAbsoluteTakerImbalance) return false;
-  const microprice = features.rows[confirmationIndex].meanMicropriceEdgeBps;
-  const minimumMicroprice = candidate.minimumOpposingMicropriceEdgeBps ?? candidate.minimumAlignedMicropriceEdgeBps;
+  const normalized = candidate.micropriceConfirmationMode === "CLOSE_SPREAD_NORMALIZED_CLAMPED";
+  const microprice = normalized
+    ? features.normalizedMicropriceEdge?.[confirmationIndex]
+    : features.rows[confirmationIndex].meanMicropriceEdgeBps;
+  const minimumMicroprice = normalized
+    ? candidate.minimumNormalizedMicropriceEdge
+    : candidate.minimumOpposingMicropriceEdgeBps ?? candidate.minimumAlignedMicropriceEdgeBps;
+  if (!Number.isFinite(microprice) || !Number.isFinite(minimumMicroprice)) return false;
   if (direction * microprice < minimumMicroprice) return false;
   const priceMove = direction * (
     features.rows[confirmationIndex].closeMidPrice - features.rows[setupIndex].closeMidPrice
   );
   return priceMove > 0;
+}
+
+export function normalizeMicropriceEdge(row) {
+  const midpoint = row.closeMidPrice;
+  const spread = row.closeBestAsk - row.closeBestBid;
+  if (!Number.isFinite(midpoint) || midpoint <= 0 || !Number.isFinite(spread) || spread <= 0 ||
+      !Number.isFinite(row.meanMicropriceEdgeBps)) return null;
+  const halfSpreadBps = (spread / midpoint) * 10_000 / 2;
+  if (!Number.isFinite(halfSpreadBps) || halfSpreadBps <= 0) return null;
+  return Math.max(-1, Math.min(1, row.meanMicropriceEdgeBps / halfSpreadBps));
 }
 
 export function simulateSubminuteTrade({
