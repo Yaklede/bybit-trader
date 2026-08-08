@@ -136,7 +136,13 @@ class VolumeConfirmedTrendLiveLoop(
     suspend fun runOnce(): VolumeConfirmedTrendLiveLoopResult {
         val now = Instant.now(clock)
         val botMode = botStateStore.current().mode
-        val shadow = shadowStore.trendShadowState(config.protocolId, config.symbol)
+        val shadowSnapshot =
+            shadowStore.trendShadowSnapshot(
+                protocolId = config.protocolId,
+                symbol = config.symbol,
+                limit = config.signalEventLimit,
+            )
+        val shadow = shadowSnapshot.state
         val invalidShadowReason = shadow.invalidReason()
         if (invalidShadowReason != null) {
             return publish(
@@ -150,9 +156,14 @@ class VolumeConfirmedTrendLiveLoop(
         }
         val validShadow = requireNotNull(shadow)
         val latestEvent =
-            shadowStore
-                .trendShadowEvents(validShadow.sessionId, config.signalEventLimit)
-                .lastOrNull(VolumeConfirmedTrendShadowEvent::isConfirmedSideChange)
+            shadowSnapshot.recentEvents
+                .asSequence()
+                .filter(VolumeConfirmedTrendShadowEvent::isConfirmedSideChange)
+                .maxWithOrNull(
+                    compareBy<VolumeConfirmedTrendShadowEvent>(VolumeConfirmedTrendShadowEvent::eventAt)
+                        .thenBy(VolumeConfirmedTrendShadowEvent::observedAt)
+                        .thenBy(VolumeConfirmedTrendShadowEvent::eventId),
+                )
         val signal = latestEvent?.toExecutionSignal()
         if (signal != null && validShadow.indicatorState.targetSide != signal.side) {
             return publish(

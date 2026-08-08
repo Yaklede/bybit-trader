@@ -66,6 +66,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStore
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowSnapshot
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowStore
 import dev.yaklede.bybittrader.ledger.db.ExecutionAccountSnapshots
@@ -247,6 +248,36 @@ class SqlDelightLedger(
             ).executeAsList()
             .map(VolumeConfirmedTrendShadowEvents::toTrendShadowEvent)
             .asReversed()
+    }
+
+    override suspend fun trendShadowSnapshot(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): VolumeConfirmedTrendShadowSnapshot {
+        require(protocolId.isNotBlank()) { "Trend shadow protocol ID must not be blank." }
+        require(limit in 1..100_000) { "Trend shadow event limit must be between 1 and 100000." }
+        return database.transactionWithResult {
+            val state =
+                database.ledgerQueries
+                    .selectVolumeConfirmedTrendShadowState(
+                        protocol_id = protocolId,
+                        symbol = symbol.value,
+                    ).executeAsOneOrNull()
+                    ?.toTrendShadowState()
+            val events =
+                state
+                    ?.let { persisted ->
+                        database.ledgerQueries
+                            .selectVolumeConfirmedTrendShadowEventsBySession(
+                                session_id = persisted.sessionId,
+                                value_ = limit.toLong(),
+                            ).executeAsList()
+                            .map(VolumeConfirmedTrendShadowEvents::toTrendShadowEvent)
+                            .asReversed()
+                    }.orEmpty()
+            VolumeConfirmedTrendShadowSnapshot(state = state, recentEvents = events)
+        }
     }
 
     override suspend fun trendLiveState(

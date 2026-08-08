@@ -27,6 +27,27 @@ class VolumeConfirmedTrendLiveLoopTest :
             fixture.tickerRequestCount() shouldBe 1
         }
 
+        "causally latest side change does not depend on Shadow store ordering" {
+            val latestEventAt = TEST_NOW.minusSeconds(10)
+            val fixture =
+                fixture(
+                    eventAt = latestEventAt,
+                    targetSide = Side.BUY,
+                    events =
+                        listOf(
+                            confirmedEvent(APPROVED_SESSION_ID, Side.BUY, latestEventAt),
+                            confirmedEvent(APPROVED_SESSION_ID, Side.SELL, latestEventAt.minus(Duration.ofHours(4))),
+                        ),
+                )
+
+            val result = fixture.loop.runOnce()
+
+            result.status shouldBe VolumeConfirmedTrendLiveLoopStatus.SIGNAL_EVALUATED
+            result.signal?.side shouldBe Side.BUY
+            fixture.executor.evaluatedSignals.map(VolumeConfirmedTrendExecutionSignal::side) shouldBe listOf(Side.BUY)
+            fixture.executor.haltReasons shouldBe emptyList()
+        }
+
         "stale signal reconciles without opening a delayed position" {
             val fixture = fixture(eventAt = TEST_NOW.minus(Duration.ofMinutes(21)))
 
@@ -126,10 +147,11 @@ private fun fixture(
     shadowSessionId: String = APPROVED_SESSION_ID,
     targetSide: Side = Side.BUY,
     reconciledState: VolumeConfirmedTrendLiveState = liveState(),
+    events: List<VolumeConfirmedTrendShadowEvent>? = null,
 ): LiveLoopFixture {
     val shadowState = shadowState(sessionId = shadowSessionId, targetSide = targetSide)
     val event = confirmedEvent(sessionId = shadowSessionId, side = targetSide, eventAt = eventAt)
-    val shadowStore = FakeTrendShadowStore(shadowState, listOf(event))
+    val shadowStore = FakeTrendShadowStore(shadowState, events ?: listOf(event))
     val executor = FakeTrendLiveExecutor(reconciledState)
     var tickerRequests = 0
     val loop =
@@ -172,7 +194,7 @@ private class FakeTrendShadowStore(
     override suspend fun trendShadowState(
         protocolId: String,
         symbol: Symbol,
-    ): VolumeConfirmedTrendShadowState? = state
+    ): VolumeConfirmedTrendShadowState? = error("Live loop must read an atomic Shadow snapshot.")
 
     override suspend fun commitTrendShadow(
         state: VolumeConfirmedTrendShadowState,
@@ -182,7 +204,21 @@ private class FakeTrendShadowStore(
     override suspend fun trendShadowEvents(
         sessionId: String,
         limit: Int,
-    ): List<VolumeConfirmedTrendShadowEvent> = events.takeLast(limit)
+    ): List<VolumeConfirmedTrendShadowEvent> = error("Live loop must read an atomic Shadow snapshot.")
+
+    override suspend fun trendShadowSnapshot(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): VolumeConfirmedTrendShadowSnapshot =
+        VolumeConfirmedTrendShadowSnapshot(
+            state = state,
+            recentEvents =
+                state
+                    ?.let { persisted ->
+                        events.filter { it.sessionId == persisted.sessionId }.takeLast(limit)
+                    }.orEmpty(),
+        )
 }
 
 private class FakeBotStateStore(

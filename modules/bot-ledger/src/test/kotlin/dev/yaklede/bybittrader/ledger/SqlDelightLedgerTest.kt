@@ -1372,6 +1372,10 @@ class SqlDelightLedgerTest :
             ledger.trendShadowState(state.protocolId, state.symbol) shouldBe state
             ledger.trendShadowEvents(state.sessionId, 10) shouldBe listOf(event)
             ledger.trendShadowEvents(state.protocolId, state.symbol, 10) shouldBe listOf(previousEvent, event)
+            ledger.trendShadowSnapshot(state.protocolId, state.symbol, 10).let { snapshot ->
+                snapshot.state shouldBe state
+                snapshot.recentEvents shouldBe listOf(event)
+            }
         }
 
         "trend live state and idempotent events commit atomically" {

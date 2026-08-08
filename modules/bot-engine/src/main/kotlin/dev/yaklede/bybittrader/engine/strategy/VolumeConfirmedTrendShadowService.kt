@@ -142,6 +142,29 @@ data class VolumeConfirmedTrendShadowEvent(
     val reason: String,
 )
 
+data class VolumeConfirmedTrendShadowSnapshot(
+    val state: VolumeConfirmedTrendShadowState?,
+    val recentEvents: List<VolumeConfirmedTrendShadowEvent>,
+) {
+    init {
+        require(state != null || recentEvents.isEmpty()) {
+            "Trend shadow events require a persisted state."
+        }
+        state?.let { persisted ->
+            require(
+                recentEvents.all { event ->
+                    event.sessionId == persisted.sessionId &&
+                        event.protocolId == persisted.protocolId &&
+                        event.protocolSha256 == persisted.protocolSha256 &&
+                        event.symbol == persisted.symbol
+                },
+            ) {
+                "Trend shadow snapshot events must match its current session and strategy."
+            }
+        }
+    }
+}
+
 interface VolumeConfirmedTrendShadowStore {
     suspend fun trendShadowState(
         protocolId: String,
@@ -157,6 +180,12 @@ interface VolumeConfirmedTrendShadowStore {
         sessionId: String,
         limit: Int,
     ): List<VolumeConfirmedTrendShadowEvent>
+
+    suspend fun trendShadowSnapshot(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): VolumeConfirmedTrendShadowSnapshot
 
     suspend fun trendShadowEvents(
         protocolId: String,
@@ -220,13 +249,14 @@ class VolumeConfirmedTrendShadowService(
 
     suspend fun report(limit: Int): VolumeConfirmedTrendShadowReport {
         require(limit in 1..100_000) { "Trend shadow report event limit must be between 1 and 100000." }
+        val snapshot = shadowStore.trendShadowSnapshot(config.bootstrap.protocolId, config.symbol, limit)
         return VolumeConfirmedTrendShadowReport(
             protocolId = config.bootstrap.protocolId,
             candidateId = config.bootstrap.candidateId,
             protocolSha256 = config.bootstrap.protocolSha256,
             symbol = config.symbol,
-            state = shadowStore.trendShadowState(config.bootstrap.protocolId, config.symbol),
-            recentEvents = shadowStore.trendShadowEvents(config.bootstrap.protocolId, config.symbol, limit),
+            state = snapshot.state,
+            recentEvents = snapshot.recentEvents,
         )
     }
 

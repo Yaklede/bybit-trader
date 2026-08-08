@@ -247,6 +247,21 @@ private class InMemoryTrendShadowStore : VolumeConfirmedTrendShadowStore {
         sessionId: String,
         limit: Int,
     ): List<VolumeConfirmedTrendShadowEvent> = events.filter { it.sessionId == sessionId }.takeLast(limit)
+
+    override suspend fun trendShadowSnapshot(
+        protocolId: String,
+        symbol: Symbol,
+        limit: Int,
+    ): VolumeConfirmedTrendShadowSnapshot {
+        val persisted = state?.takeIf { it.protocolId == protocolId && it.symbol == symbol }
+        return VolumeConfirmedTrendShadowSnapshot(
+            state = persisted,
+            recentEvents =
+                persisted
+                    ?.let { current -> events.filter { it.sessionId == current.sessionId }.takeLast(limit) }
+                    .orEmpty(),
+        )
+    }
 }
 
 private class InMemoryCandleStore(
