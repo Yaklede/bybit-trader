@@ -331,7 +331,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   `ENTRY_NOT_FILLED` 주문 이력이나 주문 증거가 없는 `HALTED` 상태만으로는 관리 loop를 강제하지 않는다.
 - 루프 시작 뒤 승인이 상실되면 신규 노출은 만들지 않지만, 이미 기록된 pending 주문을 먼저 복구하고
   영속 상태와 방향·수량이 일치하는 기존 포지션은 `TREND_APPROVAL_REVOKED_EXIT` reduce-only 주문으로
-  정리한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는 개인 API를 조회하지 않는다.
+  정리한다. 확정 미체결 `ENTRY_NOT_FILLED`는 승인 차단 checkpoint에서 과거 주문 ID를 비워 재시작 때
+  미해결 주문으로 오인하지 않는다. 반대로 주문 상태 불명으로 이미 `HALTED`된 checkpoint는 원래 사유와
+  주문 ID를 보존해 승인 차단이 복구 증거를 덮어쓰지 못한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는
+  개인 API를 조회하지 않는다.
 - 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.
 - `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트뿐 아니라 실제 process wiring을
   `DISABLED`, `MANAGEMENT_ONLY`, `SIGNAL_ENABLED`로 구분하고 coroutine 활성 상태를 인증된 운영자에게 제공한다.

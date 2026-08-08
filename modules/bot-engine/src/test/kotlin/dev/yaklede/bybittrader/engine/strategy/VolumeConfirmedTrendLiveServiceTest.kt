@@ -151,6 +151,54 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.last().reduceOnly shouldBe true
         }
 
+        "revoked approval clears settled unfilled entry identity before halting" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val approvedService = service(gateway, store)
+            approvedService.evaluate(command(Side.BUY), BigDecimal("60000"))
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    filledQuantity = BigDecimal.ZERO,
+                    providerStatus = "Cancelled",
+                    cancelType = "CancelByCannotAffordOrderCost",
+                )
+            val revokedService = service(gateway, store, approved = false)
+
+            val settled = revokedService.reconcile()
+            val blocked = revokedService.reconcile()
+
+            settled.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED
+            blocked.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            blocked.state.status shouldBe VolumeConfirmedTrendLiveStatus.HALTED
+            blocked.state.haltedReasonCode shouldBe "TREND_LIVE_NOT_APPROVED"
+            blocked.state.clientOrderId shouldBe null
+            blocked.state.exchangeOrderId shouldBe null
+            gateway.submittedOrders.size shouldBe 1
+        }
+
+        "approval loss preserves an unresolved order halt for operator recovery" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val approvedService = service(gateway, store, clock = { now })
+            approvedService.evaluate(command(Side.BUY), BigDecimal("60000"))
+            gateway.openOrders.clear()
+            now = now.plusSeconds(11)
+            val unresolved = approvedService.reconcile()
+            val eventsBeforeRevocation = store.events.size
+            val revokedService = service(gateway, store, approved = false, clock = { now })
+
+            val blocked = revokedService.reconcile()
+
+            unresolved.state.haltedReasonCode shouldBe "TREND_ENTRY_ORDER_STATE_UNKNOWN"
+            blocked.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            blocked.state shouldBe unresolved.state
+            blocked.state.clientOrderId shouldBe unresolved.state.clientOrderId
+            store.events.size shouldBe eventsBeforeRevocation
+            gateway.submittedOrders.size shouldBe 1
+        }
+
         "revoked approval retries a known unfilled safety exit only after its delay" {
             var now = TEST_NOW
             val position = position(Side.BUY, "0.007")

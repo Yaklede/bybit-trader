@@ -624,14 +624,25 @@ class VolumeConfirmedTrendLiveService(
         now: Instant,
     ): VolumeConfirmedTrendLiveState {
         val state =
-            if (previous == null || previous.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
-                baseState(previous, now).copy(status = VolumeConfirmedTrendLiveStatus.DISABLED, updatedAt = now)
-            } else {
-                previous.copy(
-                    status = VolumeConfirmedTrendLiveStatus.HALTED,
-                    haltedReasonCode = "TREND_LIVE_NOT_APPROVED",
-                    updatedAt = now,
-                )
+            when {
+                previous == null || previous.status == VolumeConfirmedTrendLiveStatus.DISABLED ->
+                    baseState(previous, now).copy(status = VolumeConfirmedTrendLiveStatus.DISABLED, updatedAt = now)
+                previous.status == VolumeConfirmedTrendLiveStatus.HALTED -> previous
+                else -> {
+                    val settledWithoutExposure =
+                        previous.status in
+                            setOf(
+                                VolumeConfirmedTrendLiveStatus.FLAT,
+                                VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED,
+                            )
+                    previous.copy(
+                        status = VolumeConfirmedTrendLiveStatus.HALTED,
+                        clientOrderId = previous.clientOrderId.takeUnless { settledWithoutExposure },
+                        exchangeOrderId = previous.exchangeOrderId.takeUnless { settledWithoutExposure },
+                        haltedReasonCode = "TREND_LIVE_NOT_APPROVED",
+                        updatedAt = now,
+                    )
+                }
             }
         if (state.samePersistedStateAs(previous)) return requireNotNull(previous)
         val event = lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.HALTED, "TREND_LIVE_NOT_APPROVED", now)
