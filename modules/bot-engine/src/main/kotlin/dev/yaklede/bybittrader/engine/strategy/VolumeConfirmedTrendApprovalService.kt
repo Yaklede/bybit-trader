@@ -203,7 +203,13 @@ class VolumeConfirmedTrendApprovalService(
             sessionStartEvents.size == 1 &&
                 sessionStartEvents.single().eventAt == sessionStartedAt &&
                 sessionStartEvents.single().observedAt == sessionStartedAt
-        val continuous = currentSessionEvents.none { event -> event.type == VolumeConfirmedTrendShadowEventType.SESSION_INVALIDATED }
+        val continuous =
+            currentSessionEvents.none { event -> event.type == VolumeConfirmedTrendShadowEventType.SESSION_INVALIDATED } &&
+                currentSessionEvents.matchesPersistedSessionCounters(
+                    state = state,
+                    sessionStartedAt = sessionStartedAt,
+                    lastObservedAt = lastObservedAt,
+                )
 
         gates += lowerBoundGate("FRESH_SHADOW_DAYS", observedDays, forwardPolicy.minimumCalendarDays.toDouble())
         gates += lowerBoundGate("CLOSED_TRADES", state.closedTrades.toDouble(), forwardPolicy.minimumClosedTrades.toDouble())
@@ -415,4 +421,29 @@ private fun profitFactor(netPnls: List<Double>): Double? {
         grossProfit > 0.0 -> Double.MAX_VALUE
         else -> 0.0
     }
+}
+
+private fun List<VolumeConfirmedTrendShadowEvent>.matchesPersistedSessionCounters(
+    state: VolumeConfirmedTrendShadowState,
+    sessionStartedAt: Instant,
+    lastObservedAt: Instant,
+): Boolean {
+    val eventIds = map(VolumeConfirmedTrendShadowEvent::eventId)
+    val eventsAreBounded =
+        all { event ->
+            !event.eventAt.isBefore(sessionStartedAt) &&
+                !event.eventAt.isAfter(event.observedAt) &&
+                !event.observedAt.isBefore(sessionStartedAt) &&
+                !event.observedAt.isAfter(lastObservedAt)
+        }
+    val closedTrades = count { event -> event.type == VolumeConfirmedTrendShadowEventType.POSITION_CLOSED }
+    val transitionEvidence =
+        count { event ->
+            event.type == VolumeConfirmedTrendShadowEventType.POSITION_OPENED ||
+                event.type == VolumeConfirmedTrendShadowEventType.MINIMUM_QUANTITY_SKIPPED
+        }
+    return eventIds.distinct().size == eventIds.size &&
+        eventsAreBounded &&
+        closedTrades == state.closedTrades &&
+        transitionEvidence == state.executedTransitions
 }

@@ -20,7 +20,7 @@ class VolumeConfirmedTrendApprovalServiceTest :
 
         "collects evidence until every frozen forward gate passes" {
             val state = approvalState(sessionDays = 30, closedTrades = 2, executedTransitions = 3)
-            val report = approvalService(shadowReport(state, listOf(closureEvent(state, 1.0)))).evaluate()
+            val report = approvalService(shadowReport(state, consistentEvents(state, listOf(1.0, -0.5)))).evaluate()
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_COLLECTING
             report.gates.single { it.id == "FRESH_SHADOW_DAYS" }.status shouldBe
@@ -31,7 +31,7 @@ class VolumeConfirmedTrendApprovalServiceTest :
         "marks a complete profitable continuous shadow session ready only for human review" {
             val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
             val pnls = listOf(3.0, -1.0, 2.0, -1.0, 1.0)
-            val report = approvalService(shadowReport(state, pnls.mapIndexed { index, pnl -> closureEvent(state, pnl, index) })).evaluate()
+            val report = approvalService(shadowReport(state, consistentEvents(state, pnls))).evaluate()
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.READY_FOR_HUMAN_REVIEW
             report.closedTradeProfitFactor shouldBe 3.0
@@ -44,7 +44,7 @@ class VolumeConfirmedTrendApprovalServiceTest :
 
         "fails the current shadow session after a hard risk breach" {
             val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6).copy(liquidationCount = 1)
-            val report = approvalService(shadowReport(state, listOf(closureEvent(state, 1.0)))).evaluate()
+            val report = approvalService(shadowReport(state, consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0)))).evaluate()
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_SESSION_FAILED
             report.gates.single { it.id == "LIQUIDATION_COUNT" }.status shouldBe VolumeConfirmedTrendApprovalGateStatus.FAIL
@@ -53,17 +53,41 @@ class VolumeConfirmedTrendApprovalServiceTest :
         "fails a session that contains more than one start event" {
             val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
             val duplicateStart = sessionStartEvent(state).copy(eventId = "duplicate-session-start")
-            val report = approvalService(shadowReport(state, listOf(duplicateStart, closureEvent(state, 1.0)))).evaluate()
+            val report =
+                approvalService(
+                    shadowReport(
+                        state,
+                        listOf(duplicateStart) + consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0)),
+                    ),
+                ).evaluate()
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_SESSION_FAILED
             report.gates.single { it.id == "CURRENT_SESSION_START" }.status shouldBe
                 VolumeConfirmedTrendApprovalGateStatus.FAIL
         }
 
+        "fails a session whose counters exceed its append-only event evidence" {
+            val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
+            val incompleteEvents =
+                consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0))
+                    .filterNot { event -> event.eventId == "approval-close-4" }
+
+            val report = approvalService(shadowReport(state, incompleteEvents)).evaluate()
+
+            report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_SESSION_FAILED
+            report.gates.single { it.id == "CURRENT_SESSION_CONTINUITY" }.status shouldBe
+                VolumeConfirmedTrendApprovalGateStatus.FAIL
+            report.readyForHumanReview shouldBe false
+        }
+
         "rejects invalid historical evidence before considering shadow performance" {
             val evidence = historicalEvidence().copy(externalVenuePassed = false)
             val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
-            val report = approvalService(shadowReport(state, listOf(closureEvent(state, 1.0))), evidence).evaluate()
+            val report =
+                approvalService(
+                    shadowReport(state, consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0))),
+                    evidence,
+                ).evaluate()
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.HISTORICAL_EVIDENCE_REJECTED
             report.readyForHumanReview shouldBe false
@@ -217,5 +241,44 @@ private fun closureEvent(
         equity = state.equity,
         reason = "OPPOSITE_VOLUME_CONFIRMED_TREND",
     )
+
+private fun consistentEvents(
+    state: VolumeConfirmedTrendShadowState,
+    netPnls: List<Double>,
+): List<VolumeConfirmedTrendShadowEvent> {
+    require(netPnls.size == state.closedTrades)
+    return netPnls.mapIndexed { index, netPnl -> closureEvent(state, netPnl, index) } +
+        List(state.executedTransitions) { index -> transitionEvent(state, index) }
+}
+
+private fun transitionEvent(
+    state: VolumeConfirmedTrendShadowState,
+    index: Int,
+): VolumeConfirmedTrendShadowEvent {
+    val eventAt = APPROVAL_NOW.minus(Duration.ofDays((index + 10).toLong()))
+    return VolumeConfirmedTrendShadowEvent(
+        eventId = "approval-open-$index",
+        sessionId = state.sessionId,
+        protocolId = state.protocolId,
+        protocolSha256 = state.protocolSha256,
+        symbol = state.symbol,
+        type = VolumeConfirmedTrendShadowEventType.POSITION_OPENED,
+        eventAt = eventAt,
+        observedAt = eventAt,
+        h4OpenedAt = eventAt.minus(Duration.ofHours(4)),
+        side = if (index % 2 == 0) Side.BUY else Side.SELL,
+        referencePrice = 60_000.0,
+        fillPrice = 60_012.0,
+        quantity = 0.001,
+        fee = 0.036,
+        slippage = 0.012,
+        fundingPnl = 0.0,
+        grossPnl = 0.0,
+        netPnl = -0.036,
+        cash = state.cash,
+        equity = state.equity,
+        reason = "VOLUME_CONFIRMED_TREND_TRANSITION",
+    )
+}
 
 private val APPROVAL_NOW = Instant.parse("2026-11-10T00:05:00Z")
