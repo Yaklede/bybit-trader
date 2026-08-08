@@ -59,6 +59,7 @@ import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLivePro
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveAccountingObservation
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveAccountingRequest
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvidenceService
@@ -1082,12 +1083,91 @@ class SqlDelightLedgerTest :
                     policy = VolumeConfirmedTrendLiveRiskPolicy(),
                 )
 
-            current.reasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+            current.reasonCodes shouldBe
+                listOf(
+                    "DAILY_EQUITY_LOSS_LIMIT_REACHED",
+                    "ACCOUNT_DRAWDOWN_LIMIT_REACHED",
+                )
             current.state?.navStatus shouldBe ExecutionRiskNavStatus.READY
             current.state?.latestUnitizedNav shouldBe
                 BigDecimal("400.00").divide(BigDecimal("666.24"), MathContext.DECIMAL128)
             ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT")?.status shouldBe
                 ExecutionWalletReconciliationStatus.MATCHED
+        }
+
+        "trend live accounting failures remain entry blocking until every stream recovers" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val startedAt = Instant.parse("2026-08-08T00:00:00Z")
+            val sink =
+                LedgerVolumeConfirmedTrendLiveProjectionSink(
+                    store = ledger,
+                    runtimeMode = ExecutionRuntimeMode.LIVE,
+                    sessionStartedAt = startedAt,
+                )
+            sink.recordAccountBalance(trendLiveBalance("660", startedAt))
+            val initialRequest = requireNotNull(sink.reserveAccountingRequest(startedAt))
+            sink.recordAccounting(emptyAccountingObservation(initialRequest, startedAt))
+            var assessment =
+                sink.assessEntryRisk(
+                    previous = null,
+                    now = startedAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+            assessment.reasonCodes.contains("ACCOUNT_CLOSURE_SYNC_UNAVAILABLE") shouldBe false
+            assessment.reasonCodes.contains("ACCOUNT_TRANSACTION_SYNC_UNAVAILABLE") shouldBe false
+
+            val closureFailureAt = startedAt.plusSeconds(60)
+            val closureFailure = requireNotNull(sink.reserveAccountingRequest(closureFailureAt))
+            closureFailure.closuresDue shouldBe true
+            closureFailure.transactionsDue shouldBe false
+            sink.recordAccountingFailure(closureFailure, closureFailureAt)
+            assessment =
+                sink.assessEntryRisk(
+                    previous = assessment.state,
+                    now = closureFailureAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+            assessment.reasonCodes.contains("ACCOUNT_CLOSURE_SYNC_UNAVAILABLE") shouldBe true
+            assessment.reasonCodes.contains("ACCOUNT_TRANSACTION_SYNC_UNAVAILABLE") shouldBe false
+
+            val closureRecoveryAt = startedAt.plusSeconds(120)
+            val closureRecovery = requireNotNull(sink.reserveAccountingRequest(closureRecoveryAt))
+            sink.recordAccounting(emptyAccountingObservation(closureRecovery, closureRecoveryAt))
+            assessment =
+                sink.assessEntryRisk(
+                    previous = assessment.state,
+                    now = closureRecoveryAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+            assessment.reasonCodes.contains("ACCOUNT_CLOSURE_SYNC_UNAVAILABLE") shouldBe false
+
+            val allFailureAt = startedAt.plusSeconds(300)
+            val allFailure = requireNotNull(sink.reserveAccountingRequest(allFailureAt))
+            allFailure.closuresDue shouldBe true
+            allFailure.transactionsDue shouldBe true
+            sink.recordAccountingFailure(allFailure, allFailureAt)
+            assessment =
+                sink.assessEntryRisk(
+                    previous = assessment.state,
+                    now = allFailureAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+            assessment.reasonCodes.contains("ACCOUNT_CLOSURE_SYNC_UNAVAILABLE") shouldBe true
+            assessment.reasonCodes.contains("ACCOUNT_TRANSACTION_SYNC_UNAVAILABLE") shouldBe true
+
+            val recoveryAt = startedAt.plusSeconds(600)
+            val recovery = requireNotNull(sink.reserveAccountingRequest(recoveryAt))
+            sink.recordAccounting(emptyAccountingObservation(recovery, recoveryAt))
+            assessment =
+                sink.assessEntryRisk(
+                    previous = assessment.state,
+                    now = recoveryAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+            assessment.reasonCodes.contains("ACCOUNT_CLOSURE_SYNC_UNAVAILABLE") shouldBe false
+            assessment.reasonCodes.contains("ACCOUNT_TRANSACTION_SYNC_UNAVAILABLE") shouldBe false
         }
 
         "additive migration adds actual-fill protection metadata to a legacy lifecycle table" {
@@ -1486,6 +1566,18 @@ private fun trendLiveBalance(
                 ),
             ),
         capturedAt = capturedAt,
+    )
+
+private fun emptyAccountingObservation(
+    request: VolumeConfirmedTrendLiveAccountingRequest,
+    receivedAt: Instant,
+): VolumeConfirmedTrendLiveAccountingObservation =
+    VolumeConfirmedTrendLiveAccountingObservation(
+        request = request,
+        executions = emptyList(),
+        closedPnls = emptyList(),
+        accountTransactions = emptyList(),
+        receivedAt = receivedAt,
     )
 
 private fun sampleTrendLiveEvent(state: VolumeConfirmedTrendLiveState): VolumeConfirmedTrendLiveEvent =

@@ -3,6 +3,8 @@ package dev.yaklede.bybittrader.app
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import java.math.BigDecimal
+import java.time.Duration
 
 class AppConfigTest :
     StringSpec({
@@ -153,6 +155,58 @@ class AppConfigTest :
             config.executionLoop.enabled shouldBe false
             config.executionReconciliation.enabled shouldBe false
             config.bybitPrivate.privateExecutionStreamEnabled shouldBe false
+        }
+
+        "trend live risk policy keeps the stricter operational and frozen limits" {
+            val looseSettings =
+                AppConfig
+                    .fromEnvironment(emptyMap())
+                    .execution
+                    .copy(
+                        maximumDailyLossFraction = BigDecimal("0.08"),
+                        maximumAccountDrawdownFraction = BigDecimal("0.50"),
+                        maximumConsecutiveLosses = 8,
+                        riskStateMaximumAge = Duration.ofMinutes(15),
+                        walletReconciliationTolerance = BigDecimal("0.03"),
+                        walletReconciliationMaximumAge = Duration.ofMinutes(15),
+                        walletReconciliationConfirmedMismatchCount = 9,
+                    )
+
+            val frozenPolicy =
+                looseSettings.toVolumeConfirmedTrendLiveRiskPolicy(
+                    approvalMaximumDrawdownFraction = BigDecimal("0.35"),
+                )
+
+            frozenPolicy.maximumDailyLossFraction.toPlainString() shouldBe "0.03"
+            frozenPolicy.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.35"
+            frozenPolicy.maximumConsecutiveLosses shouldBe 3
+            frozenPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(10)
+            frozenPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(10)
+            frozenPolicy.walletReconciliationConfirmedMismatchCount shouldBe 2
+            looseSettings.volumeConfirmedTrendLiveWalletTolerance().toPlainString() shouldBe "0.01"
+
+            val stricterSettings =
+                looseSettings.copy(
+                    maximumDailyLossFraction = BigDecimal("0.02"),
+                    maximumAccountDrawdownFraction = BigDecimal("0.18"),
+                    maximumConsecutiveLosses = 2,
+                    riskStateMaximumAge = Duration.ofMinutes(2),
+                    walletReconciliationTolerance = BigDecimal("0.005"),
+                    walletReconciliationMaximumAge = Duration.ofMinutes(3),
+                    walletReconciliationConfirmedMismatchCount = 1,
+                )
+            val stricterPolicy =
+                stricterSettings.toVolumeConfirmedTrendLiveRiskPolicy(
+                    approvalMaximumDrawdownFraction = BigDecimal("0.15"),
+                )
+
+            stricterPolicy.maximumDailyLossFraction.toPlainString() shouldBe "0.02"
+            stricterPolicy.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.15"
+            stricterPolicy.maximumConsecutiveLosses shouldBe 2
+            stricterPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(2)
+            stricterPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(3)
+            stricterPolicy.walletReconciliationConfirmedMismatchCount shouldBe 1
+            stricterSettings.volumeConfirmedTrendLiveWalletTolerance().toPlainString() shouldBe "0.005"
         }
 
         "private execution requires testnet or live mode" {

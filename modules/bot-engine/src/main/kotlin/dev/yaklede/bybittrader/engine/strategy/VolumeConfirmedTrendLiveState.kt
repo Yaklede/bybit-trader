@@ -224,14 +224,22 @@ data class VolumeConfirmedTrendLiveConfig(
 }
 
 data class VolumeConfirmedTrendLiveRiskPolicy(
+    val maximumDailyLossFraction: BigDecimal = BigDecimal("0.03"),
     val maximumAccountDrawdownFraction: BigDecimal = BigDecimal("0.35"),
+    val maximumConsecutiveLosses: Int = 3,
     val riskStateMaximumAge: Duration = Duration.ofMinutes(10),
     val walletReconciliationMaximumAge: Duration = Duration.ofMinutes(10),
     val walletReconciliationConfirmedMismatchCount: Int = 2,
 ) {
     init {
+        require(maximumDailyLossFraction > BigDecimal.ZERO && maximumDailyLossFraction <= BigDecimal.ONE) {
+            "Trend live maximum daily loss fraction must be in (0, 1]."
+        }
         require(maximumAccountDrawdownFraction > BigDecimal.ZERO && maximumAccountDrawdownFraction <= BigDecimal.ONE) {
             "Trend live maximum account drawdown fraction must be in (0, 1]."
+        }
+        require(maximumConsecutiveLosses in 1..100) {
+            "Trend live maximum consecutive losses must be between 1 and 100."
         }
         require(!riskStateMaximumAge.isNegative && !riskStateMaximumAge.isZero) {
             "Trend live risk state maximum age must be positive."

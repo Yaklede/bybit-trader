@@ -73,7 +73,6 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopConfi
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResult
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveManagementLoop
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveManagementLoopConfig
-import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
@@ -575,8 +574,8 @@ fun main() {
         }
     val trendLiveSessionStartedAt = Instant.now()
     val trendLiveRiskPolicy =
-        VolumeConfirmedTrendLiveRiskPolicy(
-            maximumAccountDrawdownFraction =
+        config.execution.toVolumeConfirmedTrendLiveRiskPolicy(
+            approvalMaximumDrawdownFraction =
                 BigDecimal
                     .valueOf(trendApprovalDefinition.forwardPolicy.maximumDrawdownPct)
                     .movePointLeft(2),
@@ -633,6 +632,8 @@ fun main() {
                         store = ledger,
                         runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
                         sessionStartedAt = trendLiveSessionStartedAt,
+                        walletReconciliationTolerance =
+                            config.execution.volumeConfirmedTrendLiveWalletTolerance(),
                     ),
             )
         } else {

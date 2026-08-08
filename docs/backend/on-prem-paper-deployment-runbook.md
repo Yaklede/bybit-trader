@@ -208,6 +208,11 @@ a daily equity loss of 3%, a 20% account drawdown, or three consecutive losses
 blocks new automatic entries. Existing positions remain under the shared
 stop, trailing, and maximum-hold policy. Do not disable the breaker to make a
 rejected strategy trade.
+The H4 runtime applies the stricter value between these operational settings
+and its frozen ceilings; environment values cannot loosen the H4 ceiling.
+Closure and transaction streams retain a failed state until that exact stream
+completes a later sync. Missing, stale, clock-skewed, or failed accounting syncs
+block new entries but do not prevent reduce-only position management.
 
 Wallet reconciliation is also enabled by default. After startup, wait for the
 first `BASELINE` and the following `MATCHED` reconciliation before considering

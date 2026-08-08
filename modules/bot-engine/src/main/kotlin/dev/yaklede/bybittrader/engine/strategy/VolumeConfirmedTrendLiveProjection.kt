@@ -120,7 +120,10 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
     private val logger = LoggerFactory.getLogger(javaClass)
     private var lastClosureSyncAttemptAt: Instant? = null
     private var lastClosureSyncSucceededAt: Instant? = null
+    private var lastClosureSyncFailedAt: Instant? = null
     private var lastTransactionSyncAttemptAt: Instant? = null
+    private var lastTransactionSyncSucceededAt: Instant? = null
+    private var lastTransactionSyncFailedAt: Instant? = null
 
     init {
         require(tradingSymbol.value == "BTCUSDT") { "Trend live projection supports BTCUSDT only." }
@@ -239,7 +242,14 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
                 }
             reconcileWallet(request.requestedAt, transactionSyncSucceeded = true)
         }
-        if (request.closuresDue) lastClosureSyncSucceededAt = request.requestedAt
+        if (request.closuresDue) {
+            lastClosureSyncSucceededAt = request.requestedAt
+            lastClosureSyncFailedAt = null
+        }
+        if (request.transactionsDue) {
+            lastTransactionSyncSucceededAt = request.requestedAt
+            lastTransactionSyncFailedAt = null
+        }
         logger.info(
             "trend live accounting persisted mode={} symbol={} executions={} newClosures={} newTransactions={} transactionsSynced={}",
             runtimeMode.name,
@@ -255,6 +265,8 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         request: VolumeConfirmedTrendLiveAccountingRequest,
         failedAt: Instant,
     ) {
+        if (request.closuresDue) lastClosureSyncFailedAt = failedAt
+        if (request.transactionsDue) lastTransactionSyncFailedAt = failedAt
         if (request.transactionsDue) reconcileWallet(failedAt, transactionSyncSucceeded = false)
     }
 
@@ -288,11 +300,13 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
                 )
             } ?: previous
         val riskDecision =
-            ExecutionRiskCircuitBreaker.evaluateAccountDrawdown(
+            ExecutionRiskCircuitBreaker.evaluate(
                 state = updated,
                 now = now,
                 maximumAge = policy.riskStateMaximumAge,
+                maximumDailyLossFraction = policy.maximumDailyLossFraction,
                 maximumAccountDrawdownFraction = policy.maximumAccountDrawdownFraction,
+                maximumConsecutiveLosses = policy.maximumConsecutiveLosses,
             )
         val walletDecision =
             ExecutionWalletReconciler.evaluate(
@@ -303,9 +317,29 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
             )
         return VolumeConfirmedTrendLiveRiskAssessment(
             state = updated,
-            reasonCodes = (riskDecision.reasonCodes + walletDecision.reasonCodes).distinct(),
+            reasonCodes =
+                (riskDecision.reasonCodes + walletDecision.reasonCodes + accountingSyncReasonCodes(now))
+                    .distinct(),
         )
     }
+
+    private fun accountingSyncReasonCodes(now: Instant): List<String> =
+        listOfNotNull(
+            syncHealthReason(
+                source = "ACCOUNT_CLOSURE_SYNC",
+                lastSucceededAt = lastClosureSyncSucceededAt,
+                lastFailedAt = lastClosureSyncFailedAt,
+                maximumAge = closureSyncInterval.multipliedBy(2),
+                now = now,
+            ),
+            syncHealthReason(
+                source = "ACCOUNT_TRANSACTION_SYNC",
+                lastSucceededAt = lastTransactionSyncSucceededAt,
+                lastFailedAt = lastTransactionSyncFailedAt,
+                maximumAge = transactionSyncInterval.multipliedBy(2),
+                now = now,
+            ),
+        )
 
     private suspend fun transactionStartAt(now: Instant): Instant {
         val latest = store.latestAccountTransaction(runtimeMode, accountCoin)
@@ -365,4 +399,23 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         val age = Duration.between(lastAttemptAt, now)
         return age.isNegative || age >= interval
     }
+
+    private fun syncHealthReason(
+        source: String,
+        lastSucceededAt: Instant?,
+        lastFailedAt: Instant?,
+        maximumAge: Duration,
+        now: Instant,
+    ): String? {
+        if (lastFailedAt != null && (lastSucceededAt == null || !lastFailedAt.isBefore(lastSucceededAt))) {
+            return "${source}_UNAVAILABLE"
+        }
+        if (lastSucceededAt == null) return "${source}_UNAVAILABLE"
+        if (lastSucceededAt.isAfter(now.plus(ACCOUNTING_SYNC_CLOCK_SKEW_TOLERANCE))) {
+            return "${source}_CLOCK_SKEW"
+        }
+        return if (Duration.between(lastSucceededAt, now) > maximumAge) "${source}_STALE" else null
+    }
 }
+
+private val ACCOUNTING_SYNC_CLOCK_SKEW_TOLERANCE: Duration = Duration.ofSeconds(5)
