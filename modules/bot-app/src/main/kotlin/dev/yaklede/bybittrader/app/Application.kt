@@ -62,13 +62,21 @@ import dev.yaklede.bybittrader.engine.strategy.TREND_APPROVAL_REVOKED_EXIT_REASO
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractInspector
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalReceipt
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvidenceService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoop
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopConfig
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResult
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveManagementLoop
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveManagementLoopConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveService
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvaluationStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowLoop
@@ -236,42 +244,52 @@ fun main() {
         trendApprovalDefinition.historicalEvidence.protocolId,
         trendApprovalDefinition.forwardPolicy.policyId,
     )
-    val trendLiveRuntimeApproval =
+    val trendLiveRuntimeApprovalAttempt =
         if (config.volumeConfirmedTrendLive.enabled) {
             val settings = config.volumeConfirmedTrendLive
             val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
-            runBlocking {
-                loadVolumeConfirmedTrendLiveRuntimeApproval(
-                    receiptPath = Path.of(settings.approvalReceiptPath),
-                    shadowEvidencePath = Path.of(settings.shadowEvidencePath),
-                    approvalReportPath = Path.of(settings.approvalReportPath),
-                    protocol = runtimeDefinition.protocol,
-                    forwardPolicy = trendApprovalDefinition.forwardPolicy,
-                ).also { approval ->
-                    validateVolumeConfirmedTrendLiveCurrentShadow(
-                        approval = approval,
-                        currentState =
-                            ledger.trendShadowState(
-                                runtimeDefinition.protocol.protocolId,
-                                runtimeDefinition.protocol.symbol,
-                            ),
-                        currentReport = trendApprovalService.evaluate(),
+            runCatching {
+                runBlocking {
+                    loadVolumeConfirmedTrendLiveRuntimeApproval(
+                        receiptPath = Path.of(settings.approvalReceiptPath),
+                        shadowEvidencePath = Path.of(settings.shadowEvidencePath),
+                        approvalReportPath = Path.of(settings.approvalReportPath),
                         protocol = runtimeDefinition.protocol,
                         forwardPolicy = trendApprovalDefinition.forwardPolicy,
-                    )
+                    ).also { approval ->
+                        validateVolumeConfirmedTrendLiveCurrentShadow(
+                            approval = approval,
+                            currentState =
+                                ledger.trendShadowState(
+                                    runtimeDefinition.protocol.protocolId,
+                                    runtimeDefinition.protocol.symbol,
+                                ),
+                            currentReport = trendApprovalService.evaluate(),
+                            protocol = runtimeDefinition.protocol,
+                            forwardPolicy = trendApprovalDefinition.forwardPolicy,
+                        )
+                    }
                 }
-            }.also { approval ->
-                logger.info(
-                    "volume-confirmed trend live approval validated approvalId={} sessionId={} approvedBy={} protocolSha256={}",
-                    approval.receipt.approvalId,
-                    approval.receipt.shadowSessionId,
-                    approval.receipt.approvedBy,
-                    approval.receipt.protocolSha256,
-                )
             }
         } else {
             null
         }
+    val trendLiveRuntimeApproval = trendLiveRuntimeApprovalAttempt?.getOrNull()
+    trendLiveRuntimeApproval?.let { approval ->
+        logger.info(
+            "volume-confirmed trend live approval validated approvalId={} sessionId={} approvedBy={} protocolSha256={}",
+            approval.receipt.approvalId,
+            approval.receipt.shadowSessionId,
+            approval.receipt.approvedBy,
+            approval.receipt.protocolSha256,
+        )
+    }
+    trendLiveRuntimeApprovalAttempt?.exceptionOrNull()?.let { error ->
+        logger.error(
+            "volume-confirmed trend live approval unavailable; entering management-only recovery",
+            error,
+        )
+    }
     val paperTradingService =
         PaperTradingService(
             stateStore = ledger,
@@ -564,11 +582,26 @@ fun main() {
                 tradingSymbol = runtimeDefinition.protocol.symbol,
             )
         }
+    val persistedTrendLiveState =
+        trendRuntimeDefinition?.let { runtimeDefinition ->
+            runBlocking {
+                ledger.trendLiveState(
+                    runtimeDefinition.protocol.protocolId,
+                    runtimeDefinition.protocol.symbol,
+                )
+            }
+        }
+    val trendLiveManagementRequired =
+        config.volumeConfirmedTrendLive.enabled || persistedTrendLiveState.requiresTrendLiveManagement()
     val trendLiveService =
-        trendLiveRuntimeApproval?.let { approval ->
+        if (trendLiveManagementRequired) {
             val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
+            val approval = trendLiveRuntimeApproval
             VolumeConfirmedTrendLiveService(
-                gateway = requireNotNull(privateExchangeGateway),
+                gateway =
+                    requireNotNull(privateExchangeGateway) {
+                        "Trend live management requires private exchange credentials."
+                    },
                 store = ledger,
                 config =
                     VolumeConfirmedTrendLiveConfig(
@@ -578,10 +611,15 @@ fun main() {
                         symbol = runtimeDefinition.protocol.symbol,
                         riskPolicy = trendLiveRiskPolicy,
                     ),
-                approvalReceipt = approval.receipt,
+                approvalReceipt =
+                    approval?.receipt
+                        ?: managementOnlyTrendLiveReceipt(
+                            protocol = runtimeDefinition.protocol,
+                            forwardPolicy = trendApprovalDefinition.forwardPolicy,
+                        ),
                 approvalReportProvider = trendApprovalService::evaluate,
-                shadowEvidenceSha256 = approval.shadowEvidenceSha256,
-                approvalReportSha256 = approval.approvalReportSha256,
+                shadowEvidenceSha256 = approval?.shadowEvidenceSha256.orEmpty(),
+                approvalReportSha256 = approval?.approvalReportSha256.orEmpty(),
                 executionContract = runtimeDefinition.protocol.executionContract,
                 projectionSink =
                     LedgerVolumeConfirmedTrendLiveProjectionSink(
@@ -590,69 +628,93 @@ fun main() {
                         sessionStartedAt = trendLiveSessionStartedAt,
                     ),
             )
+        } else {
+            null
         }
     val trendLiveScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val trendLiveAlertPolicy = VolumeConfirmedTrendLiveAlertPolicy()
-    val trendLiveJob =
-        trendLiveService?.let { liveService ->
-            val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
-            val approval = requireNotNull(trendLiveRuntimeApproval)
-            val settings = config.volumeConfirmedTrendLive
-            logger.info(
-                "volume-confirmed trend live loop enabled approvalId={} sessionId={} intervalSeconds={} maximumSignalAgeSeconds={}",
-                approval.receipt.approvalId,
-                approval.receipt.shadowSessionId,
-                settings.reconciliationInterval.seconds,
-                settings.maximumSignalAge.seconds,
+    val onTrendLiveResult: suspend (VolumeConfirmedTrendLiveLoopResult) -> Unit = { result ->
+        logger.info(
+            "volume-confirmed trend live evaluated loopStatus={} evaluationStatus={} botMode={} sessionId={} liveState={} reason={} clientOrderId={} exchangeOrderId={}",
+            result.status.name,
+            result.evaluation.status.name,
+            result.botMode.name,
+            result.shadowSessionId,
+            result.evaluation.state.status.name,
+            result.evaluation.state.haltedReasonCode,
+            result.evaluation.state.clientOrderId,
+            result.evaluation.state.exchangeOrderId,
+        )
+        if (trendLiveAlertPolicy.shouldAlert(result)) {
+            alertingService.sendTrendLiveResult(result)
+        }
+    }
+    val onTrendLiveFailure: suspend (Throwable) -> Unit = { error ->
+        if (trendLiveAlertPolicy.shouldAlert(error)) {
+            alertingService.send(
+                AlertMessage(
+                    severity = AlertSeverity.CRITICAL,
+                    title = "H4 실거래 루프 점검 필요",
+                    body =
+                        "실거래 루프가 주문 없이 이번 평가를 중단했어요. " +
+                            "오류: ${error::class.simpleName}. 원인: ${error.message ?: "상세 원인 없음"}",
+                ),
             )
-            VolumeConfirmedTrendLiveLoop(
-                shadowStore = ledger,
-                botStateStore = ledger,
-                liveExecutor = liveService,
-                tickerProvider = marketDataSyncService::ticker,
-                config =
-                    VolumeConfirmedTrendLiveLoopConfig(
-                        protocolId = runtimeDefinition.protocol.protocolId,
-                        candidateId = runtimeDefinition.protocol.candidateId,
-                        protocolSha256 = runtimeDefinition.protocol.protocolSha256,
-                        symbol = runtimeDefinition.protocol.symbol,
-                        approvedShadowSessionId = requireNotNull(approval.receipt.shadowSessionId),
-                        interval = settings.reconciliationInterval,
-                        maximumSignalAge = settings.maximumSignalAge,
-                    ),
-                onResult = { result ->
-                    logger.info(
-                        "volume-confirmed trend live evaluated loopStatus={} evaluationStatus={} botMode={} sessionId={} liveState={} reason={} clientOrderId={} exchangeOrderId={}",
-                        result.status.name,
-                        result.evaluation.status.name,
-                        result.botMode.name,
-                        result.shadowSessionId,
-                        result.evaluation.state.status.name,
-                        result.evaluation.state.haltedReasonCode,
-                        result.evaluation.state.clientOrderId,
-                        result.evaluation.state.exchangeOrderId,
-                    )
-                    if (trendLiveAlertPolicy.shouldAlert(result)) {
-                        alertingService.sendTrendLiveResult(result)
-                    }
-                },
-                onFailure = { error ->
-                    if (trendLiveAlertPolicy.shouldAlert(error)) {
-                        alertingService.send(
-                            AlertMessage(
-                                severity = AlertSeverity.CRITICAL,
-                                title = "H4 실거래 루프 점검 필요",
-                                body =
-                                    "실거래 루프가 주문 없이 이번 평가를 중단했어요. " +
-                                        "오류: ${error::class.simpleName}. 원인: ${error.message ?: "상세 원인 없음"}",
-                            ),
-                        )
-                    }
-                },
-            ).start(trendLiveScope)
-        } ?: run {
-            logger.info("volume-confirmed trend live loop disabled")
-            null
+        }
+    }
+    val trendLiveJob =
+        when {
+            trendLiveService == null -> {
+                logger.info("volume-confirmed trend live loop disabled")
+                null
+            }
+            trendLiveRuntimeApproval == null -> {
+                logger.warn(
+                    "volume-confirmed trend live management-only loop enabled intervalSeconds={} persistedStatus={}",
+                    config.volumeConfirmedTrendLive.reconciliationInterval.seconds,
+                    persistedTrendLiveState?.status?.name,
+                )
+                VolumeConfirmedTrendLiveManagementLoop(
+                    botStateStore = ledger,
+                    liveExecutor = trendLiveService,
+                    config =
+                        VolumeConfirmedTrendLiveManagementLoopConfig(
+                            interval = config.volumeConfirmedTrendLive.reconciliationInterval,
+                        ),
+                    onResult = onTrendLiveResult,
+                    onFailure = onTrendLiveFailure,
+                ).start(trendLiveScope)
+            }
+            else -> {
+                val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
+                val approval = trendLiveRuntimeApproval
+                val settings = config.volumeConfirmedTrendLive
+                logger.info(
+                    "volume-confirmed trend live loop enabled approvalId={} sessionId={} intervalSeconds={} maximumSignalAgeSeconds={}",
+                    approval.receipt.approvalId,
+                    approval.receipt.shadowSessionId,
+                    settings.reconciliationInterval.seconds,
+                    settings.maximumSignalAge.seconds,
+                )
+                VolumeConfirmedTrendLiveLoop(
+                    shadowStore = ledger,
+                    botStateStore = ledger,
+                    liveExecutor = trendLiveService,
+                    tickerProvider = marketDataSyncService::ticker,
+                    config =
+                        VolumeConfirmedTrendLiveLoopConfig(
+                            protocolId = runtimeDefinition.protocol.protocolId,
+                            candidateId = runtimeDefinition.protocol.candidateId,
+                            protocolSha256 = runtimeDefinition.protocol.protocolSha256,
+                            symbol = runtimeDefinition.protocol.symbol,
+                            approvedShadowSessionId = requireNotNull(approval.receipt.shadowSessionId),
+                            interval = settings.reconciliationInterval,
+                            maximumSignalAge = settings.maximumSignalAge,
+                        ),
+                    onResult = onTrendLiveResult,
+                    onFailure = onTrendLiveFailure,
+                ).start(trendLiveScope)
+            }
         }
     val forwardMarketCaptureScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val forwardMarketRawEventArchive =
@@ -918,6 +980,41 @@ fun main() {
     logger.info("http server starting host={} port={}", config.api.host, config.api.port)
     server.start(wait = true)
 }
+
+internal fun VolumeConfirmedTrendLiveState?.requiresTrendLiveManagement(): Boolean =
+    this != null &&
+        (
+            observedPositionSide != null ||
+                status in
+                setOf(
+                    VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED,
+                    VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
+                    VolumeConfirmedTrendLiveStatus.EXIT_INTENT_RECORDED,
+                    VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
+                )
+        )
+
+internal fun managementOnlyTrendLiveReceipt(
+    protocol: VolumeConfirmedTrendProtocolDefinition,
+    forwardPolicy: VolumeConfirmedTrendForwardPolicy,
+): VolumeConfirmedTrendLiveApprovalReceipt =
+    VolumeConfirmedTrendLiveApprovalReceipt(
+        schemaVersion = 1,
+        status = VolumeConfirmedTrendLiveApprovalStatus.NOT_APPROVED,
+        approvalId = null,
+        protocolId = protocol.protocolId,
+        candidateId = protocol.candidateId,
+        protocolSha256 = protocol.protocolSha256,
+        policyId = forwardPolicy.policyId,
+        policySha256 = forwardPolicy.policySha256,
+        shadowSessionId = null,
+        shadowEvidenceSha256 = null,
+        approvalReportSha256 = null,
+        approvedAt = null,
+        approvedBy = null,
+        liveExecutionAllowed = false,
+        reasonCode = "MANAGEMENT_ONLY_RECOVERY",
+    )
 
 private suspend fun AlertingService.sendTrendLiveResult(
     result: dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResult,

@@ -74,6 +74,44 @@ class VolumeConfirmedTrendLiveLoopTest :
             fixture.executor.haltReasons shouldBe listOf("TREND_SIGNAL_EXPIRED_WITH_POSITION_MISMATCH")
             fixture.executor.evaluatedSignals.size shouldBe 0
         }
+
+        "management-only loop reconciles while the bot is paused without reading Shadow or ticker data" {
+            val executor = FakeTrendLiveExecutor(liveState())
+            val loop =
+                VolumeConfirmedTrendLiveManagementLoop(
+                    botStateStore = FakeBotStateStore(BotMode.PAUSE_NEW_ENTRIES),
+                    liveExecutor = executor,
+                    clock = Clock.fixed(TEST_NOW, ZoneOffset.UTC),
+                )
+
+            val result = loop.runOnce()
+
+            result.status shouldBe VolumeConfirmedTrendLiveLoopStatus.RECONCILED
+            result.botMode shouldBe BotMode.PAUSE_NEW_ENTRIES
+            result.shadowSessionId shouldBe null
+            result.signal shouldBe null
+            executor.reconcileCount shouldBe 1
+            executor.evaluatedSignals.size shouldBe 0
+        }
+
+        "management-only loop reports an approval block as halted" {
+            val executor =
+                FakeTrendLiveExecutor(
+                    reconciledState = liveState(),
+                    reconciledStatus = VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED,
+                )
+            val loop =
+                VolumeConfirmedTrendLiveManagementLoop(
+                    botStateStore = FakeBotStateStore(BotMode.RUNNING),
+                    liveExecutor = executor,
+                    clock = Clock.fixed(TEST_NOW, ZoneOffset.UTC),
+                )
+
+            val result = loop.runOnce()
+
+            result.status shouldBe VolumeConfirmedTrendLiveLoopStatus.HALTED
+            executor.reconcileCount shouldBe 1
+        }
     })
 
 private data class LiveLoopFixture(
@@ -161,6 +199,8 @@ private class FakeBotStateStore(
 
 private class FakeTrendLiveExecutor(
     private val reconciledState: VolumeConfirmedTrendLiveState,
+    private val reconciledStatus: VolumeConfirmedTrendLiveEvaluationStatus =
+        VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED,
 ) : VolumeConfirmedTrendLiveExecutor {
     val evaluatedSignals = mutableListOf<VolumeConfirmedTrendExecutionSignal>()
     val haltReasons = mutableListOf<String>()
@@ -176,7 +216,7 @@ private class FakeTrendLiveExecutor(
 
     override suspend fun reconcile(): VolumeConfirmedTrendLiveEvaluationResult {
         reconcileCount += 1
-        return result(reconciledState, VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED)
+        return result(reconciledState, reconciledStatus)
     }
 
     override suspend fun haltForSafety(reasonCode: String): VolumeConfirmedTrendLiveEvaluationResult {

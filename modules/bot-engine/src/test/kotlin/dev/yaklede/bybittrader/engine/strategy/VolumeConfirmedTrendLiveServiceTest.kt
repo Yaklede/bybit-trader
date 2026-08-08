@@ -98,6 +98,7 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
             result.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED
+            result.state.approvalId shouldBe APPROVAL_ID
             result.plan?.reasonCode shouldBe TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
             result.approvalFailures.contains(VolumeConfirmedTrendLiveApprovalFailure.RECEIPT_NOT_APPROVED) shouldBe true
             gateway.submittedOrders.single().apply {
@@ -204,6 +205,7 @@ class VolumeConfirmedTrendLiveServiceTest :
             val result = service.reconcile()
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.approvalId shouldBe APPROVAL_ID
             result.state.haltedReasonCode shouldBe "TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED"
             gateway.submittedOrders.size shouldBe 0
         }

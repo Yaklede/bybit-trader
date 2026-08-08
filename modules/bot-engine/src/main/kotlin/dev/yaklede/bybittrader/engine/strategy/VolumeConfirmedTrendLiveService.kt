@@ -474,7 +474,12 @@ class VolumeConfirmedTrendLiveService(
         val intentState =
             baseState(previous, now).copy(
                 status = intentStatus,
-                approvalId = approvalReceipt.approvalId,
+                approvalId =
+                    if (plan.reasonCode == TREND_APPROVAL_REVOKED_EXIT_REASON_CODE) {
+                        previous?.approvalId
+                    } else {
+                        approvalReceipt.approvalId
+                    },
                 activeDecisionKey = plan.decisionKey,
                 pendingTargetSide = plan.targetSide,
                 clientOrderId = plan.clientOrderId,
@@ -660,7 +665,7 @@ class VolumeConfirmedTrendLiveService(
         val state =
             baseState(previous, now).copy(
                 status = VolumeConfirmedTrendLiveStatus.HALTED,
-                approvalId = approvalReceipt.approvalId,
+                approvalId = approvalReceipt.approvalId ?: previous?.approvalId,
                 activeDecisionKey = signal?.let { signalDecisionKey(it) } ?: previous?.activeDecisionKey,
                 pendingTargetSide = signal?.side ?: previous?.pendingTargetSide,
                 observedPositionSide = position?.side ?: previous?.observedPositionSide,

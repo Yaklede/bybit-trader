@@ -94,6 +94,15 @@ mark/reference price or unproven ownership halts automatic handling and emits a
 critical operator alert. The safety exit is not suppressed solely because the
 remaining position is below the normal entry minimum-notional check.
 
+The same rule applies across process restarts. If the approval receipt,
+approval report, or current Shadow evidence cannot be validated during startup,
+the normal H4 loop is not constructed. A management-only loop has no Shadow
+store, ticker provider, or signal-evaluation path and calls only reconciliation.
+It recovers persisted pending orders and manages a position only when the
+persisted side and quantity prove ownership. With no prior live state it makes
+no private exchange read; if persisted work exists but private credentials are
+missing, startup fails instead of silently abandoning the position.
+
 ## GET /strategy/volume-confirmed-trend/exchange-contract
 
 Runs a fresh, read-only inspection of the private Bybit account contract used

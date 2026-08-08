@@ -58,6 +58,63 @@ data class VolumeConfirmedTrendLiveLoopResult(
     val evaluatedAt: Instant,
 )
 
+data class VolumeConfirmedTrendLiveManagementLoopConfig(
+    val interval: Duration = Duration.ofSeconds(15),
+) {
+    init {
+        require(!interval.isNegative && !interval.isZero) {
+            "Trend live management-loop interval must be positive."
+        }
+    }
+}
+
+class VolumeConfirmedTrendLiveManagementLoop(
+    private val botStateStore: BotStateStore,
+    private val liveExecutor: VolumeConfirmedTrendLiveExecutor,
+    private val config: VolumeConfirmedTrendLiveManagementLoopConfig = VolumeConfirmedTrendLiveManagementLoopConfig(),
+    private val clock: Clock = Clock.systemUTC(),
+    private val onResult: suspend (VolumeConfirmedTrendLiveLoopResult) -> Unit = {},
+    private val onFailure: suspend (Throwable) -> Unit = {},
+) {
+    private val logger = LoggerFactory.getLogger(VolumeConfirmedTrendLiveManagementLoop::class.java)
+
+    suspend fun runOnce(): VolumeConfirmedTrendLiveLoopResult {
+        val evaluatedAt = Instant.now(clock)
+        val evaluation = liveExecutor.reconcile()
+        val result =
+            VolumeConfirmedTrendLiveLoopResult(
+                status =
+                    if (evaluation.status.blocksLiveLoop()) {
+                        VolumeConfirmedTrendLiveLoopStatus.HALTED
+                    } else {
+                        VolumeConfirmedTrendLiveLoopStatus.RECONCILED
+                    },
+                botMode = botStateStore.current().mode,
+                shadowSessionId = null,
+                signal = null,
+                evaluation = evaluation,
+                evaluatedAt = evaluatedAt,
+            )
+        onResult(result)
+        return result
+    }
+
+    fun start(scope: CoroutineScope): Job =
+        scope.launch {
+            while (isActive) {
+                try {
+                    runOnce()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    logger.warn("volume-confirmed trend live management loop failed", error)
+                    onFailure(error)
+                }
+                delay(config.interval.toMillis())
+            }
+        }
+}
+
 class VolumeConfirmedTrendLiveLoop(
     private val shadowStore: VolumeConfirmedTrendShadowStore,
     private val botStateStore: BotStateStore,

@@ -1,17 +1,21 @@
 package dev.yaklede.bybittrader.app
 
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExecutionContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendParameters
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowStatus
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -106,7 +110,60 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
                 }
             }
         }
+
+        "management-only fallback receipt can never authorize live execution" {
+            val receipt = managementOnlyTrendLiveReceipt(protocol(), policy())
+
+            receipt.status shouldBe VolumeConfirmedTrendLiveApprovalStatus.NOT_APPROVED
+            receipt.liveExecutionAllowed shouldBe false
+            receipt.approvalId shouldBe null
+            receipt.shadowSessionId shouldBe null
+            receipt.protocolSha256 shouldBe PROTOCOL_SHA
+            receipt.policySha256 shouldBe POLICY_SHA
+        }
+
+        "only persisted orders or observed exposure require management when live is disabled" {
+            val flat = liveState(VolumeConfirmedTrendLiveStatus.FLAT)
+            val pending =
+                liveState(VolumeConfirmedTrendLiveStatus.FLAT).copy(
+                    status = VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
+                    activeDecisionKey = "decision-001",
+                    pendingTargetSide = Side.BUY,
+                    clientOrderId = "vct-entry-001",
+                )
+            val open =
+                liveState(VolumeConfirmedTrendLiveStatus.FLAT).copy(
+                    status = VolumeConfirmedTrendLiveStatus.OPEN,
+                    pendingTargetSide = Side.BUY,
+                    observedPositionSide = Side.BUY,
+                    observedPositionQuantity = BigDecimal("0.001"),
+                )
+
+            (null as VolumeConfirmedTrendLiveState?).requiresTrendLiveManagement() shouldBe false
+            flat.requiresTrendLiveManagement() shouldBe false
+            pending.requiresTrendLiveManagement() shouldBe true
+            open.requiresTrendLiveManagement() shouldBe true
+        }
     })
+
+private fun liveState(status: VolumeConfirmedTrendLiveStatus): VolumeConfirmedTrendLiveState =
+    VolumeConfirmedTrendLiveState(
+        protocolId = PROTOCOL_ID,
+        candidateId = CANDIDATE_ID,
+        protocolSha256 = PROTOCOL_SHA,
+        symbol = Symbol("BTCUSDT"),
+        status = status,
+        approvalId = "approval-001",
+        activeDecisionKey = null,
+        pendingTargetSide = null,
+        clientOrderId = null,
+        exchangeOrderId = null,
+        observedPositionSide = null,
+        observedPositionQuantity = null,
+        lastExecutionId = null,
+        haltedReasonCode = null,
+        updatedAt = Instant.parse(APPROVED_AT),
+    )
 
 private data class RuntimeApprovalFixture(
     val directory: Path,

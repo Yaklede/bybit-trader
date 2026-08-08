@@ -20,8 +20,9 @@ adapter는 구현됐지만 기본 `NOT_APPROVED` 영수증과 런타임 비활�
 
 ### 1.2 설계 목표
 
-1. **승인 전 주문 불가능**: 90일 연속 Shadow와 사람 승인을 모두 증명하는 별도 승인 영수증이
-   없으면 서비스 구성 단계에서 실거래 경로를 생성하지 않는다.
+1. **승인 전 신규 노출 불가능**: 90일 연속 Shadow와 사람 승인을 모두 증명하는 별도 승인 영수증이
+   없으면 H4 신호·ticker·신규 진입 경로를 생성하지 않는다. 이전 승인 실행의 영속 주문이나 포지션이
+   남아 있으면 별도 management-only 경로에서 대사와 안전 종료만 허용한다.
 2. **실행 계약 동일화**: 닫힌 H4 결정, 다음 H4 실행, 수수료·슬리피지, 수량 반올림,
    반대 방향까지 보유하는 규칙을 역사·Shadow·Live에서 공유한다.
 3. **목표 포지션 정합성**: 거래소 실제 포지션을 기준으로 `FLAT -> ENTRY -> OPEN -> EXIT -> FLAT`
@@ -229,6 +230,7 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 | 코드 | 조건 | 처리 |
 |---|---|---|
 | `TREND_LIVE_NOT_APPROVED` | 영수증 없음/false/hash 불일치 | 신규 노출 차단, 기존 주문·포지션 안전 복구 |
+| `MANAGEMENT_ONLY_RECOVERY` | 부팅 시 승인 artifact 또는 현재 Shadow 검증 실패 | H4 신호·ticker 평가 금지, 영속 pending 주문과 소유 포지션만 대사·정리 |
 | `APPROVAL_REPORT_UNAVAILABLE` | 현재 승인 보고서를 계산할 수 없음 | 신규 노출 차단, 소유 포지션 reduce-only 종료 |
 | `TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED` | 승인 상실 시 거래소 포지션 소유권 불일치 | 자동 종료 금지, `HALTED`, 사람 확인 |
 | `TREND_APPROVAL_REVOKED_EXIT_PRICE_UNAVAILABLE` | 소유 포지션의 유효 mark/reference 가격 없음 | 자동 종료 금지, `HALTED`, 사람 확인 |
@@ -290,8 +292,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 | unitized NAV 기준점 미완성 | integration | 신규 entry 0개, 위험 사유 저장 |
 | wallet/transaction 변화 일치 | integration | 대사 `MATCHED`, 해당 사유 해제 |
 | account MDD 35% 이상 | unit/integration | 신규 entry 0개, reduce-only exit 허용 |
-| receipt hash 변경 | configuration | 앱 시작 실패 |
-| Shadow gate 미달 | configuration | private gateway를 생성하지 않음 |
+| receipt hash 변경, 기존 상태 없음 | configuration | management-only 시작, private 주문·조회 0회 |
+| receipt hash 변경, pending/포지션 존재 | restart/integration | 신호 평가 0회, pending 복구 후 소유 포지션만 reduce-only 정리 |
+| Shadow gate 미달 | configuration | 신규 진입 경로를 생성하지 않음 |
 | hedge/isolated/15배 설정 | adapter | fail closed |
 | 전체 역사 replay | parity | Shadow 전환·수량과 target planner 명령 일치 |
 | TESTNET 최소 주문 | manual approval | 주문·종료·복구 확인 후에도 LIVE 미승인 유지 |
@@ -315,8 +318,14 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 현재 SQLite Shadow checkpoint가 승인 증거보다 과거로 롤백되지 않았고 같은 연속 세션이며, 정확히 하나의 상태 시각과 일치하는 `SESSION_STARTED`, 최신성·MDD·노출·청산 및 모든 현재 forward gate를 계속 통과하는지 확인한다.
 - 동결 이벤트는 event ID, session ID, protocol fingerprint, symbol, type, event/observation time을 보존하며 런타임이 중복·다른 세션·다른 전략·비인과 시간 순서를 독립적으로 거부한다.
 - 이 이벤트 정체성 계약은 Shadow evidence schema `2`이며, 이전 schema `1` pending 산출물은 승인에 재사용하지 않고 현재 세션에서 다시 export한다.
-- 위 검증은 `BybitPrivateClient` 생성보다 먼저 수행되므로 실패 시 개인 API 조회나 주문 경로가 구성되지 않는다.
+- 위 검증은 정상 H4 신호 loop 구성보다 먼저 수행된다. 실패하면 ticker와 Shadow 신호를 받지 않는
+  management-only loop로 전환하며 신규 포지션을 만들 수 없다. 승인 이력과 영속 상태가 전혀 없으면
+  이 경로도 개인 API를 조회하지 않는다.
 - 승인된 경우에만 `VolumeConfirmedTrendLiveLoop`를 시작하고, PAUSE 상태에서도 거래소 포지션 대사는 유지한다.
+- 재시작 시 승인 artifact가 없거나 현재 Shadow 검증이 실패해도 영속 pending 주문 또는 관측 포지션이
+  있으면 `VolumeConfirmedTrendLiveManagementLoop`가 실행된다. 이 loop는 Shadow store와 ticker provider를
+  갖지 않고 `reconcile()`만 호출한다. 영속 상태와 거래소 방향·수량이 정확히 일치하는 포지션만
+  reduce-only IOC로 정리하며, private credential이 없으면 방치하지 않고 앱 시작을 실패시킨다.
 - 루프 시작 뒤 승인이 상실되면 신규 노출은 만들지 않지만, 이미 기록된 pending 주문을 먼저 복구하고
   영속 상태와 방향·수량이 일치하는 기존 포지션은 `TREND_APPROVAL_REVOKED_EXIT` reduce-only 주문으로
   정리한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는 개인 API를 조회하지 않는다.
