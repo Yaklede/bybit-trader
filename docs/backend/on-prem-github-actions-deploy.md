@@ -22,6 +22,9 @@ Required connection secrets:
 - `ONPREM_SSH_HOST`: private host name or IP reachable through Twingate.
 - `ONPREM_SSH_USER`: deploy user on the host.
 - `ONPREM_SSH_PORT`: SSH port, normally `22`.
+- `ONPREM_SSH_FINGERPRINT`: SHA-256 fingerprint of the selected SSH host key.
+  Every deploy, monitor, and backup job fails before connecting when this value
+  is missing or is not in `SHA256:...` format.
 - One SSH credential:
   - `ONPREM_SSH_PRIVATE_KEY`: private key for the deploy user.
   - `ONPREM_SSH_PASSWORD`: password for the deploy user.
@@ -181,10 +184,16 @@ loop disabled while supplying testnet credentials. The authenticated
 actual account and instrument metadata without placing an order. Do not reuse
 the 90-day Shadow database volume for this temporary TESTNET process.
 
-Recommended optional secret:
+Read the host fingerprint from a trusted console on the on-prem server, then
+store the second output column as the secret:
 
-- `ONPREM_SSH_FINGERPRINT`: SHA256 host key fingerprint for SSH host
-  verification.
+```bash
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
+gh secret set ONPREM_SSH_FINGERPRINT --env onprem-live
+```
+
+Do not populate this secret from an unverified `ssh-keyscan` result over the same
+network path that the fingerprint is meant to authenticate.
 
 ## Host Assumptions
 

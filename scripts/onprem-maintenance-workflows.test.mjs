@@ -13,6 +13,15 @@ test("deploy, monitoring, and backup serialize mutations against one runtime", (
   }
 });
 
+test("every on-prem workflow requires a pinned SHA-256 SSH host key", () => {
+  for (const workflow of [deployWorkflow, monitorWorkflow, backupWorkflow]) {
+    assert.match(workflow, /name: Validate on-prem connection secrets/);
+    assert.match(workflow, /ONPREM_SSH_FINGERPRINT: \$\{\{ secrets\.ONPREM_SSH_FINGERPRINT \}\}/);
+    assert.match(workflow, /ONPREM_SSH_FINGERPRINT must use the SHA256: format/);
+    assert.match(workflow, /fingerprint: \$\{\{ secrets\.ONPREM_SSH_FINGERPRINT \}\}/);
+  }
+});
+
 test("scheduled maintenance remains opt-in while manual dispatch stays available", () => {
   for (const workflow of [monitorWorkflow, backupWorkflow]) {
     assert.match(workflow, /workflow_dispatch:/);

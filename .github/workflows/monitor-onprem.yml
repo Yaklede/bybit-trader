@@ -20,6 +20,37 @@ jobs:
     environment: onprem-live
     timeout-minutes: 15
     steps:
+      - name: Validate on-prem connection secrets
+        shell: bash
+        env:
+          "TWINGATE_SERVICE_KEY": ${{ secrets.TWINGATE_SERVICE_KEY }}
+          ONPREM_SSH_HOST: ${{ secrets.ONPREM_SSH_HOST }}
+          ONPREM_SSH_USER: ${{ secrets.ONPREM_SSH_USER }}
+          ONPREM_SSH_PORT: ${{ secrets.ONPREM_SSH_PORT }}
+          "ONPREM_SSH_PRIVATE_KEY": ${{ secrets.ONPREM_SSH_PRIVATE_KEY }}
+          "ONPREM_SSH_PASSWORD": ${{ secrets.ONPREM_SSH_PASSWORD }}
+          ONPREM_SSH_FINGERPRINT: ${{ secrets.ONPREM_SSH_FINGERPRINT }}
+          ONPREM_DEPLOY_DIR: ${{ secrets.ONPREM_DEPLOY_DIR }}
+        run: |
+          set -eu
+          for name in TWINGATE_SERVICE_KEY ONPREM_SSH_HOST ONPREM_SSH_USER ONPREM_SSH_PORT ONPREM_SSH_FINGERPRINT ONPREM_DEPLOY_DIR; do
+            if [ -z "${!name:-}" ]; then
+              printf '%s\n' "Missing required on-prem credential named ${name}." >&2
+              exit 1
+            fi
+          done
+          if [ -z "${ONPREM_SSH_PRIVATE_KEY}" ] && [ -z "${ONPREM_SSH_PASSWORD}" ]; then
+            printf '%s\n' "Missing on-prem SSH private key or password." >&2
+            exit 1
+          fi
+          case "${ONPREM_SSH_FINGERPRINT}" in
+            SHA256:*) ;;
+            *)
+              printf '%s\n' "ONPREM_SSH_FINGERPRINT must use the SHA256: format." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Connect to Twingate
         uses: twingate/github-action@v1
         with:
