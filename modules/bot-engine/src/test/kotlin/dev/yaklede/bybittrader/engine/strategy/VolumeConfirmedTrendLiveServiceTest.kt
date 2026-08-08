@@ -1282,6 +1282,80 @@ class VolumeConfirmedTrendLiveServiceTest :
             }
         }
 
+        "accounting outage never prevents an existing position from closing" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            gateway.accountTransactionsFailure = IllegalStateException("injected accounting outage")
+            val accountingRequest =
+                VolumeConfirmedTrendLiveAccountingRequest(
+                    requestedAt = TEST_NOW,
+                    closuresDue = false,
+                    transactionsDue = true,
+                    closureStartAt = null,
+                    transactionStartAt = TEST_NOW.minusSeconds(3_600),
+                )
+            val projection = RecordingTrendLiveProjectionSink(accountingRequest = accountingRequest)
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            val service = service(gateway, store, projectionSink = projection)
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().reduceOnly shouldBe true
+            gateway.accountTransactionRanges.size shouldBe 0
+            projection.accountingFailures.size shouldBe 0
+        }
+
+        "entry-account contract outage never prevents an existing position from closing" {
+            val openPosition = position(Side.SELL, "0.004")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            gateway.accountExecutionProfileFailure = IllegalStateException("injected account-profile outage")
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.BUY
+                reduceOnly shouldBe true
+            }
+        }
+
+        "opposite signal does not exit when reduce-only execution is restricted" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            gateway.positionProfileResponse = gateway.positionProfileResponse.copy(reduceOnlyRestricted = true)
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_POSITION_EXIT_CONTRACT_UNAVAILABLE"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "opposite signal never exits a position from a disabled state without ownership evidence" {
+            val exchangePosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(exchangePosition))
+            val disabled =
+                openState(exchangePosition).copy(
+                    status = VolumeConfirmedTrendLiveStatus.DISABLED,
+                    approvalId = null,
+                    observedPositionSide = null,
+                    observedPositionQuantity = null,
+                )
+            val store = InMemoryTrendLiveStore(state = disabled)
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_UNOWNED_POSITION_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
         "account isolation failure never prevents an existing position from closing" {
             val openPosition = position(Side.BUY, "0.007")
             val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
@@ -1345,6 +1419,7 @@ private class FakeTrendLiveGateway(
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
     var balance: ExchangeAccountBalance = isolatedAccountBalance()
+    var accountExecutionProfileFailure: Throwable? = null
     var instrumentRulesFailure: Throwable? = null
     var accountTransactionsFailure: Throwable? = null
     var positionProfileResponse =
@@ -1359,6 +1434,7 @@ private class FakeTrendLiveGateway(
 
     override suspend fun accountExecutionProfile(): ExchangeAccountExecutionProfile {
         exchangeReadCount += 1
+        accountExecutionProfileFailure?.let { throw it }
         return ExchangeAccountExecutionProfile(
             accountType = "UNIFIED",
             accountMode = ExchangeAccountMode.UNIFIED_2,

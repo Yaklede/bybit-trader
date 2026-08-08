@@ -261,6 +261,10 @@ Pending H4 orders are reconciled immediately after approval validation and
 before entry-contract, balance, or accounting synchronization. A transient
 metadata or ledger API outage therefore cannot defer exact fill readback or
 stale-IOC cancellation. Accounting uncertainty still blocks every new entry.
+An opposite H4 signal for an exactly owned position also bypasses entry-only
+account, balance, risk-ledger, and accounting checks. It still requires no
+active `vct-*` order plus a valid one-way, reduce-only, tradable BTCUSDT-linear
+exit contract. Thus an accounting outage blocks exposure growth, not reduction.
 During H4 pending-order recovery, an active exact IOC order prevents both
 `OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
 order after the recovery timeout and requires terminal exchange readback; an

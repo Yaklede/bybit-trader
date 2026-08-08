@@ -280,6 +280,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 승인 철회 종료도 계정의 활성 `vct-*` 주문이 없고 one-way mode, reduce-only 허용, 거래 가능한
   BTCUSDT linear perpetual 계약이 다시 확인된 경우에만 제출한다. 외부 수동 주문은 종료를 막지 않지만
   신규 진입은 계속 차단한다.
+- 승인된 정상 실행의 반대 신호 종료도 전체 계정 진입 계약, 잔고, 위험 원장, 회계 동기화보다 먼저
+  처리한다. exact 소유권, 활성 `vct-*` 주문 부재, one-way/reduce-only/거래 가능 계약만 확인한 뒤 현재
+  수량 전체를 bounded reduce-only IOC로 제출한다. 회계 또는 account-profile API 장애는 신규 진입을
+  차단하지만 이미 소유한 포지션의 노출 축소를 막지 않는다.
 - 안전 종료는 포지션을 감소시키는 전체 수량 주문이므로 일반 신규 주문의 minimum-notional 사전 차단을
   적용하지 않는다. 거래소의 실제 수락·미체결 결과는 동일한 pending 복구 상태 머신으로 확인한다.
 - 레버리지, 계정 또는 instrument 조건이 승인 계약과 달라지면 신규 진입은 즉시 차단한다. 다만 exact

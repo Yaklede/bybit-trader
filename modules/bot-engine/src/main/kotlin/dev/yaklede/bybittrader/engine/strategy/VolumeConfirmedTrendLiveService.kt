@@ -202,6 +202,85 @@ class VolumeConfirmedTrendLiveService(
             )
         }
 
+        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
+        val openPositions = accountPositions.filter { it.symbol == config.symbol }
+        if (openPositions.size > 1) {
+            return halt(stored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+        }
+        val position = openPositions.singleOrNull()
+        val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
+        if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
+            return halt(stored, signal, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
+        }
+        if (stored == null && position != null) {
+            return halt(null, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+        }
+        if (stored?.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
+            position != null
+        ) {
+            return halt(stored, signal, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
+        }
+        if (stored != null &&
+            stored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
+            !stored.matches(position)
+        ) {
+            return halt(stored, signal, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+        }
+        if (position != null && (stored == null || !stored.ownsManagedPosition(position))) {
+            return halt(stored, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+        }
+        val inventoryReasonCodes = accountInventoryReasonCodes(accountPositions, accountOpenOrders)
+        if (position == null && inventoryReasonCodes.isNotEmpty()) {
+            return halt(stored, signal, now, inventoryReasonCodes.first())
+        }
+        if (stored != null && stored.status in NOT_FILLED_STATES && stored.activeDecisionKey == signalDecisionKey(signal)) {
+            return VolumeConfirmedTrendLiveEvaluationResult(
+                status = VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED,
+                state = stored,
+                plan = null,
+            )
+        }
+        if (position != null && position.side != signal.side) {
+            val exitContract =
+                try {
+                    SafetyExitContract(
+                        position = gateway.positionExecutionProfile(config.symbol),
+                        instrument = gateway.instrumentRules(config.symbol),
+                    )
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    logger.warn("trend owned-position exit contract read failed", error)
+                    return halt(
+                        stored,
+                        signal,
+                        now,
+                        "TREND_POSITION_EXIT_CONTRACT_READ_UNAVAILABLE",
+                        position = position,
+                    )
+                }
+            if (!exitContract.allowsOrder(config.symbol)) {
+                return halt(
+                    stored,
+                    signal,
+                    now,
+                    "TREND_POSITION_EXIT_CONTRACT_UNAVAILABLE",
+                    position = position,
+                )
+            }
+            val plan =
+                VolumeConfirmedTrendTargetPlanner.plan(
+                    protocolSha256 = config.protocolSha256,
+                    signal = signal,
+                    accountEquity = BigDecimal.ZERO,
+                    referencePrice = referencePrice,
+                    priceTick = exitContract.instrument.priceTick,
+                    currentPosition = position.toObservedPosition(),
+                    contract = executionContract,
+                )
+            return submitPlan(stored, signal, plan, exitContract.instrument, position, now)
+        }
+
         val instrument = gateway.instrumentRules(config.symbol)
         val contractValidation =
             VolumeConfirmedTrendExchangeContractValidator.validate(
@@ -219,44 +298,6 @@ class VolumeConfirmedTrendLiveService(
         captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
-        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
-        val openPositions = accountPositions.filter { it.symbol == config.symbol }
-        if (openPositions.size > 1) {
-            return halt(effectiveStored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
-        }
-        val position = openPositions.singleOrNull()
-        val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
-        if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
-            return halt(effectiveStored, signal, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
-        }
-        if (effectiveStored == null && position != null) {
-            return halt(null, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
-        }
-        if (effectiveStored?.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
-            position != null
-        ) {
-            return halt(effectiveStored, signal, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
-        }
-        if (effectiveStored != null &&
-            effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
-            !effectiveStored.matches(position)
-        ) {
-            return halt(effectiveStored, signal, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
-        }
-        val inventoryReasonCodes = accountInventoryReasonCodes(accountPositions, accountOpenOrders)
-        if (position == null && inventoryReasonCodes.isNotEmpty()) {
-            return halt(effectiveStored, signal, now, inventoryReasonCodes.first())
-        }
-        if (effectiveStored != null &&
-            effectiveStored.status in NOT_FILLED_STATES &&
-            effectiveStored.activeDecisionKey == signalDecisionKey(signal)
-        ) {
-            return VolumeConfirmedTrendLiveEvaluationResult(
-                status = VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED,
-                state = effectiveStored,
-                plan = null,
-            )
-        }
         val balance = capturedBalance ?: captureAccountBalance()
         val accountIsolation = VolumeConfirmedTrendAccountIsolationPolicy.assess(balance, TREND_SETTLE_COIN)
         if (position == null && !accountIsolation.allowsEntry) {
