@@ -227,8 +227,17 @@ deployment values only.
 - `appleboy/scp-action@v1`: uploads `deploy-package` contents to
   `ONPREM_DEPLOY_DIR`.
 - `appleboy/ssh-action@v1`: creates remote directories, runs `docker load`,
-  restarts Compose, checks the dashboard and `/health`, then runs
-  `bin/verify-runtime-profile.sh`.
+  creates and validates a pre-deploy state backup, restarts Compose, checks the
+  dashboard and `/health`, then runs `bin/verify-runtime-profile.sh`.
+
+Before restart, `bin/backup-runtime-state.sh` writes a consistent SQLite backup
+to `ONPREM_DEPLOY_DIR/backups/<UTC timestamp>` and retains the latest 14
+snapshots. Current images use SQLite online backup. When upgrading an older
+image without the SQLite CLI, the script briefly pauses the API container,
+copies the database and WAL files, immediately resumes it, and normalizes the
+copy with the newly loaded image. `PRAGMA quick_check` and SHA-256 evidence are
+mandatory before the deployment proceeds. Credentials are not copied into the
+snapshot.
 
 The post-deploy verifier reads the generated runtime env without printing
 secrets and calls authenticated endpoints from inside the API container. An H4
@@ -238,6 +247,10 @@ permissions as `false`. A read-only TESTNET probe or approved H4 execution
 deployment also requires `exchange-contract.available=true` and `valid=true`.
 The workflow therefore fails when the process is healthy but the selected H4
 runtime is not actually usable.
+When an H4 Shadow session already exists, the verifier also compares the
+pre-deploy session ID with the restarted process. A changed session fails the
+deployment because the fresh 90-day observation can no longer be treated as a
+continuous run.
 
 ## Trigger
 

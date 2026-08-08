@@ -34,16 +34,29 @@ test("on-prem package preserves every runtime config hidden by the compose mount
 });
 
 test("on-prem deployment packages and runs profile-specific post-deploy verification", () => {
+  assert.ok(fs.existsSync("deploy/docker/backup-runtime-state.sh"));
   assert.ok(fs.existsSync("deploy/docker/verify-runtime-profile.sh"));
+  assert.match(
+    workflow,
+    /cp deploy\/docker\/backup-runtime-state\.sh deploy-package\/bin\/backup-runtime-state\.sh/,
+  );
   assert.match(
     workflow,
     /cp deploy\/docker\/verify-runtime-profile\.sh deploy-package\/bin\/verify-runtime-profile\.sh/,
   );
   assert.match(workflow, /runtime_ready=false/);
+  assert.match(workflow, /sh bin\/backup-runtime-state\.sh/);
+  assert.match(workflow, /RUNTIME_BACKUP_SNAPSHOT/);
+  assert.match(workflow, /CONTINUITY_SNAPSHOT/);
   assert.match(
     workflow,
-    /sh bin\/verify-runtime-profile\.sh \.env compose\.yaml env\/bybit-trader\.env/,
+    /sh bin\/verify-runtime-profile\.sh[\s\S]*env\/bybit-trader\.env[\s\S]*"\$\{CONTINUITY_SNAPSHOT\}"/,
   );
+});
+
+test("runtime image includes sqlite tooling for consistent deploy backups", () => {
+  const dockerfile = fs.readFileSync("Dockerfile", "utf8");
+  assert.match(dockerfile, /apt-get install -y --no-install-recommends curl ca-certificates sqlite3/);
 });
 
 test("on-prem deployment defaults cannot enable private execution", () => {

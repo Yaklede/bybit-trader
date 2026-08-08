@@ -49,6 +49,49 @@ test("H4 Shadow deployment fails when the configured provider is not active", ()
   assert.match(run.stderr, /H4 Shadow provider is disabled/);
 });
 
+test("H4 Shadow deployment rejects a changed session after restart", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "PAPER",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+      },
+      {
+        shadow:
+          '{"enabled":true,"protocolId":"volume-confirmed-trend-ensemble-v1","state":{"sessionId":"trend-shadow-new"},"recentEvents":[]}',
+        approval:
+          '{"available":true,"status":"COLLECTING","automaticExecutionAllowed":false,"liveExecutionAllowed":false}',
+      },
+      0,
+      '{"enabled":true,"state":{"sessionId":"trend-shadow-existing"}}',
+    );
+
+  assert.equal(run.status, 1, output(run));
+  assert.match(run.stderr, /H4 Shadow session changed across deployment/);
+});
+
+test("H4 Shadow deployment accepts the persisted session after restart", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "PAPER",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+      },
+      {
+        shadow:
+          '{"enabled":true,"protocolId":"volume-confirmed-trend-ensemble-v1","state":{"sessionId":"trend-shadow-existing"},"recentEvents":[]}',
+        approval:
+          '{"available":true,"status":"COLLECTING","automaticExecutionAllowed":false,"liveExecutionAllowed":false}',
+      },
+      0,
+      '{"enabled":true,"state":{"sessionId":"trend-shadow-existing"}}',
+    );
+
+  assert.equal(run.status, 0, output(run));
+});
+
 test("read-only TESTNET deployment fails on an incompatible exchange contract", () => {
   const run =
     runVerifier(
@@ -108,7 +151,12 @@ test("legacy runtime skips H4 profile verification", () => {
   assert.match(run.stdout, /trendShadow=false/);
 });
 
-function runVerifier(runtimeEnvironment, responses, unexpectedDockerExit = 0) {
+function runVerifier(
+  runtimeEnvironment,
+  responses,
+  unexpectedDockerExit = 0,
+  continuitySnapshot = null,
+) {
   const directory = mkdtempSync(path.join(tmpdir(), "bybit-runtime-profile-"));
   try {
     const runtimeEnvPath = path.join(directory, "runtime.env");
@@ -131,17 +179,31 @@ esac
 `,
     );
     chmodSync(dockerPath, 0o755);
-    return spawnSync("sh", [verifierPath, "compose.env", "compose.yaml", runtimeEnvPath], {
-      cwd: directory,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${directory}:${process.env.PATH}`,
-        FAKE_SHADOW_RESPONSE: responses.shadow || "",
-        FAKE_APPROVAL_RESPONSE: responses.approval || "",
-        FAKE_CONTRACT_RESPONSE: responses.contract || "",
+    const continuitySnapshotPath = path.join(directory, "shadow-before.json");
+    if (continuitySnapshot != null) {
+      writeFileSync(continuitySnapshotPath, continuitySnapshot);
+    }
+    return spawnSync(
+      "sh",
+      [
+        verifierPath,
+        "compose.env",
+        "compose.yaml",
+        runtimeEnvPath,
+        continuitySnapshot == null ? "" : continuitySnapshotPath,
+      ],
+      {
+        cwd: directory,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${directory}:${process.env.PATH}`,
+          FAKE_SHADOW_RESPONSE: responses.shadow || "",
+          FAKE_APPROVAL_RESPONSE: responses.approval || "",
+          FAKE_CONTRACT_RESPONSE: responses.contract || "",
+        },
       },
-    });
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

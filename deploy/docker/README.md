@@ -9,6 +9,8 @@ This is the preferred on-prem deployment path.
 - `apps/dashboard/nginx.conf`: dashboard static serving and `/api` reverse proxy.
 - `compose.yaml`: backend service, dashboard service, SQLite volume, config mount, healthchecks.
 - `deploy/docker/env/bybit-trader.env.example`: host-side environment template.
+- `deploy/docker/backup-runtime-state.sh`: validated pre-deploy SQLite snapshot and Shadow continuity evidence.
+- `deploy/docker/verify-runtime-profile.sh`: selected-profile and restarted Shadow-session verification.
 
 ## Host Setup
 
@@ -53,6 +55,13 @@ BOT_ENV_FILE=/opt/bybit-trader/env/bybit-trader.env
 The backend API is not published directly by compose. The dashboard publishes
 `DASHBOARD_BIND_HOST:DASHBOARD_PORT` and proxies `/api/*` to the backend service
 inside the Docker network. The application secrets stay in `BOT_ENV_FILE`.
+
+Before a running container is replaced, the GitHub Actions workflow stores a
+consistent SQLite snapshot under `ONPREM_DEPLOY_DIR/backups/<UTC timestamp>`.
+Each snapshot contains `bybit-trader.sqlite`, a SHA-256 manifest, and, for H4
+Shadow, the authenticated pre-deploy Shadow and approval responses. The newest
+14 snapshots are retained. Deployment fails when SQLite `PRAGMA quick_check`
+fails or the H4 Shadow session ID changes after restart.
 
 ## GitHub Actions Deployment
 

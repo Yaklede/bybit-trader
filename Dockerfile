@@ -23,7 +23,7 @@ RUN chmod +x ./gradlew && \
 FROM eclipse-temurin:17-jre-jammy
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
+    apt-get install -y --no-install-recommends curl ca-certificates sqlite3 && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --system bybit-trader && \
     useradd --system --gid bybit-trader --home-dir /opt/bybit-trader bybit-trader && \

@@ -261,6 +261,11 @@ frozen H4 Shadow identity and immutable order boundary, or the read-only
 TESTNET/H4 live exchange contract when those profiles are selected. A plain
 `/health` response is not sufficient for deployment success.
 
+It also creates a validated pre-deploy SQLite snapshot under `backups/` and
+keeps the newest 14 snapshots. For an existing H4 Shadow run, deployment must
+preserve the same `sessionId`; a changed ID fails the workflow and means the
+90-day observation clock must be investigated rather than silently continued.
+
 3. The Paper loop automatically warms required M5 history. To pre-warm it
    manually before starting the loop, run:
 

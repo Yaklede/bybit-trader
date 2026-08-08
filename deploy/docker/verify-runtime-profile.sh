@@ -5,6 +5,7 @@ set -eu
 compose_env_file="${1:-.env}"
 compose_file="${2:-compose.yaml}"
 runtime_env_file="${3:-env/bybit-trader.env}"
+continuity_snapshot_file="${4:-}"
 
 runtime_value() {
   key="$1"
@@ -30,6 +31,10 @@ require_fragment() {
       exit 1
       ;;
   esac
+}
+
+snapshot_session_id() {
+  sed -n 's/.*"sessionId":"\([A-Za-z0-9_-]*\)".*/\1/p' "$1" | head -n 1
 }
 
 mode="$(runtime_value BOT_MODE)"
@@ -58,6 +63,16 @@ if [ "${trend_shadow_enabled}" = "true" ]; then
     "${approval_payload}" \
     '"liveExecutionAllowed":false' \
     "H4 approval report unexpectedly allows live execution"
+
+  if [ -n "${continuity_snapshot_file}" ] && [ -f "${continuity_snapshot_file}" ]; then
+    expected_session_id="$(snapshot_session_id "${continuity_snapshot_file}")"
+    if [ -n "${expected_session_id}" ]; then
+      require_fragment \
+        "${shadow_payload}" \
+        "\"sessionId\":\"${expected_session_id}\"" \
+        "H4 Shadow session changed across deployment"
+    fi
+  fi
 fi
 
 read_only_testnet_probe=false

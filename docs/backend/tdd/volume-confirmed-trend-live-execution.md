@@ -330,6 +330,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 온프레미스 배포는 단순 health 확인 뒤에도 선택한 실행 프로필을 다시 검증한다. H4 Shadow는 동결
   protocol identity와 자동·실거래 주문 권한 `false`를, read-only TESTNET과 승인된 H4 실행은 읽기 전용
   exchange contract의 `available=true`, `valid=true`를 충족하지 못하면 배포를 실패시킨다.
+- 실행 중인 SQLite는 배포 전에 online backup으로 복제하고 `PRAGMA quick_check`와 SHA-256을 남긴다.
+  구버전 이미지에는 짧은 pause 동안 DB/WAL을 함께 복사하는 호환 경로를 사용하며, 재기동 뒤 기존 H4
+  Shadow `sessionId`가 바뀌면 연속 관측으로 인정하지 않고 배포를 실패시킨다.
 
 아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손실 제한은 미완료 항목이 아니라 v1의

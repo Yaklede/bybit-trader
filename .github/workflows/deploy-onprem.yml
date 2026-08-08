@@ -35,6 +35,7 @@ jobs:
           docker save "bybit-trader:${IMAGE_TAG}" | gzip > "deploy-package/images/${BOT_IMAGE_TAR}"
           docker save "bybit-trader-dashboard:${IMAGE_TAG}" | gzip > "deploy-package/images/${DASHBOARD_IMAGE_TAR}"
           cp compose.yaml deploy-package/compose.yaml
+          cp deploy/docker/backup-runtime-state.sh deploy-package/bin/backup-runtime-state.sh
           cp deploy/docker/verify-runtime-profile.sh deploy-package/bin/verify-runtime-profile.sh
           cp \
             config/volume-flow-composite-current.json \
@@ -417,6 +418,7 @@ jobs:
             set -eu
             mkdir -p '${{ secrets.ONPREM_DEPLOY_DIR }}/config' \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/bin' \
+              '${{ secrets.ONPREM_DEPLOY_DIR }}/backups' \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/env' \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/images'
 
@@ -467,6 +469,14 @@ jobs:
               'DASHBOARD_PORT=${{ vars.DASHBOARD_PORT || '8080' }}' \
               'BOT_ENV_FILE=${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env' > .env
             test -f '${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env'
+            RUNTIME_BACKUP_SNAPSHOT="$(
+              sh bin/backup-runtime-state.sh \
+                .env \
+                compose.yaml \
+                env/bybit-trader.env \
+                backups \
+                "${BOT_IMAGE}"
+            )"
             docker compose --env-file .env -f compose.yaml up -d --remove-orphans
             docker compose --env-file .env -f compose.yaml ps
             . ./.env
@@ -483,4 +493,13 @@ jobs:
               docker compose --env-file .env -f compose.yaml logs --tail=120 bybit-trader bybit-trader-dashboard
               exit 1
             fi
-            sh bin/verify-runtime-profile.sh .env compose.yaml env/bybit-trader.env
+            CONTINUITY_SNAPSHOT=""
+            if [ "${RUNTIME_BACKUP_SNAPSHOT}" != "NONE" ] \
+              && [ -f "${RUNTIME_BACKUP_SNAPSHOT}/shadow-before.json" ]; then
+              CONTINUITY_SNAPSHOT="${RUNTIME_BACKUP_SNAPSHOT}/shadow-before.json"
+            fi
+            sh bin/verify-runtime-profile.sh \
+              .env \
+              compose.yaml \
+              env/bybit-trader.env \
+              "${CONTINUITY_SNAPSHOT}"
