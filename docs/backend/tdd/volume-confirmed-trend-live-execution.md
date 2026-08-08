@@ -469,9 +469,14 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 - CI도 실제 빌드 이미지로 빈 운영 DB 생성, SQLite snapshot, 임시 volume 복원, 앱 health까지 같은 경로를
   실행해 Docker/SQLite/schema/startup 계약 변화가 온프레미스 배포 전에 드러나게 한다.
 
-아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
-fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손실 제한은 미완료 항목이 아니라 v1의
-동결 역사 계약 밖이므로 의도적으로 포함하지 않는다.
+추가 감사에서 Live H4 경로에만 `일 손실 3%`와 `3연속 손실` 차단이 연결된 패리티 결함을 확인했다.
+외부 재생은 최대 11연속 손실이며 첫 세 거래가 연속 손실이므로 현재 Live 정책은 동결 수익 경로를
+재현하지 못한다. Human owner가 해당 제한을 H4 v1에서 명시적으로 비활성화할지, 새 protocol에 포함해
+전체 재검증할지 선택하기 전까지 완료로 보지 않는다. 상세 근거는
+`volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md`에 기록했다.
+
+그 밖에 아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
+fresh Bybit Shadow 90일 및 별도 사람 승인이다.
 따라서 기본 승인 파일과
 `BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false`는 유지한다.
 
@@ -484,6 +489,7 @@ fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손�
 - [x] 순수 target planner와 결정적 테스트를 구현한다.
 - [x] Live store와 fault-injection 테스트를 구현한다.
 - [x] Bybit account mode/instrument 및 exact-order adapter를 구현한다.
+- [ ] Live 전용 일 손실·연속 손실 정책의 제거 또는 protocol 포함을 결정하고 다시 패리티 검증한다.
 - [ ] 90일 Shadow와 사람 승인 후에만 TESTNET/LIVE 경로를 활성화한다.
 
 ## 12. 공식 계약 근거
