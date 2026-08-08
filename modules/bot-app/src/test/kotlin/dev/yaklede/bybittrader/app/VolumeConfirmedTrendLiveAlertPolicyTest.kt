@@ -37,9 +37,30 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             policy.shouldAlert(liveResult(VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED)) shouldBe false
             policy.shouldAlert(halted) shouldBe true
         }
+
+        "risk blocking alerts once and alerts again when its reason changes" {
+            val policy = VolumeConfirmedTrendLiveAlertPolicy()
+            val drawdown =
+                liveResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED,
+                    riskReasonCodes = listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED"),
+                )
+            val walletMismatch =
+                liveResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED,
+                    riskReasonCodes = listOf("ACCOUNT_LEDGER_MISMATCH_CONFIRMED"),
+                )
+
+            policy.shouldAlert(drawdown) shouldBe true
+            policy.shouldAlert(drawdown) shouldBe false
+            policy.shouldAlert(walletMismatch) shouldBe true
+        }
     })
 
-private fun liveResult(status: VolumeConfirmedTrendLiveEvaluationStatus): VolumeConfirmedTrendLiveLoopResult {
+private fun liveResult(
+    status: VolumeConfirmedTrendLiveEvaluationStatus,
+    riskReasonCodes: List<String> = emptyList(),
+): VolumeConfirmedTrendLiveLoopResult {
     val halted = status == VolumeConfirmedTrendLiveEvaluationStatus.HALTED
     val state =
         VolumeConfirmedTrendLiveState(
@@ -64,7 +85,13 @@ private fun liveResult(status: VolumeConfirmedTrendLiveEvaluationStatus): Volume
         botMode = BotMode.RUNNING,
         shadowSessionId = "shadow-session-001",
         signal = null,
-        evaluation = VolumeConfirmedTrendLiveEvaluationResult(status, state, null),
+        evaluation =
+            VolumeConfirmedTrendLiveEvaluationResult(
+                status = status,
+                state = state,
+                plan = null,
+                riskReasonCodes = riskReasonCodes,
+            ),
         evaluatedAt = state.updatedAt,
     )
 }

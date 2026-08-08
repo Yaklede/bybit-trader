@@ -178,6 +178,47 @@ internal object ExecutionRiskCircuitBreaker {
         return ExecutionRiskDecision(reasonCodes)
     }
 
+    fun evaluateAccountDrawdown(
+        state: ExecutionRiskState?,
+        now: Instant,
+        maximumAge: Duration,
+        maximumAccountDrawdownFraction: BigDecimal,
+        useUnitizedNav: Boolean = true,
+    ): ExecutionRiskDecision {
+        require(!maximumAge.isNegative && !maximumAge.isZero) { "Risk state maximum age must be positive." }
+        require(maximumAccountDrawdownFraction > BigDecimal.ZERO && maximumAccountDrawdownFraction <= BigDecimal.ONE) {
+            "Maximum account drawdown fraction must be in (0, 1]."
+        }
+        if (state == null) return ExecutionRiskDecision(listOf("RISK_STATE_UNAVAILABLE"))
+        if (state.updatedAt.isAfter(now.plus(CLOCK_SKEW_TOLERANCE))) {
+            return ExecutionRiskDecision(listOf("RISK_STATE_CLOCK_SKEW"))
+        }
+        if (Duration.between(state.updatedAt, now) > maximumAge) {
+            return ExecutionRiskDecision(listOf("RISK_STATE_STALE"))
+        }
+        if (useUnitizedNav) {
+            when (state.navStatus) {
+                ExecutionRiskNavStatus.UNAVAILABLE ->
+                    return ExecutionRiskDecision(listOf("RISK_NAV_UNAVAILABLE"))
+                ExecutionRiskNavStatus.BASELINE ->
+                    return ExecutionRiskDecision(listOf("RISK_NAV_BASELINE_PENDING"))
+                ExecutionRiskNavStatus.INVALID ->
+                    return ExecutionRiskDecision(listOf("RISK_NAV_INVALID"))
+                ExecutionRiskNavStatus.READY -> Unit
+            }
+        }
+
+        val peak = state.peakUnitizedNav.takeIf { useUnitizedNav } ?: state.peakEquity
+        val latest = state.latestUnitizedNav.takeIf { useUnitizedNav } ?: state.latestEquity
+        val reasons =
+            if (lossFraction(peak, latest) >= maximumAccountDrawdownFraction) {
+                listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+            } else {
+                emptyList()
+            }
+        return ExecutionRiskDecision(reasons)
+    }
+
     private fun updateUnitizedNav(
         previous: ExecutionRiskState,
         currentEquity: BigDecimal,

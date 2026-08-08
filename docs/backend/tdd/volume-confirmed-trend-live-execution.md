@@ -1,7 +1,7 @@
 # 거래량 확인형 추세 전략 실거래 실행 기술 설계
 
 > 작성일: 2026-08-07
-> 상태: 승인 기반 런타임·체결/계좌/거래내역 projection 완료, 위험 게이트·전진 승인 대기
+> 상태: 승인 기반 런타임·체결/계좌/거래내역 projection·위험 게이트 완료, 대시보드·전진 승인 대기
 > 대상 모듈: `bot-engine`, `bot-exchange-bybit`, `bot-ledger`, `bot-app`
 
 ## 1. 설계 배경 및 목적
@@ -168,6 +168,11 @@ HALTED
 - 같은 방향 포지션은 다음 반대 전환까지 재조정하지 않는다. 중간 rebalance는 백테스트에 없다.
 - IOC가 미체결 취소되면 해당 H4 결정을 소비하고 같은 client ID 또는 같은 결정으로 재주문하지 않는다.
 - exact-order 상태를 실시간 endpoint와 주문 이력 모두에서 확인할 수 없으면 재주문하지 않고 `HALTED`한다.
+- USDT wallet 변화와 transaction log를 대사할 수 없거나 unitized NAV가 준비되지 않으면 신규 진입을
+  fail closed한다. 기존 포지션의 reduce-only 종료는 위험 차단 중에도 허용한다.
+- unitized NAV 최고점 대비 낙폭이 동결 protocol의 최대 허용 MDD `35%` 이상이면 신규 진입을 차단한다.
+- 일 손실과 연속 손실 제한은 동결 전략의 역사 실행 계약에 없으므로 v1에 임의로 추가하지 않는다.
+  추가하려면 새 protocol/version으로 역사·외부·forward 검증을 다시 수행한다.
 
 ### 4.3 승인 영수증
 
@@ -232,6 +237,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 | `TREND_DATA_STALE` | H4 또는 ticker 지연 | 해당 전환 폐기, 다음 신호까지 대기 |
 | `TREND_ORDER_STATE_UNKNOWN` | ack/stream/REST 불일치 | `HALTED`, 자동 재주문 금지 |
 | `TREND_LEDGER_WRITE_FAILED` | intent/ack/fill 저장 실패 | loop 중단, 사람 확인 전 재개 금지 |
+| `RISK_NAV_BASELINE_PENDING` | 입출금을 분리한 unitized NAV 기준점 미완성 | 신규 진입 보류, 계좌 관측·종료 허용 |
+| `ACCOUNT_DRAWDOWN_LIMIT_REACHED` | unitized NAV MDD가 동결 상한 `35%` 이상 | 신규 진입 차단, 기존 포지션 종료 허용 |
+| `ACCOUNT_RECONCILIATION_*` | wallet 기준점·최신성·transaction sync 불확실 | 신규 진입 보류, 원장 재동기화 |
+| `ACCOUNT_LEDGER_MISMATCH_*` | wallet 변화와 transaction 변화 불일치 | 신규 진입 차단, 반복 대사 후 사람 확인 |
 
 ## 7. 동시성 및 성능
 
@@ -263,6 +272,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 | 반대 신호와 partial exit | integration | 종료 완료 전 entry 0개 |
 | ack 직후 process kill | fault injection | 재시작 후 client ID 조회, 중복 0개 |
 | fill 직후 DB 실패 | fault injection | REST/stream 대사로 한 번만 반영 |
+| unitized NAV 기준점 미완성 | integration | 신규 entry 0개, 위험 사유 저장 |
+| wallet/transaction 변화 일치 | integration | 대사 `MATCHED`, 해당 사유 해제 |
+| account MDD 35% 이상 | unit/integration | 신규 entry 0개, reduce-only exit 허용 |
 | receipt hash 변경 | configuration | 앱 시작 실패 |
 | Shadow gate 미달 | configuration | private gateway를 생성하지 않음 |
 | hedge/isolated/15배 설정 | adapter | fail closed |
@@ -298,12 +310,20 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   wallet balance 변화와 원장 변화의 대사 상태를 `BASELINE`, `MATCHED`, `MISMATCH`, `SYNC_ERROR`로 보존한다.
 - 종료 사유가 일반 `CLOSED_PNL`이어도 H4 client order ID가 확인되면 `STRATEGY_EXIT`으로 분류하고, 실제
   종료 손익과 account equity로 공통 성과 스냅샷을 갱신한다.
+- 계좌 입출금을 전략 손익과 분리한 unitized NAV를 Live checkpoint에 저장한다. 시작 기준점, 유효하지 않은
+  NAV, 10분보다 오래된 위험 상태는 fail closed하고 동결 protocol의 MDD 상한 `35%` 이상에서는 신규
+  진입만 차단한다.
+- USDT wallet 대사가 `MATCHED`가 아니거나 10분보다 오래됐으면 신규 진입을 보류한다. 위험 차단 중에도
+  기존 H4 포지션의 reduce-only 종료와 계좌·거래내역 대사는 계속 실행한다.
+- 위험 상태 JSON은 schema v2로 저장하며 schema v1 checkpoint는 위험 기준점이 없는 상태로 읽어 다음
+  대사에서 안전하게 기준점을 다시 만든다.
 - `HALTED` 상태에서도 신규 주문은 만들지 않지만 실제 포지션과 account snapshot 관측은 계속한다.
 - 의도 저장 실패, 주문 응답 불명확, 주문 ack 저장 실패, 체결 projection 저장 실패, 부분 체결 및
   exact-order 증거 누락을 장애 주입 테스트로 검증한다.
 
-아직 완료되지 않은 항목은 wallet 대사·일 손실·MDD·연속 손실을 신규 진입 차단과 연결하는 위험 게이트,
-운영 대시보드의 H4 성과 표시, 실제 Bybit TESTNET 최소 주문, fresh Bybit Shadow 90일 및 별도 사람 승인이다.
+아직 완료되지 않은 항목은 운영 대시보드의 H4 성과·위험·wallet 대사 표시, 실제 Bybit TESTNET 최소 주문,
+fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손실 제한은 미완료 항목이 아니라 v1의
+동결 역사 계약 밖이므로 의도적으로 포함하지 않는다.
 따라서 기본 승인 파일과
 `BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false`는 유지한다.
 

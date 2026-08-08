@@ -8,6 +8,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountTransactionEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionProjectionStore
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskCircuitBreaker
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciler
 import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
@@ -46,6 +48,13 @@ data class VolumeConfirmedTrendLiveAccountingObservation(
     val receivedAt: Instant,
 )
 
+data class VolumeConfirmedTrendLiveRiskAssessment(
+    val state: ExecutionRiskState?,
+    val reasonCodes: List<String>,
+) {
+    val allowsEntry: Boolean = reasonCodes.isEmpty()
+}
+
 interface VolumeConfirmedTrendLiveProjectionSink {
     suspend fun accountSnapshotDue(now: Instant): Boolean
 
@@ -64,6 +73,12 @@ interface VolumeConfirmedTrendLiveProjectionSink {
         request: VolumeConfirmedTrendLiveAccountingRequest,
         failedAt: Instant,
     ) = Unit
+
+    suspend fun assessEntryRisk(
+        previous: ExecutionRiskState?,
+        now: Instant,
+        policy: VolumeConfirmedTrendLiveRiskPolicy,
+    ): VolumeConfirmedTrendLiveRiskAssessment = VolumeConfirmedTrendLiveRiskAssessment(previous, emptyList())
 }
 
 object NoopVolumeConfirmedTrendLiveProjectionSink : VolumeConfirmedTrendLiveProjectionSink {
@@ -217,6 +232,55 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         failedAt: Instant,
     ) {
         if (request.transactionsDue) reconcileWallet(failedAt, transactionSyncSucceeded = false)
+    }
+
+    override suspend fun assessEntryRisk(
+        previous: ExecutionRiskState?,
+        now: Instant,
+        policy: VolumeConfirmedTrendLiveRiskPolicy,
+    ): VolumeConfirmedTrendLiveRiskAssessment {
+        val snapshot = store.latestAccountSnapshot(runtimeMode, now)
+        val updated =
+            snapshot?.let { current ->
+                val closures =
+                    store
+                        .performanceClosures(runtimeMode, null)
+                        .asSequence()
+                        .filter(::isOwnedClosure)
+                        .filter { closure -> previous?.lastClosureId?.let { closure.id > it } ?: true }
+                        .toList()
+                val accountTransactions =
+                    store.accountTransactionsAfterId(
+                        mode = runtimeMode,
+                        currency = accountCoin,
+                        afterId = previous?.lastAccountTransactionId,
+                        transactionAtOrBefore = current.capturedAt,
+                    )
+                ExecutionRiskCircuitBreaker.update(
+                    previous = previous,
+                    snapshot = current,
+                    newClosures = closures,
+                    accountTransactions = accountTransactions,
+                )
+            } ?: previous
+        val riskDecision =
+            ExecutionRiskCircuitBreaker.evaluateAccountDrawdown(
+                state = updated,
+                now = now,
+                maximumAge = policy.riskStateMaximumAge,
+                maximumAccountDrawdownFraction = policy.maximumAccountDrawdownFraction,
+            )
+        val walletDecision =
+            ExecutionWalletReconciler.evaluate(
+                state = store.walletReconciliationState(runtimeMode, accountCoin),
+                now = now,
+                maximumAge = policy.walletReconciliationMaximumAge,
+                confirmedMismatchCount = policy.walletReconciliationConfirmedMismatchCount,
+            )
+        return VolumeConfirmedTrendLiveRiskAssessment(
+            state = updated,
+            reasonCodes = (riskDecision.reasonCodes + walletDecision.reasonCodes).distinct(),
+        )
     }
 
     private suspend fun transactionStartAt(now: Instant): Instant {

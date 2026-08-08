@@ -2,6 +2,9 @@ package dev.yaklede.bybittrader.ledger
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskNavStatus
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
+import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
@@ -32,11 +35,13 @@ internal fun VolumeConfirmedTrendLiveState.toTrendLiveStatePayload(): String =
         putNullableString("observedPositionQuantity", observedPositionQuantity?.toPlainString())
         putNullableString("lastExecutionId", lastExecutionId)
         putNullableString("haltedReasonCode", haltedReasonCode)
+        put("riskState", riskState?.toTrendLiveRiskPayload() ?: JsonNull)
     }.toString()
 
 internal fun VolumeConfirmedTrendLiveStates.toTrendLiveState(): VolumeConfirmedTrendLiveState {
     val payload = Json.parseToJsonElement(state_payload).jsonObject
-    require(payload.requiredLong("schemaVersion") == TREND_LIVE_STATE_SCHEMA_VERSION.toLong()) {
+    val schemaVersion = payload.requiredLong("schemaVersion")
+    require(schemaVersion in 1..TREND_LIVE_STATE_SCHEMA_VERSION.toLong()) {
         "Unsupported volume-confirmed trend live state schema."
     }
     return VolumeConfirmedTrendLiveState(
@@ -55,8 +60,47 @@ internal fun VolumeConfirmedTrendLiveStates.toTrendLiveState(): VolumeConfirmedT
         lastExecutionId = payload.nullableString("lastExecutionId"),
         haltedReasonCode = payload.nullableString("haltedReasonCode"),
         updatedAt = Instant.parse(updated_at),
+        riskState = if (schemaVersion >= 2) payload.nullableObject("riskState")?.toTrendLiveRiskState() else null,
     )
 }
+
+private fun ExecutionRiskState.toTrendLiveRiskPayload(): JsonObject =
+    buildJsonObject {
+        put("mode", mode.name)
+        put("peakEquity", peakEquity.toPlainString())
+        put("utcDayStartedAt", utcDayStartedAt.toString())
+        put("dayStartEquity", dayStartEquity.toPlainString())
+        put("latestEquity", latestEquity.toPlainString())
+        put("consecutiveLosses", consecutiveLosses)
+        putNullableLong("lastClosureId", lastClosureId)
+        put("updatedAt", updatedAt.toString())
+        put("navStatus", navStatus.name)
+        put("strategyUnits", strategyUnits.toPlainString())
+        put("latestUnitizedNav", latestUnitizedNav.toPlainString())
+        put("peakUnitizedNav", peakUnitizedNav.toPlainString())
+        put("dayStartUnitizedNav", dayStartUnitizedNav.toPlainString())
+        put("cumulativeExternalCashFlow", cumulativeExternalCashFlow.toPlainString())
+        putNullableLong("lastAccountTransactionId", lastAccountTransactionId)
+    }
+
+private fun JsonObject.toTrendLiveRiskState(): ExecutionRiskState =
+    ExecutionRiskState(
+        mode = ExecutionRuntimeMode.valueOf(requiredString("mode")),
+        peakEquity = BigDecimal(requiredString("peakEquity")),
+        utcDayStartedAt = Instant.parse(requiredString("utcDayStartedAt")),
+        dayStartEquity = BigDecimal(requiredString("dayStartEquity")),
+        latestEquity = BigDecimal(requiredString("latestEquity")),
+        consecutiveLosses = requiredLong("consecutiveLosses").toInt(),
+        lastClosureId = nullableLong("lastClosureId"),
+        updatedAt = Instant.parse(requiredString("updatedAt")),
+        navStatus = ExecutionRiskNavStatus.valueOf(requiredString("navStatus")),
+        strategyUnits = BigDecimal(requiredString("strategyUnits")),
+        latestUnitizedNav = BigDecimal(requiredString("latestUnitizedNav")),
+        peakUnitizedNav = BigDecimal(requiredString("peakUnitizedNav")),
+        dayStartUnitizedNav = BigDecimal(requiredString("dayStartUnitizedNav")),
+        cumulativeExternalCashFlow = BigDecimal(requiredString("cumulativeExternalCashFlow")),
+        lastAccountTransactionId = nullableLong("lastAccountTransactionId"),
+    )
 
 internal fun VolumeConfirmedTrendLiveEvent.toTrendLiveEventPayload(): String =
     buildJsonObject {
@@ -107,6 +151,17 @@ private fun JsonObject.nullableString(key: String): String? =
         ?.jsonPrimitive
         ?.content
 
+private fun JsonObject.nullableLong(key: String): Long? =
+    this[key]
+        ?.takeUnless { it is JsonNull }
+        ?.jsonPrimitive
+        ?.long
+
+private fun JsonObject.nullableObject(key: String): JsonObject? =
+    this[key]
+        ?.takeUnless { it is JsonNull }
+        ?.jsonObject
+
 private fun JsonObjectBuilder.putNullableString(
     key: String,
     value: String?,
@@ -114,5 +169,12 @@ private fun JsonObjectBuilder.putNullableString(
     if (value == null) put(key, JsonNull) else put(key, value)
 }
 
-private const val TREND_LIVE_STATE_SCHEMA_VERSION = 1
+private fun JsonObjectBuilder.putNullableLong(
+    key: String,
+    value: Long?,
+) {
+    if (value == null) put(key, JsonNull) else put(key, value)
+}
+
+private const val TREND_LIVE_STATE_SCHEMA_VERSION = 2
 private const val TREND_LIVE_EVENT_SCHEMA_VERSION = 1

@@ -218,6 +218,38 @@ class ExecutionRiskCircuitBreakerTest :
                 now,
             ).reasonCodes shouldBe listOf("RISK_NAV_INVALID")
         }
+
+        "frozen trend policy evaluates only account drawdown and fails closed before nav is ready" {
+            val now = Instant.parse("2026-08-06T12:00:00Z")
+            val baseline = riskState(updatedAt = now).copy(navStatus = ExecutionRiskNavStatus.BASELINE)
+            val baselineDecision =
+                ExecutionRiskCircuitBreaker
+                    .evaluateAccountDrawdown(
+                        state = baseline,
+                        now = now,
+                        maximumAge = Duration.ofMinutes(10),
+                        maximumAccountDrawdownFraction = BigDecimal("0.35"),
+                    )
+            baselineDecision.reasonCodes shouldBe listOf("RISK_NAV_BASELINE_PENDING")
+
+            val breached =
+                baseline.copy(
+                    navStatus = ExecutionRiskNavStatus.READY,
+                    consecutiveLosses = 99,
+                    latestUnitizedNav = BigDecimal("0.64"),
+                    peakUnitizedNav = BigDecimal.ONE,
+                    dayStartUnitizedNav = BigDecimal("0.64"),
+                )
+            val breachedDecision =
+                ExecutionRiskCircuitBreaker
+                    .evaluateAccountDrawdown(
+                        state = breached,
+                        now = now,
+                        maximumAge = Duration.ofMinutes(10),
+                        maximumAccountDrawdownFraction = BigDecimal("0.35"),
+                    )
+            breachedDecision.reasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+        }
     })
 
 private fun walletRiskDecision(

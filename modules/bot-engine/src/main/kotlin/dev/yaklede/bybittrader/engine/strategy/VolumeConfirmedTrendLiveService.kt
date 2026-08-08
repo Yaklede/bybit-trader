@@ -17,8 +17,8 @@ class VolumeConfirmedTrendLiveService(
     private val approvalReportProvider: suspend () -> VolumeConfirmedTrendApprovalReport,
     private val shadowEvidenceSha256: String,
     private val approvalReportSha256: String,
+    private val projectionSink: VolumeConfirmedTrendLiveProjectionSink,
     private val executionContract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
-    private val projectionSink: VolumeConfirmedTrendLiveProjectionSink = NoopVolumeConfirmedTrendLiveProjectionSink,
     private val clock: () -> Instant = Instant::now,
 ) : VolumeConfirmedTrendLiveExecutor {
     private val evaluationMutex = Mutex()
@@ -109,32 +109,37 @@ class VolumeConfirmedTrendLiveService(
         }
         captureAccountSnapshotIfDue(now)
         captureAccountingIfDue(now)
+        val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
+        val effectiveStored = persistRiskState(stored, riskAssessment, now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (openPositions.size > 1) {
-            return halt(stored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+            return halt(effectiveStored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
-        if (stored != null && stored.status in PENDING_ORDER_STATES) {
-            return recovery.recover(stored, position, now)
+        if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
+            return recovery.recover(effectiveStored, position, now)
         }
-        if (stored == null && position != null) {
+        if (effectiveStored == null && position != null) {
             return halt(null, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
         }
-        if (stored?.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
+        if (effectiveStored?.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
             position != null
         ) {
-            return halt(stored, signal, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
+            return halt(effectiveStored, signal, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
         }
-        if (stored != null &&
-            stored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
-            !stored.matches(position)
+        if (effectiveStored != null &&
+            effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
+            !effectiveStored.matches(position)
         ) {
-            return halt(stored, signal, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+            return halt(effectiveStored, signal, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
         }
-        if (stored != null && stored.status in NOT_FILLED_STATES && stored.activeDecisionKey == signalDecisionKey(signal)) {
+        if (effectiveStored != null &&
+            effectiveStored.status in NOT_FILLED_STATES &&
+            effectiveStored.activeDecisionKey == signalDecisionKey(signal)
+        ) {
             return VolumeConfirmedTrendLiveEvaluationResult(
                 status = VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED,
-                state = stored,
+                state = effectiveStored,
                 plan = null,
             )
         }
@@ -156,11 +161,15 @@ class VolumeConfirmedTrendLiveService(
                 contract = executionContract,
             )
         return when (plan.action) {
-            VolumeConfirmedTrendTargetAction.NO_ACTION -> noAction(stored, signal, position, plan, now)
-            VolumeConfirmedTrendTargetAction.NO_TRADE -> noTrade(stored, signal, plan, now)
-            VolumeConfirmedTrendTargetAction.OPEN,
-            VolumeConfirmedTrendTargetAction.CLOSE,
-            -> submitPlan(stored, signal, plan, instrument, position, now)
+            VolumeConfirmedTrendTargetAction.NO_ACTION -> noAction(effectiveStored, signal, position, plan, now)
+            VolumeConfirmedTrendTargetAction.NO_TRADE -> noTrade(effectiveStored, signal, plan, now)
+            VolumeConfirmedTrendTargetAction.OPEN ->
+                if (riskAssessment.allowsEntry) {
+                    submitPlan(effectiveStored, signal, plan, instrument, position, now)
+                } else {
+                    riskBlocked(effectiveStored, signal, plan, riskAssessment, now)
+                }
+            VolumeConfirmedTrendTargetAction.CLOSE -> submitPlan(effectiveStored, signal, plan, instrument, position, now)
         }
     }
 
@@ -198,22 +207,25 @@ class VolumeConfirmedTrendLiveService(
         }
         captureAccountSnapshotIfDue(now)
         captureAccountingIfDue(now)
+        val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
+        val effectiveStored = persistRiskState(stored, riskAssessment, now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (openPositions.size > 1) {
-            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+            return halt(effectiveStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
-        if (stored != null && stored.status in PENDING_ORDER_STATES) {
-            return recovery.recover(stored, position, now)
+        if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
+            return recovery.recover(effectiveStored, position, now)
         }
-        if (stored == null || stored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
+        if (effectiveStored == null || effectiveStored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
             if (position != null) {
-                return halt(stored, null, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+                return halt(effectiveStored, null, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
             }
             val initialized =
-                baseState(stored, now).copy(
+                baseState(effectiveStored, now).copy(
                     status = VolumeConfirmedTrendLiveStatus.FLAT,
                     approvalId = approvalReceipt.approvalId,
+                    riskState = riskAssessment.state,
                     updatedAt = now,
                 )
             store.commitTrendLive(
@@ -226,24 +238,24 @@ class VolumeConfirmedTrendLiveService(
                 plan = null,
             )
         }
-        if (stored.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
+        if (effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
             position != null
         ) {
-            return halt(stored, null, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
+            return halt(effectiveStored, null, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
         }
-        if (stored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
-            !stored.matches(position)
+        if (effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
+            !effectiveStored.matches(position)
         ) {
-            return halt(stored, null, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+            return halt(effectiveStored, null, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
         }
         return VolumeConfirmedTrendLiveEvaluationResult(
             status =
-                if (stored.status in NOT_FILLED_STATES) {
+                if (effectiveStored.status in NOT_FILLED_STATES) {
                     VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED
                 } else {
                     VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED
                 },
-            state = stored,
+            state = effectiveStored,
             plan = null,
         )
     }
@@ -254,18 +266,20 @@ class VolumeConfirmedTrendLiveService(
     ): VolumeConfirmedTrendLiveEvaluationResult {
         captureAccountSnapshotIfDue(now)
         captureAccountingIfDue(now)
+        val riskAssessment = projectionSink.assessEntryRisk(stored.riskState, now, config.riskPolicy)
+        val riskStored = requireNotNull(persistRiskState(stored, riskAssessment, now))
         val positions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (positions.size > 1) {
-            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+            return halt(riskStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = positions.singleOrNull()
         val reconciled =
-            stored.copy(
+            riskStored.copy(
                 observedPositionSide = position?.side,
                 observedPositionQuantity = position?.size,
                 updatedAt = now,
             )
-        if (!reconciled.samePersistedStateAs(stored)) {
+        if (!reconciled.samePersistedStateAs(riskStored)) {
             store.commitTrendLive(
                 reconciled,
                 listOf(
@@ -280,7 +294,7 @@ class VolumeConfirmedTrendLiveService(
         }
         return VolumeConfirmedTrendLiveEvaluationResult(
             status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
-            state = if (reconciled.samePersistedStateAs(stored)) stored else reconciled,
+            state = if (reconciled.samePersistedStateAs(riskStored)) riskStored else reconciled,
             plan = null,
         )
     }
@@ -318,6 +332,17 @@ class VolumeConfirmedTrendLiveService(
             }
             throw error
         }
+    }
+
+    private suspend fun persistRiskState(
+        previous: VolumeConfirmedTrendLiveState?,
+        assessment: VolumeConfirmedTrendLiveRiskAssessment,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveState? {
+        if (previous == null || previous.riskState == assessment.state) return previous
+        val updated = previous.copy(riskState = assessment.state, updatedAt = now)
+        store.commitTrendLive(updated, emptyList())
+        return updated
     }
 
     private suspend fun approvalValidation(): VolumeConfirmedTrendLiveApprovalValidation =
@@ -459,6 +484,40 @@ class VolumeConfirmedTrendLiveService(
             )
         store.commitTrendLive(state, listOf(event))
         return VolumeConfirmedTrendLiveEvaluationResult(VolumeConfirmedTrendLiveEvaluationStatus.NO_TRADE, state, plan)
+    }
+
+    private suspend fun riskBlocked(
+        previous: VolumeConfirmedTrendLiveState?,
+        signal: VolumeConfirmedTrendExecutionSignal,
+        plan: VolumeConfirmedTrendTargetPlan,
+        assessment: VolumeConfirmedTrendLiveRiskAssessment,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        val state =
+            baseState(previous, now).copy(
+                status = VolumeConfirmedTrendLiveStatus.FLAT,
+                approvalId = approvalReceipt.approvalId,
+                activeDecisionKey = plan.decisionKey,
+                pendingTargetSide = signal.side,
+                clientOrderId = null,
+                exchangeOrderId = null,
+                observedPositionSide = null,
+                observedPositionQuantity = null,
+                haltedReasonCode = null,
+                riskState = assessment.state,
+                updatedAt = now,
+            )
+        val reasonCode = "TREND_ENTRY_RISK_BLOCKED|${assessment.reasonCodes.joinToString("|")}"
+        store.commitTrendLive(
+            state,
+            listOf(lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.RECONCILED, reasonCode, now)),
+        )
+        return VolumeConfirmedTrendLiveEvaluationResult(
+            status = VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED,
+            state = state,
+            plan = plan,
+            riskReasonCodes = assessment.reasonCodes,
+        )
     }
 
     private suspend fun blockByApproval(

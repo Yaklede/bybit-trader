@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.engine.strategy
 
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
@@ -35,6 +36,7 @@ data class VolumeConfirmedTrendLiveState(
     val lastExecutionId: String?,
     val haltedReasonCode: String?,
     val updatedAt: Instant,
+    val riskState: ExecutionRiskState? = null,
 ) {
     init {
         require(protocolId.isNotBlank() && candidateId.isNotBlank()) {
@@ -194,6 +196,7 @@ data class VolumeConfirmedTrendLiveConfig(
     val symbol: Symbol,
     val recoveryRetryDelay: Duration = Duration.ofSeconds(10),
     val recoveryEventLimit: Int = 100,
+    val riskPolicy: VolumeConfirmedTrendLiveRiskPolicy = VolumeConfirmedTrendLiveRiskPolicy(),
 ) {
     init {
         require(protocolId.isNotBlank() && candidateId.isNotBlank()) { "Trend live config identities must not be blank." }
@@ -208,11 +211,34 @@ data class VolumeConfirmedTrendLiveConfig(
     }
 }
 
+data class VolumeConfirmedTrendLiveRiskPolicy(
+    val maximumAccountDrawdownFraction: BigDecimal = BigDecimal("0.35"),
+    val riskStateMaximumAge: Duration = Duration.ofMinutes(10),
+    val walletReconciliationMaximumAge: Duration = Duration.ofMinutes(10),
+    val walletReconciliationConfirmedMismatchCount: Int = 2,
+) {
+    init {
+        require(maximumAccountDrawdownFraction > BigDecimal.ZERO && maximumAccountDrawdownFraction <= BigDecimal.ONE) {
+            "Trend live maximum account drawdown fraction must be in (0, 1]."
+        }
+        require(!riskStateMaximumAge.isNegative && !riskStateMaximumAge.isZero) {
+            "Trend live risk state maximum age must be positive."
+        }
+        require(!walletReconciliationMaximumAge.isNegative && !walletReconciliationMaximumAge.isZero) {
+            "Trend live wallet reconciliation maximum age must be positive."
+        }
+        require(walletReconciliationConfirmedMismatchCount in 1..100) {
+            "Trend live wallet mismatch confirmation count must be between 1 and 100."
+        }
+    }
+}
+
 enum class VolumeConfirmedTrendLiveEvaluationStatus {
     APPROVAL_BLOCKED,
     HALTED,
     NO_ACTION,
     NO_TRADE,
+    RISK_BLOCKED,
     ORDER_SUBMITTED,
     ORDER_NOT_FILLED,
     RECOVERED,
@@ -226,6 +252,7 @@ data class VolumeConfirmedTrendLiveEvaluationResult(
     val plan: VolumeConfirmedTrendTargetPlan?,
     val approvalFailures: List<VolumeConfirmedTrendLiveApprovalFailure> = emptyList(),
     val contractFailures: List<VolumeConfirmedTrendExchangeContractFailure> = emptyList(),
+    val riskReasonCodes: List<String> = emptyList(),
 )
 
 interface VolumeConfirmedTrendLiveExecutor {

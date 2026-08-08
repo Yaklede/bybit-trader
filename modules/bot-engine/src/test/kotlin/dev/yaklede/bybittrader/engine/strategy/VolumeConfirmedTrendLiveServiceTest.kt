@@ -211,6 +211,25 @@ class VolumeConfirmedTrendLiveServiceTest :
             }
         }
 
+        "risk failure blocks a new entry without submitting an exchange order" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val projection =
+                RecordingTrendLiveProjectionSink(
+                    riskReasonCodes = listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED"),
+                )
+            val service = service(gateway, store, projectionSink = projection)
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.FLAT
+            result.riskReasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+            gateway.submittedOrders.size shouldBe 0
+            store.events.single().reasonCode shouldBe
+                "TREND_ENTRY_RISK_BLOCKED|ACCOUNT_DRAWDOWN_LIMIT_REACHED"
+        }
+
         "intent persistence failure submits no exchange order" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore(failOnCommitNumber = 1)
@@ -382,6 +401,26 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.last().apply {
                 side shouldBe Side.SELL
                 reduceOnly shouldBe false
+            }
+        }
+
+        "risk failure never prevents an existing position from closing" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            val projection =
+                RecordingTrendLiveProjectionSink(
+                    riskReasonCodes = listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED"),
+                )
+            val service = service(gateway, store, projectionSink = projection)
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.SELL
+                reduceOnly shouldBe true
             }
         }
     })
@@ -579,6 +618,7 @@ private class RecordingTrendLiveProjectionSink(
     private val accountSnapshotDue: Boolean = false,
     private var failExecutionRecordingOnce: Boolean = false,
     private var accountingRequest: VolumeConfirmedTrendLiveAccountingRequest? = null,
+    private val riskReasonCodes: List<String> = emptyList(),
 ) : VolumeConfirmedTrendLiveProjectionSink {
     val balances = mutableListOf<ExchangeAccountBalance>()
     val fills = mutableListOf<ExchangeExecutionFill>()
@@ -615,6 +655,16 @@ private class RecordingTrendLiveProjectionSink(
     ) {
         accountingFailures += request
     }
+
+    override suspend fun assessEntryRisk(
+        previous: dev.yaklede.bybittrader.engine.execution.ExecutionRiskState?,
+        now: Instant,
+        policy: VolumeConfirmedTrendLiveRiskPolicy,
+    ): VolumeConfirmedTrendLiveRiskAssessment =
+        VolumeConfirmedTrendLiveRiskAssessment(
+            state = previous,
+            reasonCodes = riskReasonCodes,
+        )
 }
 
 private fun executionFill(

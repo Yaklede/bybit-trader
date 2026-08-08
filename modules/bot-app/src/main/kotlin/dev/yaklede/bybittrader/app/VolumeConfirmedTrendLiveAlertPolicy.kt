@@ -66,5 +66,7 @@ private fun VolumeConfirmedTrendLiveLoopResult.alertFingerprint(): String? =
             "HALTED|${evaluation.state.haltedReasonCode}"
         VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED ->
             "APPROVAL_BLOCKED|${evaluation.approvalFailures.joinToString(",") { it.name }}"
+        VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED ->
+            "RISK_BLOCKED|${evaluation.riskReasonCodes.joinToString(",")}"
         else -> null
     }

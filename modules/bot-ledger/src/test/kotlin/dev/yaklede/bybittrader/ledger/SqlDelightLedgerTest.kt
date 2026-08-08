@@ -61,6 +61,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorStat
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveAccountingObservation
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
@@ -72,6 +73,7 @@ import dev.yaklede.bybittrader.ledger.db.LedgerDatabase
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.math.BigDecimal
+import java.math.MathContext
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -981,6 +983,92 @@ class SqlDelightLedgerTest :
                 ExecutionWalletReconciliationStatus.SYNC_ERROR
         }
 
+        "trend live risk assessment blocks a reconciled account drawdown above the frozen limit" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val baselineAt = Instant.parse("2026-08-08T00:00:00Z")
+            val currentAt = baselineAt.plusSeconds(300)
+            val sink =
+                LedgerVolumeConfirmedTrendLiveProjectionSink(
+                    store = ledger,
+                    runtimeMode = ExecutionRuntimeMode.LIVE,
+                    sessionStartedAt = baselineAt,
+                )
+
+            sink.recordAccountBalance(trendLiveBalance("666.24", baselineAt))
+            val baselineRequest = requireNotNull(sink.reserveAccountingRequest(baselineAt))
+            sink.recordAccounting(
+                VolumeConfirmedTrendLiveAccountingObservation(
+                    request = baselineRequest,
+                    executions = emptyList(),
+                    closedPnls = emptyList(),
+                    accountTransactions = emptyList(),
+                    receivedAt = baselineAt,
+                ),
+            )
+            val baseline =
+                sink.assessEntryRisk(
+                    previous = null,
+                    now = baselineAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+            baseline.reasonCodes shouldBe
+                listOf(
+                    "RISK_NAV_BASELINE_PENDING",
+                    "ACCOUNT_RECONCILIATION_BASELINE_PENDING",
+                )
+
+            sink.recordAccountBalance(trendLiveBalance("400.00", currentAt))
+            val currentRequest = requireNotNull(sink.reserveAccountingRequest(currentAt))
+            val lossTransaction =
+                ExchangeAccountTransaction(
+                    transactionId = "trend-loss-001",
+                    symbol = Symbol("BTCUSDT"),
+                    category = "linear",
+                    side = Side.SELL,
+                    transactionAt = currentAt.minusSeconds(60),
+                    type = "TRADE",
+                    subtype = null,
+                    quantity = BigDecimal("0.007"),
+                    size = BigDecimal("0.007"),
+                    currency = "USDT",
+                    tradePrice = BigDecimal("60000"),
+                    funding = BigDecimal.ZERO,
+                    fee = BigDecimal.ZERO,
+                    cashFlow = BigDecimal.ZERO,
+                    change = BigDecimal("-266.24"),
+                    cashBalance = BigDecimal("400.00"),
+                    feeRate = null,
+                    tradeId = "trend-loss-trade-001",
+                    exchangeOrderId = "trend-loss-order-001",
+                    clientOrderId = "vct-exit-loss-001",
+                )
+            sink.recordAccounting(
+                VolumeConfirmedTrendLiveAccountingObservation(
+                    request = currentRequest,
+                    executions = emptyList(),
+                    closedPnls = emptyList(),
+                    accountTransactions = listOf(lossTransaction),
+                    receivedAt = currentAt,
+                ),
+            )
+
+            val current =
+                sink.assessEntryRisk(
+                    previous = baseline.state,
+                    now = currentAt,
+                    policy = VolumeConfirmedTrendLiveRiskPolicy(),
+                )
+
+            current.reasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+            current.state?.navStatus shouldBe ExecutionRiskNavStatus.READY
+            current.state?.latestUnitizedNav shouldBe
+                BigDecimal("400.00").divide(BigDecimal("666.24"), MathContext.DECIMAL128)
+            ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT")?.status shouldBe
+                ExecutionWalletReconciliationStatus.MATCHED
+        }
+
         "additive migration adds actual-fill protection metadata to a legacy lifecycle table" {
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             driver.execute(
@@ -1278,6 +1366,29 @@ class SqlDelightLedgerTest :
             ledger.trendLiveState(state.protocolId, state.symbol) shouldBe state
             ledger.trendLiveEvents(state.protocolId, state.symbol, 10) shouldBe listOf(event)
         }
+
+        "trend live state schema v1 remains readable with a missing risk baseline" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val database = createLedgerDatabase(driver)
+            val ledger = SqlDelightLedger(database = database)
+            val protocolId = "volume-confirmed-trend-ensemble-v1"
+            database.ledgerQueries.upsertVolumeConfirmedTrendLiveState(
+                protocol_id = protocolId,
+                candidate_id = "vcte_4h_majority_001",
+                protocol_sha256 = "a".repeat(64),
+                symbol = "BTCUSDT",
+                status = VolumeConfirmedTrendLiveStatus.FLAT.name,
+                state_payload = """{"schemaVersion":1,"approvalId":"approval-v1"}""",
+                updated_at = "2026-08-07T00:00:00Z",
+            )
+
+            ledger.trendLiveState(protocolId, Symbol("BTCUSDT"))?.apply {
+                status shouldBe VolumeConfirmedTrendLiveStatus.FLAT
+                approvalId shouldBe "approval-v1"
+                riskState shouldBe null
+            }
+        }
     })
 
 private data class StoredClosureAlertState(
@@ -1303,7 +1414,52 @@ private fun sampleTrendLiveState(): VolumeConfirmedTrendLiveState =
         observedPositionQuantity = null,
         lastExecutionId = null,
         haltedReasonCode = null,
+        riskState =
+            ExecutionRiskState(
+                mode = ExecutionRuntimeMode.LIVE,
+                peakEquity = BigDecimal("700"),
+                utcDayStartedAt = Instant.parse("2026-08-07T00:00:00Z"),
+                dayStartEquity = BigDecimal("680"),
+                latestEquity = BigDecimal("660"),
+                consecutiveLosses = 1,
+                lastClosureId = 7,
+                updatedAt = Instant.parse("2026-08-07T00:00:01Z"),
+                navStatus = ExecutionRiskNavStatus.READY,
+                strategyUnits = BigDecimal("660"),
+                latestUnitizedNav = BigDecimal("0.97"),
+                peakUnitizedNav = BigDecimal.ONE,
+                dayStartUnitizedNav = BigDecimal("0.99"),
+                cumulativeExternalCashFlow = BigDecimal("20"),
+                lastAccountTransactionId = 9,
+            ),
         updatedAt = Instant.parse("2026-08-07T00:00:02Z"),
+    )
+
+private fun trendLiveBalance(
+    amount: String,
+    capturedAt: Instant,
+): ExchangeAccountBalance =
+    ExchangeAccountBalance(
+        accountType = "UNIFIED",
+        totalEquity = BigDecimal(amount),
+        totalWalletBalance = BigDecimal(amount),
+        totalMarginBalance = BigDecimal(amount),
+        totalAvailableBalance = BigDecimal(amount),
+        totalPerpUnrealizedPnl = BigDecimal.ZERO,
+        totalInitialMargin = BigDecimal.ZERO,
+        totalMaintenanceMargin = BigDecimal.ZERO,
+        coins =
+            listOf(
+                ExchangeCoinBalance(
+                    coin = "USDT",
+                    equity = BigDecimal(amount),
+                    usdValue = BigDecimal(amount),
+                    walletBalance = BigDecimal(amount),
+                    locked = BigDecimal.ZERO,
+                    unrealizedPnl = BigDecimal.ZERO,
+                ),
+            ),
+        capturedAt = capturedAt,
     )
 
 private fun sampleTrendLiveEvent(state: VolumeConfirmedTrendLiveState): VolumeConfirmedTrendLiveEvent =

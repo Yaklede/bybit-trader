@@ -63,6 +63,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoop
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopConfig
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvaluationStatus
@@ -547,6 +548,13 @@ fun main() {
                         candidateId = runtimeDefinition.protocol.candidateId,
                         protocolSha256 = runtimeDefinition.protocol.protocolSha256,
                         symbol = runtimeDefinition.protocol.symbol,
+                        riskPolicy =
+                            VolumeConfirmedTrendLiveRiskPolicy(
+                                maximumAccountDrawdownFraction =
+                                    BigDecimal
+                                        .valueOf(trendApprovalDefinition.forwardPolicy.maximumDrawdownPct)
+                                        .movePointLeft(2),
+                            ),
                     ),
                 approvalReceipt = approval.receipt,
                 approvalReportProvider = trendApprovalService::evaluate,
@@ -924,6 +932,14 @@ private suspend fun AlertingService.sendTrendLiveResult(
                     body =
                         "승인 또는 현재 검증 조건이 달라져 신규 주문을 차단했어요. " +
                             "실패 항목: ${evaluation.approvalFailures.joinToString(", ") { it.name }}",
+                )
+            VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED ->
+                AlertMessage(
+                    severity = AlertSeverity.WARNING,
+                    title = "H4 신규 진입 위험 차단",
+                    body =
+                        "기존 포지션 정리는 계속 허용하지만 신규 진입은 보류했어요. " +
+                            "확인 항목: ${evaluation.riskReasonCodes.joinToString(", ")}",
                 )
             else -> return
         }
