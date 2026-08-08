@@ -219,6 +219,15 @@ Use a dedicated Unified account; unrelated loans, earn products, conversions,
 and account transfers are treated as capital outside this strategy. Do not place
 manual trades in the same account because Bybit reports them as `TRADE`, which
 is indistinguishable from bot performance at the account-transaction layer.
+Before flat initialization or a new H4 entry, the live runtime enumerates every
+active USDT-settled linear position and open order. A position in another symbol
+halts with `TREND_FOREIGN_POSITION_OBSERVED`; any active order outside a pending
+order recovery halts with `TREND_UNOWNED_OPEN_ORDER_OBSERVED`. The queries follow
+all Bybit cursor pages using the official
+[position](https://bybit-exchange.github.io/docs/v5/position) and
+[open-order](https://bybit-exchange.github.io/docs/v5/order/open-order) contracts.
+This guard does not make a mixed collateral, spot, inverse, loan, or earn account
+safe, so the dedicated-account requirement still applies.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

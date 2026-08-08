@@ -491,12 +491,18 @@ interface ExchangeExecutionGateway {
 
     suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder>
 
+    suspend fun openOrdersBySettleCoin(settleCoin: String): List<ExchangeOpenOrder> =
+        throw ExchangeExecutionException("Exchange settle-coin open orders are unavailable.")
+
     suspend fun order(
         symbol: Symbol,
         clientOrderId: String,
     ): ExchangeOpenOrder? = openOrders(symbol).firstOrNull { order -> order.clientOrderId == clientOrderId }
 
     suspend fun positions(symbol: Symbol): List<ExchangePosition>
+
+    suspend fun positionsBySettleCoin(settleCoin: String): List<ExchangePosition> =
+        throw ExchangeExecutionException("Exchange settle-coin positions are unavailable.")
 
     suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill>
 

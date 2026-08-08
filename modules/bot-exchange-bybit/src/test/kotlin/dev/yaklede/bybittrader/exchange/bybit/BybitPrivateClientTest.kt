@@ -352,6 +352,98 @@ class BybitPrivateClientTest :
             executions.single().stopOrderType shouldBe "StopLoss"
         }
 
+        "settle-coin open-order inventory retrieves every cursor page" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.encodedPath shouldBe "/v5/order/realtime"
+                    request.url.parameters["symbol"] shouldBe null
+                    request.url.parameters["settleCoin"] shouldBe "USDT"
+                    request.url.parameters["openOnly"] shouldBe "0"
+                    request.url.parameters["limit"] shouldBe "50"
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "order-next"
+                    val symbol = if (requestCount == 1) "ETHUSDT" else "BTCUSDT"
+                    val nextCursor = if (requestCount == 1) "order-next" else ""
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "list": [{
+                                  "orderId": "order-$requestCount",
+                                  "orderLinkId": "client-$requestCount",
+                                  "symbol": "$symbol",
+                                  "side": "Buy",
+                                  "orderType": "Limit",
+                                  "orderStatus": "New",
+                                  "qty": "0.01",
+                                  "createdTime": "1719748800000",
+                                  "reduceOnly": false
+                                }],
+                                "nextPageCursor": "$nextCursor"
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val orders = client.openOrdersBySettleCoin("USDT")
+
+            requestCount shouldBe 2
+            orders.map { it.symbol.value }.shouldContainExactly("ETHUSDT", "BTCUSDT")
+        }
+
+        "settle-coin position inventory retrieves every cursor page" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.encodedPath shouldBe "/v5/position/list"
+                    request.url.parameters["symbol"] shouldBe null
+                    request.url.parameters["settleCoin"] shouldBe "USDT"
+                    request.url.parameters["limit"] shouldBe "200"
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "position-next"
+                    val symbol = if (requestCount == 1) "ETHUSDT" else "BTCUSDT"
+                    val nextCursor = if (requestCount == 1) "position-next" else ""
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "list": [{
+                                  "symbol": "$symbol",
+                                  "side": "Buy",
+                                  "size": "0.01",
+                                  "avgPrice": "60000",
+                                  "markPrice": "60100",
+                                  "unrealisedPnl": "1",
+                                  "openTime": 1719748500000,
+                                  "updatedTime": "1719748800000"
+                                }],
+                                "nextPageCursor": "$nextCursor"
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val positions = client.positionsBySettleCoin("USDT")
+
+            requestCount shouldBe 2
+            positions.map { it.symbol.value }.shouldContainExactly("ETHUSDT", "BTCUSDT")
+        }
+
         "executions retrieves every cursor page" {
             var requestCount = 0
             val engine =

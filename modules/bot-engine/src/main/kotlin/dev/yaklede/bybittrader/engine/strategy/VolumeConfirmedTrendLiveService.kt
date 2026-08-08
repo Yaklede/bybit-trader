@@ -102,13 +102,20 @@ class VolumeConfirmedTrendLiveService(
         captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
-        val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
+        val openPositions = accountPositions.filter { it.symbol == config.symbol }
         if (openPositions.size > 1) {
             return halt(effectiveStored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
         if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
             return recovery.recover(effectiveStored, position, now)
+        }
+        if (accountPositions.any { it.symbol != config.symbol }) {
+            return halt(effectiveStored, signal, now, "TREND_FOREIGN_POSITION_OBSERVED", position = position)
+        }
+        if (gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN).isNotEmpty()) {
+            return halt(effectiveStored, signal, now, "TREND_UNOWNED_OPEN_ORDER_OBSERVED", position = position)
         }
         if (effectiveStored == null && position != null) {
             return halt(null, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
@@ -134,7 +141,6 @@ class VolumeConfirmedTrendLiveService(
                 plan = null,
             )
         }
-
         val balance = gateway.accountBalance("USDT")
         projectionSink.recordAccountBalance(balance)
         val equity =
@@ -194,13 +200,20 @@ class VolumeConfirmedTrendLiveService(
         captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
-        val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
+        val openPositions = accountPositions.filter { it.symbol == config.symbol }
         if (openPositions.size > 1) {
             return halt(effectiveStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
         if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
             return recovery.recover(effectiveStored, position, now)
+        }
+        if (accountPositions.any { it.symbol != config.symbol }) {
+            return halt(effectiveStored, null, now, "TREND_FOREIGN_POSITION_OBSERVED", position = position)
+        }
+        if (gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN).isNotEmpty()) {
+            return halt(effectiveStored, null, now, "TREND_UNOWNED_OPEN_ORDER_OBSERVED", position = position)
         }
         if (effectiveStored == null || effectiveStored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
             if (position != null) {
@@ -776,6 +789,7 @@ class VolumeConfirmedTrendLiveService(
         status in APPROVAL_REVOCATION_OWNED_POSITION_STATES && matches(position)
 
     private companion object {
+        const val TREND_SETTLE_COIN = "USDT"
         val PENDING_ORDER_STATES =
             setOf(
                 VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED,

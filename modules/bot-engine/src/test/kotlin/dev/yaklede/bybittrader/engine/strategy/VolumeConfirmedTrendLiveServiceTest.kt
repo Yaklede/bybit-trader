@@ -336,6 +336,45 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 0
         }
 
+        "foreign USDT-settled position halts before a BTC entry" {
+            val gateway =
+                FakeTrendLiveGateway(
+                    mutableListOf(position(Side.BUY, "0.2", symbol = Symbol("ETHUSDT"))),
+                )
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_FOREIGN_POSITION_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "unowned USDT-settled order halts before flat initialization or a BTC entry" {
+            val gateway = FakeTrendLiveGateway()
+            gateway.openOrders +=
+                ExchangeOpenOrder(
+                    exchangeOrderId = "foreign-order-001",
+                    clientOrderId = "manual-eth-order",
+                    symbol = Symbol("ETHUSDT"),
+                    side = Side.BUY,
+                    orderType = OrderType.LIMIT,
+                    status = OrderStatus.SUBMITTED,
+                    quantity = BigDecimal("0.2"),
+                    createdAt = TEST_NOW,
+                    reduceOnly = false,
+                )
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_UNOWNED_OPEN_ORDER_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
         "approved reconciliation periodically records exchange equity" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -833,10 +872,22 @@ private class FakeTrendLiveGateway(
 
     override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> {
         exchangeReadCount += 1
-        return openOrders.toList()
+        return openOrders.filter { it.symbol == symbol }
+    }
+
+    override suspend fun openOrdersBySettleCoin(settleCoin: String): List<ExchangeOpenOrder> {
+        exchangeReadCount += 1
+        return openOrders.filter { order ->
+            order.status in setOf(OrderStatus.CREATED, OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED)
+        }
     }
 
     override suspend fun positions(symbol: Symbol): List<ExchangePosition> {
+        exchangeReadCount += 1
+        return positions.filter { it.symbol == symbol }
+    }
+
+    override suspend fun positionsBySettleCoin(settleCoin: String): List<ExchangePosition> {
         exchangeReadCount += 1
         return positions.toList()
     }
@@ -1097,9 +1148,10 @@ private fun command(side: Side): VolumeConfirmedTrendCommand =
 private fun position(
     side: Side,
     quantity: String,
+    symbol: Symbol = Symbol("BTCUSDT"),
 ): ExchangePosition =
     ExchangePosition(
-        symbol = Symbol("BTCUSDT"),
+        symbol = symbol,
         side = side,
         size = BigDecimal(quantity),
         openedAt = Instant.parse("2026-08-06T00:00:00Z"),

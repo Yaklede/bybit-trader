@@ -237,6 +237,46 @@ class BybitPrivateClient(
             .mapNotNull { item -> item.toExchangeOpenOrder(symbol) }
     }
 
+    override suspend fun openOrdersBySettleCoin(settleCoin: String): List<ExchangeOpenOrder> {
+        requireValidBybitSettleCoin(settleCoin)
+        val orders = mutableListOf<ExchangeOpenOrder>()
+        val observedCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        var pageCount = 0
+        do {
+            requirePrivateHistoryPageBudget(++pageCount, "open-order inventory")
+            val query =
+                bybitQueryString(
+                    "category" to config.category.apiValue,
+                    "settleCoin" to settleCoin,
+                    "openOnly" to "0",
+                    "limit" to BYBIT_OPEN_ORDER_PAGE_LIMIT.toString(),
+                    "cursor" to cursor,
+                )
+            val response =
+                signedGet<BybitOpenOrdersResponse>(
+                    path = "/v5/order/realtime",
+                    queryString = query,
+                )
+            response.requireSuccess("list settle-coin open orders")
+            val result =
+                response.result
+                    ?: throw ExchangeExecutionException("Bybit settle-coin open-order response had no result.")
+            result.list.forEach { item ->
+                val symbol =
+                    item.symbol
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(::Symbol)
+                        ?: throw ExchangeExecutionException("Bybit settle-coin open order had no symbol.")
+                orders +=
+                    item.toExchangeOpenOrder(symbol)
+                        ?: throw ExchangeExecutionException("Bybit settle-coin open order was malformed.")
+            }
+            cursor = requireNextPrivateHistoryCursor(result.nextPageCursor, observedCursors, "open-order inventory")
+        } while (cursor != null)
+        return orders
+    }
+
     override suspend fun order(
         symbol: Symbol,
         clientOrderId: String,
@@ -280,6 +320,45 @@ class BybitPrivateClient(
             ?.list
             .orEmpty()
             .mapNotNull { item -> item.toExchangePosition(symbol) }
+    }
+
+    override suspend fun positionsBySettleCoin(settleCoin: String): List<ExchangePosition> {
+        requireValidBybitSettleCoin(settleCoin)
+        val positions = mutableListOf<ExchangePosition>()
+        val observedCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        var pageCount = 0
+        do {
+            requirePrivateHistoryPageBudget(++pageCount, "position inventory")
+            val query =
+                bybitQueryString(
+                    "category" to config.category.apiValue,
+                    "settleCoin" to settleCoin,
+                    "limit" to BYBIT_POSITION_PAGE_LIMIT.toString(),
+                    "cursor" to cursor,
+                )
+            val response =
+                signedGet<BybitPositionsResponse>(
+                    path = "/v5/position/list",
+                    queryString = query,
+                )
+            response.requireSuccess("list settle-coin positions")
+            val result =
+                response.result
+                    ?: throw ExchangeExecutionException("Bybit settle-coin position response had no result.")
+            result.list.forEach { item ->
+                val symbol =
+                    item.symbol
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(::Symbol)
+                        ?: throw ExchangeExecutionException("Bybit settle-coin position had no symbol.")
+                positions +=
+                    item.toExchangePosition(symbol)
+                        ?: throw ExchangeExecutionException("Bybit settle-coin position was malformed.")
+            }
+            cursor = requireNextPrivateHistoryCursor(result.nextPageCursor, observedCursors, "position inventory")
+        } while (cursor != null)
+        return positions
     }
 
     private suspend fun positionResponse(symbol: Symbol): BybitPositionsResponse {
@@ -524,6 +603,12 @@ private fun requireNextPrivateHistoryCursor(
         throw ExchangeExecutionException("Bybit $source pagination repeated a cursor.")
     }
     return cursor
+}
+
+private fun requireValidBybitSettleCoin(settleCoin: String) {
+    require(settleCoin.matches(Regex("[A-Z0-9]{2,16}"))) {
+        "Bybit settle coin must be an uppercase asset code."
+    }
 }
 
 private data class BybitPrivateHistoryRange(
@@ -984,6 +1069,7 @@ private data class BybitOpenOrdersResponse(
 @Serializable
 private data class BybitOpenOrdersResult(
     val list: List<BybitOpenOrderItem> = emptyList(),
+    val nextPageCursor: String? = null,
 )
 
 @Serializable
@@ -1014,6 +1100,7 @@ private data class BybitPositionsResponse(
 @Serializable
 private data class BybitPositionsResult(
     val list: List<BybitPositionItem> = emptyList(),
+    val nextPageCursor: String? = null,
 )
 
 @Serializable
@@ -1228,6 +1315,8 @@ private data class BybitTransactionLogItem(
 )
 
 private const val BYBIT_PRIVATE_HISTORY_PAGE_LIMIT = 100
+private const val BYBIT_OPEN_ORDER_PAGE_LIMIT = 50
+private const val BYBIT_POSITION_PAGE_LIMIT = 200
 private const val MAX_PRIVATE_HISTORY_PAGES = 1_000
 private val MAX_BYBIT_PRIVATE_HISTORY_RANGE: Duration = Duration.ofDays(7)
 private val MAX_TRANSACTION_LOG_RANGE: Duration = MAX_BYBIT_PRIVATE_HISTORY_RANGE
