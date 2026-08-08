@@ -248,6 +248,10 @@ missing wallet fields, and residual account margin exposure. Entry sizing uses
 the official [wallet-balance contract](https://bybit-exchange.github.io/docs/v5/account/wallet-balance).
 These checks block new entries but do not prevent a reduce-only exit for a
 position already owned by the strategy.
+During H4 pending-order recovery, an active exact IOC order prevents both
+`OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
+order after the recovery timeout and requires terminal exchange readback; an
+unconfirmed cancellation after the next timeout halts operator-free recovery.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

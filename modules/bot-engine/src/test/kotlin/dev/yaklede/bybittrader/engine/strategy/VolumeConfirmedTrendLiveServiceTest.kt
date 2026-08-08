@@ -141,6 +141,12 @@ class VolumeConfirmedTrendLiveServiceTest :
             val clientOrderId = requireNotNull(submitted.state.clientOrderId)
             gateway.positions += position(Side.BUY, "0.007")
             gateway.executionFills += executionFill(clientOrderId, "execution-before-revocation")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.007"),
+                    providerStatus = "Filled",
+                )
             val revokedService = service(gateway, store, approved = false)
 
             val recovered = revokedService.reconcile()
@@ -672,6 +678,12 @@ class VolumeConfirmedTrendLiveServiceTest :
             val clientOrderId = requireNotNull(submitted.state.clientOrderId)
             gateway.positions += position(Side.BUY, "0.007")
             gateway.executionFills += executionFill(clientOrderId, "execution-001")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.007"),
+                    providerStatus = "Filled",
+                )
 
             val recovered = service.reconcile()
 
@@ -692,6 +704,12 @@ class VolumeConfirmedTrendLiveServiceTest :
             val clientOrderId = requireNotNull(submitted.state.clientOrderId)
             gateway.positions += position(Side.BUY, "0.007")
             gateway.executionFills += executionFill(clientOrderId, "execution-after-downtime")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.007"),
+                    providerStatus = "Filled",
+                )
             now = now.plusSeconds(10L * 24L * 60L * 60L)
 
             val recovered = service.reconcile()
@@ -701,16 +719,35 @@ class VolumeConfirmedTrendLiveServiceTest :
                 (submitted.state.updatedAt.minusSeconds(300) to now)
         }
 
-        "partial entry fill preserves the exchange-observed quantity" {
+        "partial entry cancels its active remainder before becoming open" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
-            val service = service(gateway, store)
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
 
             val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
             val clientOrderId = requireNotNull(submitted.state.clientOrderId)
             gateway.positions += position(Side.BUY, "0.003")
             gateway.executionFills += executionFill(clientOrderId, "execution-partial-001", quantity = "0.003")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.PARTIALLY_FILLED,
+                    filledQuantity = BigDecimal("0.003"),
+                    providerStatus = "PartiallyFilled",
+                )
+            now = now.plusSeconds(11)
 
+            val cancellationPending = service.reconcile()
+
+            cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            cancellationPending.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+            gateway.cancelRequests.single().clientOrderId shouldBe clientOrderId
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    providerStatus = "PartiallyFilledCanceled",
+                )
+            now = now.plusSeconds(1)
             val recovered = service.reconcile()
 
             recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
@@ -727,6 +764,12 @@ class VolumeConfirmedTrendLiveServiceTest :
             val clientOrderId = requireNotNull(submitted.state.clientOrderId)
             gateway.positions += position(Side.BUY, "0.007")
             gateway.executionFills += executionFill(clientOrderId, "execution-retry-001")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.007"),
+                    providerStatus = "Filled",
+                )
 
             shouldThrow<IllegalStateException> { service.reconcile() }
             store.state?.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
@@ -898,7 +941,7 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
         }
 
-        "risk projection updates do not reset a pending order recovery timeout" {
+        "risk projection updates do not reset a pending order cancellation timeout" {
             var now = Instant.parse("2026-08-07T00:00:10Z")
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -909,13 +952,64 @@ class VolumeConfirmedTrendLiveServiceTest :
             projection.riskReasonCodes = listOf("ACCOUNT_LEDGER_MISMATCH_PENDING")
             now = now.plusSeconds(11)
 
-            val halted = service.reconcile()
+            val cancellationPending = service.reconcile()
 
             submitted.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
-            halted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
-            halted.state.haltedReasonCode shouldBe "TREND_ENTRY_IOC_REMAINS_ACTIVE"
-            halted.state.riskReasonCodes shouldBe listOf("ACCOUNT_LEDGER_MISMATCH_PENDING")
+            cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            cancellationPending.state.riskReasonCodes shouldBe listOf("ACCOUNT_LEDGER_MISMATCH_PENDING")
+            gateway.cancelRequests.size shouldBe 1
             gateway.submittedOrders.size shouldBe 1
+        }
+
+        "active order halts when cancellation is still unconfirmed after another timeout" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            now = now.plusSeconds(11)
+            service.reconcile().status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            now = now.plusSeconds(11)
+
+            val halted = service.reconcile()
+
+            halted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            halted.state.haltedReasonCode shouldBe
+                "TREND_ENTRY_IOC_REMAINS_ACTIVE|TREND_ACTIVE_ORDER_CANCEL_UNCONFIRMED"
+            gateway.cancelRequests.size shouldBe 1
+        }
+
+        "flat exit cancels its still-active reduce-only remainder before becoming flat" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions.clear()
+            gateway.executionFills += executionFill(clientOrderId, "execution-exit-partial-001", quantity = "0.007")
+            now = now.plusSeconds(11)
+
+            val cancellationPending = service.reconcile()
+
+            cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            cancellationPending.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED
+            gateway.cancelRequests.single().clientOrderId shouldBe clientOrderId
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    filledQuantity = BigDecimal("0.007"),
+                    providerStatus = "PartiallyFilledCanceled",
+                )
+            now = now.plusSeconds(1)
+
+            val recovered = service.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            recovered.state.status shouldBe VolumeConfirmedTrendLiveStatus.FLAT
         }
 
         "a same-side position without exact order evidence is not adopted" {
@@ -1052,6 +1146,7 @@ private class FakeTrendLiveGateway(
     val executionRanges = mutableListOf<Pair<Instant, Instant>>()
     val closedPnlRanges = mutableListOf<Pair<Instant, Instant>>()
     val submittedOrders = mutableListOf<ExchangeOrderRequest>()
+    val cancelRequests = mutableListOf<ExchangeCancelRequest>()
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
     var balance: ExchangeAccountBalance = isolatedAccountBalance()
@@ -1130,8 +1225,10 @@ private class FakeTrendLiveGateway(
         return ExchangeOrderResult(exchangeOrderId, request.clientOrderId, OrderStatus.SUBMITTED)
     }
 
-    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
-        ExchangeCancelResult(request.exchangeOrderId, request.clientOrderId)
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult {
+        cancelRequests += request
+        return ExchangeCancelResult(request.exchangeOrderId, request.clientOrderId)
+    }
 
     override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> {
         exchangeReadCount += 1

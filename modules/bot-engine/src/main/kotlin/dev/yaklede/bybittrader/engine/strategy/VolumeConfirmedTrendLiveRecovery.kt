@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.strategy
 
 import dev.yaklede.bybittrader.domain.OrderStatus
+import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
@@ -55,6 +56,12 @@ internal class VolumeConfirmedTrendLiveRecovery(
         if (position != null) {
             if (order == null && executions.isEmpty()) {
                 return pendingOrHalt(state, now, "TREND_ENTRY_POSITION_WITHOUT_ORDER_EVIDENCE", position)
+            }
+            if (order?.status?.isActive() == true) {
+                return activeOrderOrHalt(state, order, now, "TREND_ENTRY_IOC_REMAINS_ACTIVE", position)
+            }
+            if (order?.hasUnknownProviderStatus() == true) {
+                return halt(state, now, "TREND_ENTRY_ORDER_STATUS_UNKNOWN", position)
             }
             if (position.side != state.pendingTargetSide) {
                 return halt(state, now, "TREND_ENTRY_FILLED_WRONG_SIDE", position)
@@ -113,6 +120,12 @@ internal class VolumeConfirmedTrendLiveRecovery(
         if (position == null) {
             if (order == null && executions.isEmpty()) {
                 return pendingOrHalt(state, now, "TREND_EXIT_FLAT_WITHOUT_ORDER_EVIDENCE")
+            }
+            if (order?.status?.isActive() == true) {
+                return activeOrderOrHalt(state, order, now, "TREND_EXIT_IOC_REMAINS_ACTIVE")
+            }
+            if (order?.hasUnknownProviderStatus() == true) {
+                return halt(state, now, "TREND_EXIT_ORDER_STATUS_UNKNOWN")
             }
             val flat =
                 state.copy(
@@ -189,10 +202,53 @@ internal class VolumeConfirmedTrendLiveRecovery(
         val intentOnly =
             state.status == VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED ||
                 state.status == VolumeConfirmedTrendLiveStatus.EXIT_INTENT_RECORDED
-        if (!intentOnly && Duration.between(state.updatedAt, now) >= config.recoveryRetryDelay) {
-            return halt(state, now, timeoutReasonCode, position)
+        if (intentOnly || Duration.between(state.updatedAt, now) < config.recoveryRetryDelay) {
+            return recordSubmittedRecovery(state, order, now)
         }
-        return recordSubmittedRecovery(state, order, now)
+        val cancellationAlreadyRequested =
+            store
+                .trendLiveEvents(config.protocolId, config.symbol, config.recoveryEventLimit)
+                .any { event ->
+                    event.clientOrderId == state.clientOrderId &&
+                        event.reasonCode == ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
+                }
+        if (cancellationAlreadyRequested) {
+            return halt(
+                state = state,
+                now = now,
+                reasonCode = "$timeoutReasonCode|TREND_ACTIVE_ORDER_CANCEL_UNCONFIRMED",
+                position = position,
+            )
+        }
+
+        val cancelled =
+            gateway.cancelOrder(
+                ExchangeCancelRequest(
+                    symbol = config.symbol,
+                    exchangeOrderId = order.exchangeOrderId ?: state.exchangeOrderId,
+                    clientOrderId = order.clientOrderId ?: state.clientOrderId,
+                ),
+            )
+        val cancellationPending =
+            state.copy(
+                exchangeOrderId = cancelled.exchangeOrderId ?: order.exchangeOrderId ?: state.exchangeOrderId,
+                observedPositionSide = position?.side,
+                observedPositionQuantity = position?.size,
+                updatedAt = now,
+            )
+        val event =
+            lifecycleEvent(
+                cancellationPending,
+                VolumeConfirmedTrendLiveEventType.RECONCILED,
+                ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
+                now,
+            )
+        store.commitTrendLive(cancellationPending, listOf(event))
+        return VolumeConfirmedTrendLiveEvaluationResult(
+            status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
+            state = cancellationPending,
+            plan = null,
+        )
     }
 
     private suspend fun recordNotFilled(
@@ -267,12 +323,17 @@ internal class VolumeConfirmedTrendLiveRecovery(
 
     private fun ExchangeOpenOrder.hasFilledQuantity(): Boolean = filledQuantity?.let { it > BigDecimal.ZERO } == true
 
+    private fun OrderStatus.isActive(): Boolean =
+        this == OrderStatus.CREATED || this == OrderStatus.SUBMITTED || this == OrderStatus.PARTIALLY_FILLED
+
     private fun List<ExchangeExecutionFill>.lastExecutionId(): String? = lastOrNull { !it.executionId.isNullOrBlank() }?.executionId
 
     private fun ExchangeOpenOrder.hasUnknownProviderStatus(): Boolean =
         providerStatus != null && providerStatus !in KNOWN_PROVIDER_ORDER_STATUSES
 
     private companion object {
+        const val ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE = "TREND_ACTIVE_ORDER_CANCEL_REQUESTED"
+
         val KNOWN_PROVIDER_ORDER_STATUSES =
             setOf(
                 "New",

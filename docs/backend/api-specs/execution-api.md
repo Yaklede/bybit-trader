@@ -387,6 +387,13 @@ five-minute overlap. The accounting success watermark advances only after the
 fetched rows are durably projected; a failed fetch or projection retries from
 the previous successful range.
 
+An H4 state does not become `OPEN` or `FLAT` while its exact IOC order remains
+active, including after a partial fill. After the recovery timeout, the runtime
+submits a cancellation for that exact client/exchange order ID, persists the
+cancellation request, and waits for terminal order readback. If the order is
+still active after another timeout, recovery halts without repeatedly issuing
+cancellation requests.
+
 The same initial reconciliation request also projects the newest execution
 lifecycle observation. Newly observed partial fills, protected positions, and
 unprotected positions are passed to the alert layer before market sync. Closed

@@ -224,6 +224,10 @@ DB intent 기록 후 주문 호출이 실패하면 결정적 client ID로 거래
 확인하지 못해도 자동 재주문하지 않고 제한 시간 뒤 `HALTED`한다. 주문 ack 뒤 DB 쓰기가 실패하면 거래소의
 exact-order, order history, execution, position 조회로 복구한다. 미체결 취소는 해당 H4 결정을 소비하며,
 로컬 상태만 보고 같은 주문이나 반대 주문을 만들지 않는다.
+부분 체결로 포지션이 생겼거나 종료 체결로 포지션이 0이 됐더라도 exact IOC 주문이 활성 상태이면
+`OPEN` 또는 `FLAT`으로 확정하지 않는다. 복구 timeout 뒤 해당 client/exchange order ID만 취소하고
+취소 요청을 원장에 기록한 다음 terminal 상태를 다시 확인한다. 다음 timeout에도 활성 상태이면
+취소를 반복하지 않고 `HALTED`한다.
 
 ## 6. 예외 및 실패 처리
 
