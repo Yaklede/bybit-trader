@@ -358,6 +358,7 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 | 진입 계획 중 Shadow 승인 상실 | integration | intent·신규 주문 0개, `APPROVAL_BLOCKED` |
 | 루프 실패 알림 callback 장애 | fault injection | 오류 기록 후 다음 대사 주기 계속 실행 |
 | ticker 30초 초과 지연 또는 5초 초과 미래 시각 | integration | 신규 평가·주문 0개, 안전 중단 |
+| 프로세스 shutdown 중 알림 장애 | fault injection | 거래·대사 job 완료 후 알림 시도, 자원 정리 계속 |
 | Shadow gate 미달 | configuration | 신규 진입 경로를 생성하지 않음 |
 | hedge/isolated/15배 설정 | adapter | fail closed |
 | 전체 역사 replay | parity | Shadow 전환·수량과 target planner 명령 일치 |
@@ -390,6 +391,7 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 - 신규 `OPEN` intent를 기록하기 직전에 현재 Shadow 승인 보고서를 다시 검증한다. 평가 도중 gate가 상실되거나 보고서 조회가 실패하면 intent와 거래소 주문을 만들지 않고 `APPROVAL_BLOCKED`로 전환하며, reduce-only 종료는 계속 허용한다.
 - 실거래 신호 loop와 management-only loop는 실패 알림 callback의 비취소 예외를 격리한다. Discord 또는 알림 기록 실패가 발생해도 오류를 로그로 남기고 다음 대사 주기를 계속하며 coroutine 취소만 전파한다.
 - Live 주문 가격 ticker는 조회 완료 시각 기준 30초 이내이고 미래 시계 오차가 5초 이내여야 한다. 이 범위를 벗어나면 신호 평가와 신규 주문 전에 `TREND_TICKER_STALE` 또는 `TREND_TICKER_FROM_FUTURE`로 안전 중단한다.
+- 프로세스 shutdown hook은 거래·대사·Shadow·readiness job을 먼저 취소하고 완료를 기다린 뒤 보조 수집 loop와 종료 알림을 처리한다. 보조 정지 또는 알림 기록 실패는 다음 shutdown 단계를 막지 않으며 scope·archive·HTTP client 정리는 `finally`에서 수행한다.
 - 재시작 시 승인 artifact가 없거나 현재 Shadow 검증이 실패해도 영속 pending 주문 또는 관측 포지션이
   있으면 `VolumeConfirmedTrendLiveManagementLoop`가 실행된다. 이 loop는 Shadow store와 ticker provider를
   갖지 않고 `reconcile()`만 호출한다. 영속 상태와 거래소 방향·수량이 정확히 일치하는 포지션만

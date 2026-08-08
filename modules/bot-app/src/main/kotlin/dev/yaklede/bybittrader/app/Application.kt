@@ -863,33 +863,46 @@ fun main() {
 
     Runtime.getRuntime().addShutdownHook(
         Thread {
-            runBlocking {
-                alertingService.send(
-                    AlertMessage(
-                        severity = AlertSeverity.INFO,
-                        title = "봇 종료",
-                        body = "Bybit Trader가 종료되고 있어요.",
-                    ),
-                )
-                forwardMarketCaptureLoop?.stop()
+            try {
+                runBlocking {
+                    shutdownRuntimeJobs(
+                        jobs =
+                            listOf(
+                                privateExecutionStreamJob,
+                                paperLoopJob,
+                                executionReconciliationJob,
+                                executionLoopJob,
+                                trendShadowJob,
+                                trendLiveJob,
+                                resumeReadinessJob,
+                            ),
+                        stopAuxiliaryLoops = { forwardMarketCaptureLoop?.stop() },
+                        notifyShutdown = {
+                            alertingService.send(
+                                AlertMessage(
+                                    severity = AlertSeverity.INFO,
+                                    title = "봇 종료",
+                                    body = "Bybit Trader가 종료되고 있어요.",
+                                ),
+                            )
+                        },
+                        onPhaseFailure = { phase, error ->
+                            logger.warn("runtime shutdown phase failed phase={}", phase, error)
+                        },
+                    )
+                }
+            } finally {
+                paperLoopScope.cancel()
+                executionReconciliationScope.cancel()
+                executionLoopScope.cancel()
+                trendShadowScope.cancel()
+                trendLiveScope.cancel()
+                privateExecutionStreamScope.cancel()
+                forwardMarketCaptureScope.cancel()
+                forwardMarketRawEventArchive?.close()
+                resumeReadinessScope.cancel()
+                httpClient.close()
             }
-            privateExecutionStreamJob?.cancel()
-            paperLoopJob?.cancel()
-            executionReconciliationJob?.cancel()
-            executionLoopJob?.cancel()
-            trendShadowJob?.cancel()
-            trendLiveJob?.cancel()
-            resumeReadinessJob.cancel()
-            paperLoopScope.cancel()
-            executionReconciliationScope.cancel()
-            executionLoopScope.cancel()
-            trendShadowScope.cancel()
-            trendLiveScope.cancel()
-            privateExecutionStreamScope.cancel()
-            forwardMarketCaptureScope.cancel()
-            forwardMarketRawEventArchive?.close()
-            resumeReadinessScope.cancel()
-            httpClient.close()
         },
     )
 
