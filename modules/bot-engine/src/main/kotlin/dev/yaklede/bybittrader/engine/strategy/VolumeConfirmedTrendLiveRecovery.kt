@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.engine.strategy
 
 import dev.yaklede.bybittrader.domain.OrderStatus
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
@@ -12,6 +13,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
     private val gateway: ExchangeExecutionGateway,
     private val store: VolumeConfirmedTrendLiveStore,
     private val config: VolumeConfirmedTrendLiveConfig,
+    private val projectionSink: VolumeConfirmedTrendLiveProjectionSink,
 ) {
     suspend fun recover(
         state: VolumeConfirmedTrendLiveState,
@@ -20,14 +22,22 @@ internal class VolumeConfirmedTrendLiveRecovery(
     ): VolumeConfirmedTrendLiveEvaluationResult {
         val clientOrderId = requireNotNull(state.clientOrderId)
         val order = gateway.order(config.symbol, clientOrderId)
-        val executionObserved = gateway.executions(config.symbol).any { it.clientOrderId == clientOrderId }
+        val executions =
+            gateway
+                .executions(config.symbol)
+                .filter { it.clientOrderId == clientOrderId }
+                .sortedWith(
+                    compareBy<ExchangeExecutionFill>(ExchangeExecutionFill::executedAt)
+                        .thenBy { it.executionId.orEmpty() },
+                )
+        projectionSink.recordExecutionFills(executions, now)
         return when (state.status) {
             VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED,
             VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
-            -> recoverEntry(state, position, order, executionObserved, now)
+            -> recoverEntry(state, position, order, executions, now)
             VolumeConfirmedTrendLiveStatus.EXIT_INTENT_RECORDED,
             VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
-            -> recoverExit(state, position, order, executionObserved, now)
+            -> recoverExit(state, position, order, executions, now)
             else -> error("Unexpected pending trend live state ${state.status}.")
         }
     }
@@ -36,10 +46,13 @@ internal class VolumeConfirmedTrendLiveRecovery(
         state: VolumeConfirmedTrendLiveState,
         position: ExchangePosition?,
         order: ExchangeOpenOrder?,
-        executionObserved: Boolean,
+        executions: List<ExchangeExecutionFill>,
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         if (position != null) {
+            if (order == null && executions.isEmpty()) {
+                return pendingOrHalt(state, now, "TREND_ENTRY_POSITION_WITHOUT_ORDER_EVIDENCE", position)
+            }
             if (position.side != state.pendingTargetSide) {
                 return halt(state, now, "TREND_ENTRY_FILLED_WRONG_SIDE", position)
             }
@@ -49,6 +62,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
                     observedPositionSide = position.side,
                     observedPositionQuantity = position.size,
                     exchangeOrderId = order?.exchangeOrderId ?: state.exchangeOrderId,
+                    lastExecutionId = executions.lastExecutionId() ?: state.lastExecutionId,
                     haltedReasonCode = null,
                     updatedAt = now,
                 )
@@ -67,7 +81,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
             OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
             -> {
-                if (executionObserved || order.hasFilledQuantity()) {
+                if (executions.isNotEmpty() || order.hasFilledQuantity()) {
                     pendingOrHalt(state, now, "TREND_ENTRY_PARTIAL_FILL_WITHOUT_POSITION")
                 } else {
                     recordNotFilled(state, order, entry = true, now = now)
@@ -75,7 +89,12 @@ internal class VolumeConfirmedTrendLiveRecovery(
             }
             OrderStatus.FILLED -> pendingOrHalt(state, now, "TREND_ENTRY_FILL_WITHOUT_POSITION")
             null -> {
-                val reason = if (executionObserved) "TREND_ENTRY_EXECUTION_WITHOUT_POSITION" else "TREND_ENTRY_ORDER_STATE_UNKNOWN"
+                val reason =
+                    if (executions.isNotEmpty()) {
+                        "TREND_ENTRY_EXECUTION_WITHOUT_POSITION"
+                    } else {
+                        "TREND_ENTRY_ORDER_STATE_UNKNOWN"
+                    }
                 pendingOrHalt(state, now, reason)
             }
         }
@@ -85,10 +104,13 @@ internal class VolumeConfirmedTrendLiveRecovery(
         state: VolumeConfirmedTrendLiveState,
         position: ExchangePosition?,
         order: ExchangeOpenOrder?,
-        executionObserved: Boolean,
+        executions: List<ExchangeExecutionFill>,
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         if (position == null) {
+            if (order == null && executions.isEmpty()) {
+                return pendingOrHalt(state, now, "TREND_EXIT_FLAT_WITHOUT_ORDER_EVIDENCE")
+            }
             val flat =
                 state.copy(
                     status = VolumeConfirmedTrendLiveStatus.FLAT,
@@ -96,10 +118,11 @@ internal class VolumeConfirmedTrendLiveRecovery(
                     exchangeOrderId = null,
                     observedPositionSide = null,
                     observedPositionQuantity = null,
+                    lastExecutionId = executions.lastExecutionId() ?: state.lastExecutionId,
                     haltedReasonCode = null,
                     updatedAt = now,
                 )
-            val event = lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.EXIT_FILL_OBSERVED, "TREND_EXIT_FILL_RECOVERED", now)
+            val event = lifecycleEvent(flat, VolumeConfirmedTrendLiveEventType.EXIT_FILL_OBSERVED, "TREND_EXIT_FILL_RECOVERED", now)
             store.commitTrendLive(flat, listOf(event))
             return VolumeConfirmedTrendLiveEvaluationResult(VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED, flat, null)
         }
@@ -116,7 +139,12 @@ internal class VolumeConfirmedTrendLiveRecovery(
             -> recordNotFilled(state, order, entry = false, position = position, now = now)
             OrderStatus.FILLED -> pendingOrHalt(state, now, "TREND_EXIT_FILL_POSITION_REMAINS", position)
             null -> {
-                val reason = if (executionObserved) "TREND_EXIT_EXECUTION_POSITION_REMAINS" else "TREND_EXIT_ORDER_STATE_UNKNOWN"
+                val reason =
+                    if (executions.isNotEmpty()) {
+                        "TREND_EXIT_EXECUTION_POSITION_REMAINS"
+                    } else {
+                        "TREND_EXIT_ORDER_STATE_UNKNOWN"
+                    }
                 pendingOrHalt(state, now, reason, position)
             }
         }
@@ -235,6 +263,8 @@ internal class VolumeConfirmedTrendLiveRecovery(
     }
 
     private fun ExchangeOpenOrder.hasFilledQuantity(): Boolean = filledQuantity?.let { it > BigDecimal.ZERO } == true
+
+    private fun List<ExchangeExecutionFill>.lastExecutionId(): String? = lastOrNull { !it.executionId.isNullOrBlank() }?.executionId
 
     private fun ExchangeOpenOrder.hasUnknownProviderStatus(): Boolean =
         providerStatus != null && providerStatus !in KNOWN_PROVIDER_ORDER_STATUSES

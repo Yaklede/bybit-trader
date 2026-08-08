@@ -3,6 +3,10 @@ package dev.yaklede.bybittrader.api.strategy
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
@@ -41,7 +45,8 @@ class VolumeConfirmedTrendLiveRoutesTest :
                 val response = client.get(LIVE_PATH) { bearerAuth(CREDENTIAL) }
 
                 response.status shouldBe HttpStatusCode.OK
-                response.bodyAsText() shouldBe """{"enabled":false,"state":null,"recentEvents":[]}"""
+                response.bodyAsText() shouldBe
+                    """{"enabled":false,"state":null,"recentEvents":[],"account":null,"recentExecutionFills":[]}"""
             }
         }
 
@@ -65,6 +70,9 @@ class VolumeConfirmedTrendLiveRoutesTest :
                     body shouldContain "\"haltedReasonCode\":\"TREND_POSITION_MISMATCH\""
                     body shouldContain "\"type\":\"HALTED\""
                     body shouldContain "\"reasonCode\":\"TREND_POSITION_MISMATCH\""
+                    body shouldContain "\"totalEquity\":\"660.50\""
+                    body shouldContain "\"executionId\":\"execution-001\""
+                    body shouldContain "\"fee\":\"0.252\""
                 }
             }
         }
@@ -103,6 +111,45 @@ private fun sampleLiveSnapshot(): VolumeConfirmedTrendLiveSnapshot =
         enabled = true,
         state = sampleLiveState(),
         recentEvents = listOf(sampleLiveEvent()),
+        accountSnapshot =
+            ExecutionAccountSnapshot(
+                mode = ExecutionRuntimeMode.LIVE,
+                accountType = "UNIFIED",
+                totalEquity = BigDecimal("660.50"),
+                totalWalletBalance = BigDecimal("655.25"),
+                totalMarginBalance = BigDecimal("660.50"),
+                totalAvailableBalance = BigDecimal("300.00"),
+                totalPerpUnrealizedPnl = BigDecimal("5.25"),
+                totalInitialMargin = BigDecimal("350.00"),
+                totalMaintenanceMargin = BigDecimal("10.00"),
+                trackedCoin = "USDT",
+                trackedCoinEquity = BigDecimal("660.50"),
+                trackedCoinWalletBalance = BigDecimal("655.25"),
+                trackedCoinUnrealizedPnl = BigDecimal("5.25"),
+                trackedCoinCumulativeRealizedPnl = BigDecimal("20.00"),
+                capturedAt = OBSERVED_AT,
+            ),
+        recentExecutionFills =
+            listOf(
+                ExecutionFillEvent(
+                    mode = ExecutionRuntimeMode.LIVE,
+                    fill =
+                        ExchangeExecutionFill(
+                            executionId = "execution-001",
+                            exchangeOrderId = "exchange-order-001",
+                            clientOrderId = "vcte-order-001",
+                            symbol = Symbol("BTCUSDT"),
+                            side = Side.BUY,
+                            price = BigDecimal("60000"),
+                            quantity = BigDecimal("0.007"),
+                            fee = BigDecimal("0.252"),
+                            executedAt = OBSERVED_AT,
+                            executionType = "Trade",
+                            executionPnl = BigDecimal.ZERO,
+                        ),
+                    receivedAt = OBSERVED_AT.plusSeconds(1),
+                ),
+            ),
     )
 
 private fun sampleLiveState(): VolumeConfirmedTrendLiveState =

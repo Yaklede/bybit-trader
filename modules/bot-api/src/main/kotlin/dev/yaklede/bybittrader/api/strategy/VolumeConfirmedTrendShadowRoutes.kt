@@ -1,5 +1,7 @@
 package dev.yaklede.bybittrader.api.strategy
 
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
@@ -24,6 +26,8 @@ data class VolumeConfirmedTrendLiveSnapshot(
     val enabled: Boolean,
     val state: VolumeConfirmedTrendLiveState?,
     val recentEvents: List<VolumeConfirmedTrendLiveEvent>,
+    val accountSnapshot: ExecutionAccountSnapshot? = null,
+    val recentExecutionFills: List<ExecutionFillEvent> = emptyList(),
 )
 
 fun Route.configureVolumeConfirmedTrendShadowRoutes(
@@ -70,6 +74,8 @@ data class VolumeConfirmedTrendLiveResponse(
     val enabled: Boolean,
     val state: VolumeConfirmedTrendLiveStateResponse?,
     val recentEvents: List<VolumeConfirmedTrendLiveEventResponse>,
+    val account: VolumeConfirmedTrendLiveAccountResponse?,
+    val recentExecutionFills: List<VolumeConfirmedTrendLiveFillResponse>,
 ) {
     companion object {
         fun disabled(): VolumeConfirmedTrendLiveResponse =
@@ -77,9 +83,45 @@ data class VolumeConfirmedTrendLiveResponse(
                 enabled = false,
                 state = null,
                 recentEvents = emptyList(),
+                account = null,
+                recentExecutionFills = emptyList(),
             )
     }
 }
+
+@Serializable
+data class VolumeConfirmedTrendLiveAccountResponse(
+    val mode: String,
+    val accountType: String,
+    val totalEquity: String?,
+    val totalWalletBalance: String?,
+    val totalAvailableBalance: String?,
+    val totalPerpUnrealizedPnl: String?,
+    val totalInitialMargin: String?,
+    val totalMaintenanceMargin: String?,
+    val trackedCoin: String?,
+    val trackedCoinEquity: String?,
+    val trackedCoinWalletBalance: String?,
+    val trackedCoinUnrealizedPnl: String?,
+    val trackedCoinCumulativeRealizedPnl: String?,
+    val capturedAt: String,
+)
+
+@Serializable
+data class VolumeConfirmedTrendLiveFillResponse(
+    val executionId: String?,
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+    val symbol: String,
+    val side: String,
+    val price: String,
+    val quantity: String,
+    val fee: String,
+    val executionPnl: String?,
+    val executionType: String?,
+    val executedAt: String,
+    val receivedAt: String,
+)
 
 @Serializable
 data class VolumeConfirmedTrendLiveStateResponse(
@@ -286,6 +328,42 @@ private fun VolumeConfirmedTrendLiveSnapshot.toResponse(): VolumeConfirmedTrendL
         enabled = enabled,
         state = state?.toResponse(),
         recentEvents = recentEvents.map(VolumeConfirmedTrendLiveEvent::toResponse),
+        account = accountSnapshot?.toTrendLiveResponse(),
+        recentExecutionFills = recentExecutionFills.map(ExecutionFillEvent::toTrendLiveResponse),
+    )
+
+private fun ExecutionAccountSnapshot.toTrendLiveResponse(): VolumeConfirmedTrendLiveAccountResponse =
+    VolumeConfirmedTrendLiveAccountResponse(
+        mode = mode.name,
+        accountType = accountType,
+        totalEquity = totalEquity?.toPlainString(),
+        totalWalletBalance = totalWalletBalance?.toPlainString(),
+        totalAvailableBalance = totalAvailableBalance?.toPlainString(),
+        totalPerpUnrealizedPnl = totalPerpUnrealizedPnl?.toPlainString(),
+        totalInitialMargin = totalInitialMargin?.toPlainString(),
+        totalMaintenanceMargin = totalMaintenanceMargin?.toPlainString(),
+        trackedCoin = trackedCoin,
+        trackedCoinEquity = trackedCoinEquity?.toPlainString(),
+        trackedCoinWalletBalance = trackedCoinWalletBalance?.toPlainString(),
+        trackedCoinUnrealizedPnl = trackedCoinUnrealizedPnl?.toPlainString(),
+        trackedCoinCumulativeRealizedPnl = trackedCoinCumulativeRealizedPnl?.toPlainString(),
+        capturedAt = capturedAt.toString(),
+    )
+
+private fun ExecutionFillEvent.toTrendLiveResponse(): VolumeConfirmedTrendLiveFillResponse =
+    VolumeConfirmedTrendLiveFillResponse(
+        executionId = fill.executionId,
+        exchangeOrderId = fill.exchangeOrderId,
+        clientOrderId = fill.clientOrderId,
+        symbol = fill.symbol.value,
+        side = fill.side.name,
+        price = fill.price.toPlainString(),
+        quantity = fill.quantity.toPlainString(),
+        fee = fill.fee.toPlainString(),
+        executionPnl = fill.executionPnl?.toPlainString(),
+        executionType = fill.executionType,
+        executedAt = fill.executedAt.toString(),
+        receivedAt = receivedAt.toString(),
     )
 
 private fun VolumeConfirmedTrendLiveState.toResponse(): VolumeConfirmedTrendLiveStateResponse =

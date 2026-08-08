@@ -17,10 +17,11 @@ class VolumeConfirmedTrendLiveService(
     private val shadowEvidenceSha256: String,
     private val approvalReportSha256: String,
     private val executionContract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+    private val projectionSink: VolumeConfirmedTrendLiveProjectionSink = NoopVolumeConfirmedTrendLiveProjectionSink,
     private val clock: () -> Instant = Instant::now,
 ) : VolumeConfirmedTrendLiveExecutor {
     private val evaluationMutex = Mutex()
-    private val recovery = VolumeConfirmedTrendLiveRecovery(gateway, store, config)
+    private val recovery = VolumeConfirmedTrendLiveRecovery(gateway, store, config, projectionSink)
 
     suspend fun evaluate(
         command: VolumeConfirmedTrendCommand,
@@ -43,12 +44,18 @@ class VolumeConfirmedTrendLiveService(
     override suspend fun haltForSafety(reasonCode: String): VolumeConfirmedTrendLiveEvaluationResult =
         evaluationMutex.withLock {
             require(reasonCode.isNotBlank()) { "Trend live safety halt reason must not be blank." }
-            halt(
-                previous = store.trendLiveState(config.protocolId, config.symbol),
-                signal = null,
-                now = clock(),
-                reasonCode = reasonCode,
-            )
+            val now = clock()
+            val stored = store.trendLiveState(config.protocolId, config.symbol)
+            if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED && stored.haltedReasonCode == reasonCode) {
+                reconcileHalted(stored, now)
+            } else {
+                halt(
+                    previous = stored,
+                    signal = null,
+                    now = now,
+                    reasonCode = reasonCode,
+                )
+            }
         }
 
     private suspend fun evaluateLocked(
@@ -130,6 +137,7 @@ class VolumeConfirmedTrendLiveService(
         }
 
         val balance = gateway.accountBalance("USDT")
+        projectionSink.recordAccountBalance(balance)
         val equity =
             balance.totalEquity?.takeIf { it > BigDecimal.ZERO }
                 ?: return halt(stored, signal, now, "TREND_ACCOUNT_EQUITY_UNAVAILABLE", position = position)
@@ -166,13 +174,7 @@ class VolumeConfirmedTrendLiveService(
                 approvalFailures = approval.failures,
             )
         }
-        if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) {
-            return VolumeConfirmedTrendLiveEvaluationResult(
-                status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
-                state = stored,
-                plan = null,
-            )
-        }
+        if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) return reconcileHalted(stored, now)
 
         val instrument = gateway.instrumentRules(config.symbol)
         val contractValidation =
@@ -191,6 +193,7 @@ class VolumeConfirmedTrendLiveService(
                 contractFailures = contractValidation.failures,
             )
         }
+        captureAccountSnapshotIfDue(now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (openPositions.size > 1) {
             return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
@@ -239,6 +242,47 @@ class VolumeConfirmedTrendLiveService(
             state = stored,
             plan = null,
         )
+    }
+
+    private suspend fun reconcileHalted(
+        stored: VolumeConfirmedTrendLiveState,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        captureAccountSnapshotIfDue(now)
+        val positions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        if (positions.size > 1) {
+            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+        }
+        val position = positions.singleOrNull()
+        val reconciled =
+            stored.copy(
+                observedPositionSide = position?.side,
+                observedPositionQuantity = position?.size,
+                updatedAt = now,
+            )
+        if (!reconciled.samePersistedStateAs(stored)) {
+            store.commitTrendLive(
+                reconciled,
+                listOf(
+                    lifecycleEvent(
+                        reconciled,
+                        VolumeConfirmedTrendLiveEventType.RECONCILED,
+                        "TREND_HALTED_STATE_RECONCILED",
+                        now,
+                    ),
+                ),
+            )
+        }
+        return VolumeConfirmedTrendLiveEvaluationResult(
+            status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
+            state = if (reconciled.samePersistedStateAs(stored)) stored else reconciled,
+            plan = null,
+        )
+    }
+
+    private suspend fun captureAccountSnapshotIfDue(now: Instant) {
+        if (!projectionSink.accountSnapshotDue(now)) return
+        projectionSink.recordAccountBalance(gateway.accountBalance("USDT"))
     }
 
     private suspend fun approvalValidation(): VolumeConfirmedTrendLiveApprovalValidation =

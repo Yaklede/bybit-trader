@@ -57,6 +57,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
+import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
@@ -99,6 +100,7 @@ import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.server.cio.CIO as ServerCIO
@@ -551,6 +553,11 @@ fun main() {
                 shadowEvidenceSha256 = approval.shadowEvidenceSha256,
                 approvalReportSha256 = approval.approvalReportSha256,
                 executionContract = runtimeDefinition.protocol.executionContract,
+                projectionSink =
+                    LedgerVolumeConfirmedTrendLiveProjectionSink(
+                        store = ledger,
+                        runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
+                    ),
             )
         }
     val trendLiveScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -813,6 +820,7 @@ fun main() {
                 volumeConfirmedTrendLiveSnapshotProvider =
                     trendRuntimeDefinition?.let { runtimeDefinition ->
                         { limit ->
+                            val executionRuntimeMode = config.runtimeMode.toExecutionRuntimeMode()
                             VolumeConfirmedTrendLiveSnapshot(
                                 enabled = config.volumeConfirmedTrendLive.enabled,
                                 state =
@@ -826,6 +834,20 @@ fun main() {
                                         runtimeDefinition.protocol.symbol,
                                         limit,
                                     ),
+                                accountSnapshot =
+                                    ledger.latestAccountSnapshot(
+                                        executionRuntimeMode,
+                                        Instant.now(),
+                                    ),
+                                recentExecutionFills =
+                                    ledger
+                                        .executionFills(
+                                            executionRuntimeMode,
+                                            runtimeDefinition.protocol.symbol,
+                                            null,
+                                            1_000,
+                                        ).filter { event -> event.fill.clientOrderId?.startsWith("vct-") == true }
+                                        .take(limit),
                             )
                         }
                     },

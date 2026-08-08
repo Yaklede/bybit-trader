@@ -47,6 +47,11 @@ it does not call Bybit and does not synthesize a position. Query parameter
 `limit` defaults to 50 and accepts 1-100. The response exposes the approval ID,
 active decision key, pending target side, client and exchange order IDs,
 exchange-observed position, last execution ID, halt reason, and update time.
+It also returns the latest persisted USDT account snapshot and H4-only
+`recentExecutionFills`. Each fill includes Bybit `execId`, price, quantity,
+fee, execution PnL, execution type, exchange/client order IDs, exchange time,
+and local receive time. Account and fill values come from the shared idempotent
+execution projection; they are not inferred from Shadow performance.
 
 `enabled=false` means the H4 private loop is not configured in this process. A
 persisted state can still be returned when Shadow is enabled so an operator can

@@ -94,6 +94,71 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 0
         }
 
+        "approved reconciliation periodically records exchange equity" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val projection = RecordingTrendLiveProjectionSink(accountSnapshotDue = true)
+            val service = service(gateway, store, projectionSink = projection)
+
+            service.reconcile()
+
+            projection.balances.single().totalEquity shouldBe BigDecimal("660")
+        }
+
+        "entry recovery records exact fills and their latest execution id" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val projection = RecordingTrendLiveProjectionSink()
+            val service = service(gateway, store, projectionSink = projection)
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.007")
+            gateway.executionFills += executionFill(clientOrderId, "execution-001")
+
+            val recovered = service.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            recovered.state.lastExecutionId shouldBe "execution-001"
+            projection.fills.single().executionId shouldBe "execution-001"
+        }
+
+        "partial entry fill preserves the exchange-observed quantity" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.003")
+            gateway.executionFills += executionFill(clientOrderId, "execution-partial-001", quantity = "0.003")
+
+            val recovered = service.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            recovered.state.observedPositionQuantity shouldBe BigDecimal("0.003")
+        }
+
+        "projection write failure leaves the submitted checkpoint recoverable" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val projection = RecordingTrendLiveProjectionSink(failExecutionRecordingOnce = true)
+            val service = service(gateway, store, projectionSink = projection)
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.007")
+            gateway.executionFills += executionFill(clientOrderId, "execution-retry-001")
+
+            shouldThrow<IllegalStateException> { service.reconcile() }
+            store.state?.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+            val recovered = service.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            recovered.state.lastExecutionId shouldBe "execution-retry-001"
+            projection.fills.single().executionId shouldBe "execution-retry-001"
+        }
+
         "approved flat account records intent before submitting one bounded IOC order" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -115,6 +180,40 @@ class VolumeConfirmedTrendLiveServiceTest :
                 price shouldBe BigDecimal("60012")
                 reduceOnly shouldBe false
             }
+        }
+
+        "intent persistence failure submits no exchange order" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore(failOnCommitNumber = 1)
+            val service = service(gateway, store)
+
+            shouldThrow<IllegalStateException> {
+                service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            }
+
+            gateway.submittedOrders.size shouldBe 0
+            store.state shouldBe null
+        }
+
+        "ambiguous place-order failure never retries the recorded intent blindly" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+            gateway.beforePlaceOrder = { throw IllegalStateException("injected ambiguous transport failure") }
+
+            shouldThrow<IllegalStateException> {
+                service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            }
+            gateway.beforePlaceOrder = {}
+            service.evaluate(command(Side.BUY), BigDecimal("60000")).status shouldBe
+                VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            now = now.plusSeconds(11)
+            val halted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            halted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            halted.state.haltedReasonCode shouldBe "TREND_ENTRY_ORDER_STATE_UNKNOWN"
+            gateway.submittedOrders.size shouldBe 0
         }
 
         "concurrent evaluations are serialized and submit at most one order" {
@@ -202,6 +301,24 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
         }
 
+        "a same-side position without exact order evidence is not adopted" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            gateway.openOrders.clear()
+            gateway.positions += position(Side.BUY, "0.007")
+            now = now.plusSeconds(11)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_ENTRY_POSITION_WITHOUT_ORDER_EVIDENCE"
+            gateway.submittedOrders.size shouldBe 1
+        }
+
         "opposite signal closes first and cannot enter until exchange confirms flat" {
             val openPosition = position(Side.BUY, "0.007")
             val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
@@ -223,6 +340,7 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
 
             gateway.positions.clear()
+            gateway.executionFills += executionFill(requireNotNull(close.state.clientOrderId), "execution-exit-001")
             gateway.openOrders.clear()
             val flat = service.evaluate(command(Side.SELL), BigDecimal("60000"))
             flat.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
@@ -396,6 +514,7 @@ private fun service(
     store: InMemoryTrendLiveStore,
     approved: Boolean = true,
     clock: () -> Instant = { TEST_NOW },
+    projectionSink: VolumeConfirmedTrendLiveProjectionSink = NoopVolumeConfirmedTrendLiveProjectionSink,
 ): VolumeConfirmedTrendLiveService =
     VolumeConfirmedTrendLiveService(
         gateway = gateway,
@@ -411,7 +530,52 @@ private fun service(
         approvalReportProvider = { approvalReport() },
         shadowEvidenceSha256 = EVIDENCE_SHA,
         approvalReportSha256 = REPORT_SHA,
+        projectionSink = projectionSink,
         clock = clock,
+    )
+
+private class RecordingTrendLiveProjectionSink(
+    private val accountSnapshotDue: Boolean = false,
+    private var failExecutionRecordingOnce: Boolean = false,
+) : VolumeConfirmedTrendLiveProjectionSink {
+    val balances = mutableListOf<ExchangeAccountBalance>()
+    val fills = mutableListOf<ExchangeExecutionFill>()
+
+    override suspend fun accountSnapshotDue(now: Instant): Boolean = accountSnapshotDue
+
+    override suspend fun recordAccountBalance(balance: ExchangeAccountBalance) {
+        balances += balance
+    }
+
+    override suspend fun recordExecutionFills(
+        fills: List<ExchangeExecutionFill>,
+        receivedAt: Instant,
+    ) {
+        if (failExecutionRecordingOnce) {
+            failExecutionRecordingOnce = false
+            throw IllegalStateException("injected trend projection failure")
+        }
+        this.fills += fills
+    }
+}
+
+private fun executionFill(
+    clientOrderId: String,
+    executionId: String,
+    quantity: String = "0.007",
+): ExchangeExecutionFill =
+    ExchangeExecutionFill(
+        exchangeOrderId = "exchange-fill-001",
+        clientOrderId = clientOrderId,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        price = BigDecimal("60000"),
+        quantity = BigDecimal(quantity),
+        fee = BigDecimal("0.252"),
+        executedAt = TEST_NOW,
+        executionId = executionId,
+        executionType = "Trade",
+        executionPnl = BigDecimal.ZERO,
     )
 
 private fun approvalReceipt(approved: Boolean): VolumeConfirmedTrendLiveApprovalReceipt =

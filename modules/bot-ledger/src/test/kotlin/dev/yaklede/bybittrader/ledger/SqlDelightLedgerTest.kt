@@ -13,7 +13,9 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
+import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountTransactionEvent
@@ -52,6 +54,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperRuntimePhase
 import dev.yaklede.bybittrader.engine.paper.PaperRuntimeState
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.position.CausalPositionState
+import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
@@ -768,6 +771,72 @@ class SqlDelightLedgerTest :
             stored.fill.createType shouldBe "CreateByUser"
             stored.fill.fee shouldBe BigDecimal("0.0352")
             stored.receivedAt shouldBe Instant.parse("2026-06-30T00:00:02Z")
+        }
+
+        "trend live projection stores account equity and deduplicated exact fills" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val sink =
+                LedgerVolumeConfirmedTrendLiveProjectionSink(
+                    store = ledger,
+                    runtimeMode = ExecutionRuntimeMode.LIVE,
+                )
+            val capturedAt = Instant.parse("2026-08-08T00:00:00Z")
+            val balance =
+                ExchangeAccountBalance(
+                    accountType = "UNIFIED",
+                    totalEquity = BigDecimal("660.50"),
+                    totalWalletBalance = BigDecimal("655.25"),
+                    totalMarginBalance = BigDecimal("660.50"),
+                    totalAvailableBalance = BigDecimal("300.00"),
+                    totalPerpUnrealizedPnl = BigDecimal("5.25"),
+                    totalInitialMargin = BigDecimal("350.00"),
+                    totalMaintenanceMargin = BigDecimal("10.00"),
+                    coins =
+                        listOf(
+                            ExchangeCoinBalance(
+                                coin = "USDT",
+                                equity = BigDecimal("660.50"),
+                                usdValue = BigDecimal("660.50"),
+                                walletBalance = BigDecimal("655.25"),
+                                locked = BigDecimal.ZERO,
+                                unrealizedPnl = BigDecimal("5.25"),
+                                cumulativeRealizedPnl = BigDecimal("20.00"),
+                            ),
+                        ),
+                    capturedAt = capturedAt,
+                )
+            val fill =
+                ExchangeExecutionFill(
+                    executionId = "trend-exec-001",
+                    exchangeOrderId = "trend-order-001",
+                    clientOrderId = "vcte-live-order-001",
+                    symbol = Symbol("BTCUSDT"),
+                    side = Side.BUY,
+                    price = BigDecimal("60000"),
+                    quantity = BigDecimal("0.007"),
+                    fee = BigDecimal("0.252"),
+                    executedAt = capturedAt,
+                    executionType = "Trade",
+                    executionPnl = BigDecimal.ZERO,
+                )
+
+            sink.accountSnapshotDue(capturedAt) shouldBe true
+            sink.recordAccountBalance(balance)
+            sink.recordExecutionFills(listOf(fill, fill), capturedAt.plusSeconds(1))
+
+            sink.accountSnapshotDue(capturedAt.plusSeconds(30)) shouldBe false
+            sink.accountSnapshotDue(capturedAt.plusSeconds(60)) shouldBe true
+            ledger.latestAccountSnapshot(ExecutionRuntimeMode.LIVE, capturedAt)?.apply {
+                totalEquity shouldBe BigDecimal("660.50")
+                trackedCoin shouldBe "USDT"
+                trackedCoinWalletBalance shouldBe BigDecimal("655.25")
+            }
+            ledger.executionFills(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), null, 10).single().apply {
+                this.fill.executionId shouldBe "trend-exec-001"
+                this.fill.fee shouldBe BigDecimal("0.252")
+            }
         }
 
         "additive migration adds actual-fill protection metadata to a legacy lifecycle table" {

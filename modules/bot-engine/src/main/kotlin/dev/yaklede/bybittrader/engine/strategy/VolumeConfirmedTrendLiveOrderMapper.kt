@@ -74,7 +74,20 @@ internal fun lifecycleEvent(
     now: Instant,
 ): VolumeConfirmedTrendLiveEvent =
     VolumeConfirmedTrendLiveEvent(
-        eventId = trendLiveEventId(state.activeDecisionKey ?: state.protocolSha256, type, state.clientOrderId, state.exchangeOrderId),
+        eventId =
+            trendLiveEventId(
+                decisionKey = state.activeDecisionKey ?: state.protocolSha256,
+                type = type,
+                clientOrderId = state.clientOrderId,
+                exchangeOrderId = state.exchangeOrderId,
+                discriminator =
+                    listOf(
+                        reasonCode,
+                        state.observedPositionSide?.name.orEmpty(),
+                        state.observedPositionQuantity?.toPlainString().orEmpty(),
+                        state.lastExecutionId.orEmpty(),
+                    ).joinToString("|"),
+            ),
         protocolId = state.protocolId,
         protocolSha256 = state.protocolSha256,
         symbol = state.symbol,
@@ -97,8 +110,13 @@ private fun trendLiveEventId(
     type: VolumeConfirmedTrendLiveEventType,
     clientOrderId: String?,
     exchangeOrderId: String?,
+    discriminator: String? = null,
 ): String =
     MessageDigest
         .getInstance("SHA-256")
-        .digest("$decisionKey|${type.name}|${clientOrderId.orEmpty()}|${exchangeOrderId.orEmpty()}".toByteArray())
-        .joinToString("") { byte -> "%02x".format(byte) }
+        .digest(
+            buildString {
+                append("$decisionKey|${type.name}|${clientOrderId.orEmpty()}|${exchangeOrderId.orEmpty()}")
+                discriminator?.let { append("|$it") }
+            }.toByteArray(),
+        ).joinToString("") { byte -> "%02x".format(byte) }

@@ -1,7 +1,7 @@
 # 거래량 확인형 추세 전략 실거래 실행 기술 설계
 
 > 작성일: 2026-08-07
-> 상태: 승인 기반 런타임 연결 완료, 체결·계좌 projection 및 전진 승인 대기
+> 상태: 승인 기반 런타임·체결/계좌 projection 완료, 전진 승인 대기
 > 대상 모듈: `bot-engine`, `bot-exchange-bybit`, `bot-ledger`, `bot-app`
 
 ## 1. 설계 배경 및 목적
@@ -289,8 +289,13 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 승인된 경우에만 `VolumeConfirmedTrendLiveLoop`를 시작하고, PAUSE 상태에서도 거래소 포지션 대사는 유지한다.
 - 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.
 - `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트를 인증된 운영자에게 제공한다.
+- 승인된 실행 중 USDT account equity를 1분 간격으로 공통 account snapshot에 저장하고, 복구에서 확인한
+  모든 H4 `execId`의 가격·수량·수수료·실현 PnL을 공통 체결 원장에 중복 없이 저장한다.
+- `HALTED` 상태에서도 신규 주문은 만들지 않지만 실제 포지션과 account snapshot 관측은 계속한다.
+- 의도 저장 실패, 주문 응답 불명확, 주문 ack 저장 실패, 체결 projection 저장 실패, 부분 체결 및
+  exact-order 증거 누락을 장애 주입 테스트로 검증한다.
 
-아직 완료되지 않은 항목은 실제 체결 상세·수수료·계좌 equity projection 연결, 장애 주입 통합 테스트,
+아직 완료되지 않은 항목은 transaction log 기반 funding/입출금 세부 대사, 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다. 따라서 기본 승인 파일과
 `BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false`는 유지한다.
 
