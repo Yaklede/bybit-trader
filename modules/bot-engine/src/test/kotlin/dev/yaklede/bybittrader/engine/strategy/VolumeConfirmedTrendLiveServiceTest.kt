@@ -423,6 +423,102 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 0
         }
 
+        "contract mismatch exits an owned position when reduce-only execution remains safe" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.positionProfileResponse =
+                gateway.positionProfileResponse.copy(
+                    buyLeverage = BigDecimal("2"),
+                    sellLeverage = BigDecimal("2"),
+                )
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            result.contractFailures shouldBe
+                listOf(
+                    VolumeConfirmedTrendExchangeContractFailure.BUY_LEVERAGE_NOT_ONE,
+                    VolumeConfirmedTrendExchangeContractFailure.SELL_LEVERAGE_NOT_ONE,
+                )
+            result.plan?.reasonCode shouldBe
+                "$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|TREND_EXCHANGE_CONTRACT_MISMATCH"
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.SELL
+                quantity shouldBe BigDecimal("0.007")
+                reduceOnly shouldBe true
+            }
+        }
+
+        "contract mismatch does not exit when the position mode is unsafe" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.positionProfileResponse =
+                gateway.positionProfileResponse.copy(positionMode = ExchangePositionMode.HEDGE)
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe
+                "TREND_EXCHANGE_CONTRACT_MISMATCH|TREND_SAFETY_EXIT_CONTRACT_UNAVAILABLE"
+            result.contractFailures shouldBe
+                listOf(VolumeConfirmedTrendExchangeContractFailure.POSITION_MODE_NOT_ONE_WAY)
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "persisted contract mismatch halt resumes an owned reduce-only exit" {
+            val ownedPosition = position(Side.SELL, "0.004")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.positionProfileResponse =
+                gateway.positionProfileResponse.copy(
+                    buyLeverage = BigDecimal("2"),
+                    sellLeverage = BigDecimal("2"),
+                )
+            val halted =
+                openState(ownedPosition).copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
+                )
+            val store = InMemoryTrendLiveStore(state = halted)
+            val service = service(gateway, store)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.BUY
+                quantity shouldBe BigDecimal("0.004")
+                reduceOnly shouldBe true
+            }
+        }
+
+        "contract mismatch still recovers a pending order before any safety action" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            gateway.positionProfileResponse =
+                gateway.positionProfileResponse.copy(
+                    buyLeverage = BigDecimal("2"),
+                    sellLeverage = BigDecimal("2"),
+                )
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+            result.contractFailures shouldBe
+                listOf(
+                    VolumeConfirmedTrendExchangeContractFailure.BUY_LEVERAGE_NOT_ONE,
+                    VolumeConfirmedTrendExchangeContractFailure.SELL_LEVERAGE_NOT_ONE,
+                )
+            gateway.submittedOrders.size shouldBe 1
+            submitted.state.clientOrderId shouldBe result.state.clientOrderId
+        }
+
         "safety halt retries a known unfilled exit only after its delay" {
             var now = TEST_NOW
             val ownedPosition = position(Side.BUY, "0.007")

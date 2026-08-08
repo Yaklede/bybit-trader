@@ -252,6 +252,11 @@ Approval revocation closes an exactly owned position only after confirming that
 there is no active `vct-*` order and that one-way, reduce-only, tradable
 BTCUSDT-linear execution remains available. Any uncertainty halts without a
 duplicate exit; unrelated manual orders remain an entry-only blocker.
+An approved runtime also treats a drift from the frozen entry contract as an
+immediate entry block. It first recovers an existing pending order and may close
+an exactly owned position only when the smaller reduce-only safety contract is
+still valid; hedge mode, trading suspension, or ownership uncertainty leaves the
+runtime halted for operator action.
 During H4 pending-order recovery, an active exact IOC order prevents both
 `OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
 order after the recovery timeout and requires terminal exchange readback; an

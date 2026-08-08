@@ -210,11 +210,7 @@ class VolumeConfirmedTrendLiveService(
                 contract = executionContract,
             )
         if (!contractValidation.valid) {
-            return halt(
-                previous = stored,
-                signal = signal,
-                now = now,
-                reasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
+            return safetyHalt(stored, TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE, now).copy(
                 contractFailures = contractValidation.failures,
             )
         }
@@ -329,11 +325,7 @@ class VolumeConfirmedTrendLiveService(
                 contract = executionContract,
             )
         if (!contractValidation.valid) {
-            return halt(
-                previous = stored,
-                signal = null,
-                now = now,
-                reasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
+            return safetyHalt(stored, TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE, now).copy(
                 contractFailures = contractValidation.failures,
             )
         }
@@ -449,6 +441,11 @@ class VolumeConfirmedTrendLiveService(
             return halt(riskStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = positions.singleOrNull()
+        if (riskStored.haltedReasonCode?.startsWith(TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE) == true &&
+            position != null
+        ) {
+            return safetyHalt(riskStored, TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE, now)
+        }
         if (riskStored.haltedReasonCode in RECOVERABLE_ENTRY_INVENTORY_HALT_REASONS &&
             position != null &&
             riskStored.matches(position)
@@ -1184,6 +1181,7 @@ class VolumeConfirmedTrendLiveService(
     private companion object {
         const val TREND_SETTLE_COIN = "USDT"
         const val TREND_ORDER_ID_PREFIX = "vct-"
+        const val TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE = "TREND_EXCHANGE_CONTRACT_MISMATCH"
         val RECOVERABLE_ENTRY_INVENTORY_HALT_REASONS =
             setOf(
                 "TREND_FOREIGN_POSITION_OBSERVED",

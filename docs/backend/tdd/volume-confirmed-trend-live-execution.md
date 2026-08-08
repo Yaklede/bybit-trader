@@ -242,6 +242,7 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 | `TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED` | 승인 상실 시 활성 `vct-*` 주문 존재 | 중복 종료 금지, exact 주문 복구 또는 사람 확인 |
 | `TREND_SHADOW_GATE_NOT_READY` | 현재 report가 human review 전 | 주문 경로 구성 금지 |
 | `TREND_ACCOUNT_MODE_MISMATCH` | hedge/isolated/비 Unified | `HALTED`, Discord 긴급 알림 |
+| `TREND_EXCHANGE_CONTRACT_MISMATCH` | 승인된 진입 계약과 현재 거래소 설정 불일치 | 신규 진입 차단, pending 복구, 안전한 경우 소유 포지션 reduce-only 종료 |
 | `TREND_EXPOSURE_LIMIT_EXCEEDED` | 수량 반올림 후 0.85 초과 | 주문 없음 |
 | `TREND_POSITION_MISMATCH` | 로컬과 거래소 방향/수량 불일치 | `HALTED`, 신규 진입 차단 |
 | `TREND_EXIT_PENDING` | 종료 미확정 | 신규 진입 차단, 대사 반복 |
@@ -277,6 +278,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   신규 진입은 계속 차단한다.
 - 안전 종료는 포지션을 감소시키는 전체 수량 주문이므로 일반 신규 주문의 minimum-notional 사전 차단을
   적용하지 않는다. 거래소의 실제 수락·미체결 결과는 동일한 pending 복구 상태 머신으로 확인한다.
+- 레버리지, 계정 또는 instrument 조건이 승인 계약과 달라지면 신규 진입은 즉시 차단한다. 다만 exact
+  소유권과 one-way mode, reduce-only 허용, 거래 가능한 BTCUSDT linear 계약이 확인되면 기존 포지션은
+  bounded reduce-only IOC로 정리한다. hedge mode, 거래 중단, 소유권 또는 조회 불확실성에서는 주문하지
+  않는다. 이전 버전이 남긴 동일 계약 중단 상태도 대사 중 이 안전 종료 경로로 복구한다.
 
 ## 8. 변경 파일 계획
 
