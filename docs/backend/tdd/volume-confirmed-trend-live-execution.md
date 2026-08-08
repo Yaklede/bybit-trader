@@ -324,6 +324,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   `GET /strategy/volume-confirmed-trend/exchange-contract`로 account/position/instrument 읽기만 수행해
   Unified/Cross/one-way/1배/수량 단위 계약과 불일치 코드를 확인할 수 있다. 이 점검은 레버리지 변경,
   주문 생성·취소, 잔고·체결 조회를 수행하지 않는다.
+- Shadow 평가 성공 뒤 현재 승인 보고서를 다시 계산하고 세션·전체 상태·게이트 상태 조합이 바뀐 경우에만
+  Discord/Telegram 전진 검증 알림을 보낸다. 검토 준비 알림도 자동·실거래 주문 차단과 별도 사람 승인을
+  명시하며 같은 상태의 H4 반복 평가는 중복 알림을 만들지 않는다.
 
 아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손실 제한은 미완료 항목이 아니라 v1의

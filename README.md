@@ -305,6 +305,13 @@ highest automatic status; it does not enable live orders. The approval policy
 keeps `automaticExecutionAllowed=false` and `liveExecutionAllowed=false` even
 after every quantitative gate passes.
 
+When an alert sink is enabled, the bot sends an H4 forward-validation message
+only when the session, overall status, or a gate PASS/PENDING/FAIL state changes.
+The message includes observed days, session return, closed-trade Profit Factor,
+and the remaining gates. `READY_FOR_HUMAN_REVIEW` explicitly says that evidence
+export and separate human approval are still required; it never enables an
+order by itself.
+
 The **4시간 추세 전략** and **4시간 전략 활동** panels render only persisted
 live evidence: exchange-observed position state, unitized-NAV drawdown and its
 35% limit, wallet-ledger reconciliation, H4-attributed closures/fills, BTCUSDT

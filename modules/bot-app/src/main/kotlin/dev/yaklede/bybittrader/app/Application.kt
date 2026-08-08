@@ -58,6 +58,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractInspector
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveConfig
@@ -480,6 +481,7 @@ fun main() {
         }
     val trendShadowScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val trendShadowAlertPolicy = VolumeConfirmedTrendShadowAlertPolicy()
+    val trendApprovalAlertPolicy = VolumeConfirmedTrendApprovalAlertPolicy()
     val trendShadowJob =
         trendShadowService?.let { shadowService ->
             val settings = config.volumeConfirmedTrendShadow
@@ -522,6 +524,20 @@ fun main() {
                         )
                     }
                     trendShadowAlertPolicy.recordSuccess()
+                    val approvalReport = trendApprovalService.evaluate()
+                    logger.info(
+                        "volume-confirmed trend approval evaluated status={} sessionId={} observedDays={} readyForHumanReview={} pendingOrFailedGates={}",
+                        approvalReport.status.name,
+                        approvalReport.sessionId,
+                        approvalReport.observedCalendarDays,
+                        approvalReport.readyForHumanReview,
+                        approvalReport.gates.count { gate ->
+                            gate.status != VolumeConfirmedTrendApprovalGateStatus.PASS
+                        },
+                    )
+                    if (trendApprovalAlertPolicy.shouldAlert(approvalReport)) {
+                        alertingService.send(approvalReport.toOperatorAlert())
+                    }
                 },
                 onFailure = { error ->
                     if (trendShadowAlertPolicy.shouldAlert(error)) {

@@ -380,6 +380,12 @@ curl -X POST \
 - Private execution recalculates TP/SL from reconciled actual fills and verifies
   exchange protection. The Paper candidate is not connected to private
   execution, so Paper evidence cannot be treated as live approval.
+- H4 forward-validation alerts are transition based. A changed session, overall
+  approval status, or gate PASS/PENDING/FAIL state sends one Korean summary with
+  observed days, return, Profit Factor, and remaining gates. Repeated H4
+  evaluations with the same gate states do not repeat the message. A
+  `4시간 전략 검토 준비 완료` alert still requires artifact export and explicit
+  human approval; it does not activate TESTNET or LIVE orders.
 
 ## Stop Condition Before Tokens
 
