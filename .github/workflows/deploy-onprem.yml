@@ -517,3 +517,27 @@ jobs:
         if: ${{ inputs.deploy != true }}
         run: |
           echo "On-prem deployment dry-run passed. No Twingate connection or host change was attempted."
+
+      - name: Notify Discord on deployment failure
+        if: ${{ failure() }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DEPLOY_REQUESTED: ${{ inputs.deploy }}
+        shell: bash
+        run: |
+          set -eu
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "Discord deployment alert skipped because the webhook is not configured."
+            exit 0
+          fi
+          if [ "${DEPLOY_REQUESTED}" = "true" ]; then
+            FAILURE_SCOPE="호스트 배포 또는 자동 롤백"
+          else
+            FAILURE_SCOPE="배포 사전 검증"
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PAYLOAD="$(printf '{"content":"[주의] 온프레미스 봇 %s에 실패했어요. GitHub Actions에서 원인을 확인해 주세요: %s"}' "${FAILURE_SCOPE}" "${RUN_URL}")"
+          curl -fsS --max-time 15 \
+            -H 'Content-Type: application/json' \
+            --data "${PAYLOAD}" \
+            "${DISCORD_WEBHOOK_URL}" >/dev/null

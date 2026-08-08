@@ -98,6 +98,17 @@ test("on-prem deployment is a dry-run unless host deployment is explicitly selec
   assert.match(workflow, /name: Report dry-run result\n\s+if: \$\{\{ inputs\.deploy != true \}\}/);
 });
 
+test("on-prem deployment reports every failed dry-run, deploy, or rollback to Discord", () => {
+  assert.match(workflow, /name: Notify Discord on deployment failure/);
+  assert.match(workflow, /if: \$\{\{ failure\(\) \}\}/);
+  assert.match(workflow, /DISCORD_WEBHOOK_URL: \$\{\{ secrets\.DISCORD_WEBHOOK_URL \}\}/);
+  assert.match(workflow, /DEPLOY_REQUESTED: \$\{\{ inputs\.deploy \}\}/);
+  assert.match(workflow, /호스트 배포 또는 자동 롤백/);
+  assert.match(workflow, /배포 사전 검증/);
+  assert.match(workflow, /GITHUB_SERVER_URL.*GITHUB_REPOSITORY.*GITHUB_RUN_ID/);
+  assert.doesNotMatch(workflow, /echo .*DISCORD_WEBHOOK_URL/);
+});
+
 test("runtime image includes sqlite tooling for consistent deploy backups", () => {
   const dockerfile = fs.readFileSync("Dockerfile", "utf8");
   assert.match(dockerfile, /apt-get install -y --no-install-recommends curl ca-certificates sqlite3/);
