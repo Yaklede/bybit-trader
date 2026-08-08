@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
 import java.math.BigDecimal
 import java.time.Instant
 
@@ -15,6 +16,7 @@ enum class VolumeConfirmedTrendExchangeContractFailure {
     ACCOUNT_TYPE_NOT_UNIFIED,
     ACCOUNT_MODE_NOT_UNIFIED,
     MARGIN_MODE_NOT_CROSS,
+    SPOT_HEDGING_NOT_OFF,
     POSITION_MODE_NOT_ONE_WAY,
     BUY_LEVERAGE_NOT_ONE,
     SELL_LEVERAGE_NOT_ONE,
@@ -84,6 +86,9 @@ object VolumeConfirmedTrendExchangeContractValidator {
         }
         if (account.marginMode != ExchangeMarginMode.CROSS) {
             failures += VolumeConfirmedTrendExchangeContractFailure.MARGIN_MODE_NOT_CROSS
+        }
+        if (account.spotHedgingStatus != ExchangeSpotHedgingStatus.OFF) {
+            failures += VolumeConfirmedTrendExchangeContractFailure.SPOT_HEDGING_NOT_OFF
         }
         if (position.positionMode != ExchangePositionMode.ONE_WAY) {
             failures += VolumeConfirmedTrendExchangeContractFailure.POSITION_MODE_NOT_ONE_WAY

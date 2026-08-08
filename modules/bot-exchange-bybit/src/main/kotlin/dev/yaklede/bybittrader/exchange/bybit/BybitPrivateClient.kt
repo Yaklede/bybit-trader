@@ -24,6 +24,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -72,6 +73,7 @@ class BybitPrivateClient(
             accountMode = result.unifiedMarginStatus.toExchangeAccountMode(),
             unifiedMarginStatus = result.unifiedMarginStatus,
             marginMode = result.marginMode.toExchangeMarginMode(),
+            spotHedgingStatus = result.spotHedgingStatus.toExchangeSpotHedgingStatus(),
             updatedAt = result.updatedTime.toInstantFromMillisOrNull(),
         )
     }
@@ -796,6 +798,13 @@ private fun String.toExchangeMarginMode(): ExchangeMarginMode =
         else -> ExchangeMarginMode.UNKNOWN
     }
 
+private fun String?.toExchangeSpotHedgingStatus(): ExchangeSpotHedgingStatus =
+    when (this) {
+        "ON" -> ExchangeSpotHedgingStatus.ON
+        "OFF" -> ExchangeSpotHedgingStatus.OFF
+        else -> ExchangeSpotHedgingStatus.UNKNOWN
+    }
+
 private fun String?.toBigDecimalOrNull(): BigDecimal? = this?.takeIf { it.isNotBlank() }?.let(::BigDecimal)
 
 private fun String?.toPositiveBigDecimalOrNull(): BigDecimal? = toBigDecimalOrNull()?.takeIf { value -> value > BigDecimal.ZERO }
@@ -936,6 +945,11 @@ private fun BybitWalletBalanceCoin.toExchangeCoinBalance(): ExchangeCoinBalance 
         locked = locked.toBigDecimalOrNull(),
         unrealizedPnl = unrealisedPnl.toBigDecimalOrNull(),
         cumulativeRealizedPnl = cumRealisedPnl.toBigDecimalOrNull(),
+        borrowAmount = borrowAmount.toBigDecimalOrNull(),
+        spotBorrow = spotBorrow.toBigDecimalOrNull(),
+        accruedInterest = accruedInterest.toBigDecimalOrNull(),
+        spotHedgingQuantity = spotHedgingQty.toBigDecimalOrNull(),
+        bonus = bonus.toBigDecimalOrNull(),
     )
 
 private fun BybitTransactionLogItem.toExchangeAccountTransaction(): ExchangeAccountTransaction? {
@@ -1132,6 +1146,7 @@ private data class BybitAccountInfoResponse(
 private data class BybitAccountInfoResult(
     val unifiedMarginStatus: Int,
     val marginMode: String,
+    val spotHedgingStatus: String? = null,
     val updatedTime: String? = null,
 )
 
@@ -1275,6 +1290,11 @@ private data class BybitWalletBalanceCoin(
     @SerialName("unrealisedPnl")
     val unrealisedPnl: String? = null,
     val cumRealisedPnl: String? = null,
+    val borrowAmount: String? = null,
+    val spotBorrow: String? = null,
+    val accruedInterest: String? = null,
+    val spotHedgingQty: String? = null,
+    val bonus: String? = null,
 )
 
 @Serializable

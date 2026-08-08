@@ -67,6 +67,20 @@ class VolumeConfirmedTrendTargetPlannerTest :
             plan.reduceOnly shouldBe true
         }
 
+        "position close does not depend on entry sizing equity" {
+            val plan =
+                plan(
+                    equity = "0",
+                    referencePrice = "60000",
+                    side = Side.SELL,
+                    position = VolumeConfirmedTrendObservedPosition(Side.BUY, BigDecimal("0.007")),
+                )
+
+            plan.action shouldBe VolumeConfirmedTrendTargetAction.CLOSE
+            plan.orderQuantity shouldBe BigDecimal("0.007")
+            plan.reduceOnly shouldBe true
+        }
+
         "client order identity is deterministic for a replayed H4 command" {
             val first = plan(equity = "660", referencePrice = "60000", side = Side.BUY)
             val replay = plan(equity = "660", referencePrice = "61000", side = Side.BUY)

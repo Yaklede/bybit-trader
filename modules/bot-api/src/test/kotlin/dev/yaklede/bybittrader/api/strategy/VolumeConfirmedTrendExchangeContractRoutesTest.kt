@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractSnapshot
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractValidator
 import io.kotest.core.spec.style.StringSpec
@@ -59,6 +60,7 @@ class VolumeConfirmedTrendExchangeContractRoutesTest :
                     body shouldContain "\"valid\":true"
                     body shouldContain "\"accountMode\":\"UNIFIED_2\""
                     body shouldContain "\"marginMode\":\"CROSS\""
+                    body shouldContain "\"spotHedgingStatus\":\"OFF\""
                     body shouldContain "\"positionMode\":\"ONE_WAY\""
                     body shouldContain "\"buyLeverage\":\"1\""
                     body shouldContain "\"minimumOrderQuantity\":\"0.001\""
@@ -139,6 +141,7 @@ private fun account(): ExchangeAccountExecutionProfile =
         accountMode = ExchangeAccountMode.UNIFIED_2,
         unifiedMarginStatus = 5,
         marginMode = ExchangeMarginMode.CROSS,
+        spotHedgingStatus = ExchangeSpotHedgingStatus.OFF,
         updatedAt = CHECKED_AT.minusSeconds(1),
     )
 

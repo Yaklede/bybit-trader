@@ -120,6 +120,7 @@ data class VolumeConfirmedTrendExchangeContractAccountResponse(
     val accountMode: String,
     val unifiedMarginStatus: Int,
     val marginMode: String,
+    val spotHedgingStatus: String,
     val updatedAt: String?,
 )
 
@@ -519,6 +520,7 @@ private fun VolumeConfirmedTrendExchangeContractSnapshot.toResponse(): VolumeCon
                 accountMode = account.accountMode.name,
                 unifiedMarginStatus = account.unifiedMarginStatus,
                 marginMode = account.marginMode.name,
+                spotHedgingStatus = account.spotHedgingStatus.name,
                 updatedAt = account.updatedAt?.toString(),
             ),
         position =

@@ -123,7 +123,6 @@ object VolumeConfirmedTrendTargetPlanner {
         require(protocolSha256.matches(Regex("[0-9a-f]{64}"))) {
             "Trend target planner requires a lowercase protocol SHA-256."
         }
-        require(accountEquity > BigDecimal.ZERO) { "Trend target planner account equity must be positive." }
         require(referencePrice > BigDecimal.ZERO) { "Trend target planner reference price must be positive." }
         require(priceTick > BigDecimal.ZERO) { "Trend target planner price tick must be positive." }
 
@@ -151,6 +150,8 @@ object VolumeConfirmedTrendTargetPlanner {
                 reasonCode = "OPPOSITE_POSITION_REQUIRES_CONFIRMED_EXIT",
             )
         }
+
+        require(accountEquity > BigDecimal.ZERO) { "Trend target planner account equity must be positive for entry." }
 
         val entryLimitPrice = boundedLimitPrice(referencePrice, signal.side, priceTick, contract)
         val quantity =

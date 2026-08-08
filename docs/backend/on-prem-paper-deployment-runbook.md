@@ -228,6 +228,15 @@ all Bybit cursor pages using the official
 [open-order](https://bybit-exchange.github.io/docs/v5/order/open-order) contracts.
 This guard does not make a mixed collateral, spot, inverse, loan, or earn account
 safe, so the dedicated-account requirement still applies.
+The exchange contract also requires `spotHedgingStatus=OFF`. The runtime reads an
+unfiltered wallet snapshot because Bybit defines `totalEquity` as the USD sum of
+every asset. Before a flat account may trade, it rejects foreign collateral,
+borrow or accrued interest, locked spot funds, bonus funds, spot-hedging quantity,
+missing wallet fields, and residual account margin exposure. Entry sizing uses
+`min(USDT equity, totalAvailableBalance)`, never account-wide `totalEquity`. See
+the official [wallet-balance contract](https://bybit-exchange.github.io/docs/v5/account/wallet-balance).
+These checks block new entries but do not prevent a reduce-only exit for a
+position already owned by the strategy.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

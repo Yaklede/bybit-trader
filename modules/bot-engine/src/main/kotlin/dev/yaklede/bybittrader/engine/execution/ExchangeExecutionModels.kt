@@ -208,11 +208,18 @@ enum class ExchangePositionMode {
     UNKNOWN,
 }
 
+enum class ExchangeSpotHedgingStatus {
+    ON,
+    OFF,
+    UNKNOWN,
+}
+
 data class ExchangeAccountExecutionProfile(
     val accountType: String,
     val accountMode: ExchangeAccountMode,
     val unifiedMarginStatus: Int,
     val marginMode: ExchangeMarginMode,
+    val spotHedgingStatus: ExchangeSpotHedgingStatus,
     val updatedAt: Instant?,
 )
 
@@ -377,6 +384,11 @@ data class ExchangeCoinBalance(
     val locked: BigDecimal?,
     val unrealizedPnl: BigDecimal?,
     val cumulativeRealizedPnl: BigDecimal? = null,
+    val borrowAmount: BigDecimal? = null,
+    val spotBorrow: BigDecimal? = null,
+    val accruedInterest: BigDecimal? = null,
+    val spotHedgingQuantity: BigDecimal? = null,
+    val bonus: BigDecimal? = null,
 )
 
 data class ExchangeReconciliationReport(

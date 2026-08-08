@@ -16,6 +16,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.math.BigDecimal
@@ -56,6 +57,18 @@ class VolumeConfirmedTrendExchangeContractValidatorTest :
                     VolumeConfirmedTrendExchangeContractFailure.BUY_LEVERAGE_NOT_ONE,
                     VolumeConfirmedTrendExchangeContractFailure.SELL_LEVERAGE_NOT_ONE,
                 )
+        }
+
+        "spot hedging account fails closed" {
+            val validation =
+                VolumeConfirmedTrendExchangeContractValidator.validate(
+                    account = account().copy(spotHedgingStatus = ExchangeSpotHedgingStatus.ON),
+                    position = position(),
+                    instrument = instrument(),
+                )
+
+            validation.valid shouldBe false
+            validation.failures shouldBe listOf(VolumeConfirmedTrendExchangeContractFailure.SPOT_HEDGING_NOT_OFF)
         }
 
         "changed exchange quantity rules fail instead of silently changing strategy" {
@@ -129,6 +142,7 @@ private fun account(): ExchangeAccountExecutionProfile =
         accountMode = ExchangeAccountMode.UNIFIED_2,
         unifiedMarginStatus = 5,
         marginMode = ExchangeMarginMode.CROSS,
+        spotHedgingStatus = ExchangeSpotHedgingStatus.OFF,
         updatedAt = Instant.parse("2026-08-07T00:00:00Z"),
     )
 

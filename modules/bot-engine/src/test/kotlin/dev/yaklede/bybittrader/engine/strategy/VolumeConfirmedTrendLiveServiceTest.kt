@@ -11,6 +11,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeClosedPnl
+import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
@@ -21,6 +22,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -373,6 +375,61 @@ class VolumeConfirmedTrendLiveServiceTest :
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             result.state.haltedReasonCode shouldBe "TREND_UNOWNED_OPEN_ORDER_OBSERVED"
             gateway.submittedOrders.size shouldBe 0
+        }
+
+        "foreign collateral halts before flat initialization" {
+            val gateway = FakeTrendLiveGateway()
+            gateway.balance =
+                isolatedAccountBalance(
+                    additionalCoins = listOf(coinBalance("USDC", "25")),
+                )
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_FOREIGN_COLLATERAL_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "borrowed settlement balance halts before entry" {
+            val gateway = FakeTrendLiveGateway()
+            gateway.balance =
+                isolatedAccountBalance().copy(
+                    coins =
+                        listOf(
+                            coinBalance("USDT", "660").copy(
+                                borrowAmount = BigDecimal("10"),
+                                spotBorrow = BigDecimal("10"),
+                            ),
+                        ),
+                )
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_ACCOUNT_LIABILITY_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "entry sizing uses settlement equity instead of account-wide total equity" {
+            val gateway = FakeTrendLiveGateway()
+            gateway.balance =
+                isolatedAccountBalance(
+                    settlementEquity = "100",
+                    totalEquity = "1000",
+                    availableBalance = "1000",
+                )
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().quantity shouldBe BigDecimal("0.001")
         }
 
         "approved reconciliation periodically records exchange equity" {
@@ -749,6 +806,22 @@ class VolumeConfirmedTrendLiveServiceTest :
                 reduceOnly shouldBe true
             }
         }
+
+        "account isolation failure never prevents an existing position from closing" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            gateway.balance =
+                isolatedAccountBalance(
+                    additionalCoins = listOf(coinBalance("USDC", "25")),
+                )
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().reduceOnly shouldBe true
+        }
     })
 
 private class InMemoryTrendLiveStore(
@@ -795,6 +868,7 @@ private class FakeTrendLiveGateway(
     val submittedOrders = mutableListOf<ExchangeOrderRequest>()
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
+    var balance: ExchangeAccountBalance = isolatedAccountBalance()
 
     override suspend fun accountExecutionProfile(): ExchangeAccountExecutionProfile {
         exchangeReadCount += 1
@@ -803,6 +877,7 @@ private class FakeTrendLiveGateway(
             accountMode = ExchangeAccountMode.UNIFIED_2,
             unifiedMarginStatus = 5,
             marginMode = ExchangeMarginMode.CROSS,
+            spotHedgingStatus = ExchangeSpotHedgingStatus.OFF,
             updatedAt = TEST_NOW,
         )
     }
@@ -924,18 +999,7 @@ private class FakeTrendLiveGateway(
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {
         exchangeReadCount += 1
-        return ExchangeAccountBalance(
-            accountType = "UNIFIED",
-            totalEquity = BigDecimal("660"),
-            totalWalletBalance = BigDecimal("660"),
-            totalMarginBalance = BigDecimal("660"),
-            totalAvailableBalance = BigDecimal("660"),
-            totalPerpUnrealizedPnl = BigDecimal.ZERO,
-            totalInitialMargin = BigDecimal.ZERO,
-            totalMaintenanceMargin = BigDecimal.ZERO,
-            coins = emptyList(),
-            capturedAt = TEST_NOW,
-        )
+        return balance
     }
 
     override suspend fun accountTransactions(
@@ -948,6 +1012,45 @@ private class FakeTrendLiveGateway(
         return accountTransactionRecords.toList()
     }
 }
+
+private fun isolatedAccountBalance(
+    settlementEquity: String = "660",
+    totalEquity: String = settlementEquity,
+    availableBalance: String = settlementEquity,
+    additionalCoins: List<ExchangeCoinBalance> = emptyList(),
+): ExchangeAccountBalance =
+    ExchangeAccountBalance(
+        accountType = "UNIFIED",
+        totalEquity = BigDecimal(totalEquity),
+        totalWalletBalance = BigDecimal(settlementEquity),
+        totalMarginBalance = BigDecimal(settlementEquity),
+        totalAvailableBalance = BigDecimal(availableBalance),
+        totalPerpUnrealizedPnl = BigDecimal.ZERO,
+        totalInitialMargin = BigDecimal.ZERO,
+        totalMaintenanceMargin = BigDecimal.ZERO,
+        coins =
+            listOf(coinBalance("USDT", settlementEquity)) + additionalCoins,
+        capturedAt = TEST_NOW,
+    )
+
+private fun coinBalance(
+    coin: String,
+    equity: String,
+): ExchangeCoinBalance =
+    ExchangeCoinBalance(
+        coin = coin,
+        equity = BigDecimal(equity),
+        usdValue = BigDecimal(equity),
+        walletBalance = BigDecimal(equity),
+        locked = BigDecimal.ZERO,
+        unrealizedPnl = BigDecimal.ZERO,
+        cumulativeRealizedPnl = BigDecimal.ZERO,
+        borrowAmount = BigDecimal.ZERO,
+        spotBorrow = BigDecimal.ZERO,
+        accruedInterest = BigDecimal.ZERO,
+        spotHedgingQuantity = BigDecimal.ZERO,
+        bonus = BigDecimal.ZERO,
+    )
 
 private fun service(
     gateway: FakeTrendLiveGateway,

@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.engine.strategy
 
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
@@ -98,7 +99,7 @@ class VolumeConfirmedTrendLiveService(
                 contractFailures = contractValidation.failures,
             )
         }
-        captureAccountSnapshotIfDue(now)
+        val capturedBalance = captureAccountSnapshotIfDue(now)
         captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
@@ -141,11 +142,17 @@ class VolumeConfirmedTrendLiveService(
                 plan = null,
             )
         }
-        val balance = gateway.accountBalance("USDT")
-        projectionSink.recordAccountBalance(balance)
-        val equity =
-            balance.totalEquity?.takeIf { it > BigDecimal.ZERO }
-                ?: return halt(stored, signal, now, "TREND_ACCOUNT_EQUITY_UNAVAILABLE", position = position)
+        val balance = capturedBalance ?: captureAccountBalance()
+        val accountIsolation = VolumeConfirmedTrendAccountIsolationPolicy.assess(balance, TREND_SETTLE_COIN)
+        if (position == null && !accountIsolation.allowsEntry) {
+            return halt(
+                effectiveStored,
+                signal,
+                now,
+                requireNotNull(accountIsolation.reasonCode),
+            )
+        }
+        val equity = accountIsolation.tradingEquity ?: BigDecimal.ZERO
         val observed = position?.toObservedPosition()
         val plan =
             VolumeConfirmedTrendTargetPlanner.plan(
@@ -196,7 +203,7 @@ class VolumeConfirmedTrendLiveService(
                 contractFailures = contractValidation.failures,
             )
         }
-        captureAccountSnapshotIfDue(now)
+        val capturedBalance = captureAccountSnapshotIfDue(now)
         captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
@@ -215,10 +222,42 @@ class VolumeConfirmedTrendLiveService(
         if (gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN).isNotEmpty()) {
             return halt(effectiveStored, null, now, "TREND_UNOWNED_OPEN_ORDER_OBSERVED", position = position)
         }
-        if (effectiveStored == null || effectiveStored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
-            if (position != null) {
-                return halt(effectiveStored, null, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+        if (effectiveStored == null && position != null) {
+            return halt(effectiveStored, null, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
+        }
+        if (effectiveStored != null &&
+            effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
+            position != null
+        ) {
+            return halt(effectiveStored, null, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
+        }
+        if (effectiveStored != null &&
+            effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
+            !effectiveStored.matches(position)
+        ) {
+            return halt(effectiveStored, null, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+        }
+        val entryCapableState =
+            effectiveStored == null ||
+                effectiveStored.status in
+                setOf(
+                    VolumeConfirmedTrendLiveStatus.DISABLED,
+                    VolumeConfirmedTrendLiveStatus.FLAT,
+                    VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED,
+                )
+        if (position == null && entryCapableState) {
+            val balance = capturedBalance ?: captureAccountBalance()
+            val accountIsolation = VolumeConfirmedTrendAccountIsolationPolicy.assess(balance, TREND_SETTLE_COIN)
+            if (!accountIsolation.allowsEntry) {
+                return halt(
+                    effectiveStored,
+                    null,
+                    now,
+                    requireNotNull(accountIsolation.reasonCode),
+                )
             }
+        }
+        if (effectiveStored == null || effectiveStored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
             val initialized =
                 baseState(effectiveStored, now).copy(
                     status = VolumeConfirmedTrendLiveStatus.FLAT,
@@ -236,16 +275,6 @@ class VolumeConfirmedTrendLiveService(
                 state = initialized,
                 plan = null,
             )
-        }
-        if (effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.FLAT, VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED) &&
-            position != null
-        ) {
-            return halt(effectiveStored, null, now, "TREND_FLAT_STATE_POSITION_MISMATCH", position = position)
-        }
-        if (effectiveStored.status in setOf(VolumeConfirmedTrendLiveStatus.OPEN, VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) &&
-            !effectiveStored.matches(position)
-        ) {
-            return halt(effectiveStored, null, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
         }
         return VolumeConfirmedTrendLiveEvaluationResult(
             status =
@@ -298,10 +327,15 @@ class VolumeConfirmedTrendLiveService(
         )
     }
 
-    private suspend fun captureAccountSnapshotIfDue(now: Instant) {
-        if (!projectionSink.accountSnapshotDue(now)) return
-        projectionSink.recordAccountBalance(gateway.accountBalance("USDT"))
+    private suspend fun captureAccountSnapshotIfDue(now: Instant): ExchangeAccountBalance? {
+        if (!projectionSink.accountSnapshotDue(now)) return null
+        return captureAccountBalance()
     }
+
+    private suspend fun captureAccountBalance(): ExchangeAccountBalance =
+        gateway.accountBalance().also { balance ->
+            projectionSink.recordAccountBalance(balance)
+        }
 
     private suspend fun captureAccountingIfDue(
         now: Instant,

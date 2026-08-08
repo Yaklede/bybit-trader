@@ -11,6 +11,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
 import dev.yaklede.bybittrader.engine.execution.ExchangeTimeInForce
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
@@ -708,7 +709,12 @@ class BybitPrivateClientTest :
                                         "usdValue": "1200.5",
                                         "walletBalance": "1000",
                                         "locked": "0",
-                                        "unrealisedPnl": "100.5"
+                                        "unrealisedPnl": "100.5",
+                                        "borrowAmount": "2.5",
+                                        "spotBorrow": "2",
+                                        "accruedInterest": "0.5",
+                                        "spotHedgingQty": "0.01",
+                                        "bonus": "5"
                                       }
                                     ]
                                   }
@@ -728,6 +734,11 @@ class BybitPrivateClientTest :
             balance.totalEquity shouldBe BigDecimal("1200.5")
             balance.totalPerpUnrealizedPnl shouldBe BigDecimal("100.5")
             balance.coins.single().walletBalance shouldBe BigDecimal("1000")
+            balance.coins.single().borrowAmount shouldBe BigDecimal("2.5")
+            balance.coins.single().spotBorrow shouldBe BigDecimal("2")
+            balance.coins.single().accruedInterest shouldBe BigDecimal("0.5")
+            balance.coins.single().spotHedgingQuantity shouldBe BigDecimal("0.01")
+            balance.coins.single().bonus shouldBe BigDecimal("5")
             balance.capturedAt shouldBe Instant.parse("2024-06-30T00:00:00Z")
         }
 
@@ -740,7 +751,7 @@ class BybitPrivateClientTest :
                         when (request.url.encodedPath) {
                             "/v5/account/info" -> {
                                 request.headers["X-BAPI-API-KEY"] shouldBe "test-api-key"
-                                """{"retCode":0,"retMsg":"OK","result":{"unifiedMarginStatus":5,"marginMode":"REGULAR_MARGIN","updatedTime":"1719705600000"}}"""
+                                """{"retCode":0,"retMsg":"OK","result":{"unifiedMarginStatus":5,"marginMode":"REGULAR_MARGIN","spotHedgingStatus":"OFF","updatedTime":"1719705600000"}}"""
                             }
                             "/v5/position/list" -> {
                                 request.headers["X-BAPI-API-KEY"] shouldBe "test-api-key"
@@ -790,6 +801,7 @@ class BybitPrivateClientTest :
             )
             account.accountMode shouldBe ExchangeAccountMode.UNIFIED_2
             account.marginMode shouldBe ExchangeMarginMode.CROSS
+            account.spotHedgingStatus shouldBe ExchangeSpotHedgingStatus.OFF
             position.positionMode shouldBe ExchangePositionMode.ONE_WAY
             position.buyLeverage shouldBe BigDecimal.ONE
             position.sellLeverage shouldBe BigDecimal.ONE
