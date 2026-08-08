@@ -390,7 +390,14 @@ class VolumeConfirmedTrendLiveService(
         if (position == null) {
             captureAccountSnapshotIfDue(now)
             captureAccountingIfDue(now, stored.updatedAt)
-            return approvalBlocked(blockByApproval(stored, now), approval)
+            return approvalBlocked(
+                blockByApproval(
+                    previous = stored,
+                    now = now,
+                    positionConfirmedFlat = true,
+                ),
+                approval,
+            )
         }
         if (!stored.ownsPositionDuringApprovalRevocation(position)) {
             return halt(
@@ -622,30 +629,56 @@ class VolumeConfirmedTrendLiveService(
     private suspend fun blockByApproval(
         previous: VolumeConfirmedTrendLiveState?,
         now: Instant,
+        positionConfirmedFlat: Boolean = false,
     ): VolumeConfirmedTrendLiveState {
         val state =
             when {
                 previous == null || previous.status == VolumeConfirmedTrendLiveStatus.DISABLED ->
                     baseState(previous, now).copy(status = VolumeConfirmedTrendLiveStatus.DISABLED, updatedAt = now)
-                previous.status == VolumeConfirmedTrendLiveStatus.HALTED -> previous
+                previous.status == VolumeConfirmedTrendLiveStatus.HALTED ->
+                    if (positionConfirmedFlat && previous.observedPositionSide != null) {
+                        previous.copy(
+                            observedPositionSide = null,
+                            observedPositionQuantity = null,
+                            updatedAt = now,
+                        )
+                    } else {
+                        previous
+                    }
                 else -> {
                     val settledWithoutExposure =
                         previous.status in
                             setOf(
                                 VolumeConfirmedTrendLiveStatus.FLAT,
                                 VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED,
-                            )
+                            ) ||
+                            positionConfirmedFlat
                     previous.copy(
                         status = VolumeConfirmedTrendLiveStatus.HALTED,
                         clientOrderId = previous.clientOrderId.takeUnless { settledWithoutExposure },
                         exchangeOrderId = previous.exchangeOrderId.takeUnless { settledWithoutExposure },
+                        observedPositionSide = previous.observedPositionSide.takeUnless { positionConfirmedFlat },
+                        observedPositionQuantity = previous.observedPositionQuantity.takeUnless { positionConfirmedFlat },
                         haltedReasonCode = "TREND_LIVE_NOT_APPROVED",
                         updatedAt = now,
                     )
                 }
             }
         if (state.samePersistedStateAs(previous)) return requireNotNull(previous)
-        val event = lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.HALTED, "TREND_LIVE_NOT_APPROVED", now)
+        val existingHaltReconciled =
+            previous?.status == VolumeConfirmedTrendLiveStatus.HALTED &&
+                state.haltedReasonCode == previous.haltedReasonCode
+        val event =
+            if (existingHaltReconciled) {
+                lifecycleEvent(
+                    state,
+                    VolumeConfirmedTrendLiveEventType.RECONCILED,
+                    "TREND_APPROVAL_REVOKED_FLAT_RECONCILED",
+                    now,
+                )
+            } else {
+                lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.HALTED, "TREND_LIVE_NOT_APPROVED", now)
+            }
         store.commitTrendLive(state, listOf(event))
         return state
     }

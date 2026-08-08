@@ -199,6 +199,60 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
         }
 
+        "revoked approval clears a stale owned position after the exchange confirms flat" {
+            val position = position(Side.BUY, "0.007")
+            listOf(
+                VolumeConfirmedTrendLiveStatus.OPEN,
+                VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED,
+            ).forEach { status ->
+                val stored =
+                    openState(position).copy(
+                        status = status,
+                        clientOrderId = "vct-order-settled",
+                        exchangeOrderId = "exchange-order-settled",
+                    )
+                val gateway = FakeTrendLiveGateway()
+                val store = InMemoryTrendLiveStore(state = stored)
+                val service = service(gateway, store, approved = false)
+
+                val blocked = service.reconcile()
+
+                blocked.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+                blocked.state.status shouldBe VolumeConfirmedTrendLiveStatus.HALTED
+                blocked.state.haltedReasonCode shouldBe "TREND_LIVE_NOT_APPROVED"
+                blocked.state.observedPositionSide shouldBe null
+                blocked.state.observedPositionQuantity shouldBe null
+                blocked.state.clientOrderId shouldBe null
+                blocked.state.exchangeOrderId shouldBe null
+                gateway.submittedOrders.size shouldBe 0
+            }
+        }
+
+        "revoked approval clears stale position data but preserves unresolved halted order evidence" {
+            val position = position(Side.BUY, "0.007")
+            val stored =
+                openState(position).copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    clientOrderId = "vct-entry-unresolved",
+                    exchangeOrderId = "exchange-entry-unresolved",
+                    haltedReasonCode = "TREND_ENTRY_ORDER_STATE_UNKNOWN",
+                )
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore(state = stored)
+            val service = service(gateway, store, approved = false)
+
+            val blocked = service.reconcile()
+
+            blocked.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            blocked.state.haltedReasonCode shouldBe "TREND_ENTRY_ORDER_STATE_UNKNOWN"
+            blocked.state.observedPositionSide shouldBe null
+            blocked.state.observedPositionQuantity shouldBe null
+            blocked.state.clientOrderId shouldBe "vct-entry-unresolved"
+            blocked.state.exchangeOrderId shouldBe "exchange-entry-unresolved"
+            store.events.single().type shouldBe VolumeConfirmedTrendLiveEventType.RECONCILED
+            gateway.submittedOrders.size shouldBe 0
+        }
+
         "revoked approval retries a known unfilled safety exit only after its delay" {
             var now = TEST_NOW
             val position = position(Side.BUY, "0.007")
