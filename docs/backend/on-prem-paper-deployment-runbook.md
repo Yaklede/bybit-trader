@@ -269,6 +269,9 @@ During H4 pending-order recovery, an active exact IOC order prevents both
 `OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
 order after the recovery timeout and requires terminal exchange readback; an
 unconfirmed cancellation after the next timeout halts operator-free recovery.
+An unrecognized provider status does not bypass this protection when the common
+order status is still active: the runtime cancels the exact order first. Unknown
+terminal-state combinations halt for operator review instead of being guessed.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

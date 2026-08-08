@@ -228,6 +228,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 `OPEN` 또는 `FLAT`으로 확정하지 않는다. 복구 timeout 뒤 해당 client/exchange order ID만 취소하고
 취소 요청을 원장에 기록한 다음 terminal 상태를 다시 확인한다. 다음 timeout에도 활성 상태이면
 취소를 반복하지 않고 `HALTED`한다.
+거래소가 아직 코드에 등록되지 않은 원문 주문 상태를 반환해도 공통 상태가 `CREATED`, `SUBMITTED`,
+`PARTIALLY_FILLED`이면 활성 exact 주문으로 취급해 같은 취소 절차를 적용한다. 공통 상태도 비활성인 미지
+상태만 자동 해석하지 않고 `HALTED`한다.
 
 ## 6. 예외 및 실패 처리
 

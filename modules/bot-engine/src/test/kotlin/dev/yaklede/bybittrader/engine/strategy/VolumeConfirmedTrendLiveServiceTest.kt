@@ -1156,6 +1156,53 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
         }
 
+        "unknown provider entry status still cancels the internally active exact order" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.SUBMITTED,
+                    providerStatus = "FutureActiveStatus",
+                )
+            now = now.plusSeconds(11)
+
+            val cancellationPending = service.reconcile()
+
+            cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            cancellationPending.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+            cancellationPending.state.haltedReasonCode shouldBe null
+            gateway.cancelRequests.single().clientOrderId shouldBe clientOrderId
+        }
+
+        "unknown provider exit status still cancels the internally active exact order" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.SUBMITTED,
+                    providerStatus = "FutureActiveStatus",
+                )
+            now = now.plusSeconds(11)
+
+            val cancellationPending = service.reconcile()
+
+            cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            cancellationPending.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED
+            cancellationPending.state.haltedReasonCode shouldBe null
+            gateway.cancelRequests.single().clientOrderId shouldBe clientOrderId
+        }
+
         "active order halts when cancellation is still unconfirmed after another timeout" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()

@@ -80,6 +80,9 @@ internal class VolumeConfirmedTrendLiveRecovery(
             store.commitTrendLive(opened, listOf(event))
             return VolumeConfirmedTrendLiveEvaluationResult(VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED, opened, null)
         }
+        if (order?.status?.isActive() == true) {
+            return activeOrderOrHalt(state, order, now, "TREND_ENTRY_IOC_REMAINS_ACTIVE")
+        }
         if (order?.hasUnknownProviderStatus() == true) {
             return halt(state, now, "TREND_ENTRY_ORDER_STATUS_UNKNOWN")
         }
@@ -87,7 +90,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
             OrderStatus.CREATED,
             OrderStatus.SUBMITTED,
             OrderStatus.PARTIALLY_FILLED,
-            -> activeOrderOrHalt(state, order, now, "TREND_ENTRY_IOC_REMAINS_ACTIVE")
+            -> error("Active entry orders must be handled before terminal recovery.")
             OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
             -> {
@@ -142,6 +145,9 @@ internal class VolumeConfirmedTrendLiveRecovery(
             store.commitTrendLive(flat, listOf(event))
             return VolumeConfirmedTrendLiveEvaluationResult(VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED, flat, null)
         }
+        if (order?.status?.isActive() == true) {
+            return activeOrderOrHalt(state, order, now, "TREND_EXIT_IOC_REMAINS_ACTIVE", position)
+        }
         if (order?.hasUnknownProviderStatus() == true) {
             return halt(state, now, "TREND_EXIT_ORDER_STATUS_UNKNOWN", position)
         }
@@ -149,7 +155,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
             OrderStatus.CREATED,
             OrderStatus.SUBMITTED,
             OrderStatus.PARTIALLY_FILLED,
-            -> activeOrderOrHalt(state, order, now, "TREND_EXIT_IOC_REMAINS_ACTIVE", position)
+            -> error("Active exit orders must be handled before terminal recovery.")
             OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
             -> recordNotFilled(state, order, entry = false, position = position, now = now)
