@@ -95,7 +95,10 @@ is the preferred deduplication identity; a deterministic
 order/price/quantity/time identity is used only when the provider omits
 `execId`. REST reconciliation backfills the same journal, so reconnects and
 WebSocket retries cannot duplicate fees or quantities and process restarts do
-not erase partial-fill evidence.
+not erase partial-fill evidence. Execution and closed-PnL recovery consumes all
+available 100-row cursor pages for the provider's seven-day default window;
+repeated cursors and an exhausted page budget fail the reconciliation instead
+of accepting a truncated ledger.
 
 An order acknowledgement is not treated as a fill. The same authenticated
 WebSocket subscribes to both `execution` and `order`. Order updates distinguish:

@@ -298,40 +298,57 @@ class BybitPrivateClient(
     }
 
     override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> {
-        val query =
-            bybitQueryString(
-                "category" to config.category.apiValue,
-                "symbol" to symbol.value,
-            )
-        val response =
-            signedGet<BybitExecutionsResponse>(
-                path = "/v5/execution/list",
-                queryString = query,
-            )
-        response.requireSuccess("list executions")
-        return response.result
-            ?.list
-            .orEmpty()
-            .mapNotNull { item -> item.toExchangeExecution(symbol) }
+        val executions = mutableListOf<ExchangeExecutionFill>()
+        val observedCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        var pageCount = 0
+        do {
+            requirePrivateHistoryPageBudget(++pageCount, "execution history")
+            val query =
+                bybitQueryString(
+                    "category" to config.category.apiValue,
+                    "symbol" to symbol.value,
+                    "limit" to BYBIT_PRIVATE_HISTORY_PAGE_LIMIT.toString(),
+                    "cursor" to cursor,
+                )
+            val response =
+                signedGet<BybitExecutionsResponse>(
+                    path = "/v5/execution/list",
+                    queryString = query,
+                )
+            response.requireSuccess("list executions")
+            val result = response.result ?: break
+            executions += result.list.mapNotNull { item -> item.toExchangeExecution(symbol) }
+            cursor = requireNextPrivateHistoryCursor(result.nextPageCursor, observedCursors, "execution history")
+        } while (cursor != null)
+        return executions
     }
 
     override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> {
-        val query =
-            bybitQueryString(
-                "category" to config.category.apiValue,
-                "symbol" to symbol.value,
-                "limit" to "50",
-            )
-        val response =
-            signedGet<BybitClosedPnlResponse>(
-                path = "/v5/position/closed-pnl",
-                queryString = query,
-            )
-        response.requireSuccess("list closed pnl")
-        return response.result
-            ?.list
-            .orEmpty()
-            .mapNotNull { item -> item.toExchangeClosedPnl(symbol) }
+        val closedPnls = mutableListOf<ExchangeClosedPnl>()
+        val observedCursors = mutableSetOf<String>()
+        var cursor: String? = null
+        var pageCount = 0
+        do {
+            requirePrivateHistoryPageBudget(++pageCount, "closed PnL history")
+            val query =
+                bybitQueryString(
+                    "category" to config.category.apiValue,
+                    "symbol" to symbol.value,
+                    "limit" to BYBIT_PRIVATE_HISTORY_PAGE_LIMIT.toString(),
+                    "cursor" to cursor,
+                )
+            val response =
+                signedGet<BybitClosedPnlResponse>(
+                    path = "/v5/position/closed-pnl",
+                    queryString = query,
+                )
+            response.requireSuccess("list closed pnl")
+            val result = response.result ?: break
+            closedPnls += result.list.mapNotNull { item -> item.toExchangeClosedPnl(symbol) }
+            cursor = requireNextPrivateHistoryCursor(result.nextPageCursor, observedCursors, "closed PnL history")
+        } while (cursor != null)
+        return closedPnls
     }
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {
@@ -369,7 +386,9 @@ class BybitPrivateClient(
         val transactions = mutableListOf<ExchangeAccountTransaction>()
         val observedCursors = mutableSetOf<String>()
         var cursor: String? = null
+        var pageCount = 0
         do {
+            requirePrivateHistoryPageBudget(++pageCount, "transaction log")
             val query =
                 bybitQueryString(
                     "accountType" to config.accountType,
@@ -388,11 +407,7 @@ class BybitPrivateClient(
             response.requireSuccess("get transaction log")
             val result = response.result ?: break
             transactions += result.list.mapNotNull(BybitTransactionLogItem::toExchangeAccountTransaction)
-            val nextCursor = result.nextPageCursor?.takeIf(String::isNotBlank)
-            if (nextCursor != null && !observedCursors.add(nextCursor)) {
-                throw ExchangeExecutionException("Bybit transaction log pagination repeated a cursor.")
-            }
-            cursor = nextCursor
+            cursor = requireNextPrivateHistoryCursor(result.nextPageCursor, observedCursors, "transaction log")
         } while (cursor != null)
         return transactions.distinctBy(ExchangeAccountTransaction::identityKey)
     }
@@ -444,6 +459,27 @@ class BybitPrivateClient(
             throw ExchangeExecutionException("Bybit private request failed.", cause = cause)
         }
     }
+}
+
+private fun requirePrivateHistoryPageBudget(
+    pageCount: Int,
+    source: String,
+) {
+    if (pageCount > MAX_PRIVATE_HISTORY_PAGES) {
+        throw ExchangeExecutionException("Bybit $source pagination exceeded its page budget.")
+    }
+}
+
+private fun requireNextPrivateHistoryCursor(
+    nextPageCursor: String?,
+    observedCursors: MutableSet<String>,
+    source: String,
+): String? {
+    val cursor = nextPageCursor?.takeIf(String::isNotBlank) ?: return null
+    if (!observedCursors.add(cursor)) {
+        throw ExchangeExecutionException("Bybit $source pagination repeated a cursor.")
+    }
+    return cursor
 }
 
 private fun BybitPrivateClientConfig.requestUrl(
@@ -968,6 +1004,7 @@ private data class BybitExecutionsResponse(
 @Serializable
 private data class BybitExecutionsResult(
     val list: List<BybitExecutionItem> = emptyList(),
+    val nextPageCursor: String? = null,
 )
 
 @Serializable
@@ -998,6 +1035,7 @@ private data class BybitClosedPnlResponse(
 @Serializable
 private data class BybitClosedPnlResult(
     val list: List<BybitClosedPnlItem> = emptyList(),
+    val nextPageCursor: String? = null,
 )
 
 @Serializable
@@ -1090,4 +1128,6 @@ private data class BybitTransactionLogItem(
     val orderLinkId: String? = null,
 )
 
+private const val BYBIT_PRIVATE_HISTORY_PAGE_LIMIT = 100
+private const val MAX_PRIVATE_HISTORY_PAGES = 1_000
 private val MAX_TRANSACTION_LOG_RANGE: Duration = Duration.ofDays(7)

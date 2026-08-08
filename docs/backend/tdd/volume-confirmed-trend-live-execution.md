@@ -246,7 +246,8 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 
 - 한 프로세스에서는 Kotlin `Mutex`로 H4 평가, private stream callback, 수동 reconcile을 직렬화한다.
 - 다중 replica를 지원하지 않는다. Compose replica가 1이 아닌 경우 배포 전 검증을 실패시킨다.
-- 조회량은 H4 경계당 wallet, position, open order, recent execution으로 제한한다.
+- 체결·종료손익 REST 복구는 Bybit의 7일 기본 조회 범위를 100건 단위 cursor로 끝까지 읽는다.
+  같은 cursor가 반복되거나 1,000페이지를 넘으면 부분 원장을 반환하지 않고 fail closed한다.
 - websocket은 빠른 wake-up 용도이며 REST 대사가 복구 source다.
 - API rate limit은 전환 실행을 늦추더라도 재시도 폭주보다 fail closed를 우선한다.
 

@@ -352,6 +352,100 @@ class BybitPrivateClientTest :
             executions.single().stopOrderType shouldBe "StopLoss"
         }
 
+        "executions retrieves every cursor page" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.encodedPath shouldBe "/v5/execution/list"
+                    request.url.parameters["limit"] shouldBe "100"
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "execution-next"
+                    respond(
+                        content =
+                            executionHistoryResponse(
+                                nextCursor = if (requestCount == 1) "execution-next" else "",
+                                executionId = "exec-$requestCount",
+                                executedAt = 1719748800000L + requestCount,
+                            ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val executions = client.executions(Symbol("BTCUSDT"))
+
+            requestCount shouldBe 2
+            executions.mapNotNull { it.executionId }.shouldContainExactly("exec-1", "exec-2")
+        }
+
+        "executions rejects a repeated cursor" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "stuck"
+                    respond(
+                        content = executionHistoryResponse(nextCursor = "stuck"),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val error = shouldThrow<ExchangeExecutionException> { client.executions(Symbol("BTCUSDT")) }
+
+            error.message shouldBe "Bybit execution history pagination repeated a cursor."
+            requestCount shouldBe 2
+        }
+
+        "closedPnls retrieves every cursor page" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.encodedPath shouldBe "/v5/position/closed-pnl"
+                    request.url.parameters["limit"] shouldBe "100"
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "closed-next"
+                    respond(
+                        content =
+                            closedPnlHistoryResponse(
+                                nextCursor = if (requestCount == 1) "closed-next" else "",
+                                orderId = "closed-$requestCount",
+                                closedAt = 1719748800000L + requestCount,
+                            ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val closedPnls = client.closedPnls(Symbol("BTCUSDT"))
+
+            requestCount shouldBe 2
+            closedPnls.mapNotNull { it.exchangeOrderId }.shouldContainExactly("closed-1", "closed-2")
+        }
+
+        "closedPnls rejects a repeated cursor" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "stuck"
+                    respond(
+                        content = closedPnlHistoryResponse(nextCursor = "stuck"),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val error = shouldThrow<ExchangeExecutionException> { client.closedPnls(Symbol("BTCUSDT")) }
+
+            error.message shouldBe "Bybit closed PnL history pagination repeated a cursor."
+            requestCount shouldBe 2
+        }
+
         "order lookup falls back to history for a completed IOC" {
             val requestedPaths = mutableListOf<String>()
             val engine =
@@ -675,6 +769,62 @@ class BybitPrivateClientTest :
             error.providerMessage shouldBe "secret raw provider detail"
         }
     })
+
+private fun executionHistoryResponse(
+    nextCursor: String,
+    executionId: String? = null,
+    executedAt: Long = 1719748800000L,
+): String {
+    val list =
+        executionId?.let {
+            """
+            [{
+              "orderId": "exchange-$it",
+              "orderLinkId": "client-$it",
+              "symbol": "BTCUSDT",
+              "side": "Buy",
+              "execPrice": "70000",
+              "execQty": "0.001",
+              "execFee": "0.042",
+              "execTime": "$executedAt",
+              "execId": "$it",
+              "execType": "Trade"
+            }]
+            """.trimIndent()
+        } ?: "[]"
+    return """
+        {"retCode":0,"retMsg":"OK","result":{"nextPageCursor":"$nextCursor","list":$list}}
+        """.trimIndent()
+}
+
+private fun closedPnlHistoryResponse(
+    nextCursor: String,
+    orderId: String? = null,
+    closedAt: Long = 1719748800000L,
+): String {
+    val list =
+        orderId?.let {
+            """
+            [{
+              "orderId": "$it",
+              "orderLinkId": "client-$it",
+              "symbol": "BTCUSDT",
+              "side": "Buy",
+              "qty": "0.001",
+              "avgEntryPrice": "70000",
+              "avgExitPrice": "71000",
+              "closedPnl": "0.9",
+              "openFee": "0.04",
+              "closeFee": "0.04",
+              "createdTime": "1719745200000",
+              "updatedTime": "$closedAt"
+            }]
+            """.trimIndent()
+        } ?: "[]"
+    return """
+        {"retCode":0,"retMsg":"OK","result":{"nextPageCursor":"$nextCursor","list":$list}}
+        """.trimIndent()
+}
 
 private fun testPrivateClient(engine: MockEngine): BybitPrivateClient =
     BybitPrivateClient(

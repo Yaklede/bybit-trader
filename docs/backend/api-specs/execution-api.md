@@ -315,6 +315,11 @@ or callback exception increments the attempt metadata and remains pending for
 the next five-minute cycle. Each pending row is handled independently, so one
 Discord failure does not prevent later pending alerts.
 
+Bybit execution and closed-PnL recovery follows every 100-row response cursor
+within the provider's default seven-day window. A repeated cursor or more than
+1,000 pages aborts reconciliation; a first-page-only or silently truncated
+ledger is never accepted.
+
 The same initial reconciliation request also projects the newest execution
 lifecycle observation. Newly observed partial fills, protected positions, and
 unprotected positions are passed to the alert layer before market sync. Closed
