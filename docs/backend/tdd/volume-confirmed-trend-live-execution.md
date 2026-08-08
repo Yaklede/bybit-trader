@@ -266,6 +266,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   직후에는 영속 전략 상태 시각을 복구 시작점으로 사용한다. `ENTRY_INTENT_RECORDED`, `ENTRY_SUBMITTED`,
   `EXIT_INTENT_RECORDED`, `EXIT_SUBMITTED` 중 위험 상태만 갱신할 때는 주문 생명주기 시각을 전진시키지
   않는다. 따라서 위험 원장 변화가 미확정 주문의 복구 범위나 timeout을 초기화할 수 없다.
+- pending 주문은 이미 외부 부작용이 발생했을 수 있으므로 승인 검증 직후, 진입용 거래소 계약·잔고·회계
+  동기화보다 먼저 exact order, execution, position으로 복구한다. 계정 메타데이터나 회계 API 장애가
+  체결 확인과 잔여 IOC 취소를 지연시켜서는 안 된다. 이전 계약 불일치로 중단된 소유 포지션의 안전 종료도
+  due accounting 동기화보다 먼저 수행한다.
 - 겹쳐 읽은 체결은 `execId`, 종료손익은 거래소 order ID를 우선 identity로 사용해 멱등 제거한다.
 - websocket은 빠른 wake-up 용도이며 REST 대사가 복구 source다.
 - API rate limit은 전환 실행을 늦추더라도 재시도 폭주보다 fail closed를 우선한다.

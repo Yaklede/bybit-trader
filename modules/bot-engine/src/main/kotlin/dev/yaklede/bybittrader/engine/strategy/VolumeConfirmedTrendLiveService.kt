@@ -193,6 +193,7 @@ class VolumeConfirmedTrendLiveService(
         if (!approval.liveExecutionAllowed) {
             return manageApprovalRevocation(stored, approval, now, referencePrice)
         }
+        recoverPendingOrder(stored, now)?.let { return it }
         if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) {
             return VolumeConfirmedTrendLiveEvaluationResult(
                 status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
@@ -224,9 +225,6 @@ class VolumeConfirmedTrendLiveService(
             return halt(effectiveStored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
-        if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
-            return recovery.recover(effectiveStored, position, now)
-        }
         val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
         if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
             return halt(effectiveStored, signal, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
@@ -314,6 +312,7 @@ class VolumeConfirmedTrendLiveService(
         if (!approval.liveExecutionAllowed) {
             return manageApprovalRevocation(stored, approval, now, null)
         }
+        recoverPendingOrder(stored, now)?.let { return it }
         if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) return reconcileHalted(stored, now)
 
         val instrument = gateway.instrumentRules(config.symbol)
@@ -339,9 +338,6 @@ class VolumeConfirmedTrendLiveService(
             return halt(effectiveStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = openPositions.singleOrNull()
-        if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
-            return recovery.recover(effectiveStored, position, now)
-        }
         val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
         if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
             return halt(effectiveStored, null, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
@@ -431,21 +427,21 @@ class VolumeConfirmedTrendLiveService(
         stored: VolumeConfirmedTrendLiveState,
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
+        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
+        val positions = accountPositions.filter { it.symbol == config.symbol }
+        if (positions.size > 1) {
+            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+        }
+        val position = positions.singleOrNull()
+        if (stored.haltedReasonCode?.startsWith(TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE) == true &&
+            position != null
+        ) {
+            return safetyHalt(stored, TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE, now)
+        }
         captureAccountSnapshotIfDue(now)
         captureAccountingIfDue(now, stored.updatedAt)
         val riskAssessment = projectionSink.assessEntryRisk(stored.riskState, now, config.riskPolicy)
         val riskStored = requireNotNull(persistRiskState(stored, riskAssessment, now))
-        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
-        val positions = accountPositions.filter { it.symbol == config.symbol }
-        if (positions.size > 1) {
-            return halt(riskStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
-        }
-        val position = positions.singleOrNull()
-        if (riskStored.haltedReasonCode?.startsWith(TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE) == true &&
-            position != null
-        ) {
-            return safetyHalt(riskStored, TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE, now)
-        }
         if (riskStored.haltedReasonCode in RECOVERABLE_ENTRY_INVENTORY_HALT_REASONS &&
             position != null &&
             riskStored.matches(position)
@@ -485,6 +481,18 @@ class VolumeConfirmedTrendLiveService(
             state = if (reconciled.samePersistedStateAs(riskStored)) riskStored else reconciled,
             plan = null,
         )
+    }
+
+    private suspend fun recoverPendingOrder(
+        stored: VolumeConfirmedTrendLiveState?,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveEvaluationResult? {
+        if (stored == null || stored.status !in PENDING_ORDER_STATES) return null
+        val positions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        if (positions.size > 1) {
+            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+        }
+        return recovery.recover(stored, positions.singleOrNull(), now)
     }
 
     private suspend fun captureAccountSnapshotIfDue(now: Instant): ExchangeAccountBalance? {

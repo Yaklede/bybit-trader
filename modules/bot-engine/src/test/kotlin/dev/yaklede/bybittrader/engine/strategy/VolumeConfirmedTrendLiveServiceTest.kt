@@ -510,13 +510,67 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
             result.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
-            result.contractFailures shouldBe
-                listOf(
-                    VolumeConfirmedTrendExchangeContractFailure.BUY_LEVERAGE_NOT_ONE,
-                    VolumeConfirmedTrendExchangeContractFailure.SELL_LEVERAGE_NOT_ONE,
-                )
+            result.contractFailures shouldBe emptyList()
             gateway.submittedOrders.size shouldBe 1
             submitted.state.clientOrderId shouldBe result.state.clientOrderId
+        }
+
+        "pending order recovery runs before an exchange-contract read outage" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.007")
+            gateway.executionFills += executionFill(clientOrderId, "execution-contract-outage-001")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.007"),
+                    providerStatus = "Filled",
+                )
+            gateway.instrumentRulesFailure = IllegalStateException("injected instrument outage")
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.OPEN
+            result.state.lastExecutionId shouldBe "execution-contract-outage-001"
+            gateway.submittedOrders.size shouldBe 1
+        }
+
+        "persisted contract halt exits before a due accounting outage" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.positionProfileResponse =
+                gateway.positionProfileResponse.copy(
+                    buyLeverage = BigDecimal("2"),
+                    sellLeverage = BigDecimal("2"),
+                )
+            gateway.accountTransactionsFailure = IllegalStateException("injected accounting outage")
+            val halted =
+                openState(ownedPosition).copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
+                )
+            val accountingRequest =
+                VolumeConfirmedTrendLiveAccountingRequest(
+                    requestedAt = TEST_NOW,
+                    closuresDue = false,
+                    transactionsDue = true,
+                    closureStartAt = null,
+                    transactionStartAt = TEST_NOW.minusSeconds(3_600),
+                )
+            val projection = RecordingTrendLiveProjectionSink(accountingRequest = accountingRequest)
+            val store = InMemoryTrendLiveStore(state = halted)
+            val service = service(gateway, store, projectionSink = projection)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().reduceOnly shouldBe true
+            gateway.accountTransactionRanges.size shouldBe 0
+            projection.accountingFailures.size shouldBe 0
         }
 
         "safety halt retries a known unfilled exit only after its delay" {
@@ -1082,7 +1136,7 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
         }
 
-        "risk projection updates do not reset a pending order cancellation timeout" {
+        "pending order cancellation does not wait for a risk projection update" {
             var now = Instant.parse("2026-08-07T00:00:10Z")
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -1097,7 +1151,7 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             submitted.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
             cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
-            cancellationPending.state.riskReasonCodes shouldBe listOf("ACCOUNT_LEDGER_MISMATCH_PENDING")
+            cancellationPending.state.riskReasonCodes shouldBe emptyList()
             gateway.cancelRequests.size shouldBe 1
             gateway.submittedOrders.size shouldBe 1
         }
@@ -1291,6 +1345,8 @@ private class FakeTrendLiveGateway(
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
     var balance: ExchangeAccountBalance = isolatedAccountBalance()
+    var instrumentRulesFailure: Throwable? = null
+    var accountTransactionsFailure: Throwable? = null
     var positionProfileResponse =
         ExchangePositionExecutionProfile(
             symbol = Symbol("BTCUSDT"),
@@ -1320,6 +1376,7 @@ private class FakeTrendLiveGateway(
 
     override suspend fun instrumentRules(symbol: Symbol): ExchangeInstrumentRules {
         exchangeReadCount += 1
+        instrumentRulesFailure?.let { throw it }
         return ExchangeInstrumentRules(
             symbol = symbol,
             status = "Trading",
@@ -1434,6 +1491,7 @@ private class FakeTrendLiveGateway(
         endAt: Instant,
     ): List<ExchangeAccountTransaction> {
         exchangeReadCount += 1
+        accountTransactionsFailure?.let { throw it }
         accountTransactionRanges += startAt to endAt
         return accountTransactionRecords.toList()
     }

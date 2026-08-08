@@ -257,6 +257,10 @@ immediate entry block. It first recovers an existing pending order and may close
 an exactly owned position only when the smaller reduce-only safety contract is
 still valid; hedge mode, trading suspension, or ownership uncertainty leaves the
 runtime halted for operator action.
+Pending H4 orders are reconciled immediately after approval validation and
+before entry-contract, balance, or accounting synchronization. A transient
+metadata or ledger API outage therefore cannot defer exact fill readback or
+stale-IOC cancellation. Accounting uncertainty still blocks every new entry.
 During H4 pending-order recovery, an active exact IOC order prevents both
 `OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
 order after the recovery timeout and requires terminal exchange readback; an
