@@ -1,10 +1,19 @@
 package dev.yaklede.bybittrader.engine.strategy
 
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
+import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeOrderResult
+import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import io.kotest.core.spec.style.StringSpec
@@ -68,7 +77,51 @@ class VolumeConfirmedTrendExchangeContractValidatorTest :
                     VolumeConfirmedTrendExchangeContractFailure.QUANTITY_STEP_MISMATCH,
                 )
         }
+
+        "contract inspection uses only read-only exchange profile queries" {
+            val checkedAt = Instant.parse("2026-08-08T00:00:00Z")
+            val snapshot =
+                VolumeConfirmedTrendExchangeContractInspector(
+                    gateway = ReadOnlyContractGateway(),
+                    symbol = Symbol("BTCUSDT"),
+                    clock = { checkedAt },
+                ).inspect()
+
+            snapshot.checkedAt shouldBe checkedAt
+            snapshot.account shouldBe account()
+            snapshot.position shouldBe position()
+            snapshot.instrument shouldBe instrument()
+            snapshot.validation.valid shouldBe true
+            snapshot.validation.failures shouldBe emptyList()
+        }
     })
+
+private class ReadOnlyContractGateway : ExchangeExecutionGateway {
+    override suspend fun accountExecutionProfile(): ExchangeAccountExecutionProfile = account()
+
+    override suspend fun positionExecutionProfile(symbol: Symbol): ExchangePositionExecutionProfile = position()
+
+    override suspend fun instrumentRules(symbol: Symbol): ExchangeInstrumentRules = instrument()
+
+    override suspend fun setLeverage(
+        symbol: Symbol,
+        leverage: BigDecimal,
+    ): Unit = error("Contract inspection must not set leverage.")
+
+    override suspend fun placeOrder(request: ExchangeOrderRequest): ExchangeOrderResult =
+        error("Contract inspection must not place an order.")
+
+    override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult =
+        error("Contract inspection must not cancel an order.")
+
+    override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> = error("Contract inspection must not query orders.")
+
+    override suspend fun positions(symbol: Symbol): List<ExchangePosition> = error("Contract inspection must not query positions.")
+
+    override suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill> = error("Contract inspection must not query executions.")
+
+    override suspend fun accountBalance(coin: String?): ExchangeAccountBalance = error("Contract inspection must not query balances.")
+}
 
 private fun account(): ExchangeAccountExecutionProfile =
     ExchangeAccountExecutionProfile(

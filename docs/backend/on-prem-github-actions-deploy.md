@@ -154,6 +154,20 @@ validation, Kotlin parity, runtime parity, and forward-policy JSON files. The
 Compose `config` bind mount therefore cannot hide the evidence required by the
 runtime approval loader.
 
+The repository preflight now treats this isolated H4 Shadow profile separately
+from the legacy M5 Paper loop. `BOT_PAPER_LOOP_ENABLED=false` is required here,
+not a missing-loop error. Any mixed Paper, maker, private execution, private
+stream, automatic execution, or legacy reconciliation setting fails preflight.
+
+For a read-only Bybit TESTNET contract check, use a separate temporary deploy
+directory/Compose project after the Shadow evidence is frozen. Keep
+`BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED=false`,
+`BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false`, and every private execution
+loop disabled while supplying testnet credentials. The authenticated
+`GET /strategy/volume-confirmed-trend/exchange-contract` endpoint checks the
+actual account and instrument metadata without placing an order. Do not reuse
+the 90-day Shadow database volume for this temporary TESTNET process.
+
 Recommended optional secret:
 
 - `ONPREM_SSH_FINGERPRINT`: SHA256 host key fingerprint for SSH host

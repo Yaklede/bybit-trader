@@ -83,6 +83,30 @@ Do not enable another strategy loop in the same container. The deploy workflow
 fails before upload when this isolation contract is violated. It also strips
 Bybit API credentials from the generated runtime env in `PAPER` mode.
 
+`node scripts/bot-preflight.mjs` recognizes this H4 Shadow profile as a valid
+PAPER runtime even though `BOT_PAPER_LOOP_ENABLED=false`. It fails if any Paper,
+maker, legacy private execution, private stream, or reconciliation loop is
+mixed into the same process.
+
+After the forward gate is ready for review, validate the Bybit TESTNET account
+contract before enabling H4 execution. Use a separate temporary Compose project,
+database volume, container names, and dashboard port; do not replace or mount
+the 90-day Shadow database into this probe runtime. Configure `BOT_MODE=TESTNET`,
+testnet credentials, and keep every order-producing flag and both H4 flags
+`false`. Then run preflight and the authenticated read-only inspection:
+
+```bash
+node scripts/bot-preflight.mjs
+curl -fsS \
+  -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  http://127.0.0.1:8080/strategy/volume-confirmed-trend/exchange-contract
+```
+
+The response must report `available=true`, `valid=true`, `UNIFIED_1` or
+`UNIFIED_2`, `CROSS`, `ONE_WAY`, and buy/sell leverage `1`. The endpoint only
+reads account, position, and instrument metadata. It cannot change leverage or
+submit/cancel an order, and it does not satisfy the human approval gate.
+
 Optional forward-only market collection for later strategy research:
 
 ```bash

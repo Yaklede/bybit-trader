@@ -83,6 +83,33 @@ reconciliation, a confirmed wallet mismatch, or drawdown at or above 35%
 returns `risk.allowsNewEntry=false`. Existing position exits remain allowed.
 This endpoint requires the control Bearer token.
 
+## GET /strategy/volume-confirmed-trend/exchange-contract
+
+Runs a fresh, read-only inspection of the private Bybit account contract used
+by the frozen H4 strategy. It calls only account-info, position-info, and public
+instrument-info reads. It never changes leverage, creates or cancels an order,
+or reads account balance and trade history.
+
+The response contains:
+
+- `valid`: whether every frozen execution-contract check passes.
+- `failures`: machine-readable mismatch codes.
+- `account`: configured account type, Unified account generation, margin mode,
+  and provider update time.
+- `position`: one-way/hedge mode, observed position indices, buy/sell leverage,
+  and reduce-only restriction state.
+- `instrument`: BTCUSDT contract status/type/currencies, Unified-margin support,
+  minimum quantity, quantity step, minimum notional, tick size, and leverage
+  range.
+
+The H4 executor requires Unified 1.0/2.0, cross margin, one-way position mode,
+buy and sell leverage `1`, unrestricted reduce-only exits, a trading
+`LinearPerpetual` BTCUSDT instrument settled in USDT, and the frozen
+`0.001 BTC` minimum/step contract. A mismatch is reported but never corrected
+automatically. `available=false` means no private exchange client is configured
+in the process. The endpoint requires the control Bearer token and does not
+grant H4 live approval.
+
 ## POST /execution/evaluate-and-submit
 
 Evaluates the runtime aggressive M5 strategy and submits a private Bybit market

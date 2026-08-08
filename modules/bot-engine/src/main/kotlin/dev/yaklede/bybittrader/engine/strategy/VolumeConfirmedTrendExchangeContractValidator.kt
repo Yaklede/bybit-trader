@@ -1,12 +1,15 @@
 package dev.yaklede.bybittrader.engine.strategy
 
+import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountMode
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import java.math.BigDecimal
+import java.time.Instant
 
 enum class VolumeConfirmedTrendExchangeContractFailure {
     ACCOUNT_TYPE_NOT_UNIFIED,
@@ -30,6 +33,40 @@ data class VolumeConfirmedTrendExchangeContractValidation(
     val valid: Boolean,
     val failures: List<VolumeConfirmedTrendExchangeContractFailure>,
 )
+
+data class VolumeConfirmedTrendExchangeContractSnapshot(
+    val checkedAt: Instant,
+    val account: ExchangeAccountExecutionProfile,
+    val position: ExchangePositionExecutionProfile,
+    val instrument: ExchangeInstrumentRules,
+    val validation: VolumeConfirmedTrendExchangeContractValidation,
+)
+
+class VolumeConfirmedTrendExchangeContractInspector(
+    private val gateway: ExchangeExecutionGateway,
+    private val symbol: Symbol,
+    private val contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+    private val clock: () -> Instant = Instant::now,
+) {
+    suspend fun inspect(): VolumeConfirmedTrendExchangeContractSnapshot {
+        val account = gateway.accountExecutionProfile()
+        val position = gateway.positionExecutionProfile(symbol)
+        val instrument = gateway.instrumentRules(symbol)
+        return VolumeConfirmedTrendExchangeContractSnapshot(
+            checkedAt = clock(),
+            account = account,
+            position = position,
+            instrument = instrument,
+            validation =
+                VolumeConfirmedTrendExchangeContractValidator.validate(
+                    account = account,
+                    position = position,
+                    instrument = instrument,
+                    contract = contract,
+                ),
+        )
+    }
+}
 
 object VolumeConfirmedTrendExchangeContractValidator {
     fun validate(

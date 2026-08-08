@@ -295,6 +295,8 @@ curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   "http://127.0.0.1:8080/strategy/volume-confirmed-trend/shadow?limit=40"
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   "http://127.0.0.1:8080/strategy/volume-confirmed-trend/live?limit=40"
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  http://127.0.0.1:8080/strategy/volume-confirmed-trend/exchange-contract
 ```
 
 The dashboard's **전진 검증** panel renders the same persisted state, all
@@ -308,6 +310,10 @@ live evidence: exchange-observed position state, unitized-NAV drawdown and its
 35% limit, wallet-ledger reconciliation, H4-attributed closures/fills, BTCUSDT
 funding, and recent account transactions. Empty tables remain empty; the
 dashboard does not fabricate sample trades or infer live PnL from Shadow data.
+The exchange-contract endpoint is a separate private-account metadata check. It
+reports Unified/Cross/one-way/1x and BTCUSDT quantity-rule mismatches without
+changing leverage or creating/canceling an order, and it cannot grant live
+approval.
 
 Smoke test:
 

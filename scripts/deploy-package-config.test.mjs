@@ -95,6 +95,27 @@ test("trend Shadow rejects mixed private and paper execution", () => {
   assert.match(result.stderr, /BOT_PAPER_LOOP_ENABLED/);
 });
 
+test("read-only TESTNET contract probe preserves credentials with every order path disabled", () => {
+  const result = runRuntimeEnvScript({
+    BOT_MODE: "TESTNET",
+    BOT_CONTROL_TOKEN: "control-test-value",
+    BYBIT_API_KEY: "api-key",
+    BYBIT_API_SECRET: "api-secret",
+    BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "false",
+    BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+    BOT_PRIVATE_EXECUTION_ENABLED: "false",
+    BOT_PRIVATE_EXECUTION_STREAM_ENABLED: "false",
+    BOT_EXECUTION_LOOP_ENABLED: "false",
+    BOT_EXECUTION_RECONCILIATION_ENABLED: "false",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.runtimeEnv, /^BOT_MODE=TESTNET$/m);
+  assert.match(result.runtimeEnv, /^BYBIT_API_KEY=api-key$/m);
+  assert.match(result.runtimeEnv, /^BOT_PRIVATE_EXECUTION_ENABLED=false$/m);
+  assert.match(result.runtimeEnv, /^BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false$/m);
+});
+
 test("trend live execution rejects the repository's default unapproved receipt", () => {
   const result = runRuntimeEnvScript({
     BOT_MODE: "TESTNET",

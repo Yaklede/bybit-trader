@@ -59,6 +59,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractInspector
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvidenceService
@@ -864,6 +865,24 @@ fun main() {
                                 recentClosures = evidence.recentClosures,
                                 recentAccountTransactions = evidence.recentAccountTransactions,
                             )
+                        }
+                    },
+                volumeConfirmedTrendExchangeContractProvider =
+                    privateExchangeGateway?.let { gateway ->
+                        {
+                            val protocol =
+                                trendRuntimeDefinition?.protocol
+                                    ?: loadVolumeConfirmedTrendProtocolDefinition(
+                                        Path.of(config.volumeConfirmedTrendShadow.protocolPath),
+                                    )
+                            require(protocol.symbol == config.marketData.symbol) {
+                                "Trend exchange contract protocol symbol does not match BOT_SYMBOL."
+                            }
+                            VolumeConfirmedTrendExchangeContractInspector(
+                                gateway = gateway,
+                                symbol = protocol.symbol,
+                                contract = protocol.executionContract,
+                            ).inspect()
                         }
                     },
                 runtimeMode = config.runtimeMode.name,

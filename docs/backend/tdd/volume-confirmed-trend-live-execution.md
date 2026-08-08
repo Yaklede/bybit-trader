@@ -1,7 +1,7 @@
 # 거래량 확인형 추세 전략 실거래 실행 기술 설계
 
 > 작성일: 2026-08-07
-> 상태: 승인 기반 런타임·체결/계좌/거래내역 projection·위험 게이트 완료, 대시보드·전진 승인 대기
+> 상태: 승인 기반 런타임·체결/계좌/거래내역 projection·위험 게이트·대시보드·읽기 전용 거래소 계약 점검 완료, 전진 승인 대기
 > 대상 모듈: `bot-engine`, `bot-exchange-bybit`, `bot-ledger`, `bot-app`
 
 ## 1. 설계 배경 및 목적
@@ -320,8 +320,12 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - `HALTED` 상태에서도 신규 주문은 만들지 않지만 실제 포지션과 account snapshot 관측은 계속한다.
 - 의도 저장 실패, 주문 응답 불명확, 주문 ack 저장 실패, 체결 projection 저장 실패, 부분 체결 및
   exact-order 증거 누락을 장애 주입 테스트로 검증한다.
+- 승인이나 주문 경로를 켜지 않은 TESTNET 프로세스에서도 인증된
+  `GET /strategy/volume-confirmed-trend/exchange-contract`로 account/position/instrument 읽기만 수행해
+  Unified/Cross/one-way/1배/수량 단위 계약과 불일치 코드를 확인할 수 있다. 이 점검은 레버리지 변경,
+  주문 생성·취소, 잔고·체결 조회를 수행하지 않는다.
 
-아직 완료되지 않은 항목은 운영 대시보드의 H4 성과·위험·wallet 대사 표시, 실제 Bybit TESTNET 최소 주문,
+아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손실 제한은 미완료 항목이 아니라 v1의
 동결 역사 계약 밖이므로 의도적으로 포함하지 않는다.
 따라서 기본 승인 파일과

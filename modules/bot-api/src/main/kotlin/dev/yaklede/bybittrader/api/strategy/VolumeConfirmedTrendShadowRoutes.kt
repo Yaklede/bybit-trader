@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
 import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractSnapshot
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLivePerformanceEvidence
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
@@ -27,6 +28,7 @@ typealias VolumeConfirmedTrendShadowReportProvider = suspend (Int) -> VolumeConf
 typealias VolumeConfirmedTrendApprovalReportProvider = suspend () -> VolumeConfirmedTrendApprovalReport
 typealias VolumeConfirmedTrendApprovalArtifactExportProvider = suspend () -> VolumeConfirmedTrendApprovalArtifactExportResponse
 typealias VolumeConfirmedTrendLiveSnapshotProvider = suspend (Int) -> VolumeConfirmedTrendLiveSnapshot
+typealias VolumeConfirmedTrendExchangeContractProvider = suspend () -> VolumeConfirmedTrendExchangeContractSnapshot
 
 data class VolumeConfirmedTrendLiveSnapshot(
     val enabled: Boolean,
@@ -46,6 +48,7 @@ fun Route.configureVolumeConfirmedTrendShadowRoutes(
     approvalReportProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
     approvalArtifactExportProvider: VolumeConfirmedTrendApprovalArtifactExportProvider? = null,
     liveSnapshotProvider: VolumeConfirmedTrendLiveSnapshotProvider? = null,
+    exchangeContractProvider: VolumeConfirmedTrendExchangeContractProvider? = null,
 ) {
     authenticate("control") {
         get("/strategy/volume-confirmed-trend/shadow") {
@@ -77,8 +80,73 @@ fun Route.configureVolumeConfirmedTrendShadowRoutes(
             val snapshot = liveSnapshotProvider?.invoke(limit)
             call.respond(snapshot?.toResponse() ?: VolumeConfirmedTrendLiveResponse.disabled())
         }
+        get("/strategy/volume-confirmed-trend/exchange-contract") {
+            val snapshot = exchangeContractProvider?.invoke()
+            call.respond(snapshot?.toResponse() ?: VolumeConfirmedTrendExchangeContractResponse.unavailable())
+        }
     }
 }
+
+@Serializable
+data class VolumeConfirmedTrendExchangeContractResponse(
+    val available: Boolean,
+    val valid: Boolean,
+    val checkedAt: String?,
+    val failures: List<String>,
+    val account: VolumeConfirmedTrendExchangeContractAccountResponse?,
+    val position: VolumeConfirmedTrendExchangeContractPositionResponse?,
+    val instrument: VolumeConfirmedTrendExchangeContractInstrumentResponse?,
+) {
+    companion object {
+        fun unavailable(): VolumeConfirmedTrendExchangeContractResponse =
+            VolumeConfirmedTrendExchangeContractResponse(
+                available = false,
+                valid = false,
+                checkedAt = null,
+                failures = listOf("PRIVATE_EXCHANGE_UNAVAILABLE"),
+                account = null,
+                position = null,
+                instrument = null,
+            )
+    }
+}
+
+@Serializable
+data class VolumeConfirmedTrendExchangeContractAccountResponse(
+    val accountType: String,
+    val accountMode: String,
+    val unifiedMarginStatus: Int,
+    val marginMode: String,
+    val updatedAt: String?,
+)
+
+@Serializable
+data class VolumeConfirmedTrendExchangeContractPositionResponse(
+    val symbol: String,
+    val positionMode: String,
+    val buyLeverage: String?,
+    val sellLeverage: String?,
+    val observedPositionIndices: List<Int>,
+    val reduceOnlyRestricted: Boolean,
+)
+
+@Serializable
+data class VolumeConfirmedTrendExchangeContractInstrumentResponse(
+    val symbol: String,
+    val status: String,
+    val contractType: String,
+    val baseCoin: String,
+    val quoteCoin: String,
+    val settleCoin: String,
+    val unifiedMarginTrade: Boolean,
+    val minimumOrderQuantity: String,
+    val quantityStep: String,
+    val minimumNotional: String,
+    val priceTick: String,
+    val minimumLeverage: String,
+    val maximumLeverage: String,
+    val leverageStep: String,
+)
 
 @Serializable
 data class VolumeConfirmedTrendLiveResponse(
@@ -431,6 +499,48 @@ data class VolumeConfirmedTrendShadowEventResponse(
     val equity: String,
     val reason: String,
 )
+
+private fun VolumeConfirmedTrendExchangeContractSnapshot.toResponse(): VolumeConfirmedTrendExchangeContractResponse =
+    VolumeConfirmedTrendExchangeContractResponse(
+        available = true,
+        valid = validation.valid,
+        checkedAt = checkedAt.toString(),
+        failures = validation.failures.map { failure -> failure.name },
+        account =
+            VolumeConfirmedTrendExchangeContractAccountResponse(
+                accountType = account.accountType,
+                accountMode = account.accountMode.name,
+                unifiedMarginStatus = account.unifiedMarginStatus,
+                marginMode = account.marginMode.name,
+                updatedAt = account.updatedAt?.toString(),
+            ),
+        position =
+            VolumeConfirmedTrendExchangeContractPositionResponse(
+                symbol = position.symbol.value,
+                positionMode = position.positionMode.name,
+                buyLeverage = position.buyLeverage?.toPlainString(),
+                sellLeverage = position.sellLeverage?.toPlainString(),
+                observedPositionIndices = position.observedPositionIndices.sorted(),
+                reduceOnlyRestricted = position.reduceOnlyRestricted,
+            ),
+        instrument =
+            VolumeConfirmedTrendExchangeContractInstrumentResponse(
+                symbol = instrument.symbol.value,
+                status = instrument.status,
+                contractType = instrument.contractType,
+                baseCoin = instrument.baseCoin,
+                quoteCoin = instrument.quoteCoin,
+                settleCoin = instrument.settleCoin,
+                unifiedMarginTrade = instrument.unifiedMarginTrade,
+                minimumOrderQuantity = instrument.minimumOrderQuantity.toPlainString(),
+                quantityStep = instrument.quantityStep.toPlainString(),
+                minimumNotional = instrument.minimumNotional.toPlainString(),
+                priceTick = instrument.priceTick.toPlainString(),
+                minimumLeverage = instrument.minimumLeverage.toPlainString(),
+                maximumLeverage = instrument.maximumLeverage.toPlainString(),
+                leverageStep = instrument.leverageStep.toPlainString(),
+            ),
+    )
 
 private fun VolumeConfirmedTrendLiveSnapshot.toResponse(): VolumeConfirmedTrendLiveResponse =
     VolumeConfirmedTrendLiveResponse(
