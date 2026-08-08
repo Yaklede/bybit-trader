@@ -26,7 +26,7 @@ Source: `config/volume-confirmed-trend-ensemble-v1-external-result.json`
 | 승률 | 26.06060606% |
 | 최대 보수적 intrabar MDD | 30.58189901% |
 
-### 연속 손실 재생
+### 위험 정책 재생
 
 Source:
 
@@ -34,17 +34,39 @@ Source:
 - `config/volume-confirmed-trend-ensemble-v1.json`
 - `scripts/lib/volume-confirmed-trend-research.mjs`
 
-동결 protocol과 같은 `buildTrendCommands`/`simulateTrendRun`을 660 USDT, 기본 비용 1배로 재생한 결과:
+다음 명령은 동결 protocol, 외부 DB, 승인 결과의 SHA-256과 핵심 지표를 먼저 대조한 뒤 현재 Live
+한도를 동결 종료 거래 경로에 대입한다.
+
+```bash
+node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
+  --maximum-daily-loss-fraction=0.03 \
+  --maximum-consecutive-losses=3
+```
+
+660 USDT, 기본 비용 1배 재생 결과:
 
 | 항목 | 값 |
 |---|---:|
+| 최초 일 손실 한도 초과 | 1번째 종료 거래 |
+| 최초 한도 초과 시각 | 2020-04-06T16:00:00Z |
+| 해당 UTC 일 시작 H4 equity 프록시 | 633.80362426 USDT |
+| 종료 직후 누적 실현 equity | 608.61493309 USDT |
+| 당일 손실 프록시 | 3.97421066% |
 | 최대 연속 손실 | 11건 |
 | 최초 3연속 손실 | 3번째 종료 거래 |
 | 최초 3연속 손실 종료 시각 | 2020-04-12T16:00:00Z |
+| 3개 종료 거래 누적 후 잔고 | 573.37095348 USDT |
+| 3개 종료 거래 누적 수익률 | -13.12561311% |
+| 이후 동결 경로 거래 | 162건 |
 
-따라서 현재 Live 정책을 역사 구간 처음부터 적용하면 세 번째 거래 뒤 신규 진입이 차단된다. 이후 승리
-거래가 실행될 수 없으므로 `consecutiveLosses`도 자동 초기화되지 않는다. 동결 결과의 165건 거래와
-446.26% 누적 수익 경로를 재현할 수 없다.
+첫 종료 직후부터 3% 일 손실 한도가 반대 포지션 진입 시각을 바꿀 수 있다. 따라서 이후 체결과 손익은
+동결 경로와 달라지며, `573.37 USDT`는 실제 Live 예상 잔고가 아니라 동결된 첫 세 종료 거래를 그대로
+적용한 반사실적 접두 결과다. 만약 동일한 세 종료 거래가 발생하면 신규 진입이 차단되고, 승리 거래가
+실행될 수 없어 `consecutiveLosses`도 자동 초기화되지 않는다. 어느 경우든 동결 결과의 165건 거래와
+446.26% 누적 수익 경로를 현재 계약으로 재현할 수 없다.
+
+생성되는 `build/research/volume-confirmed-trend-live-risk-parity-audit.json`은 이 한계를
+`livePathSimulation=false`로 명시하며 최종 판정을 `BLOCK_LIVE_EXECUTION`으로 기록한다.
 
 ## 코드 위치
 
@@ -52,6 +74,7 @@ Source:
 - 앱 설정과 H4 한도 결합: `VolumeConfirmedTrendLiveRiskPolicyFactory.kt`
 - 신규 진입 차단 판정: `ExecutionRiskCircuitBreaker.evaluate`
 - 동결 역사 재생: `volume-confirmed-trend-research.mjs`
+- 위험 패리티 진단: `volume-confirmed-trend-live-risk-parity-audit.mjs`
 - 기존 설계 선언: `volume-confirmed-trend-live-execution.md`
 
 ## 원인
