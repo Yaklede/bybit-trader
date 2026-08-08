@@ -42,6 +42,7 @@ jobs:
           ONPREM_SSH_FINGERPRINT: ${{ secrets.ONPREM_SSH_FINGERPRINT }}
           ONPREM_DEPLOY_DIR: ${{ secrets.ONPREM_DEPLOY_DIR }}
           ONPREM_DOCKER_BIND_HOST: ${{ secrets.ONPREM_DOCKER_BIND_HOST }}
+          "BOT_CONTROL_TOKEN": ${{ secrets.BOT_CONTROL_TOKEN }}
         run: |
           set -eu
           require_secret() {
@@ -59,6 +60,7 @@ jobs:
           require_secret ONPREM_SSH_FINGERPRINT "${ONPREM_SSH_FINGERPRINT}"
           require_secret ONPREM_DEPLOY_DIR "${ONPREM_DEPLOY_DIR}"
           require_secret ONPREM_DOCKER_BIND_HOST "${ONPREM_DOCKER_BIND_HOST}"
+          require_secret BOT_CONTROL_TOKEN "${BOT_CONTROL_TOKEN}"
           if [ -z "${ONPREM_SSH_PRIVATE_KEY}" ] && [ -z "${ONPREM_SSH_PASSWORD}" ]; then
             printf '%s\n' "Missing on-prem SSH private key or password." >&2
             exit 1

@@ -103,6 +103,8 @@ test("on-prem activation backs up before mutation and rolls back a failed releas
 test("on-prem deployment is a dry-run unless host deployment is explicitly selected", () => {
   assert.match(workflow, /deploy:[\s\S]*type: boolean[\s\S]*default: false/);
   assert.match(workflow, /name: Validate on-prem connection secrets\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
+  assert.match(workflow, /"BOT_CONTROL_TOKEN": \$\{\{ secrets\.BOT_CONTROL_TOKEN \}\}/);
+  assert.match(workflow, /require_secret BOT_CONTROL_TOKEN "\$\{BOT_CONTROL_TOKEN\}"/);
   assert.match(workflow, /name: Connect to Twingate\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
   assert.match(workflow, /name: Prepare remote Docker directories\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
   assert.match(workflow, /name: Upload Docker deployment package\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
