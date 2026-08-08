@@ -10,6 +10,7 @@ This is the preferred on-prem deployment path.
 - `compose.yaml`: backend service, dashboard service, SQLite volume, config mount, healthchecks.
 - `deploy/docker/env/bybit-trader.env.example`: host-side environment template.
 - `deploy/docker/backup-runtime-state.sh`: validated pre-deploy SQLite snapshot and Shadow continuity evidence.
+- `deploy/docker/verify-runtime-backup.sh`: isolated, network-disabled backup restore drill.
 - `deploy/docker/verify-runtime-profile.sh`: selected-profile and restarted Shadow-session verification.
 
 ## Host Setup
@@ -62,6 +63,12 @@ Each snapshot contains `bybit-trader.sqlite`, a SHA-256 manifest, and, for H4
 Shadow, the authenticated pre-deploy Shadow and approval responses. The newest
 14 snapshots are retained. Deployment fails when SQLite `PRAGMA quick_check`
 fails or the H4 Shadow session ID changes after restart.
+
+Every new snapshot is restored into a temporary Docker volume before the real
+container is restarted. The drill starts the application with `--network none`
+and all order-producing flags disabled, waits for `/health`, then removes its
+temporary container and volume. A current H4 Shadow session must also contain a
+matching checkpoint and exactly one `SESSION_STARTED` event with no invalidation.
 
 ## GitHub Actions Deployment
 

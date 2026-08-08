@@ -36,6 +36,7 @@ jobs:
           docker save "bybit-trader-dashboard:${IMAGE_TAG}" | gzip > "deploy-package/images/${DASHBOARD_IMAGE_TAR}"
           cp compose.yaml deploy-package/compose.yaml
           cp deploy/docker/backup-runtime-state.sh deploy-package/bin/backup-runtime-state.sh
+          cp deploy/docker/verify-runtime-backup.sh deploy-package/bin/verify-runtime-backup.sh
           cp deploy/docker/verify-runtime-profile.sh deploy-package/bin/verify-runtime-profile.sh
           cp \
             config/volume-flow-composite-current.json \
@@ -477,6 +478,11 @@ jobs:
                 backups \
                 "${BOT_IMAGE}"
             )"
+            if [ "${RUNTIME_BACKUP_SNAPSHOT}" != "NONE" ]; then
+              sh bin/verify-runtime-backup.sh \
+                "${RUNTIME_BACKUP_SNAPSHOT}" \
+                "${BOT_IMAGE}"
+            fi
             docker compose --env-file .env -f compose.yaml up -d --remove-orphans
             docker compose --env-file .env -f compose.yaml ps
             . ./.env

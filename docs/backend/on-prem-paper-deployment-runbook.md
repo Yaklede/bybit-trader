@@ -265,6 +265,10 @@ It also creates a validated pre-deploy SQLite snapshot under `backups/` and
 keeps the newest 14 snapshots. For an existing H4 Shadow run, deployment must
 preserve the same `sessionId`; a changed ID fails the workflow and means the
 90-day observation clock must be investigated rather than silently continued.
+Before the real restart, the snapshot is restored into a temporary volume and
+the application is booted with no network and all order paths disabled. Failure
+to open the database, migrate it, satisfy the H4 checkpoint/event contract, or
+answer `/health` stops deployment without modifying the production volume.
 
 3. The Paper loop automatically warms required M5 history. To pre-warm it
    manually before starting the loop, run:

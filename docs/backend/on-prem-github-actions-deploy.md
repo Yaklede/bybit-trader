@@ -239,6 +239,20 @@ copy with the newly loaded image. `PRAGMA quick_check` and SHA-256 evidence are
 mandatory before the deployment proceeds. Credentials are not copied into the
 snapshot.
 
+`bin/verify-runtime-backup.sh` then restores that snapshot into a temporary
+Docker volume and boots the newly loaded application image with `--network
+none`, a dummy control token, and every execution loop disabled. Deployment
+continues only after `/health` succeeds. If the backup contains an active H4
+Shadow session, its checkpoint, protocol identity, session-start event, and
+non-invalidated status must also agree. The temporary container and volume are
+removed whether the drill succeeds or fails.
+
+The regular `CI` workflow runs the same recovery path after building the backend
+image: it creates a real application database, snapshots it with SQLite, then
+requires the isolated restored application to become healthy. This catches
+image, SQLite CLI, schema migration, and startup-contract drift before an
+on-prem deployment is attempted.
+
 The post-deploy verifier reads the generated runtime env without printing
 secrets and calls authenticated endpoints from inside the API container. An H4
 Shadow deployment succeeds only when the Shadow provider has the frozen

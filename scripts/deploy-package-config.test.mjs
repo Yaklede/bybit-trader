@@ -17,6 +17,7 @@ const runtimeConfigFiles = [
 ];
 
 const workflow = fs.readFileSync(".github/workflows/deploy-onprem.yml", "utf8");
+const ciWorkflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 const dockerfile = fs.readFileSync("Dockerfile", "utf8");
 const runtimeEnvScript = extractRuntimeEnvScript(workflow);
 
@@ -35,6 +36,7 @@ test("on-prem package preserves every runtime config hidden by the compose mount
 
 test("on-prem deployment packages and runs profile-specific post-deploy verification", () => {
   assert.ok(fs.existsSync("deploy/docker/backup-runtime-state.sh"));
+  assert.ok(fs.existsSync("deploy/docker/verify-runtime-backup.sh"));
   assert.ok(fs.existsSync("deploy/docker/verify-runtime-profile.sh"));
   assert.match(
     workflow,
@@ -42,10 +44,15 @@ test("on-prem deployment packages and runs profile-specific post-deploy verifica
   );
   assert.match(
     workflow,
+    /cp deploy\/docker\/verify-runtime-backup\.sh deploy-package\/bin\/verify-runtime-backup\.sh/,
+  );
+  assert.match(
+    workflow,
     /cp deploy\/docker\/verify-runtime-profile\.sh deploy-package\/bin\/verify-runtime-profile\.sh/,
   );
   assert.match(workflow, /runtime_ready=false/);
   assert.match(workflow, /sh bin\/backup-runtime-state\.sh/);
+  assert.match(workflow, /sh bin\/verify-runtime-backup\.sh/);
   assert.match(workflow, /RUNTIME_BACKUP_SNAPSHOT/);
   assert.match(workflow, /CONTINUITY_SNAPSHOT/);
   assert.match(
@@ -57,6 +64,10 @@ test("on-prem deployment packages and runs profile-specific post-deploy verifica
 test("runtime image includes sqlite tooling for consistent deploy backups", () => {
   const dockerfile = fs.readFileSync("Dockerfile", "utf8");
   assert.match(dockerfile, /apt-get install -y --no-install-recommends curl ca-certificates sqlite3/);
+  assert.match(ciWorkflow, /name: Verify runtime backup recovery/);
+  assert.match(ciWorkflow, /sh deploy\/docker\/verify-runtime-backup\.sh/);
+  assert.match(ciWorkflow, /--network none/);
+  assert.match(ciWorkflow, /BOT_PRIVATE_EXECUTION_ENABLED=false/);
 });
 
 test("on-prem deployment defaults cannot enable private execution", () => {
