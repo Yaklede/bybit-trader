@@ -62,6 +62,10 @@ private fun VolumeConfirmedTrendLiveLoopResult.alertFingerprint(): String? =
             "ORDER_NOT_FILLED|${evaluation.state.clientOrderId}"
         VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED ->
             "RECOVERED|${evaluation.state.lastExecutionId}|${evaluation.state.status.name}"
+        VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING ->
+            evaluation.recoveryReasonCode?.let { reasonCode ->
+                "RECOVERY_PENDING|$reasonCode|${evaluation.state.clientOrderId}|${evaluation.state.exchangeOrderId}"
+            }
         VolumeConfirmedTrendLiveEvaluationStatus.HALTED ->
             "HALTED|${evaluation.state.haltedReasonCode}"
         VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED -> {

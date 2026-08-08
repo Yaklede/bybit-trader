@@ -273,6 +273,7 @@ data class VolumeConfirmedTrendLiveEvaluationResult(
     val approvalFailures: List<VolumeConfirmedTrendLiveApprovalFailure> = emptyList(),
     val contractFailures: List<VolumeConfirmedTrendExchangeContractFailure> = emptyList(),
     val riskReasonCodes: List<String> = emptyList(),
+    val recoveryReasonCode: String? = null,
 )
 
 interface VolumeConfirmedTrendLiveExecutor {

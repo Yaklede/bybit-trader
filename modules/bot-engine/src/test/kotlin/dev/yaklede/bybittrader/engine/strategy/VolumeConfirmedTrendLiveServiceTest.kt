@@ -508,7 +508,7 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             val result = service.reconcile()
 
-            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
             result.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
             result.contractFailures shouldBe emptyList()
             gateway.submittedOrders.size shouldBe 1
@@ -1152,8 +1152,27 @@ class VolumeConfirmedTrendLiveServiceTest :
             submitted.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
             cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
             cancellationPending.state.riskReasonCodes shouldBe emptyList()
+            cancellationPending.recoveryReasonCode shouldBe TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
             gateway.cancelRequests.size shouldBe 1
             gateway.submittedOrders.size shouldBe 1
+        }
+
+        "submitted active order remains pending before timeout without a false recovery event" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val eventCountAfterSubmission = store.events.size
+            now = now.plusSeconds(1)
+
+            val pending = service.reconcile()
+
+            pending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            pending.recoveryReasonCode shouldBe null
+            store.events.size shouldBe eventCountAfterSubmission
+            gateway.cancelRequests.size shouldBe 0
         }
 
         "unknown provider entry status still cancels the internally active exact order" {
@@ -1211,11 +1230,16 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             service.evaluate(command(Side.BUY), BigDecimal("60000"))
             now = now.plusSeconds(11)
-            service.reconcile().status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
-            now = now.plusSeconds(11)
+            val cancellationPending = service.reconcile()
+            now = now.plusSeconds(1)
+            val awaitingReadback = service.reconcile()
+            now = now.plusSeconds(10)
 
             val halted = service.reconcile()
 
+            cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            awaitingReadback.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
+            awaitingReadback.recoveryReasonCode shouldBe TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
             halted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             halted.state.haltedReasonCode shouldBe
                 "TREND_ENTRY_IOC_REMAINS_ACTIVE|TREND_ACTIVE_ORDER_CANCEL_UNCONFIRMED"

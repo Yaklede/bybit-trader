@@ -58,6 +58,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
+import dev.yaklede.bybittrader.engine.strategy.TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
 import dev.yaklede.bybittrader.engine.strategy.TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
 import dev.yaklede.bybittrader.engine.strategy.TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
@@ -644,13 +645,14 @@ fun main() {
     val trendLiveAlertPolicy = VolumeConfirmedTrendLiveAlertPolicy()
     val onTrendLiveResult: suspend (VolumeConfirmedTrendLiveLoopResult) -> Unit = { result ->
         logger.info(
-            "volume-confirmed trend live evaluated loopStatus={} evaluationStatus={} botMode={} sessionId={} liveState={} reason={} clientOrderId={} exchangeOrderId={}",
+            "volume-confirmed trend live evaluated loopStatus={} evaluationStatus={} botMode={} sessionId={} liveState={} haltReason={} recoveryReason={} clientOrderId={} exchangeOrderId={}",
             result.status.name,
             result.evaluation.status.name,
             result.botMode.name,
             result.shadowSessionId,
             result.evaluation.state.status.name,
             result.evaluation.state.haltedReasonCode,
+            result.evaluation.recoveryReasonCode,
             result.evaluation.state.clientOrderId,
             result.evaluation.state.exchangeOrderId,
         )
@@ -1098,6 +1100,21 @@ internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): Alert
                     "거래소 체결을 대사해 상태를 ${state.status.name}로 복구했어요. " +
                         "최근 체결 ID: ${state.lastExecutionId ?: "없음"}",
             )
+        VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING ->
+            if (evaluation.recoveryReasonCode == TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE) {
+                AlertMessage(
+                    severity = AlertSeverity.WARNING,
+                    title = "H4 주문 취소 확인 중",
+                    body =
+                        "체결 상태가 오래 확인되지 않아 ${state.symbol.value} 주문 취소를 요청했어요. " +
+                            "취소 완료를 확인할 때까지 새 주문을 보내지 않아요. " +
+                            "대시보드와 Bybit에서 주문 상태를 확인해 주세요. " +
+                            "클라이언트 주문 ID: ${state.clientOrderId ?: "확인 필요"}, " +
+                            "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 필요"}",
+                )
+            } else {
+                null
+            }
         VolumeConfirmedTrendLiveEvaluationStatus.HALTED ->
             AlertMessage(
                 severity = AlertSeverity.CRITICAL,

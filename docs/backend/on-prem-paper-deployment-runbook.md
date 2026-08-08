@@ -272,6 +272,12 @@ unconfirmed cancellation after the next timeout halts operator-free recovery.
 An unrecognized provider status does not bypass this protection when the common
 order status is still active: the runtime cancels the exact order first. Unknown
 terminal-state combinations halt for operator review instead of being guessed.
+The first exact-order cancellation request sends `H4 주문 취소 확인 중` with
+both order IDs and the required Bybit/dashboard check. Ordinary short recovery
+waits remain silent, and the same cancellation fingerprint is rate-limited.
+Until terminal readback arrives, subsequent checks remain recovery-pending and
+do not emit a false recovered state or repeat the cancel request. The next
+timeout promotes an unresolved active order to `HALTED`.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

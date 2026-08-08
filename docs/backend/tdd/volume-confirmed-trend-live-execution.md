@@ -231,6 +231,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 거래소가 아직 코드에 등록되지 않은 원문 주문 상태를 반환해도 공통 상태가 `CREATED`, `SUBMITTED`,
 `PARTIALLY_FILLED`이면 활성 exact 주문으로 취급해 같은 취소 절차를 적용한다. 공통 상태도 비활성인 미지
 상태만 자동 해석하지 않고 `HALTED`한다.
+exact 주문 취소를 요청한 `RECOVERY_PENDING` 결과는 별도 recovery reason을 제공한다. 앱은 해당 전이만
+한국어 경고로 전달하고, 단순 조회 지연으로 아직 timeout 전인 일반 `RECOVERY_PENDING`은 알림하지 않는다.
+취소 요청 뒤 terminal 상태가 아직 보이지 않으면 `RECOVERED`로 오인하지 않고 같은 pending 상태를
+유지한다. 추가 취소와 원장 event는 만들지 않으며 다음 timeout에만 자동 복구를 `HALTED`로 전환한다.
 
 ## 6. 예외 및 실패 처리
 

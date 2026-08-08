@@ -10,6 +10,8 @@ import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
 
+const val TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE = "TREND_ACTIVE_ORDER_CANCEL_REQUESTED"
+
 internal class VolumeConfirmedTrendLiveRecovery(
     private val gateway: ExchangeExecutionGateway,
     private val store: VolumeConfirmedTrendLiveStore,
@@ -208,22 +210,36 @@ internal class VolumeConfirmedTrendLiveRecovery(
         val intentOnly =
             state.status == VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED ||
                 state.status == VolumeConfirmedTrendLiveStatus.EXIT_INTENT_RECORDED
-        if (intentOnly || Duration.between(state.updatedAt, now) < config.recoveryRetryDelay) {
-            return recordSubmittedRecovery(state, order, now)
-        }
+        val retryDelayPending = Duration.between(state.updatedAt, now) < config.recoveryRetryDelay
         val cancellationAlreadyRequested =
             store
                 .trendLiveEvents(config.protocolId, config.symbol, config.recoveryEventLimit)
                 .any { event ->
                     event.clientOrderId == state.clientOrderId &&
-                        event.reasonCode == ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
+                        event.reasonCode == TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
                 }
         if (cancellationAlreadyRequested) {
+            if (retryDelayPending) {
+                return VolumeConfirmedTrendLiveEvaluationResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
+                    state = state,
+                    plan = null,
+                    recoveryReasonCode = TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
+                )
+            }
             return halt(
                 state = state,
                 now = now,
                 reasonCode = "$timeoutReasonCode|TREND_ACTIVE_ORDER_CANCEL_UNCONFIRMED",
                 position = position,
+            )
+        }
+        if (intentOnly) return recordSubmittedRecovery(state, order, now)
+        if (retryDelayPending) {
+            return VolumeConfirmedTrendLiveEvaluationResult(
+                status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
+                state = state,
+                plan = null,
             )
         }
 
@@ -246,7 +262,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
             lifecycleEvent(
                 cancellationPending,
                 VolumeConfirmedTrendLiveEventType.RECONCILED,
-                ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
+                TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
                 now,
             )
         store.commitTrendLive(cancellationPending, listOf(event))
@@ -254,6 +270,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
             status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
             state = cancellationPending,
             plan = null,
+            recoveryReasonCode = TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
         )
     }
 
@@ -338,8 +355,6 @@ internal class VolumeConfirmedTrendLiveRecovery(
         providerStatus != null && providerStatus !in KNOWN_PROVIDER_ORDER_STATUSES
 
     private companion object {
-        const val ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE = "TREND_ACTIVE_ORDER_CANCEL_REQUESTED"
-
         val KNOWN_PROVIDER_ORDER_STATUSES =
             setOf(
                 "New",

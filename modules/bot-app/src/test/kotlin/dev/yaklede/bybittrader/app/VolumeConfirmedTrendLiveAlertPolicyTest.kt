@@ -4,6 +4,7 @@ import dev.yaklede.bybittrader.alerts.AlertSeverity
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.strategy.TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
 import dev.yaklede.bybittrader.engine.strategy.TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalFailure
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationResult
@@ -62,6 +63,41 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             policy.shouldAlert(drawdown) shouldBe true
             policy.shouldAlert(drawdown) shouldBe false
             policy.shouldAlert(walletMismatch) shouldBe true
+        }
+
+        "exact-order cancellation pending alerts once while ordinary recovery stays quiet" {
+            val policy = VolumeConfirmedTrendLiveAlertPolicy()
+            val ordinary = liveResult(VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING)
+            val cancellation =
+                liveResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
+                    recoveryReasonCode = TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
+                    clientOrderId = "vct-entry-001",
+                    exchangeOrderId = "exchange-entry-001",
+                )
+
+            policy.shouldAlert(ordinary) shouldBe false
+            policy.shouldAlert(cancellation) shouldBe true
+            policy.shouldAlert(cancellation) shouldBe false
+        }
+
+        "exact-order cancellation alert explains the hold and next action in Korean" {
+            val result =
+                liveResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
+                    recoveryReasonCode = TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE,
+                    clientOrderId = "vct-exit-001",
+                    exchangeOrderId = "exchange-exit-001",
+                )
+
+            val message = requireNotNull(result.toTrendLiveAlertMessage())
+
+            message.severity shouldBe AlertSeverity.WARNING
+            message.title shouldBe "H4 주문 취소 확인 중"
+            message.body shouldContain "취소 완료를 확인할 때까지 새 주문을 보내지 않아요"
+            message.body shouldContain "대시보드와 Bybit에서 주문 상태를 확인해 주세요"
+            message.body shouldContain "클라이언트 주문 ID: vct-exit-001"
+            message.body shouldContain "거래소 주문 ID: exchange-exit-001"
         }
 
         "approval blocking alerts again when preserved order evidence changes" {
@@ -137,6 +173,9 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
 private fun liveResult(
     status: VolumeConfirmedTrendLiveEvaluationStatus,
     riskReasonCodes: List<String> = emptyList(),
+    recoveryReasonCode: String? = null,
+    clientOrderId: String? = null,
+    exchangeOrderId: String? = null,
 ): VolumeConfirmedTrendLiveLoopResult {
     val halted = status == VolumeConfirmedTrendLiveEvaluationStatus.HALTED
     val state =
@@ -149,8 +188,8 @@ private fun liveResult(
             approvalId = "approval-001",
             activeDecisionKey = null,
             pendingTargetSide = null,
-            clientOrderId = null,
-            exchangeOrderId = null,
+            clientOrderId = clientOrderId,
+            exchangeOrderId = exchangeOrderId,
             observedPositionSide = null,
             observedPositionQuantity = null,
             lastExecutionId = null,
@@ -168,6 +207,7 @@ private fun liveResult(
                 state = state,
                 plan = null,
                 riskReasonCodes = riskReasonCodes,
+                recoveryReasonCode = recoveryReasonCode,
             ),
         evaluatedAt = state.updatedAt,
     )
