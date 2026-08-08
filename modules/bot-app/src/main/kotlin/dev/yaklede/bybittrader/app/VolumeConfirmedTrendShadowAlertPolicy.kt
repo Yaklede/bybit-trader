@@ -25,10 +25,13 @@ class VolumeConfirmedTrendShadowAlertPolicy(
         val fingerprint = "${error::class.qualifiedName}|${error.message.orEmpty()}"
         val changed = fingerprint != activeFingerprint
         val repeatDue = lastAlertAt?.let { Duration.between(it, now) >= repeatInterval } ?: true
-        if (!changed && !repeatDue) return false
-        activeFingerprint = fingerprint
-        lastAlertAt = now
-        return true
+        return changed || repeatDue
+    }
+
+    @Synchronized
+    fun recordDelivered(error: Throwable) {
+        activeFingerprint = "${error::class.qualifiedName}|${error.message.orEmpty()}"
+        lastAlertAt = Instant.now(clock)
     }
 
     @Synchronized

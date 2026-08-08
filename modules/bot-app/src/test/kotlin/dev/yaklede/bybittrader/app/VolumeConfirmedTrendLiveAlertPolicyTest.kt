@@ -27,12 +27,14 @@ import java.time.ZoneOffset
 
 class VolumeConfirmedTrendLiveAlertPolicyTest :
     StringSpec({
-        "an unchanged halt alerts once until its repeat interval" {
+        "an unchanged halt is suppressed only after a delivered alert" {
             val clock = MutableClock(Instant.parse("2026-08-08T00:00:00Z"))
             val policy = VolumeConfirmedTrendLiveAlertPolicy(Duration.ofHours(1), clock)
             val halted = liveResult(VolumeConfirmedTrendLiveEvaluationStatus.HALTED)
 
             policy.shouldAlert(halted) shouldBe true
+            policy.shouldAlert(halted) shouldBe true
+            policy.recordDelivered(halted)
             policy.shouldAlert(halted) shouldBe false
             clock.now = clock.now.plus(Duration.ofHours(1))
             policy.shouldAlert(halted) shouldBe true
@@ -43,8 +45,19 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             val halted = liveResult(VolumeConfirmedTrendLiveEvaluationStatus.HALTED)
 
             policy.shouldAlert(halted) shouldBe true
+            policy.recordDelivered(halted)
             policy.shouldAlert(liveResult(VolumeConfirmedTrendLiveEvaluationStatus.RECONCILED)) shouldBe false
             policy.shouldAlert(halted) shouldBe true
+        }
+
+        "a loop failure remains eligible until its alert is delivered" {
+            val policy = VolumeConfirmedTrendLiveAlertPolicy()
+            val error = IllegalStateException("injected exchange outage")
+
+            policy.shouldAlert(error) shouldBe true
+            policy.shouldAlert(error) shouldBe true
+            policy.recordDelivered(error)
+            policy.shouldAlert(error) shouldBe false
         }
 
         "risk blocking alerts once and alerts again when its reason changes" {
@@ -61,6 +74,7 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
                 )
 
             policy.shouldAlert(drawdown) shouldBe true
+            policy.recordDelivered(drawdown)
             policy.shouldAlert(drawdown) shouldBe false
             policy.shouldAlert(walletMismatch) shouldBe true
         }
@@ -78,6 +92,7 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
 
             policy.shouldAlert(ordinary) shouldBe false
             policy.shouldAlert(cancellation) shouldBe true
+            policy.recordDelivered(cancellation)
             policy.shouldAlert(cancellation) shouldBe false
         }
 
@@ -140,6 +155,7 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             val changed = approvalBlockedResult("TREND_ENTRY_FILL_WITHOUT_POSITION", "vct-entry-001")
 
             policy.shouldAlert(first) shouldBe true
+            policy.recordDelivered(first)
             policy.shouldAlert(first) shouldBe false
             policy.shouldAlert(changed) shouldBe true
         }

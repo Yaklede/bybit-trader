@@ -17,6 +17,8 @@ class VolumeConfirmedTrendApprovalAlertPolicyTest :
             val collecting = report()
 
             policy.shouldAlert(collecting) shouldBe true
+            policy.shouldAlert(collecting) shouldBe true
+            policy.recordDelivered(collecting)
             policy.shouldAlert(collecting.copy(observedCalendarDays = 12.5, sessionReturnPct = 3.4)) shouldBe false
         }
 
@@ -25,6 +27,7 @@ class VolumeConfirmedTrendApprovalAlertPolicyTest :
             val collecting = report()
 
             policy.shouldAlert(collecting) shouldBe true
+            policy.recordDelivered(collecting)
             policy.shouldAlert(
                 collecting.copy(
                     gates = collecting.gates.map { gate -> gate.copy(status = VolumeConfirmedTrendApprovalGateStatus.PASS) },

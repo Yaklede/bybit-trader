@@ -29,10 +29,7 @@ class VolumeConfirmedTrendLiveAlertPolicy(
         val now = Instant.now(clock)
         val changed = fingerprint != activeFingerprint
         val repeatDue = lastAlertAt?.let { Duration.between(it, now) >= repeatInterval } ?: true
-        if (!changed && !repeatDue) return false
-        activeFingerprint = fingerprint
-        lastAlertAt = now
-        return true
+        return changed || repeatDue
     }
 
     @Synchronized
@@ -41,10 +38,20 @@ class VolumeConfirmedTrendLiveAlertPolicy(
         val fingerprint = "FAILURE|${error::class.qualifiedName}|${error.message.orEmpty()}"
         val changed = fingerprint != activeFingerprint
         val repeatDue = lastAlertAt?.let { Duration.between(it, now) >= repeatInterval } ?: true
-        if (!changed && !repeatDue) return false
+        return changed || repeatDue
+    }
+
+    @Synchronized
+    fun recordDelivered(result: VolumeConfirmedTrendLiveLoopResult) {
+        val fingerprint = result.alertFingerprint() ?: return
         activeFingerprint = fingerprint
-        lastAlertAt = now
-        return true
+        lastAlertAt = Instant.now(clock)
+    }
+
+    @Synchronized
+    fun recordDelivered(error: Throwable) {
+        activeFingerprint = "FAILURE|${error::class.qualifiedName}|${error.message.orEmpty()}"
+        lastAlertAt = Instant.now(clock)
     }
 
     @Synchronized

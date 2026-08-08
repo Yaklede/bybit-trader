@@ -13,24 +13,26 @@ class VolumeConfirmedTrendApprovalAlertPolicy {
     private var activeFingerprint: String? = null
 
     @Synchronized
-    fun shouldAlert(report: VolumeConfirmedTrendApprovalReport): Boolean {
-        val fingerprint =
-            buildString {
-                append(report.sessionId ?: "NO_SESSION")
-                append('|')
-                append(report.status.name)
-                report.gates.forEach { gate ->
-                    append('|')
-                    append(gate.id)
-                    append(':')
-                    append(gate.status.name)
-                }
-            }
-        if (fingerprint == activeFingerprint) return false
-        activeFingerprint = fingerprint
-        return true
+    fun shouldAlert(report: VolumeConfirmedTrendApprovalReport): Boolean = report.alertFingerprint() != activeFingerprint
+
+    @Synchronized
+    fun recordDelivered(report: VolumeConfirmedTrendApprovalReport) {
+        activeFingerprint = report.alertFingerprint()
     }
 }
+
+private fun VolumeConfirmedTrendApprovalReport.alertFingerprint(): String =
+    buildString {
+        append(sessionId ?: "NO_SESSION")
+        append('|')
+        append(status.name)
+        gates.forEach { gate ->
+            append('|')
+            append(gate.id)
+            append(':')
+            append(gate.status.name)
+        }
+    }
 
 fun VolumeConfirmedTrendApprovalReport.toOperatorAlert(): AlertMessage {
     val incompleteGates = gates.filter { gate -> gate.status != VolumeConfirmedTrendApprovalGateStatus.PASS }

@@ -564,12 +564,21 @@ fun main() {
                         },
                     )
                     if (trendApprovalAlertPolicy.shouldAlert(approvalReport)) {
-                        alertingService.send(approvalReport.toOperatorAlert())
+                        val delivery = alertingService.send(approvalReport.toOperatorAlert())
+                        if (delivery.delivered) {
+                            trendApprovalAlertPolicy.recordDelivered(approvalReport)
+                        }
                     }
                 },
                 onFailure = { error ->
                     if (trendShadowAlertPolicy.shouldAlert(error)) {
-                        alertingService.send(error.toVolumeConfirmedTrendShadowFailureAlert(settings.failureRetryDelay))
+                        val delivery =
+                            alertingService.send(
+                                error.toVolumeConfirmedTrendShadowFailureAlert(settings.failureRetryDelay),
+                            )
+                        if (delivery.delivered) {
+                            trendShadowAlertPolicy.recordDelivered(error)
+                        }
                     }
                 },
             ).start(trendShadowScope)
@@ -666,20 +675,26 @@ fun main() {
             result.evaluation.state.exchangeOrderId,
         )
         if (trendLiveAlertPolicy.shouldAlert(result)) {
-            alertingService.sendTrendLiveResult(result)
+            if (alertingService.sendTrendLiveResult(result)) {
+                trendLiveAlertPolicy.recordDelivered(result)
+            }
         }
     }
     val onTrendLiveFailure: suspend (Throwable) -> Unit = { error ->
         if (trendLiveAlertPolicy.shouldAlert(error)) {
-            alertingService.send(
-                AlertMessage(
-                    severity = AlertSeverity.CRITICAL,
-                    title = "H4 실거래 루프 점검 필요",
-                    body =
-                        "실거래 루프가 주문 없이 이번 평가를 중단했어요. " +
-                            "오류: ${error::class.simpleName}. 원인: ${error.message ?: "상세 원인 없음"}",
-                ),
-            )
+            val delivery =
+                alertingService.send(
+                    AlertMessage(
+                        severity = AlertSeverity.CRITICAL,
+                        title = "H4 실거래 루프 점검 필요",
+                        body =
+                            "실거래 루프가 주문 없이 이번 평가를 중단했어요. " +
+                                "오류: ${error::class.simpleName}. 원인: ${error.message ?: "상세 원인 없음"}",
+                    ),
+                )
+            if (delivery.delivered) {
+                trendLiveAlertPolicy.recordDelivered(error)
+            }
         }
     }
     val trendLiveJob =
@@ -1061,9 +1076,8 @@ internal fun managementOnlyTrendLiveReceipt(
         reasonCode = "MANAGEMENT_ONLY_RECOVERY",
     )
 
-private suspend fun AlertingService.sendTrendLiveResult(result: VolumeConfirmedTrendLiveLoopResult) {
-    result.toTrendLiveAlertMessage()?.let { send(it) }
-}
+private suspend fun AlertingService.sendTrendLiveResult(result: VolumeConfirmedTrendLiveLoopResult): Boolean =
+    result.toTrendLiveAlertMessage()?.let { send(it).delivered } ?: false
 
 internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): AlertMessage? {
     val evaluation = this.evaluation

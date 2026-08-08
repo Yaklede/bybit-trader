@@ -12,7 +12,7 @@ import java.time.ZoneOffset
 
 class VolumeConfirmedTrendShadowAlertPolicyTest :
     StringSpec({
-        "suppresses an unchanged shadow failure inside the repeat interval" {
+        "suppresses an unchanged shadow failure only after delivery" {
             val policy =
                 VolumeConfirmedTrendShadowAlertPolicy(
                     repeatInterval = Duration.ofHours(1),
@@ -21,6 +21,8 @@ class VolumeConfirmedTrendShadowAlertPolicyTest :
             val error = IllegalStateException("missing funding")
 
             policy.shouldAlert(error) shouldBe true
+            policy.shouldAlert(error) shouldBe true
+            policy.recordDelivered(error)
             policy.shouldAlert(error) shouldBe false
             policy.shouldAlert(IllegalStateException("candle gap")) shouldBe true
         }
@@ -32,6 +34,7 @@ class VolumeConfirmedTrendShadowAlertPolicyTest :
                 )
             val error = IllegalStateException("missing funding")
             policy.shouldAlert(error)
+            policy.recordDelivered(error)
 
             policy.recordSuccess()
 
