@@ -7,6 +7,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExecutionCont
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendParameters
@@ -122,7 +123,7 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
             receipt.policySha256 shouldBe POLICY_SHA
         }
 
-        "only persisted orders or observed exposure require management when live is disabled" {
+        "only unresolved persisted orders or observed exposure require management when live is disabled" {
             val flat = liveState(VolumeConfirmedTrendLiveStatus.FLAT)
             val pending =
                 liveState(VolumeConfirmedTrendLiveStatus.FLAT).copy(
@@ -138,11 +139,84 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
                     observedPositionSide = Side.BUY,
                     observedPositionQuantity = BigDecimal("0.001"),
                 )
+            val haltedWithOrderEvidence =
+                pending.copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_ENTRY_ORDER_STATUS_UNKNOWN",
+                )
+            val haltedWithoutOrderEvidence =
+                flat.copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_EXCHANGE_CONTRACT_MISMATCH",
+                )
+            val settledNotFilled = pending.copy(status = VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED)
 
             (null as VolumeConfirmedTrendLiveState?).requiresTrendLiveManagement() shouldBe false
             flat.requiresTrendLiveManagement() shouldBe false
             pending.requiresTrendLiveManagement() shouldBe true
             open.requiresTrendLiveManagement() shouldBe true
+            haltedWithOrderEvidence.requiresTrendLiveManagement() shouldBe true
+            haltedWithoutOrderEvidence.requiresTrendLiveManagement() shouldBe false
+            settledNotFilled.requiresTrendLiveManagement() shouldBe false
+        }
+
+        "live startup mode requires both configuration and approval for signals" {
+            resolveVolumeConfirmedTrendLiveRuntimeMode(
+                configured = true,
+                approvalAvailable = true,
+                persistedState = null,
+            ) shouldBe VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED
+            resolveVolumeConfirmedTrendLiveRuntimeMode(
+                configured = true,
+                approvalAvailable = false,
+                persistedState = null,
+            ) shouldBe VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
+        }
+
+        "disabled signal runtime still manages persisted orders and exposure" {
+            val pending =
+                liveState(VolumeConfirmedTrendLiveStatus.FLAT).copy(
+                    status = VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
+                    activeDecisionKey = "decision-001",
+                    pendingTargetSide = Side.BUY,
+                    clientOrderId = "vct-entry-001",
+                )
+            val open =
+                liveState(VolumeConfirmedTrendLiveStatus.FLAT).copy(
+                    status = VolumeConfirmedTrendLiveStatus.OPEN,
+                    pendingTargetSide = Side.BUY,
+                    observedPositionSide = Side.BUY,
+                    observedPositionQuantity = BigDecimal("0.001"),
+                )
+            val haltedWithOrderEvidence =
+                pending.copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_ENTRY_ORDER_STATUS_UNKNOWN",
+                )
+
+            resolveVolumeConfirmedTrendLiveRuntimeMode(false, false, pending) shouldBe
+                VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
+            resolveVolumeConfirmedTrendLiveRuntimeMode(false, false, open) shouldBe
+                VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
+            resolveVolumeConfirmedTrendLiveRuntimeMode(false, false, haltedWithOrderEvidence) shouldBe
+                VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
+            resolveVolumeConfirmedTrendLiveRuntimeMode(
+                configured = false,
+                approvalAvailable = false,
+                persistedState = liveState(VolumeConfirmedTrendLiveStatus.FLAT),
+            ) shouldBe VolumeConfirmedTrendLiveRuntimeMode.DISABLED
+            resolveVolumeConfirmedTrendLiveRuntimeMode(false, false, null) shouldBe
+                VolumeConfirmedTrendLiveRuntimeMode.DISABLED
+        }
+
+        "approval cannot remain attached after signal execution is disabled" {
+            shouldThrow<IllegalArgumentException> {
+                resolveVolumeConfirmedTrendLiveRuntimeMode(
+                    configured = false,
+                    approvalAvailable = true,
+                    persistedState = null,
+                )
+            }
         }
     })
 

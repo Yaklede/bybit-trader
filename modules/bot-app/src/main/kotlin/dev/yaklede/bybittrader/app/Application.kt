@@ -193,6 +193,14 @@ fun main() {
         } else {
             null
         }
+    val trendProtocolDefinition =
+        trendRuntimeDefinition?.protocol
+            ?: loadVolumeConfirmedTrendProtocolDefinition(
+                Path.of(config.volumeConfirmedTrendShadow.protocolPath),
+            )
+    require(trendProtocolDefinition.symbol == config.marketData.symbol) {
+        "Trend protocol symbol does not match BOT_SYMBOL."
+    }
     val trendShadowService =
         trendRuntimeDefinition?.let { runtimeDefinition ->
             val settings = config.volumeConfirmedTrendShadow
@@ -248,25 +256,24 @@ fun main() {
     val trendLiveRuntimeApprovalAttempt =
         if (config.volumeConfirmedTrendLive.enabled) {
             val settings = config.volumeConfirmedTrendLive
-            val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
             runCatching {
                 runBlocking {
                     loadVolumeConfirmedTrendLiveRuntimeApproval(
                         receiptPath = Path.of(settings.approvalReceiptPath),
                         shadowEvidencePath = Path.of(settings.shadowEvidencePath),
                         approvalReportPath = Path.of(settings.approvalReportPath),
-                        protocol = runtimeDefinition.protocol,
+                        protocol = trendProtocolDefinition,
                         forwardPolicy = trendApprovalDefinition.forwardPolicy,
                     ).also { approval ->
                         validateVolumeConfirmedTrendLiveCurrentShadow(
                             approval = approval,
                             currentState =
                                 ledger.trendShadowState(
-                                    runtimeDefinition.protocol.protocolId,
-                                    runtimeDefinition.protocol.symbol,
+                                    trendProtocolDefinition.protocolId,
+                                    trendProtocolDefinition.symbol,
                                 ),
                             currentReport = trendApprovalService.evaluate(),
-                            protocol = runtimeDefinition.protocol,
+                            protocol = trendProtocolDefinition,
                             forwardPolicy = trendApprovalDefinition.forwardPolicy,
                         )
                     }
@@ -575,28 +582,27 @@ fun main() {
                     .movePointLeft(2),
         )
     val trendLiveEvidenceService =
-        trendRuntimeDefinition?.let { runtimeDefinition ->
-            VolumeConfirmedTrendLiveEvidenceService(
-                store = ledger,
-                runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
-                sessionStartedAt = trendLiveSessionStartedAt,
-                tradingSymbol = runtimeDefinition.protocol.symbol,
+        VolumeConfirmedTrendLiveEvidenceService(
+            store = ledger,
+            runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
+            sessionStartedAt = trendLiveSessionStartedAt,
+            tradingSymbol = trendProtocolDefinition.symbol,
+        )
+    val persistedTrendLiveState =
+        runBlocking {
+            ledger.trendLiveState(
+                trendProtocolDefinition.protocolId,
+                trendProtocolDefinition.symbol,
             )
         }
-    val persistedTrendLiveState =
-        trendRuntimeDefinition?.let { runtimeDefinition ->
-            runBlocking {
-                ledger.trendLiveState(
-                    runtimeDefinition.protocol.protocolId,
-                    runtimeDefinition.protocol.symbol,
-                )
-            }
-        }
-    val trendLiveManagementRequired =
-        config.volumeConfirmedTrendLive.enabled || persistedTrendLiveState.requiresTrendLiveManagement()
+    val trendLiveRuntimeMode =
+        resolveVolumeConfirmedTrendLiveRuntimeMode(
+            configured = config.volumeConfirmedTrendLive.enabled,
+            approvalAvailable = trendLiveRuntimeApproval != null,
+            persistedState = persistedTrendLiveState,
+        )
     val trendLiveService =
-        if (trendLiveManagementRequired) {
-            val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
+        if (trendLiveRuntimeMode != VolumeConfirmedTrendLiveRuntimeMode.DISABLED) {
             val approval = trendLiveRuntimeApproval
             VolumeConfirmedTrendLiveService(
                 gateway =
@@ -606,22 +612,22 @@ fun main() {
                 store = ledger,
                 config =
                     VolumeConfirmedTrendLiveConfig(
-                        protocolId = runtimeDefinition.protocol.protocolId,
-                        candidateId = runtimeDefinition.protocol.candidateId,
-                        protocolSha256 = runtimeDefinition.protocol.protocolSha256,
-                        symbol = runtimeDefinition.protocol.symbol,
+                        protocolId = trendProtocolDefinition.protocolId,
+                        candidateId = trendProtocolDefinition.candidateId,
+                        protocolSha256 = trendProtocolDefinition.protocolSha256,
+                        symbol = trendProtocolDefinition.symbol,
                         riskPolicy = trendLiveRiskPolicy,
                     ),
                 approvalReceipt =
                     approval?.receipt
                         ?: managementOnlyTrendLiveReceipt(
-                            protocol = runtimeDefinition.protocol,
+                            protocol = trendProtocolDefinition,
                             forwardPolicy = trendApprovalDefinition.forwardPolicy,
                         ),
                 approvalReportProvider = trendApprovalService::evaluate,
                 shadowEvidenceSha256 = approval?.shadowEvidenceSha256.orEmpty(),
                 approvalReportSha256 = approval?.approvalReportSha256.orEmpty(),
-                executionContract = runtimeDefinition.protocol.executionContract,
+                executionContract = trendProtocolDefinition.executionContract,
                 projectionSink =
                     LedgerVolumeConfirmedTrendLiveProjectionSink(
                         store = ledger,
@@ -663,12 +669,6 @@ fun main() {
             )
         }
     }
-    val trendLiveRuntimeMode =
-        when {
-            trendLiveService == null -> VolumeConfirmedTrendLiveRuntimeMode.DISABLED
-            trendLiveRuntimeApproval == null -> VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
-            else -> VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED
-        }
     val trendLiveJob =
         when (trendLiveRuntimeMode) {
             VolumeConfirmedTrendLiveRuntimeMode.DISABLED -> {
@@ -693,7 +693,6 @@ fun main() {
                 ).start(trendLiveScope)
             }
             VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED -> {
-                val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
                 val approval = requireNotNull(trendLiveRuntimeApproval)
                 val settings = config.volumeConfirmedTrendLive
                 logger.info(
@@ -710,10 +709,10 @@ fun main() {
                     tickerProvider = marketDataSyncService::ticker,
                     config =
                         VolumeConfirmedTrendLiveLoopConfig(
-                            protocolId = runtimeDefinition.protocol.protocolId,
-                            candidateId = runtimeDefinition.protocol.candidateId,
-                            protocolSha256 = runtimeDefinition.protocol.protocolSha256,
-                            symbol = runtimeDefinition.protocol.symbol,
+                            protocolId = trendProtocolDefinition.protocolId,
+                            candidateId = trendProtocolDefinition.candidateId,
+                            protocolSha256 = trendProtocolDefinition.protocolSha256,
+                            symbol = trendProtocolDefinition.symbol,
                             approvedShadowSessionId = requireNotNull(approval.receipt.shadowSessionId),
                             interval = settings.reconciliationInterval,
                             maximumSignalAge = settings.maximumSignalAge,
@@ -923,51 +922,39 @@ fun main() {
                             }
                         }
                     },
-                volumeConfirmedTrendLiveSnapshotProvider =
-                    trendRuntimeDefinition?.let { runtimeDefinition ->
-                        { limit ->
-                            val evidence = requireNotNull(trendLiveEvidenceService).read(Instant.now(), limit)
-                            VolumeConfirmedTrendLiveSnapshot(
-                                enabled = config.volumeConfirmedTrendLive.enabled,
-                                runtimeMode = trendLiveRuntimeMode,
-                                runtimeActive = trendLiveJob?.isActive == true,
-                                state =
-                                    ledger.trendLiveState(
-                                        runtimeDefinition.protocol.protocolId,
-                                        runtimeDefinition.protocol.symbol,
-                                    ),
-                                recentEvents =
-                                    ledger.trendLiveEvents(
-                                        runtimeDefinition.protocol.protocolId,
-                                        runtimeDefinition.protocol.symbol,
-                                        limit,
-                                    ),
-                                accountSnapshot = evidence.accountSnapshot,
-                                recentExecutionFills = evidence.recentExecutionFills,
-                                maximumAccountDrawdownFraction =
-                                    trendLiveRiskPolicy.maximumAccountDrawdownFraction,
-                                walletReconciliation = evidence.walletReconciliation,
-                                performance = evidence.performance,
-                                recentClosures = evidence.recentClosures,
-                                recentAccountTransactions = evidence.recentAccountTransactions,
-                            )
-                        }
-                    },
+                volumeConfirmedTrendLiveSnapshotProvider = { limit ->
+                    val evidence = trendLiveEvidenceService.read(Instant.now(), limit)
+                    VolumeConfirmedTrendLiveSnapshot(
+                        enabled = config.volumeConfirmedTrendLive.enabled,
+                        runtimeMode = trendLiveRuntimeMode,
+                        runtimeActive = trendLiveJob?.isActive == true,
+                        state =
+                            ledger.trendLiveState(
+                                trendProtocolDefinition.protocolId,
+                                trendProtocolDefinition.symbol,
+                            ),
+                        recentEvents =
+                            ledger.trendLiveEvents(
+                                trendProtocolDefinition.protocolId,
+                                trendProtocolDefinition.symbol,
+                                limit,
+                            ),
+                        accountSnapshot = evidence.accountSnapshot,
+                        recentExecutionFills = evidence.recentExecutionFills,
+                        maximumAccountDrawdownFraction = trendLiveRiskPolicy.maximumAccountDrawdownFraction,
+                        walletReconciliation = evidence.walletReconciliation,
+                        performance = evidence.performance,
+                        recentClosures = evidence.recentClosures,
+                        recentAccountTransactions = evidence.recentAccountTransactions,
+                    )
+                },
                 volumeConfirmedTrendExchangeContractProvider =
                     privateExchangeGateway?.let { gateway ->
                         {
-                            val protocol =
-                                trendRuntimeDefinition?.protocol
-                                    ?: loadVolumeConfirmedTrendProtocolDefinition(
-                                        Path.of(config.volumeConfirmedTrendShadow.protocolPath),
-                                    )
-                            require(protocol.symbol == config.marketData.symbol) {
-                                "Trend exchange contract protocol symbol does not match BOT_SYMBOL."
-                            }
                             VolumeConfirmedTrendExchangeContractInspector(
                                 gateway = gateway,
-                                symbol = protocol.symbol,
-                                contract = protocol.executionContract,
+                                symbol = trendProtocolDefinition.symbol,
+                                contract = trendProtocolDefinition.executionContract,
                             ).inspect()
                         }
                     },
@@ -1006,8 +993,25 @@ internal fun VolumeConfirmedTrendLiveState?.requiresTrendLiveManagement(): Boole
                     VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED,
                     VolumeConfirmedTrendLiveStatus.EXIT_INTENT_RECORDED,
                     VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
-                )
+                ) ||
+                status == VolumeConfirmedTrendLiveStatus.HALTED &&
+                (clientOrderId != null || exchangeOrderId != null)
         )
+
+internal fun resolveVolumeConfirmedTrendLiveRuntimeMode(
+    configured: Boolean,
+    approvalAvailable: Boolean,
+    persistedState: VolumeConfirmedTrendLiveState?,
+): VolumeConfirmedTrendLiveRuntimeMode {
+    require(!approvalAvailable || configured) {
+        "Trend live approval cannot be active while signal execution is disabled."
+    }
+    return when {
+        configured && approvalAvailable -> VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED
+        configured || persistedState.requiresTrendLiveManagement() -> VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
+        else -> VolumeConfirmedTrendLiveRuntimeMode.DISABLED
+    }
+}
 
 internal fun managementOnlyTrendLiveReceipt(
     protocol: VolumeConfirmedTrendProtocolDefinition,

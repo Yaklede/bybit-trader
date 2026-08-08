@@ -111,7 +111,11 @@ store, ticker provider, or signal-evaluation path and calls only reconciliation.
 It recovers persisted pending orders and manages a position only when the
 persisted side and quantity prove ownership. With no prior live state it makes
 no private exchange read; if persisted work exists but private credentials are
-missing, startup fails instead of silently abandoning the position.
+missing, startup fails instead of silently abandoning the position. The frozen
+protocol and persisted Live checkpoint are loaded independently of the Shadow
+and Live enable flags, so disabling both flags cannot hide a pending order, a
+halted checkpoint that still retains order identity, or an observed position
+during restart.
 `enabled=true` does not by itself prove signal execution is available: operators
 and deployment automation must require `runtimeMode=SIGNAL_ENABLED` and
 `runtimeActive=true`. A management-only runtime remains available for position

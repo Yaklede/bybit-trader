@@ -24,6 +24,17 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
             runtime.bootstrap.indicatorState.recentVolumes.size shouldBe 42
         }
 
+        "loads the frozen protocol without requiring Shadow bootstrap state" {
+            val protocol =
+                loadVolumeConfirmedTrendProtocolDefinition(
+                    trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"),
+                )
+
+            protocol.protocolId shouldBe "volume-confirmed-trend-ensemble-v1"
+            protocol.candidateId shouldBe "vcte_4h_majority_001"
+            protocol.symbol.value shouldBe "BTCUSDT"
+        }
+
         "rejects a modified protocol even when its schema remains valid" {
             val temporary = Files.createTempFile("trend-protocol-tampered", ".json")
             val source = Files.readString(trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"))

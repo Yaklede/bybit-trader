@@ -325,7 +325,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 재시작 시 승인 artifact가 없거나 현재 Shadow 검증이 실패해도 영속 pending 주문 또는 관측 포지션이
   있으면 `VolumeConfirmedTrendLiveManagementLoop`가 실행된다. 이 loop는 Shadow store와 ticker provider를
   갖지 않고 `reconcile()`만 호출한다. 영속 상태와 거래소 방향·수량이 정확히 일치하는 포지션만
-  reduce-only IOC로 정리하며, private credential이 없으면 방치하지 않고 앱 시작을 실패시킨다.
+  reduce-only IOC로 정리하며, private credential이 없으면 방치하지 않고 앱 시작을 실패시킨다. 동결
+  protocol과 Live checkpoint 조회는 Shadow/Live enable flag에서 분리되어 두 flag를 모두 꺼도 pending 주문,
+  주문 식별자가 남은 `HALTED` checkpoint 또는 관측 포지션이 있으면 `MANAGEMENT_ONLY`를 선택한다. 종결된
+  `ENTRY_NOT_FILLED` 주문 이력이나 주문 증거가 없는 `HALTED` 상태만으로는 관리 loop를 강제하지 않는다.
 - 루프 시작 뒤 승인이 상실되면 신규 노출은 만들지 않지만, 이미 기록된 pending 주문을 먼저 복구하고
   영속 상태와 방향·수량이 일치하는 기존 포지션은 `TREND_APPROVAL_REVOKED_EXIT` reduce-only 주문으로
   정리한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는 개인 API를 조회하지 않는다.
