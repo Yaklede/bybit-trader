@@ -360,6 +360,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   진입만 차단한다.
 - USDT wallet 대사가 `MATCHED`가 아니거나 10분보다 오래됐으면 신규 진입을 보류한다. 위험 차단 중에도
   기존 H4 포지션의 reduce-only 종료와 계좌·거래내역 대사는 계속 실행한다.
+- 다른 USDT 선물 포지션이나 운영자 주문이 발견돼도 영속 상태와 정확히 일치하는 BTCUSDT 포지션은
+  `OPEN` 상태로 유지하고 신규 진입만 차단한다. 반대 H4 신호의 reduce-only 종료는 허용한다. 단,
+  pending 상태에 연결되지 않은 `vct-*` 활성 주문은 중복 종료 가능성이 있으므로 하드 중단한다.
 - 위험 상태 JSON은 schema v2로 저장하며 schema v1 checkpoint는 위험 기준점이 없는 상태로 읽어 다음
   대사에서 안전하게 기준점을 다시 만든다.
 - `HALTED` 상태에서도 신규 주문은 만들지 않지만 실제 포지션과 account snapshot 관측은 계속한다.

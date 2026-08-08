@@ -353,6 +353,33 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 0
         }
 
+        "foreign position blocks entries without stranding an owned BTC exit" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway =
+                FakeTrendLiveGateway(
+                    mutableListOf(
+                        ownedPosition,
+                        position(Side.BUY, "0.2", symbol = Symbol("ETHUSDT")),
+                    ),
+                )
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val blocked = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val close = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            blocked.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED
+            blocked.state.status shouldBe VolumeConfirmedTrendLiveStatus.OPEN
+            blocked.riskReasonCodes shouldBe listOf("TREND_FOREIGN_POSITION_OBSERVED")
+            close.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                symbol shouldBe Symbol("BTCUSDT")
+                side shouldBe Side.SELL
+                quantity shouldBe BigDecimal("0.007")
+                reduceOnly shouldBe true
+            }
+        }
+
         "unowned USDT-settled order halts before flat initialization or a BTC entry" {
             val gateway = FakeTrendLiveGateway()
             gateway.openOrders +=
@@ -374,6 +401,88 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             result.state.haltedReasonCode shouldBe "TREND_UNOWNED_OPEN_ORDER_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "foreign order does not block an owned BTC reduce-only exit" {
+            val ownedPosition = position(Side.SELL, "0.004")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.openOrders += foreignOpenOrder()
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.BUY
+                quantity shouldBe BigDecimal("0.004")
+                reduceOnly shouldBe true
+            }
+        }
+
+        "unresolved owned order remains a hard halt to prevent duplicate exits" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.openOrders += foreignOpenOrder(clientOrderId = "vct-x-s-orphan")
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "legacy inventory halt resumes owned position management" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway =
+                FakeTrendLiveGateway(
+                    mutableListOf(
+                        ownedPosition,
+                        position(Side.SELL, "0.2", symbol = Symbol("ETHUSDT")),
+                    ),
+                )
+            val haltedState =
+                openState(ownedPosition).copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_FOREIGN_POSITION_OBSERVED",
+                )
+            val store = InMemoryTrendLiveStore(state = haltedState)
+            val service = service(gateway, store)
+
+            val resumed = service.reconcile()
+            val close = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            resumed.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED
+            resumed.state.status shouldBe VolumeConfirmedTrendLiveStatus.OPEN
+            resumed.riskReasonCodes shouldBe listOf("TREND_FOREIGN_POSITION_OBSERVED")
+            store.events.first().type shouldBe VolumeConfirmedTrendLiveEventType.RESUMED
+            close.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().reduceOnly shouldBe true
+        }
+
+        "legacy inventory halt keeps an independent account risk block" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            val haltedState =
+                openState(ownedPosition).copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    haltedReasonCode = "TREND_FOREIGN_POSITION_OBSERVED",
+                )
+            val store = InMemoryTrendLiveStore(state = haltedState)
+            val projection =
+                RecordingTrendLiveProjectionSink(
+                    riskReasonCodes = listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED"),
+                )
+            val service = service(gateway, store, projectionSink = projection)
+
+            val resumed = service.reconcile()
+
+            resumed.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED
+            resumed.state.status shouldBe VolumeConfirmedTrendLiveStatus.OPEN
+            resumed.riskReasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
             gateway.submittedOrders.size shouldBe 0
         }
 
@@ -1050,6 +1159,19 @@ private fun coinBalance(
         accruedInterest = BigDecimal.ZERO,
         spotHedgingQuantity = BigDecimal.ZERO,
         bonus = BigDecimal.ZERO,
+    )
+
+private fun foreignOpenOrder(clientOrderId: String = "manual-eth-order"): ExchangeOpenOrder =
+    ExchangeOpenOrder(
+        exchangeOrderId = "foreign-order-001",
+        clientOrderId = clientOrderId,
+        symbol = Symbol("ETHUSDT"),
+        side = Side.BUY,
+        orderType = OrderType.LIMIT,
+        status = OrderStatus.SUBMITTED,
+        quantity = BigDecimal("0.2"),
+        createdAt = TEST_NOW,
+        reduceOnly = false,
     )
 
 private fun service(

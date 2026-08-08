@@ -202,6 +202,13 @@ the observed USDT wallet-balance delta with persisted Bybit transaction `change`
 values. Its first snapshot is a blocking baseline; only a fresh `MATCHED` state
 allows a new entry.
 
+Foreign USDT-settled positions and operator-owned open orders are also
+entry-only blockers when the persisted BTCUSDT position still exactly matches
+the exchange. An opposite H4 signal may submit the owned BTCUSDT quantity as a
+reduce-only exit. A `vct-*` open order that is not represented by a pending
+lifecycle state remains a hard halt because another automatic exit could be a
+duplicate.
+
 When wallet reconciliation is enabled, daily loss and account drawdown use a
 unitized strategy NAV rather than raw account equity. Transaction-log changes
 outside `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`, `FEE_REFUND`,

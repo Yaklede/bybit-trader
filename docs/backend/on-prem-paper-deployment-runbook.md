@@ -213,6 +213,9 @@ and its frozen ceilings; environment values cannot loosen the H4 ceiling.
 Closure and transaction streams retain a failed state until that exact stream
 completes a later sync. Missing, stale, clock-skewed, or failed accounting syncs
 block new entries but do not prevent reduce-only position management.
+Foreign derivatives inventory or operator-owned orders follow the same
+entry-only rule when the persisted BTCUSDT position still matches exactly.
+Untracked `vct-*` orders remain a hard stop and require order-history review.
 
 Wallet reconciliation is also enabled by default. After startup, wait for the
 first `BASELINE` and the following `MATCHED` reconciliation before considering

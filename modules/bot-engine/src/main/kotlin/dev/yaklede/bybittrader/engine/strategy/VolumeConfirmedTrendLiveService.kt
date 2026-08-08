@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.strategy
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
+import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -112,11 +113,9 @@ class VolumeConfirmedTrendLiveService(
         if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
             return recovery.recover(effectiveStored, position, now)
         }
-        if (accountPositions.any { it.symbol != config.symbol }) {
-            return halt(effectiveStored, signal, now, "TREND_FOREIGN_POSITION_OBSERVED", position = position)
-        }
-        if (gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN).isNotEmpty()) {
-            return halt(effectiveStored, signal, now, "TREND_UNOWNED_OPEN_ORDER_OBSERVED", position = position)
+        val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
+        if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
+            return halt(effectiveStored, signal, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
         }
         if (effectiveStored == null && position != null) {
             return halt(null, signal, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
@@ -131,6 +130,10 @@ class VolumeConfirmedTrendLiveService(
             !effectiveStored.matches(position)
         ) {
             return halt(effectiveStored, signal, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+        }
+        val inventoryReasonCodes = accountInventoryReasonCodes(accountPositions, accountOpenOrders)
+        if (position == null && inventoryReasonCodes.isNotEmpty()) {
+            return halt(effectiveStored, signal, now, inventoryReasonCodes.first())
         }
         if (effectiveStored != null &&
             effectiveStored.status in NOT_FILLED_STATES &&
@@ -165,7 +168,20 @@ class VolumeConfirmedTrendLiveService(
                 contract = executionContract,
             )
         return when (plan.action) {
-            VolumeConfirmedTrendTargetAction.NO_ACTION -> noAction(effectiveStored, signal, position, plan, now)
+            VolumeConfirmedTrendTargetAction.NO_ACTION ->
+                if (position != null && inventoryReasonCodes.isNotEmpty()) {
+                    managedPositionEntryBlocked(
+                        previous = requireNotNull(effectiveStored),
+                        signal = signal,
+                        position = position,
+                        plan = plan,
+                        assessment = riskAssessment,
+                        additionalReasonCodes = inventoryReasonCodes,
+                        now = now,
+                    )
+                } else {
+                    noAction(effectiveStored, signal, position, plan, now)
+                }
             VolumeConfirmedTrendTargetAction.NO_TRADE -> noTrade(effectiveStored, signal, plan, now)
             VolumeConfirmedTrendTargetAction.OPEN ->
                 if (riskAssessment.allowsEntry) {
@@ -216,11 +232,9 @@ class VolumeConfirmedTrendLiveService(
         if (effectiveStored != null && effectiveStored.status in PENDING_ORDER_STATES) {
             return recovery.recover(effectiveStored, position, now)
         }
-        if (accountPositions.any { it.symbol != config.symbol }) {
-            return halt(effectiveStored, null, now, "TREND_FOREIGN_POSITION_OBSERVED", position = position)
-        }
-        if (gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN).isNotEmpty()) {
-            return halt(effectiveStored, null, now, "TREND_UNOWNED_OPEN_ORDER_OBSERVED", position = position)
+        val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
+        if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
+            return halt(effectiveStored, null, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
         }
         if (effectiveStored == null && position != null) {
             return halt(effectiveStored, null, now, "TREND_UNOWNED_POSITION_OBSERVED", position = position)
@@ -236,6 +250,21 @@ class VolumeConfirmedTrendLiveService(
             !effectiveStored.matches(position)
         ) {
             return halt(effectiveStored, null, now, "TREND_OPEN_STATE_POSITION_MISMATCH", position = position)
+        }
+        val inventoryReasonCodes = accountInventoryReasonCodes(accountPositions, accountOpenOrders)
+        if (position == null && inventoryReasonCodes.isNotEmpty()) {
+            return halt(effectiveStored, null, now, inventoryReasonCodes.first())
+        }
+        if (position != null && inventoryReasonCodes.isNotEmpty()) {
+            return managedPositionEntryBlocked(
+                previous = requireNotNull(effectiveStored),
+                signal = null,
+                position = position,
+                plan = null,
+                assessment = riskAssessment,
+                additionalReasonCodes = inventoryReasonCodes,
+                now = now,
+            )
         }
         val entryCapableState =
             effectiveStored == null ||
@@ -296,11 +325,27 @@ class VolumeConfirmedTrendLiveService(
         captureAccountingIfDue(now, stored.updatedAt)
         val riskAssessment = projectionSink.assessEntryRisk(stored.riskState, now, config.riskPolicy)
         val riskStored = requireNotNull(persistRiskState(stored, riskAssessment, now))
-        val positions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        val accountPositions = gateway.positionsBySettleCoin(TREND_SETTLE_COIN).filter { it.size > BigDecimal.ZERO }
+        val positions = accountPositions.filter { it.symbol == config.symbol }
         if (positions.size > 1) {
             return halt(riskStored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = positions.singleOrNull()
+        if (riskStored.haltedReasonCode in RECOVERABLE_ENTRY_INVENTORY_HALT_REASONS &&
+            position != null &&
+            riskStored.matches(position)
+        ) {
+            val accountOpenOrders = gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
+            if (accountOpenOrders.none(::isUnresolvedOwnedOrder)) {
+                return resumeManagedPosition(
+                    previous = riskStored,
+                    position = position,
+                    assessment = riskAssessment,
+                    reasonCodes = accountInventoryReasonCodes(accountPositions, accountOpenOrders),
+                    now = now,
+                )
+            }
+        }
         val reconciled =
             riskStored.copy(
                 observedPositionSide = position?.side,
@@ -678,6 +723,109 @@ class VolumeConfirmedTrendLiveService(
         )
     }
 
+    private suspend fun managedPositionEntryBlocked(
+        previous: VolumeConfirmedTrendLiveState,
+        signal: VolumeConfirmedTrendExecutionSignal?,
+        position: ExchangePosition,
+        plan: VolumeConfirmedTrendTargetPlan?,
+        assessment: VolumeConfirmedTrendLiveRiskAssessment,
+        additionalReasonCodes: List<String>,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        require(previous.matches(position)) { "A managed trend position must match persisted ownership evidence." }
+        val reasonCodes = (assessment.reasonCodes + additionalReasonCodes).distinct()
+        require(reasonCodes.isNotEmpty()) { "A managed trend position entry block requires a reason." }
+        val state =
+            previous.copy(
+                status = VolumeConfirmedTrendLiveStatus.OPEN,
+                approvalId = approvalReceipt.approvalId,
+                activeDecisionKey = signal?.let(::signalDecisionKey) ?: previous.activeDecisionKey,
+                pendingTargetSide = signal?.side ?: previous.pendingTargetSide,
+                clientOrderId = null,
+                exchangeOrderId = null,
+                observedPositionSide = position.side,
+                observedPositionQuantity = position.size,
+                haltedReasonCode = null,
+                riskState = assessment.state,
+                riskReasonCodes = reasonCodes,
+                updatedAt = now,
+            )
+        if (!state.samePersistedStateAs(previous)) {
+            val eventType =
+                if (previous.status == VolumeConfirmedTrendLiveStatus.HALTED) {
+                    VolumeConfirmedTrendLiveEventType.RESUMED
+                } else {
+                    VolumeConfirmedTrendLiveEventType.RECONCILED
+                }
+            store.commitTrendLive(
+                state,
+                listOf(
+                    lifecycleEvent(
+                        state,
+                        eventType,
+                        "TREND_POSITION_ENTRY_BLOCKED|${reasonCodes.joinToString("|")}",
+                        now,
+                    ),
+                ),
+            )
+        }
+        return VolumeConfirmedTrendLiveEvaluationResult(
+            status = VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED,
+            state = if (state.samePersistedStateAs(previous)) previous else state,
+            plan = plan,
+            riskReasonCodes = reasonCodes,
+        )
+    }
+
+    private suspend fun resumeManagedPosition(
+        previous: VolumeConfirmedTrendLiveState,
+        position: ExchangePosition,
+        assessment: VolumeConfirmedTrendLiveRiskAssessment,
+        reasonCodes: List<String>,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        if ((assessment.reasonCodes + reasonCodes).isNotEmpty()) {
+            return managedPositionEntryBlocked(
+                previous = previous,
+                signal = null,
+                position = position,
+                plan = null,
+                assessment = assessment,
+                additionalReasonCodes = reasonCodes,
+                now = now,
+            )
+        }
+        val resumed =
+            previous.copy(
+                status = VolumeConfirmedTrendLiveStatus.OPEN,
+                approvalId = approvalReceipt.approvalId,
+                clientOrderId = null,
+                exchangeOrderId = null,
+                observedPositionSide = position.side,
+                observedPositionQuantity = position.size,
+                haltedReasonCode = null,
+                riskState = assessment.state,
+                riskReasonCodes = emptyList(),
+                updatedAt = now,
+            )
+        store.commitTrendLive(
+            resumed,
+            listOf(
+                lifecycleEvent(
+                    resumed,
+                    VolumeConfirmedTrendLiveEventType.RESUMED,
+                    "TREND_POSITION_MANAGEMENT_RESUMED",
+                    now,
+                ),
+            ),
+        )
+        return VolumeConfirmedTrendLiveEvaluationResult(
+            status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED,
+            state = resumed,
+            plan = null,
+        )
+    }
+
     private suspend fun blockByApproval(
         previous: VolumeConfirmedTrendLiveState?,
         now: Instant,
@@ -822,8 +970,25 @@ class VolumeConfirmedTrendLiveService(
     private fun VolumeConfirmedTrendLiveState.ownsPositionDuringApprovalRevocation(position: ExchangePosition): Boolean =
         status in APPROVAL_REVOCATION_OWNED_POSITION_STATES && matches(position)
 
+    private fun accountInventoryReasonCodes(
+        positions: List<ExchangePosition>,
+        openOrders: List<ExchangeOpenOrder>,
+    ): List<String> =
+        buildList {
+            if (positions.any { it.symbol != config.symbol }) add("TREND_FOREIGN_POSITION_OBSERVED")
+            if (openOrders.any { !isUnresolvedOwnedOrder(it) }) add("TREND_UNOWNED_OPEN_ORDER_OBSERVED")
+        }
+
+    private fun isUnresolvedOwnedOrder(order: ExchangeOpenOrder): Boolean = order.clientOrderId?.startsWith(TREND_ORDER_ID_PREFIX) == true
+
     private companion object {
         const val TREND_SETTLE_COIN = "USDT"
+        const val TREND_ORDER_ID_PREFIX = "vct-"
+        val RECOVERABLE_ENTRY_INVENTORY_HALT_REASONS =
+            setOf(
+                "TREND_FOREIGN_POSITION_OBSERVED",
+                "TREND_UNOWNED_OPEN_ORDER_OBSERVED",
+            )
         val PENDING_ORDER_STATES =
             setOf(
                 VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED,
