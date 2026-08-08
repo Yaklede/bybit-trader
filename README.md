@@ -293,6 +293,8 @@ curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   http://127.0.0.1:8080/strategy/volume-confirmed-trend/approval
 curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
   "http://127.0.0.1:8080/strategy/volume-confirmed-trend/shadow?limit=40"
+curl -H "Authorization: Bearer $BOT_CONTROL_TOKEN" \
+  "http://127.0.0.1:8080/strategy/volume-confirmed-trend/live?limit=40"
 ```
 
 The dashboard's **전진 검증** panel renders the same persisted state, all
@@ -300,6 +302,12 @@ frozen gates, and recent virtual ledger events. `READY_FOR_HUMAN_REVIEW` is the
 highest automatic status; it does not enable live orders. The approval policy
 keeps `automaticExecutionAllowed=false` and `liveExecutionAllowed=false` even
 after every quantitative gate passes.
+
+The **4시간 추세 전략** and **4시간 전략 활동** panels render only persisted
+live evidence: exchange-observed position state, unitized-NAV drawdown and its
+35% limit, wallet-ledger reconciliation, H4-attributed closures/fills, BTCUSDT
+funding, and recent account transactions. Empty tables remain empty; the
+dashboard does not fabricate sample trades or infer live PnL from Shadow data.
 
 Smoke test:
 

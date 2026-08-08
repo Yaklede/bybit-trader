@@ -42,23 +42,46 @@ updates.
 
 ## GET /strategy/volume-confirmed-trend/live
 
-Returns only the persisted H4 live checkpoint and append-only lifecycle events;
-it does not call Bybit and does not synthesize a position. Query parameter
-`limit` defaults to 50 and accepts 1-100. The response exposes the approval ID,
-active decision key, pending target side, client and exchange order IDs,
-exchange-observed position, last execution ID, halt reason, and update time.
-It also returns the latest persisted USDT account snapshot and H4-only
-`recentExecutionFills`. Each fill includes Bybit `execId`, price, quantity,
-fee, execution PnL, execution type, exchange/client order IDs, exchange time,
-and local receive time. Account and fill values come from the shared idempotent
-execution projection; they are not inferred from Shadow performance.
+Returns the persisted H4 live checkpoint, append-only lifecycle events, and the
+accounting evidence needed to audit the strategy. It performs no Bybit request
+and does not synthesize a position. Query parameter `limit` defaults to 50 and
+accepts 1-100.
+
+The response contains:
+
+- `state`: approval ID, decision key, pending target side, exchange-observed
+  position, order/fill IDs, halt reason, and update time.
+- `account`: the latest persisted USDT account snapshot.
+- `risk`: unitized NAV equity/peak/drawdown, the frozen 35% drawdown limit,
+  exact entry-blocking reason codes, and the persisted risk evaluation time.
+- `walletReconciliation`: observed wallet change versus transaction-ledger
+  change, tolerance, mismatch count, and last successful reconciliation.
+- `performance`: `SESSION`, `SEVEN_DAYS`, `THIRTY_DAYS`, and `ALL` snapshots
+  calculated from H4-owned closures. Each row includes net PnL, fees, profit
+  factor, expectancy, closed-trade drawdown, account-equity drawdown, BTCUSDT
+  funding, and H4-attributed transaction fees.
+- `recentClosedTrades`: closures attributed to H4 client order IDs.
+- `recentExecutionFills`: fills attributed to H4 client order IDs, including
+  Bybit `execId`, price, quantity, fee, execution PnL, exchange time, and local
+  receive time.
+- `recentAccountTransactions`: the latest persisted USDT transaction records
+  used for wallet reconciliation, including funding, fees, cash flow, and
+  balance change.
+
+The endpoint deliberately does not update the shared generic latest-performance
+table. H4 performance is calculated on read from H4-attributed closures so it
+cannot overwrite or be contaminated by the legacy M5 dashboard projection.
+BTCUSDT funding is reported separately because a funding transaction does not
+always carry an H4 client order ID.
 
 `enabled=false` means the H4 private loop is not configured in this process. A
 persisted state can still be returned when Shadow is enabled so an operator can
 inspect a prior halted run. `ORDER_SUBMITTED` is an acknowledgement, not fill
 proof; `ENTRY_FILL_OBSERVED` or `EXIT_FILL_OBSERVED` plus the observed position
-state is the current recovery evidence. This endpoint requires the control
-Bearer token.
+state is the current recovery evidence. A missing/stale unitized NAV or wallet
+reconciliation, a confirmed wallet mismatch, or drawdown at or above 35%
+returns `risk.allowsNewEntry=false`. Existing position exits remain allowed.
+This endpoint requires the control Bearer token.
 
 ## POST /execution/evaluate-and-submit
 

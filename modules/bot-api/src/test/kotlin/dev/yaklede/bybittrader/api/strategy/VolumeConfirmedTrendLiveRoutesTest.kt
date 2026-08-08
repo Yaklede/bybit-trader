@@ -3,12 +3,22 @@ package dev.yaklede.bybittrader.api.strategy
 import dev.yaklede.bybittrader.api.security.configureControlAuthentication
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountTransactionEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskNavStatus
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationState
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationStatus
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceSnapshot
+import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLivePerformanceEvidence
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import io.kotest.core.spec.style.StringSpec
@@ -46,7 +56,7 @@ class VolumeConfirmedTrendLiveRoutesTest :
 
                 response.status shouldBe HttpStatusCode.OK
                 response.bodyAsText() shouldBe
-                    """{"enabled":false,"state":null,"recentEvents":[],"account":null,"recentExecutionFills":[]}"""
+                    """{"enabled":false,"state":null,"recentEvents":[],"account":null,"risk":null,"walletReconciliation":null,"performance":[],"recentClosedTrades":[],"recentExecutionFills":[],"recentAccountTransactions":[]}"""
             }
         }
 
@@ -66,13 +76,21 @@ class VolumeConfirmedTrendLiveRoutesTest :
                     body shouldContain "\"enabled\":true"
                     body shouldContain "\"status\":\"HALTED\""
                     body shouldContain "\"approvalId\":\"approval-001\""
-                    body shouldContain "\"clientOrderId\":\"vcte-order-001\""
+                    body shouldContain "\"clientOrderId\":\"vct-entry-order-001\""
                     body shouldContain "\"haltedReasonCode\":\"TREND_POSITION_MISMATCH\""
                     body shouldContain "\"type\":\"HALTED\""
                     body shouldContain "\"reasonCode\":\"TREND_POSITION_MISMATCH\""
                     body shouldContain "\"totalEquity\":\"660.50\""
                     body shouldContain "\"executionId\":\"execution-001\""
                     body shouldContain "\"fee\":\"0.252\""
+                    body shouldContain "\"reasonCodes\":[\"ACCOUNT_DRAWDOWN_LIMIT_REACHED\"]"
+                    body shouldContain "\"currentAccountDrawdownFraction\":\"0.40000000\""
+                    body shouldContain "\"maximumAccountDrawdownFraction\":\"0.35\""
+                    body shouldContain "\"walletReconciliation\":{\"status\":\"MATCHED\""
+                    body shouldContain "\"window\":\"ALL\""
+                    body shouldContain "\"btcFundingPnl\":\"-0.01\""
+                    body shouldContain "\"netPnl\":\"6.5\""
+                    body shouldContain "\"transactionId\":\"transaction-001\""
                 }
             }
         }
@@ -137,7 +155,7 @@ private fun sampleLiveSnapshot(): VolumeConfirmedTrendLiveSnapshot =
                         ExchangeExecutionFill(
                             executionId = "execution-001",
                             exchangeOrderId = "exchange-order-001",
-                            clientOrderId = "vcte-order-001",
+                            clientOrderId = "vct-entry-order-001",
                             symbol = Symbol("BTCUSDT"),
                             side = Side.BUY,
                             price = BigDecimal("60000"),
@@ -150,6 +168,55 @@ private fun sampleLiveSnapshot(): VolumeConfirmedTrendLiveSnapshot =
                     receivedAt = OBSERVED_AT.plusSeconds(1),
                 ),
             ),
+        maximumAccountDrawdownFraction = BigDecimal("0.35"),
+        walletReconciliation =
+            ExecutionWalletReconciliationState(
+                mode = ExecutionRuntimeMode.LIVE,
+                currency = "USDT",
+                status = ExecutionWalletReconciliationStatus.MATCHED,
+                baselineSnapshotId = 1,
+                baselineCapturedAt = OBSERVED_AT.minusSeconds(300),
+                baselineWalletBalance = BigDecimal("666.24"),
+                currentSnapshotId = 2,
+                currentCapturedAt = OBSERVED_AT,
+                currentWalletBalance = BigDecimal("655.25"),
+                observedWalletChange = BigDecimal("-10.99"),
+                ledgerChange = BigDecimal("-10.99"),
+                difference = BigDecimal.ZERO,
+                tolerance = BigDecimal("0.01"),
+                consecutiveMismatches = 0,
+                lastMatchedAt = OBSERVED_AT,
+                reconciledAt = OBSERVED_AT,
+            ),
+        performance =
+            listOf(
+                VolumeConfirmedTrendLivePerformanceEvidence(
+                    snapshot =
+                        LivePerformanceSnapshot(
+                            mode = ExecutionRuntimeMode.LIVE,
+                            window = LivePerformanceWindow.ALL,
+                            tradeCount = 1,
+                            winRatePct = BigDecimal("100"),
+                            grossProfit = BigDecimal("6.5"),
+                            grossLoss = BigDecimal.ZERO,
+                            fees = BigDecimal("0.5"),
+                            netPnl = BigDecimal("6.5"),
+                            profitFactor = null,
+                            expectancy = BigDecimal("6.5"),
+                            maxClosedTradeDrawdownPct = BigDecimal.ZERO,
+                            lastClosedAt = OBSERVED_AT.minusSeconds(1),
+                            capturedAt = OBSERVED_AT,
+                            accountEquity = BigDecimal("660.50"),
+                            accountPeakEquity = BigDecimal("666.24"),
+                            maxAccountDrawdownPct = BigDecimal("0.86157"),
+                            accountEquityCapturedAt = OBSERVED_AT,
+                        ),
+                    btcFundingPnl = BigDecimal("-0.01"),
+                    strategyTransactionFees = BigDecimal("-0.5"),
+                ),
+            ),
+        recentClosures = listOf(sampleClosure()),
+        recentAccountTransactions = listOf(sampleAccountTransaction()),
     )
 
 private fun sampleLiveState(): VolumeConfirmedTrendLiveState =
@@ -162,13 +229,81 @@ private fun sampleLiveState(): VolumeConfirmedTrendLiveState =
         approvalId = "approval-001",
         activeDecisionKey = "decision-001",
         pendingTargetSide = Side.BUY,
-        clientOrderId = "vcte-order-001",
+        clientOrderId = "vct-entry-order-001",
         exchangeOrderId = "exchange-order-001",
         observedPositionSide = Side.SELL,
         observedPositionQuantity = BigDecimal("0.007"),
         lastExecutionId = "execution-001",
         haltedReasonCode = "TREND_POSITION_MISMATCH",
         updatedAt = OBSERVED_AT,
+        riskState =
+            ExecutionRiskState(
+                mode = ExecutionRuntimeMode.LIVE,
+                peakEquity = BigDecimal("1100"),
+                utcDayStartedAt = OBSERVED_AT,
+                dayStartEquity = BigDecimal("660.50"),
+                latestEquity = BigDecimal("660.50"),
+                consecutiveLosses = 0,
+                lastClosureId = 1,
+                updatedAt = OBSERVED_AT,
+                navStatus = ExecutionRiskNavStatus.READY,
+                strategyUnits = BigDecimal("660.50"),
+                latestUnitizedNav = BigDecimal("0.6"),
+                peakUnitizedNav = BigDecimal.ONE,
+                dayStartUnitizedNav = BigDecimal("0.6"),
+                cumulativeExternalCashFlow = BigDecimal.ZERO,
+                lastAccountTransactionId = 1,
+            ),
+        riskReasonCodes = listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED"),
+    )
+
+private fun sampleClosure(): ExecutionTradeClosure =
+    ExecutionTradeClosure(
+        id = 1,
+        mode = ExecutionRuntimeMode.LIVE,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        openedAt = OBSERVED_AT.minusSeconds(14_400),
+        closedAt = OBSERVED_AT.minusSeconds(1),
+        entryPrice = BigDecimal("59000"),
+        exitPrice = BigDecimal("60000"),
+        quantity = BigDecimal("0.007"),
+        grossPnl = BigDecimal("7"),
+        fees = BigDecimal("0.5"),
+        netPnl = BigDecimal("6.5"),
+        exitReason = "STRATEGY_EXIT",
+        exchangeOrderId = "exchange-order-001",
+        clientOrderId = "vct-exit-order-001",
+    )
+
+private fun sampleAccountTransaction(): ExecutionAccountTransactionEvent =
+    ExecutionAccountTransactionEvent(
+        id = 1,
+        mode = ExecutionRuntimeMode.LIVE,
+        transaction =
+            ExchangeAccountTransaction(
+                transactionId = "transaction-001",
+                symbol = Symbol("BTCUSDT"),
+                category = "linear",
+                side = Side.BUY,
+                transactionAt = OBSERVED_AT.minusSeconds(30),
+                type = "SETTLEMENT",
+                subtype = "FUNDING",
+                quantity = null,
+                size = BigDecimal("0.007"),
+                currency = "USDT",
+                tradePrice = BigDecimal("60000"),
+                funding = BigDecimal("-0.01"),
+                fee = BigDecimal.ZERO,
+                cashFlow = BigDecimal.ZERO,
+                change = BigDecimal("-0.01"),
+                cashBalance = BigDecimal("660.50"),
+                feeRate = null,
+                tradeId = null,
+                exchangeOrderId = null,
+                clientOrderId = null,
+            ),
+        receivedAt = OBSERVED_AT,
     )
 
 private fun sampleLiveEvent(): VolumeConfirmedTrendLiveEvent =
@@ -184,7 +319,7 @@ private fun sampleLiveEvent(): VolumeConfirmedTrendLiveEvent =
         orderQuantity = BigDecimal("0.007"),
         referencePrice = BigDecimal("60000"),
         limitPrice = BigDecimal("60012"),
-        clientOrderId = "vcte-order-001",
+        clientOrderId = "vct-entry-order-001",
         exchangeOrderId = "exchange-order-001",
         executionId = "execution-001",
         reasonCode = "TREND_POSITION_MISMATCH",

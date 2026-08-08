@@ -45,6 +45,7 @@ const CLOSED_TRADES_REFRESH_MS = 30000;
 const SYNC_STATUS_REFRESH_MS = 30000;
 const STRATEGY_PROFILE_REFRESH_MS = 300000;
 const TREND_REVIEW_REFRESH_MS = 60000;
+const TREND_LIVE_REFRESH_MS = 30000;
 const TREND_STATUS_MISSING = "UNAVAILABLE";
 const TREND_STATUS_SESSION_BLOCKED = "SHADOW_SESSION_FAILED";
 const TREND_EVENT_SESSION_RESET = "SESSION_INVALIDATED";
@@ -88,6 +89,15 @@ const EMPTY_TREND_SHADOW = {
   recentEvents: [],
 };
 
+const EMPTY_TREND_LIVE = {
+  enabled: false,
+  recentEvents: [],
+  performance: [],
+  recentClosedTrades: [],
+  recentExecutionFills: [],
+  recentAccountTransactions: [],
+};
+
 const EMPTY_MOBILE_SUMMARY = {
   runtimeMode: "",
   bot: { mode: "확인 필요", updatedAt: "", heartbeatAt: "" },
@@ -114,6 +124,7 @@ export default function App() {
   const [strategyState, setStrategyState] = useState(EMPTY_STRATEGY_STATE);
   const [trendApproval, setTrendApproval] = useState(EMPTY_TREND_APPROVAL);
   const [trendShadow, setTrendShadow] = useState(EMPTY_TREND_SHADOW);
+  const [trendLive, setTrendLive] = useState(EMPTY_TREND_LIVE);
   const [mobileSummary, setMobileSummary] = useState(EMPTY_MOBILE_SUMMARY);
   const [closedTrades, setClosedTrades] = useState([]);
   const [closedTradeCursor, setClosedTradeCursor] = useState("");
@@ -189,6 +200,9 @@ export default function App() {
       } else if (scope === "trendShadow") {
         value = await client.request("/strategy/volume-confirmed-trend/shadow?limit=40");
         setTrendShadow({ ...EMPTY_TREND_SHADOW, ...(value || {}) });
+      } else if (scope === "trendLive") {
+        value = await client.request("/strategy/volume-confirmed-trend/live?limit=40");
+        setTrendLive({ ...EMPTY_TREND_LIVE, ...(value || {}) });
       } else if (scope === "mobile") {
         value = await client.request(
           `/dashboard/mobile-summary?symbol=${encodeURIComponent(symbol)}&coin=${encodeURIComponent(coin)}&tradeLimit=20&signalLimit=20`,
@@ -307,6 +321,12 @@ export default function App() {
     }
     if (activeView === "overview" && scopeIsDue(lastFetchedAtRef.current, "trendShadow", TREND_REVIEW_REFRESH_MS)) {
       scopes.push("trendShadow");
+    }
+    if (
+      (activeView === "overview" || activeView === "trading" || activeView === "activity") &&
+      scopeIsDue(lastFetchedAtRef.current, "trendLive", TREND_LIVE_REFRESH_MS)
+    ) {
+      scopes.push("trendLive");
     }
     void refreshData(scopes, { clearFeedback: true });
   }, [accessKey, activeView, apiBase, coin, refreshData, symbol]);
@@ -688,6 +708,8 @@ export default function App() {
               </dl>
             </section>
 
+            <TrendLiveOperationsSection live={trendLive} isLoading={isLoading} dataState={dataState} />
+
             <TrendReviewSection
               approval={trendApproval}
               shadow={trendShadow}
@@ -807,6 +829,8 @@ export default function App() {
                   label="잔고 기록 대사"
                   value={formatWalletReconciliation(riskReadiness?.walletReconciliation)}
                 />
+                <StateRow label="4시간 전략" value={formatTrendLiveStatus(trendLive?.state?.status, trendLive?.enabled)} />
+                <StateRow label="4시간 전략 신규 진입" value={formatTrendLiveEntryStatus(trendLive)} />
                 <StateRow label="최근 변경" value={formatDateTime(bot?.updatedAt)} />
               </dl>
             </section>
@@ -936,6 +960,8 @@ export default function App() {
             aria-labelledby="dashboard-tab-activity"
             data-view="activity"
           >
+            <TrendLiveActivitySection live={trendLive} isLoading={isLoading} dataState={dataState} />
+
             <section className="panel full-width">
               <PanelHeader
                 title="종료 거래"
@@ -1272,6 +1298,264 @@ function RiskMetric({ label, value, limit }) {
       <dd>{value}</dd>
       <span>한도 {limit}</span>
     </div>
+  );
+}
+
+function TrendLiveOperationsSection({ live, isLoading, dataState }) {
+  const state = live?.state;
+  const risk = live?.risk;
+  const account = live?.account;
+  const performance = live?.performance || [];
+  const allPerformance = performance.find((item) => item.window === "ALL");
+  const hasEvidence = Boolean(state || risk || account || performance.length > 0);
+  const tone = trendLiveTone(live);
+  const StatusIcon = tone === "success" ? ShieldCheck : ShieldAlert;
+
+  return (
+    <section className={`panel full-width strategy-review ${tone}`} aria-labelledby="trend-live-title">
+      <PanelHeader
+        title="4시간 추세 전략"
+        description="이 전략이 실제 계좌에 남긴 포지션, 손익, 비용과 계좌 보호 상태만 모아서 봐요."
+        action={
+          <StatusBadge
+            label={formatTrendLiveStatus(state?.status, live?.enabled)}
+            tone={hasEvidence ? tone : "neutral"}
+          />
+        }
+      />
+
+      {isLoading && !hasEvidence ? (
+        <SkeletonRows columns={6} />
+      ) : !hasEvidence ? (
+        <EmptyInline
+          title={live?.enabled ? emptyTitle(dataState) : "4시간 전략 실행 경로가 꺼져 있어요"}
+          message={
+            live?.enabled
+              ? emptyMessage(
+                  dataState,
+                  "첫 계좌 동기화와 전략 평가가 끝나면 운영 근거가 표시돼요.",
+                  "새로고침하면 4시간 전략의 운영 상태가 여기에 표시돼요.",
+                )
+              : "승인된 실행 설정으로 시작하기 전에는 실제 주문과 성과가 기록되지 않아요."
+          }
+        />
+      ) : (
+        <>
+          <div className="strategy-review-banner" aria-live="polite">
+            <StatusIcon size={20} aria-hidden="true" />
+            <p>
+              <strong>{formatTrendLiveEntryStatus(live)}</strong>
+              <span>{trendLiveGuidance(live)}</span>
+            </p>
+            <StatusBadge label={formatTrendLiveEntryStatus(live)} tone={tone} />
+          </div>
+
+          <dl className="review-metrics">
+            <ReviewMetric label="계좌 총자산" value={formatMoney(account?.totalEquity)} unit="USDT" />
+            <ReviewMetric
+              label="종료 순손익"
+              value={formatMoney(allPerformance?.netPnl)}
+              unit="USDT"
+              tone={numberTone(allPerformance?.netPnl)}
+            />
+            <ReviewMetric
+              label="BTC 펀딩"
+              value={formatMoney(allPerformance?.btcFundingPnl)}
+              unit="USDT"
+              tone={numberTone(allPerformance?.btcFundingPnl)}
+            />
+            <ReviewMetric
+              label="현재 계좌 낙폭"
+              value={formatFractionPercent(risk?.currentAccountDrawdownFraction)}
+              tone={Number(risk?.currentAccountDrawdownFraction) >= Number(risk?.maximumAccountDrawdownFraction) ? "negative" : "neutral"}
+            />
+            <ReviewMetric
+              label="허용 낙폭"
+              value={formatFractionPercent(risk?.maximumAccountDrawdownFraction)}
+            />
+            <ReviewMetric
+              label="종료 거래"
+              value={allPerformance ? `${formatCount(allPerformance.tradeCount)}회` : "조회 전"}
+            />
+          </dl>
+
+          <dl className="review-meta detail-list compact">
+            <StateRow label="거래소 포지션" value={formatTrendLivePosition(state)} />
+            <StateRow label="입출금 반영 성과" value={formatNavStatus(risk?.navStatus)} />
+            <StateRow
+              label="잔고 기록 대사"
+              value={formatTrendLiveWalletReconciliation(live?.walletReconciliation)}
+            />
+            <StateRow label="상태 확인 시각" value={formatDateTime(risk?.updatedAt || state?.updatedAt || account?.capturedAt)} />
+          </dl>
+
+          {risk?.reasonCodes?.length > 0 ? (
+            <details className="risk-reason-details">
+              <summary>신규 진입 차단 사유 {formatCount(risk.reasonCodes.length)}개 보기</summary>
+              <ul>
+                {risk.reasonCodes.map((code) => (
+                  <li key={code}>
+                    <strong>{formatRiskReason(code)}</strong>
+                    <code>{code}</code>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : false}
+
+          <section className="review-table-block trend-performance-table" aria-labelledby="trend-live-performance-title">
+            <div className="review-table-heading">
+              <h3 id="trend-live-performance-title">성과 기간 비교</h3>
+              <span>H4 귀속 종료 거래 기준</span>
+            </div>
+            <DataTable
+              columns={["기간", "종료 거래", "순손익", "거래 수수료", "BTC 펀딩", "프로핏 팩터", "계좌 MDD"]}
+              isLoading={isLoading}
+              emptyTitle="성과 기준을 아직 만들지 않았어요"
+              emptyMessage="계좌 동기화가 끝나면 기간별 성과가 표시돼요."
+            >
+              {performance.map((item) => (
+                <tr key={item.window}>
+                  <td data-label="기간">{formatPerformanceWindow(item.window)}</td>
+                  <td data-label="종료 거래">{formatCount(item.tradeCount)}회</td>
+                  <td data-label="순손익" className={numberClass(item.netPnl)}>{formatMoney(item.netPnl)}</td>
+                  <td data-label="거래 수수료">{formatMoney(item.fees)}</td>
+                  <td data-label="BTC 펀딩" className={numberClass(item.btcFundingPnl)}>{formatMoney(item.btcFundingPnl)}</td>
+                  <td data-label="프로핏 팩터">{formatOptionalRatio(item.profitFactor, "측정 전")}</td>
+                  <td data-label="계좌 MDD">{formatOptionalPercent(item.maxAccountDrawdownPct, "측정 전")}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </section>
+        </>
+      )}
+    </section>
+  );
+}
+
+function TrendLiveActivitySection({ live, isLoading, dataState }) {
+  const events = live?.recentEvents || [];
+  const closures = live?.recentClosedTrades || [];
+  const fills = live?.recentExecutionFills || [];
+  const transactions = live?.recentAccountTransactions || [];
+  const hasEvidence = events.length + closures.length + fills.length + transactions.length > 0;
+
+  return (
+    <section className="panel full-width strategy-review" aria-labelledby="trend-live-activity-title">
+      <PanelHeader
+        title="4시간 전략 활동"
+        description="전략 상태 전환과 실제 체결, 종료 거래, 계좌 변동을 서로 대조해요."
+        action={<StatusBadge label={`${formatCount(closures.length)}건 종료`} tone="neutral" />}
+      />
+
+      {isLoading && !hasEvidence ? (
+        <SkeletonRows columns={6} />
+      ) : !hasEvidence && !live?.enabled ? (
+        <EmptyInline
+          title="4시간 전략 활동 기록이 없어요"
+          message="실행 경로를 켜고 거래소 상태를 동기화하면 실제 기록만 여기에 표시돼요."
+        />
+      ) : (
+        <div className="trend-evidence-tables">
+          <section className="review-table-block" aria-labelledby="trend-live-events-title">
+            <div className="review-table-heading">
+              <h3 id="trend-live-events-title">상태 전환</h3>
+              <span>{formatCount(events.length)}건</span>
+            </div>
+            <DataTable
+              columns={["시각", "구분", "방향", "수량", "기준가", "사유"]}
+              isLoading={isLoading}
+              emptyTitle={emptyTitle(dataState)}
+              emptyMessage={emptyMessage(dataState, "상태 전환 기록이 아직 없어요.", "새로고침하면 상태 전환 기록이 표시돼요.")}
+            >
+              {events.map((event) => (
+                <tr key={event.eventId}>
+                  <td data-label="시각">{formatDateTime(event.occurredAt)}</td>
+                  <td data-label="구분">{formatTrendLiveEventType(event.type)}</td>
+                  <td data-label="방향">{event.orderSide || event.targetSide ? <SideText side={event.orderSide || event.targetSide} /> : "해당 없음"}</td>
+                  <td data-label="수량">{event.orderQuantity ? `${formatNumber(event.orderQuantity)} BTC` : "해당 없음"}</td>
+                  <td data-label="기준가">{formatMoney(event.referencePrice || event.limitPrice)}</td>
+                  <td data-label="사유">{formatTrendLiveEventReason(event.reasonCode)}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </section>
+
+          <section className="review-table-block" aria-labelledby="trend-live-closures-title">
+            <div className="review-table-heading">
+              <h3 id="trend-live-closures-title">종료 거래</h3>
+              <span>H4 주문 ID 귀속</span>
+            </div>
+            <DataTable
+              columns={["종료 시각", "방향", "수량", "진입가", "종료가", "순손익", "사유"]}
+              isLoading={isLoading}
+              emptyTitle="4시간 전략 종료 거래가 없어요"
+              emptyMessage="포지션이 종료되면 실제 체결 손익이 표시돼요."
+            >
+              {closures.map((trade) => (
+                <tr key={trade.id}>
+                  <td data-label="종료 시각">{formatDateTime(trade.closedAt)}</td>
+                  <td data-label="방향"><SideText side={trade.side} /></td>
+                  <td data-label="수량">{formatNumber(trade.quantity)} BTC</td>
+                  <td data-label="진입가">{formatMoney(trade.entryPrice)}</td>
+                  <td data-label="종료가">{formatMoney(trade.exitPrice)}</td>
+                  <td data-label="순손익" className={numberClass(trade.netPnl)}>{formatMoney(trade.netPnl)}</td>
+                  <td data-label="사유">{formatExitReason(trade.exitReason)}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </section>
+
+          <section className="review-table-block" aria-labelledby="trend-live-fills-title">
+            <div className="review-table-heading">
+              <h3 id="trend-live-fills-title">실제 체결</h3>
+              <span>H4 주문 ID 귀속</span>
+            </div>
+            <DataTable
+              columns={["체결 시각", "방향", "가격", "수량", "수수료", "체결 손익"]}
+              isLoading={isLoading}
+              emptyTitle="4시간 전략 체결이 없어요"
+              emptyMessage="거래소 체결을 확인하면 가격과 수수료가 표시돼요."
+            >
+              {fills.map((fill, index) => (
+                <tr key={fill.executionId || `${fill.exchangeOrderId}-${fill.executedAt}-${index}`}>
+                  <td data-label="체결 시각">{formatDateTime(fill.executedAt)}</td>
+                  <td data-label="방향"><SideText side={fill.side} /></td>
+                  <td data-label="가격">{formatMoney(fill.price)}</td>
+                  <td data-label="수량">{formatNumber(fill.quantity)} BTC</td>
+                  <td data-label="수수료">{formatMoney(fill.fee)}</td>
+                  <td data-label="체결 손익" className={numberClass(fill.executionPnl)}>{formatMoney(fill.executionPnl)}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </section>
+
+          <section className="review-table-block" aria-labelledby="trend-live-transactions-title">
+            <div className="review-table-heading">
+              <h3 id="trend-live-transactions-title">최근 계좌 변동</h3>
+              <span>USDT 원장 대사 대상</span>
+            </div>
+            <DataTable
+              columns={["시각", "구분", "심볼", "펀딩", "수수료", "잔고 변화"]}
+              isLoading={isLoading}
+              emptyTitle="계좌 변동 기록이 없어요"
+              emptyMessage="거래 내역 동기화가 끝나면 펀딩과 수수료가 표시돼요."
+            >
+              {transactions.map((transaction) => (
+                <tr key={transaction.id || transaction.transactionId}>
+                  <td data-label="시각">{formatDateTime(transaction.transactionAt)}</td>
+                  <td data-label="구분">{formatAccountTransactionType(transaction.type, transaction.subtype)}</td>
+                  <td data-label="심볼">{transaction.symbol || "계좌 공통"}</td>
+                  <td data-label="펀딩" className={numberClass(transaction.funding)}>{formatMoney(transaction.funding)}</td>
+                  <td data-label="수수료">{formatMoney(transaction.fee)}</td>
+                  <td data-label="잔고 변화" className={numberClass(transaction.change)}>{formatMoney(transaction.change)}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </section>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1623,26 +1907,32 @@ function SideText({ side }) {
 }
 
 function activationScopes(activeView) {
-  if (activeView === "trading") return ["summary"];
-  if (activeView === "activity") return ["mobile", "closedTrades", "summary"];
+  if (activeView === "trading") return ["summary", "trendLive"];
+  if (activeView === "activity") return ["mobile", "closedTrades", "summary", "trendLive"];
   if (activeView === "settings") return ["sync"];
-  return ["mobile", "trendApproval", "trendShadow"];
+  return ["mobile", "trendApproval", "trendShadow", "trendLive"];
 }
 
 function manualRefreshScopes(activeView) {
-  if (activeView === "trading") return ["summary", "mobile", "profiles"];
-  if (activeView === "activity") return ["mobile", "closedTrades", "summary"];
+  if (activeView === "trading") return ["summary", "mobile", "profiles", "trendLive"];
+  if (activeView === "activity") return ["mobile", "closedTrades", "summary", "trendLive"];
   if (activeView === "settings") return ["sync"];
-  return ["mobile", "summary", "profiles", "trendApproval", "trendShadow"];
+  return ["mobile", "summary", "profiles", "trendApproval", "trendShadow", "trendLive"];
 }
 
 function pollingScopes(activeView, lastFetchedAt) {
-  if (activeView === "trading") return ["summary"];
+  if (activeView === "trading") {
+    return [
+      "summary",
+      ...(scopeIsDue(lastFetchedAt, "trendLive", TREND_LIVE_REFRESH_MS) ? ["trendLive"] : []),
+    ];
+  }
   if (activeView === "activity") {
     return [
       "mobile",
       ...(scopeIsDue(lastFetchedAt, "closedTrades", CLOSED_TRADES_REFRESH_MS) ? ["closedTrades"] : []),
       ...(scopeIsDue(lastFetchedAt, "summary", ACTIVITY_SUMMARY_REFRESH_MS) ? ["summary"] : []),
+      ...(scopeIsDue(lastFetchedAt, "trendLive", TREND_LIVE_REFRESH_MS) ? ["trendLive"] : []),
     ];
   }
   if (activeView === "settings") {
@@ -1653,6 +1943,7 @@ function pollingScopes(activeView, lastFetchedAt) {
     ...(scopeIsDue(lastFetchedAt, "summary", OVERVIEW_SUMMARY_REFRESH_MS) ? ["summary"] : []),
     ...(scopeIsDue(lastFetchedAt, "trendApproval", TREND_REVIEW_REFRESH_MS) ? ["trendApproval"] : []),
     ...(scopeIsDue(lastFetchedAt, "trendShadow", TREND_REVIEW_REFRESH_MS) ? ["trendShadow"] : []),
+    ...(scopeIsDue(lastFetchedAt, "trendLive", TREND_LIVE_REFRESH_MS) ? ["trendLive"] : []),
   ];
 }
 
@@ -1837,6 +2128,161 @@ function formatObservedDays(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return "측정 전";
   return `${parsed.toFixed(parsed >= 10 ? 0 : 1)}일`;
+}
+
+function formatTrendLiveStatus(status, enabled) {
+  if (!enabled) return "꺼짐";
+  const labels = {
+    DISABLED: "승인 대기",
+    FLAT: "포지션 없음",
+    ENTRY_INTENT_RECORDED: "진입 주문 준비",
+    ENTRY_SUBMITTED: "진입 체결 확인 중",
+    ENTRY_NOT_FILLED: "진입 미체결",
+    OPEN: "포지션 보유",
+    EXIT_INTENT_RECORDED: "종료 주문 준비",
+    EXIT_SUBMITTED: "종료 체결 확인 중",
+    EXIT_NOT_FILLED: "종료 미체결",
+    HALTED: "자동 진입 중단",
+  };
+  return labels[status] || "첫 상태 확인 전";
+}
+
+function formatTrendLiveEntryStatus(live) {
+  if (!live?.enabled) return "신규 진입 꺼짐";
+  if (live?.state?.status === "HALTED") return "신규 진입 차단";
+  if (!live?.risk) return "계좌 기준 확인 전";
+  return live.risk.allowsNewEntry ? "계좌 기준 통과" : "신규 진입 차단";
+}
+
+function trendLiveTone(live) {
+  if (!live?.enabled || !live?.state) return "neutral";
+  if (live.state.status === "HALTED") return "danger";
+  if (!live?.risk) return "warning";
+  if (live.risk.allowsNewEntry) return "success";
+  const hasCriticalReason = live.risk.reasonCodes?.some((code) => {
+    const normalized = String(code);
+    return normalized.includes("DRAWDOWN") || normalized.includes("MISMATCH") || normalized.endsWith("AVAILABLE");
+  });
+  return hasCriticalReason ? "danger" : "warning";
+}
+
+function trendLiveGuidance(live) {
+  if (!live?.enabled) return "승인된 실행 설정으로 시작하기 전에는 실제 주문을 제출하지 않아요.";
+  if (live?.state?.status === "HALTED") {
+    return formatTrendLiveEventReason(live.state.haltedReasonCode);
+  }
+  const primaryReason = live?.risk?.reasonCodes?.[0];
+  if (primaryReason) return riskReasonGuidance(primaryReason);
+  if (!live?.risk) return "계좌 동기화와 잔고 기록 대사가 끝날 때까지 신규 진입을 허용하지 않아요.";
+  return "계좌 낙폭과 잔고 기록 기준을 통과했어요. 전략 승인과 봇 상태는 별도로 확인해 주세요.";
+}
+
+function formatTrendLivePosition(state) {
+  if (!state?.observedPositionSide || !state?.observedPositionQuantity) return "없음";
+  return `${formatSide(state.observedPositionSide)} ${formatNumber(state.observedPositionQuantity)} BTC`;
+}
+
+function formatTrendLiveWalletReconciliation(wallet) {
+  if (!wallet) return "확인 전";
+  const labels = {
+    MATCHED: "잔고와 기록 일치",
+    BASELINE: "기준점 수집 중",
+    MISMATCH: "차이 확인 필요",
+    SYNC_ERROR: "거래 내역 확인 실패",
+    DATA_UNAVAILABLE: "잔고 확인 불가",
+  };
+  const label = labels[wallet.status] || "확인 전";
+  if (wallet.status !== "MISMATCH") return label;
+  return `${label} · ${formatCount(wallet.consecutiveMismatches)}회`;
+}
+
+function formatPerformanceWindow(window) {
+  const labels = {
+    SESSION: "현재 실행 세션",
+    SEVEN_DAYS: "최근 7일",
+    THIRTY_DAYS: "최근 30일",
+    ALL: "전체 기록",
+  };
+  return labels[window] || window || "확인 필요";
+}
+
+function formatTrendLiveEventType(type) {
+  const labels = {
+    INITIALIZED: "실행 상태 시작",
+    ENTRY_INTENT_RECORDED: "진입 의도 기록",
+    ENTRY_SUBMITTED: "진입 주문 제출",
+    ENTRY_FILL_OBSERVED: "진입 체결 확인",
+    ENTRY_NOT_FILLED: "진입 미체결",
+    EXIT_INTENT_RECORDED: "종료 의도 기록",
+    EXIT_SUBMITTED: "종료 주문 제출",
+    EXIT_FILL_OBSERVED: "종료 체결 확인",
+    EXIT_NOT_FILLED: "종료 미체결",
+    RECONCILED: "거래소 상태 대사",
+    HALTED: "자동 진입 중단",
+    RESUMED: "실행 상태 복구",
+  };
+  return labels[type] || "상태 확인";
+}
+
+function formatTrendLiveEventReason(reasonCode) {
+  if (!reasonCode) return "사유 확인 필요";
+  const primaryCode = String(reasonCode).split("|")[0];
+  const labels = {
+    TREND_LIVE_INITIALIZED: "거래소 상태를 기준으로 실행 상태를 시작했어요.",
+    TREND_LIVE_NOT_APPROVED: "사전 검증과 사람 승인이 끝나지 않았어요.",
+    TREND_EXCHANGE_CONTRACT_MISMATCH: "거래소 설정이 고정된 실행 계약과 달라요.",
+    TREND_MULTIPLE_POSITIONS_OBSERVED: "동시에 여러 포지션이 확인됐어요.",
+    TREND_UNOWNED_POSITION_OBSERVED: "이 전략이 만들지 않은 포지션이 확인됐어요.",
+    TREND_FLAT_STATE_POSITION_MISMATCH: "내부에는 포지션이 없지만 거래소에는 포지션이 있어요.",
+    TREND_OPEN_STATE_POSITION_MISMATCH: "내부 포지션과 거래소 포지션이 달라요.",
+    TREND_ACCOUNT_EQUITY_UNAVAILABLE: "계좌 총자산을 확인하지 못했어요.",
+    TREND_HALTED_STATE_RECONCILED: "거래소 상태를 다시 확인했지만 자동 재개하지 않았어요.",
+    TREND_ENTRY_RISK_BLOCKED: "계좌 보호 기준 때문에 신규 진입을 막았어요.",
+    TREND_ORDER_SUBMITTED: "거래소에 주문을 제출했어요.",
+    TREND_ORDER_ACK_RECOVERED: "재시작 후 거래소 주문 접수를 복원했어요.",
+    TREND_ENTRY_FILL_RECOVERED: "재시작 후 진입 체결을 복원했어요.",
+    TREND_ENTRY_FILL_RECONCILED: "거래소에서 진입 체결과 포지션을 확인했어요.",
+    TREND_EXIT_FILL_RECOVERED: "재시작 후 종료 체결을 복원했어요.",
+    TREND_ENTRY_EXECUTION_WITHOUT_POSITION: "진입 체결은 있지만 거래소 포지션이 없어요.",
+    TREND_ENTRY_FILLED_WRONG_SIDE: "진입 체결 방향과 거래소 포지션 방향이 달라요.",
+    TREND_ENTRY_FILL_WITHOUT_POSITION: "진입 체결 뒤 거래소 포지션을 확인하지 못했어요.",
+    TREND_ENTRY_PARTIAL_FILL_WITHOUT_POSITION: "부분 체결 뒤 거래소 포지션을 확인하지 못했어요.",
+    TREND_ENTRY_POSITION_WITHOUT_ORDER_EVIDENCE: "포지션은 있지만 이 전략의 주문 근거가 없어요.",
+    TREND_EXIT_EXECUTION_POSITION_REMAINS: "종료 체결 뒤에도 거래소 포지션이 남아 있어요.",
+    TREND_EXIT_FILL_POSITION_REMAINS: "종료 주문 체결 뒤에도 거래소 포지션이 남아 있어요.",
+    TREND_EXIT_FLAT_WITHOUT_ORDER_EVIDENCE: "포지션은 종료됐지만 이 전략의 주문 근거가 없어요.",
+    TREND_ENTRY_IOC_REMAINS_ACTIVE: "즉시 체결 주문이 예상보다 오래 남아 있어요.",
+    TREND_EXIT_IOC_REMAINS_ACTIVE: "종료 주문이 예상보다 오래 남아 있어요.",
+    TREND_ENTRY_ORDER_STATE_UNKNOWN: "진입 주문 상태를 거래소에서 확인하지 못했어요.",
+    TREND_ENTRY_ORDER_STATUS_UNKNOWN: "거래소가 알 수 없는 진입 주문 상태를 반환했어요.",
+    TREND_EXIT_ORDER_STATE_UNKNOWN: "종료 주문 상태를 거래소에서 확인하지 못했어요.",
+    TREND_EXIT_ORDER_STATUS_UNKNOWN: "거래소가 알 수 없는 종료 주문 상태를 반환했어요.",
+    TARGET_SIDE_ALREADY_OPEN: "같은 방향의 포지션을 이미 보유하고 있어요.",
+    OPPOSITE_POSITION_REQUIRES_CONFIRMED_EXIT: "반대 방향 진입 전에 기존 포지션 종료 확인이 필요해요.",
+    MINIMUM_QUANTITY_EXCEEDS_EXPOSURE_LIMIT: "최소 주문 수량이 허용 노출을 넘어서 주문하지 않았어요.",
+    TARGET_POSITION_ENTRY_READY: "목표 포지션 진입 조건을 확인했어요.",
+    MINIMUM_NOTIONAL_NOT_MET: "최소 주문 금액을 충족하지 못해 주문하지 않았어요.",
+  };
+  if (labels[primaryCode]) return labels[primaryCode];
+  if (primaryCode.startsWith("TREND_ORDER_REJECTED")) return "거래소가 주문을 거절했어요.";
+  if (primaryCode.startsWith("TREND_IOC_NOT_FILLED")) return "허용 가격 안에서 체결되지 않아 주문이 종료됐어요.";
+  if (primaryCode.includes("TIMEOUT")) return "정해진 시간 안에 주문 상태를 확인하지 못했어요.";
+  return "상태 전환의 세부 사유는 서버 로그에서 확인해 주세요.";
+}
+
+function formatAccountTransactionType(type, subtype) {
+  const labels = {
+    TRADE: "거래",
+    SETTLEMENT: "정산",
+    FUNDING: "펀딩",
+    TRANSFER: "이체",
+    DEPOSIT: "입금",
+    WITHDRAW: "출금",
+    CASHBACK: "환급",
+  };
+  const normalizedType = String(type || "").toUpperCase();
+  const label = labels[normalizedType] || type || "계좌 변동";
+  return subtype ? `${label} · ${subtype}` : label;
 }
 
 function formatTrendApprovalStatus(status) {
@@ -2204,6 +2650,11 @@ function formatExitReason(value) {
     STOP_LOSS: "손절",
     MANUAL_CLOSE: "수동 청산",
     SIGNAL_EXIT: "전략 종료",
+    STRATEGY_EXIT: "전략 종료",
+    TIME_EXIT: "보유 시간 종료",
+    RISK_EXIT: "위험 기준 종료",
+    LIQUIDATION: "강제청산",
+    ADL: "자동 디레버리징",
   };
   return labels[value] || value;
 }

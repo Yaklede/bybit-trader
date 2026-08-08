@@ -61,6 +61,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorStat
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveAccountingObservation
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvidenceService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
@@ -964,11 +965,26 @@ class SqlDelightLedgerTest :
             }
             ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT")?.status shouldBe
                 ExecutionWalletReconciliationStatus.BASELINE
-            ledger.latestLivePerformanceSummary(ExecutionRuntimeMode.LIVE, LivePerformanceWindow.ALL)?.apply {
-                tradeCount shouldBe 1
-                netPnl shouldBe BigDecimal("7")
-                fees shouldBe BigDecimal("0.5")
+            val evidence =
+                VolumeConfirmedTrendLiveEvidenceService(
+                    store = ledger,
+                    runtimeMode = ExecutionRuntimeMode.LIVE,
+                    sessionStartedAt = capturedAt.minusSeconds(60),
+                ).read(capturedAt, 10)
+            evidence.performance.single { it.snapshot.window == LivePerformanceWindow.ALL }.apply {
+                snapshot.tradeCount shouldBe 1
+                snapshot.netPnl shouldBe BigDecimal("7")
+                snapshot.fees shouldBe BigDecimal("0.5")
+                btcFundingPnl shouldBe BigDecimal("-0.01")
             }
+            evidence.recentClosures.single().clientOrderId shouldBe "vct-exit-accounting-001"
+            evidence.recentExecutionFills
+                .single()
+                .fill.executionId shouldBe "trend-accounting-exec-001"
+            evidence.recentAccountTransactions
+                .single()
+                .transaction.transactionId shouldBe "trend-funding-001"
+            ledger.latestLivePerformanceSummary(ExecutionRuntimeMode.LIVE, LivePerformanceWindow.ALL) shouldBe null
 
             sink.reserveAccountingRequest(capturedAt.plusSeconds(30)) shouldBe null
             sink.reserveAccountingRequest(capturedAt.plusSeconds(60))?.apply {
@@ -1432,6 +1448,7 @@ private fun sampleTrendLiveState(): VolumeConfirmedTrendLiveState =
                 cumulativeExternalCashFlow = BigDecimal("20"),
                 lastAccountTransactionId = 9,
             ),
+        riskReasonCodes = listOf("ACCOUNT_LEDGER_MISMATCH_PENDING"),
         updatedAt = Instant.parse("2026-08-07T00:00:02Z"),
     )
 

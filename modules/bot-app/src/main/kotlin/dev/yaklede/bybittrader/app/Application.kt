@@ -61,6 +61,7 @@ import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLivePro
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvidenceService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoop
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
@@ -536,6 +537,23 @@ fun main() {
                 },
             ).start(trendShadowScope)
         }
+    val trendLiveSessionStartedAt = Instant.now()
+    val trendLiveRiskPolicy =
+        VolumeConfirmedTrendLiveRiskPolicy(
+            maximumAccountDrawdownFraction =
+                BigDecimal
+                    .valueOf(trendApprovalDefinition.forwardPolicy.maximumDrawdownPct)
+                    .movePointLeft(2),
+        )
+    val trendLiveEvidenceService =
+        trendRuntimeDefinition?.let { runtimeDefinition ->
+            VolumeConfirmedTrendLiveEvidenceService(
+                store = ledger,
+                runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
+                sessionStartedAt = trendLiveSessionStartedAt,
+                tradingSymbol = runtimeDefinition.protocol.symbol,
+            )
+        }
     val trendLiveService =
         trendLiveRuntimeApproval?.let { approval ->
             val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
@@ -548,13 +566,7 @@ fun main() {
                         candidateId = runtimeDefinition.protocol.candidateId,
                         protocolSha256 = runtimeDefinition.protocol.protocolSha256,
                         symbol = runtimeDefinition.protocol.symbol,
-                        riskPolicy =
-                            VolumeConfirmedTrendLiveRiskPolicy(
-                                maximumAccountDrawdownFraction =
-                                    BigDecimal
-                                        .valueOf(trendApprovalDefinition.forwardPolicy.maximumDrawdownPct)
-                                        .movePointLeft(2),
-                            ),
+                        riskPolicy = trendLiveRiskPolicy,
                     ),
                 approvalReceipt = approval.receipt,
                 approvalReportProvider = trendApprovalService::evaluate,
@@ -565,6 +577,7 @@ fun main() {
                     LedgerVolumeConfirmedTrendLiveProjectionSink(
                         store = ledger,
                         runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
+                        sessionStartedAt = trendLiveSessionStartedAt,
                     ),
             )
         }
@@ -828,7 +841,7 @@ fun main() {
                 volumeConfirmedTrendLiveSnapshotProvider =
                     trendRuntimeDefinition?.let { runtimeDefinition ->
                         { limit ->
-                            val executionRuntimeMode = config.runtimeMode.toExecutionRuntimeMode()
+                            val evidence = requireNotNull(trendLiveEvidenceService).read(Instant.now(), limit)
                             VolumeConfirmedTrendLiveSnapshot(
                                 enabled = config.volumeConfirmedTrendLive.enabled,
                                 state =
@@ -842,20 +855,14 @@ fun main() {
                                         runtimeDefinition.protocol.symbol,
                                         limit,
                                     ),
-                                accountSnapshot =
-                                    ledger.latestAccountSnapshot(
-                                        executionRuntimeMode,
-                                        Instant.now(),
-                                    ),
-                                recentExecutionFills =
-                                    ledger
-                                        .executionFills(
-                                            executionRuntimeMode,
-                                            runtimeDefinition.protocol.symbol,
-                                            null,
-                                            1_000,
-                                        ).filter { event -> event.fill.clientOrderId?.startsWith("vct-") == true }
-                                        .take(limit),
+                                accountSnapshot = evidence.accountSnapshot,
+                                recentExecutionFills = evidence.recentExecutionFills,
+                                maximumAccountDrawdownFraction =
+                                    trendLiveRiskPolicy.maximumAccountDrawdownFraction,
+                                walletReconciliation = evidence.walletReconciliation,
+                                performance = evidence.performance,
+                                recentClosures = evidence.recentClosures,
+                                recentAccountTransactions = evidence.recentAccountTransactions,
                             )
                         }
                     },

@@ -12,11 +12,8 @@ import dev.yaklede.bybittrader.engine.execution.ExecutionRiskCircuitBreaker
 import dev.yaklede.bybittrader.engine.execution.ExecutionRiskState
 import dev.yaklede.bybittrader.engine.execution.ExecutionRuntimeMode
 import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciler
-import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.execution.resolveExitReason
-import dev.yaklede.bybittrader.engine.execution.startAt
 import dev.yaklede.bybittrader.engine.execution.toExecutionAccountSnapshot
-import dev.yaklede.bybittrader.engine.execution.toPerformanceSnapshot
 import dev.yaklede.bybittrader.engine.execution.toTradeClosure
 import org.slf4j.LoggerFactory
 import java.math.BigDecimal
@@ -110,7 +107,6 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
     private val logger = LoggerFactory.getLogger(javaClass)
     private var lastClosureSyncAttemptAt: Instant? = null
     private var lastTransactionSyncAttemptAt: Instant? = null
-    private var performanceInitialized = false
 
     init {
         require(tradingSymbol.value == "BTCUSDT") { "Trend live projection supports BTCUSDT only." }
@@ -146,9 +142,7 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
     }
 
     override suspend fun recordAccountBalance(balance: ExchangeAccountBalance) {
-        val snapshot = balance.toExecutionAccountSnapshot(runtimeMode)
-        store.recordAccountSnapshot(snapshot)
-        refreshPerformanceSnapshots(balance.capturedAt, force = false)
+        store.recordAccountSnapshot(balance.toExecutionAccountSnapshot(runtimeMode))
     }
 
     override suspend fun recordExecutionFills(
@@ -215,7 +209,6 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
                 }
             reconcileWallet(request.requestedAt, transactionSyncSucceeded = true)
         }
-        if (newClosureCount > 0) refreshPerformanceSnapshots(request.requestedAt, force = true)
         logger.info(
             "trend live accounting persisted mode={} symbol={} executions={} newClosures={} newTransactions={} transactionsSynced={}",
             runtimeMode.name,
@@ -314,32 +307,6 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
                 reconciledAt = reconciledAt,
             ),
         )
-    }
-
-    private suspend fun refreshPerformanceSnapshots(
-        capturedAt: Instant,
-        force: Boolean,
-    ) {
-        if (performanceInitialized && !force) return
-        LivePerformanceWindow.values().forEach { window ->
-            val startAt = window.startAt(capturedAt, sessionStartedAt)
-            val closures =
-                store
-                    .performanceClosures(runtimeMode, startAt)
-                    .filter(::isOwnedClosure)
-            val accountSnapshots = store.accountSnapshots(runtimeMode, startAt)
-            val accountBaseline = startAt?.let { store.latestAccountSnapshot(runtimeMode, it) }
-            store.recordLivePerformanceSnapshot(
-                closures.toPerformanceSnapshot(
-                    mode = runtimeMode,
-                    window = window,
-                    capturedAt = capturedAt,
-                    accountSnapshots = accountSnapshots,
-                    accountBaseline = accountBaseline,
-                ),
-            )
-        }
-        performanceInitialized = true
     }
 
     private fun ExchangeClosedPnl.ownedBy(executions: List<ExchangeExecutionFill>): ExchangeClosedPnl? {

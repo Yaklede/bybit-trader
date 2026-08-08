@@ -15,7 +15,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -36,6 +38,7 @@ internal fun VolumeConfirmedTrendLiveState.toTrendLiveStatePayload(): String =
         putNullableString("lastExecutionId", lastExecutionId)
         putNullableString("haltedReasonCode", haltedReasonCode)
         put("riskState", riskState?.toTrendLiveRiskPayload() ?: JsonNull)
+        put("riskReasonCodes", kotlinx.serialization.json.JsonArray(riskReasonCodes.map(::JsonPrimitive)))
     }.toString()
 
 internal fun VolumeConfirmedTrendLiveStates.toTrendLiveState(): VolumeConfirmedTrendLiveState {
@@ -61,6 +64,12 @@ internal fun VolumeConfirmedTrendLiveStates.toTrendLiveState(): VolumeConfirmedT
         haltedReasonCode = payload.nullableString("haltedReasonCode"),
         updatedAt = Instant.parse(updated_at),
         riskState = if (schemaVersion >= 2) payload.nullableObject("riskState")?.toTrendLiveRiskState() else null,
+        riskReasonCodes =
+            if (schemaVersion >= 3) {
+                payload["riskReasonCodes"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
+            } else {
+                emptyList()
+            },
     )
 }
 
@@ -176,5 +185,5 @@ private fun JsonObjectBuilder.putNullableLong(
     if (value == null) put(key, JsonNull) else put(key, value)
 }
 
-private const val TREND_LIVE_STATE_SCHEMA_VERSION = 2
+private const val TREND_LIVE_STATE_SCHEMA_VERSION = 3
 private const val TREND_LIVE_EVENT_SCHEMA_VERSION = 1

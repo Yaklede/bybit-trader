@@ -1,10 +1,14 @@
 package dev.yaklede.bybittrader.api.strategy
 
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
+import dev.yaklede.bybittrader.engine.execution.ExecutionAccountTransactionEvent
 import dev.yaklede.bybittrader.engine.execution.ExecutionFillEvent
+import dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure
+import dev.yaklede.bybittrader.engine.execution.ExecutionWalletReconciliationState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLivePerformanceEvidence
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowReport
@@ -16,6 +20,8 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 typealias VolumeConfirmedTrendShadowReportProvider = suspend (Int) -> VolumeConfirmedTrendShadowReport
 typealias VolumeConfirmedTrendApprovalReportProvider = suspend () -> VolumeConfirmedTrendApprovalReport
@@ -28,6 +34,11 @@ data class VolumeConfirmedTrendLiveSnapshot(
     val recentEvents: List<VolumeConfirmedTrendLiveEvent>,
     val accountSnapshot: ExecutionAccountSnapshot? = null,
     val recentExecutionFills: List<ExecutionFillEvent> = emptyList(),
+    val maximumAccountDrawdownFraction: BigDecimal? = null,
+    val walletReconciliation: ExecutionWalletReconciliationState? = null,
+    val performance: List<VolumeConfirmedTrendLivePerformanceEvidence> = emptyList(),
+    val recentClosures: List<ExecutionTradeClosure> = emptyList(),
+    val recentAccountTransactions: List<ExecutionAccountTransactionEvent> = emptyList(),
 )
 
 fun Route.configureVolumeConfirmedTrendShadowRoutes(
@@ -75,7 +86,12 @@ data class VolumeConfirmedTrendLiveResponse(
     val state: VolumeConfirmedTrendLiveStateResponse?,
     val recentEvents: List<VolumeConfirmedTrendLiveEventResponse>,
     val account: VolumeConfirmedTrendLiveAccountResponse?,
+    val risk: VolumeConfirmedTrendLiveRiskResponse?,
+    val walletReconciliation: VolumeConfirmedTrendLiveWalletReconciliationResponse?,
+    val performance: List<VolumeConfirmedTrendLivePerformanceResponse>,
+    val recentClosedTrades: List<VolumeConfirmedTrendLiveClosedTradeResponse>,
     val recentExecutionFills: List<VolumeConfirmedTrendLiveFillResponse>,
+    val recentAccountTransactions: List<VolumeConfirmedTrendLiveAccountTransactionResponse>,
 ) {
     companion object {
         fun disabled(): VolumeConfirmedTrendLiveResponse =
@@ -84,10 +100,103 @@ data class VolumeConfirmedTrendLiveResponse(
                 state = null,
                 recentEvents = emptyList(),
                 account = null,
+                risk = null,
+                walletReconciliation = null,
+                performance = emptyList(),
+                recentClosedTrades = emptyList(),
                 recentExecutionFills = emptyList(),
+                recentAccountTransactions = emptyList(),
             )
     }
 }
+
+@Serializable
+data class VolumeConfirmedTrendLiveRiskResponse(
+    val allowsNewEntry: Boolean,
+    val reasonCodes: List<String>,
+    val mode: String,
+    val navStatus: String,
+    val latestEquity: String,
+    val peakEquity: String,
+    val latestUnitizedNav: String,
+    val peakUnitizedNav: String,
+    val currentAccountDrawdownFraction: String,
+    val maximumAccountDrawdownFraction: String?,
+    val cumulativeExternalCashFlow: String,
+    val updatedAt: String,
+)
+
+@Serializable
+data class VolumeConfirmedTrendLiveWalletReconciliationResponse(
+    val status: String,
+    val currency: String,
+    val baselineWalletBalance: String?,
+    val currentWalletBalance: String?,
+    val observedWalletChange: String?,
+    val ledgerChange: String?,
+    val difference: String?,
+    val tolerance: String,
+    val consecutiveMismatches: Int,
+    val lastMatchedAt: String?,
+    val reconciledAt: String,
+)
+
+@Serializable
+data class VolumeConfirmedTrendLivePerformanceResponse(
+    val window: String,
+    val tradeCount: Int,
+    val winRatePct: String,
+    val grossProfit: String,
+    val grossLoss: String,
+    val fees: String,
+    val netPnl: String,
+    val profitFactor: String?,
+    val expectancy: String?,
+    val maxClosedTradeDrawdownPct: String,
+    val accountEquity: String?,
+    val accountPeakEquity: String?,
+    val maxAccountDrawdownPct: String?,
+    val btcFundingPnl: String,
+    val strategyTransactionFees: String,
+    val lastClosedAt: String?,
+    val capturedAt: String,
+)
+
+@Serializable
+data class VolumeConfirmedTrendLiveClosedTradeResponse(
+    val id: Long,
+    val symbol: String,
+    val side: String,
+    val openedAt: String,
+    val closedAt: String,
+    val entryPrice: String,
+    val exitPrice: String,
+    val quantity: String,
+    val grossPnl: String,
+    val fees: String,
+    val netPnl: String,
+    val exitReason: String,
+    val exchangeOrderId: String?,
+    val clientOrderId: String?,
+)
+
+@Serializable
+data class VolumeConfirmedTrendLiveAccountTransactionResponse(
+    val id: Long,
+    val transactionId: String,
+    val symbol: String?,
+    val side: String?,
+    val transactionAt: String,
+    val type: String,
+    val subtype: String?,
+    val currency: String,
+    val funding: String,
+    val fee: String,
+    val cashFlow: String,
+    val change: String,
+    val cashBalance: String?,
+    val clientOrderId: String?,
+)
 
 @Serializable
 data class VolumeConfirmedTrendLiveAccountResponse(
@@ -329,7 +438,116 @@ private fun VolumeConfirmedTrendLiveSnapshot.toResponse(): VolumeConfirmedTrendL
         state = state?.toResponse(),
         recentEvents = recentEvents.map(VolumeConfirmedTrendLiveEvent::toResponse),
         account = accountSnapshot?.toTrendLiveResponse(),
+        risk = state?.toRiskResponse(maximumAccountDrawdownFraction),
+        walletReconciliation = walletReconciliation?.toTrendLiveResponse(),
+        performance = performance.map(VolumeConfirmedTrendLivePerformanceEvidence::toResponse),
+        recentClosedTrades = recentClosures.map(ExecutionTradeClosure::toTrendLiveResponse),
         recentExecutionFills = recentExecutionFills.map(ExecutionFillEvent::toTrendLiveResponse),
+        recentAccountTransactions =
+            recentAccountTransactions.map(ExecutionAccountTransactionEvent::toTrendLiveResponse),
+    )
+
+private fun VolumeConfirmedTrendLiveState.toRiskResponse(
+    maximumAccountDrawdownFraction: BigDecimal?,
+): VolumeConfirmedTrendLiveRiskResponse? {
+    val risk = riskState ?: return null
+    val currentDrawdown =
+        if (risk.peakUnitizedNav > BigDecimal.ZERO) {
+            risk.peakUnitizedNav
+                .subtract(risk.latestUnitizedNav)
+                .max(BigDecimal.ZERO)
+                .divide(risk.peakUnitizedNav, 8, RoundingMode.HALF_UP)
+        } else {
+            BigDecimal.ZERO
+        }
+    return VolumeConfirmedTrendLiveRiskResponse(
+        allowsNewEntry =
+            status != dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus.HALTED &&
+                riskReasonCodes.isEmpty(),
+        reasonCodes = riskReasonCodes,
+        mode = risk.mode.name,
+        navStatus = risk.navStatus.name,
+        latestEquity = risk.latestEquity.toPlainString(),
+        peakEquity = risk.peakEquity.toPlainString(),
+        latestUnitizedNav = risk.latestUnitizedNav.toPlainString(),
+        peakUnitizedNav = risk.peakUnitizedNav.toPlainString(),
+        currentAccountDrawdownFraction = currentDrawdown.toPlainString(),
+        maximumAccountDrawdownFraction = maximumAccountDrawdownFraction?.toPlainString(),
+        cumulativeExternalCashFlow = risk.cumulativeExternalCashFlow.toPlainString(),
+        updatedAt = risk.updatedAt.toString(),
+    )
+}
+
+private fun ExecutionWalletReconciliationState.toTrendLiveResponse(): VolumeConfirmedTrendLiveWalletReconciliationResponse =
+    VolumeConfirmedTrendLiveWalletReconciliationResponse(
+        status = status.name,
+        currency = currency,
+        baselineWalletBalance = baselineWalletBalance?.toPlainString(),
+        currentWalletBalance = currentWalletBalance?.toPlainString(),
+        observedWalletChange = observedWalletChange?.toPlainString(),
+        ledgerChange = ledgerChange?.toPlainString(),
+        difference = difference?.toPlainString(),
+        tolerance = tolerance.toPlainString(),
+        consecutiveMismatches = consecutiveMismatches,
+        lastMatchedAt = lastMatchedAt?.toString(),
+        reconciledAt = reconciledAt.toString(),
+    )
+
+private fun VolumeConfirmedTrendLivePerformanceEvidence.toResponse(): VolumeConfirmedTrendLivePerformanceResponse =
+    VolumeConfirmedTrendLivePerformanceResponse(
+        window = snapshot.window.name,
+        tradeCount = snapshot.tradeCount,
+        winRatePct = snapshot.winRatePct.toPlainString(),
+        grossProfit = snapshot.grossProfit.toPlainString(),
+        grossLoss = snapshot.grossLoss.toPlainString(),
+        fees = snapshot.fees.toPlainString(),
+        netPnl = snapshot.netPnl.toPlainString(),
+        profitFactor = snapshot.profitFactor?.toPlainString(),
+        expectancy = snapshot.expectancy?.toPlainString(),
+        maxClosedTradeDrawdownPct = snapshot.maxClosedTradeDrawdownPct.toPlainString(),
+        accountEquity = snapshot.accountEquity?.toPlainString(),
+        accountPeakEquity = snapshot.accountPeakEquity?.toPlainString(),
+        maxAccountDrawdownPct = snapshot.maxAccountDrawdownPct?.toPlainString(),
+        btcFundingPnl = btcFundingPnl.toPlainString(),
+        strategyTransactionFees = strategyTransactionFees.toPlainString(),
+        lastClosedAt = snapshot.lastClosedAt?.toString(),
+        capturedAt = snapshot.capturedAt.toString(),
+    )
+
+private fun ExecutionTradeClosure.toTrendLiveResponse(): VolumeConfirmedTrendLiveClosedTradeResponse =
+    VolumeConfirmedTrendLiveClosedTradeResponse(
+        id = id,
+        symbol = symbol.value,
+        side = side.name,
+        openedAt = openedAt.toString(),
+        closedAt = closedAt.toString(),
+        entryPrice = entryPrice.toPlainString(),
+        exitPrice = exitPrice.toPlainString(),
+        quantity = quantity.toPlainString(),
+        grossPnl = grossPnl.toPlainString(),
+        fees = fees.toPlainString(),
+        netPnl = netPnl.toPlainString(),
+        exitReason = exitReason,
+        exchangeOrderId = exchangeOrderId,
+        clientOrderId = clientOrderId,
+    )
+
+private fun ExecutionAccountTransactionEvent.toTrendLiveResponse(): VolumeConfirmedTrendLiveAccountTransactionResponse =
+    VolumeConfirmedTrendLiveAccountTransactionResponse(
+        id = id,
+        transactionId = transaction.transactionId,
+        symbol = transaction.symbol?.value,
+        side = transaction.side?.name,
+        transactionAt = transaction.transactionAt.toString(),
+        type = transaction.type,
+        subtype = transaction.subtype,
+        currency = transaction.currency,
+        funding = transaction.funding.toPlainString(),
+        fee = transaction.fee.toPlainString(),
+        cashFlow = transaction.cashFlow.toPlainString(),
+        change = transaction.change.toPlainString(),
+        cashBalance = transaction.cashBalance?.toPlainString(),
+        clientOrderId = transaction.clientOrderId,
     )
 
 private fun ExecutionAccountSnapshot.toTrendLiveResponse(): VolumeConfirmedTrendLiveAccountResponse =

@@ -37,6 +37,7 @@ data class VolumeConfirmedTrendLiveState(
     val haltedReasonCode: String?,
     val updatedAt: Instant,
     val riskState: ExecutionRiskState? = null,
+    val riskReasonCodes: List<String> = emptyList(),
 ) {
     init {
         require(protocolId.isNotBlank() && candidateId.isNotBlank()) {
@@ -60,6 +61,9 @@ data class VolumeConfirmedTrendLiveState(
         }
         require(haltedReasonCode == null || haltedReasonCode.isNotBlank()) {
             "Trend live halt reason must not be blank."
+        }
+        require(riskReasonCodes.all(String::isNotBlank) && riskReasonCodes.distinct().size == riskReasonCodes.size) {
+            "Trend live risk reason codes must be non-blank and unique."
         }
         require((observedPositionSide == null) == (observedPositionQuantity == null)) {
             "Trend live observed position side and quantity must be present together."

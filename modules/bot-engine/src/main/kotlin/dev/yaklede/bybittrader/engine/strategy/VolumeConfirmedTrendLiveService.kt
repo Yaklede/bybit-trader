@@ -226,6 +226,7 @@ class VolumeConfirmedTrendLiveService(
                     status = VolumeConfirmedTrendLiveStatus.FLAT,
                     approvalId = approvalReceipt.approvalId,
                     riskState = riskAssessment.state,
+                    riskReasonCodes = riskAssessment.reasonCodes,
                     updatedAt = now,
                 )
             store.commitTrendLive(
@@ -339,8 +340,19 @@ class VolumeConfirmedTrendLiveService(
         assessment: VolumeConfirmedTrendLiveRiskAssessment,
         now: Instant,
     ): VolumeConfirmedTrendLiveState? {
-        if (previous == null || previous.riskState == assessment.state) return previous
-        val updated = previous.copy(riskState = assessment.state, updatedAt = now)
+        if (
+            previous == null ||
+            previous.riskState == assessment.state &&
+            previous.riskReasonCodes == assessment.reasonCodes
+        ) {
+            return previous
+        }
+        val updated =
+            previous.copy(
+                riskState = assessment.state,
+                riskReasonCodes = assessment.reasonCodes,
+                updatedAt = now,
+            )
         store.commitTrendLive(updated, emptyList())
         return updated
     }
@@ -505,6 +517,7 @@ class VolumeConfirmedTrendLiveService(
                 observedPositionQuantity = null,
                 haltedReasonCode = null,
                 riskState = assessment.state,
+                riskReasonCodes = assessment.reasonCodes,
                 updatedAt = now,
             )
         val reasonCode = "TREND_ENTRY_RISK_BLOCKED|${assessment.reasonCodes.joinToString("|")}"

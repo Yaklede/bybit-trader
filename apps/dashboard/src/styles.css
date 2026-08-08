@@ -709,6 +709,10 @@ a:focus-visible {
   border-left-color: var(--warning);
 }
 
+.strategy-review.success .strategy-review-banner {
+  border-left-color: var(--success);
+}
+
 .strategy-review.danger .strategy-review-banner {
   border-left-color: var(--danger);
 }
@@ -720,6 +724,10 @@ a:focus-visible {
 
 .strategy-review.warning .strategy-review-banner > svg {
   color: var(--warning);
+}
+
+.strategy-review.success .strategy-review-banner > svg {
+  color: var(--success);
 }
 
 .strategy-review.danger .strategy-review-banner > svg {
@@ -828,6 +836,13 @@ a:focus-visible {
 .review-tables {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.trend-evidence-tables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
   align-items: start;
 }
@@ -1310,6 +1325,10 @@ tbody tr:last-child td {
   }
 
   .review-tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trend-evidence-tables {
     grid-template-columns: minmax(0, 1fr);
   }
 }
