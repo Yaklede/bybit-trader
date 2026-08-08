@@ -71,6 +71,37 @@ const makerShadowExitSlippageBps = Number(env.BOT_MAKER_SHADOW_TAKER_EXIT_SLIPPA
 const makerShadowMaxQuoteAgeMillis = Number(env.BOT_MAKER_SHADOW_MAX_QUOTE_AGE_MILLIS || "2000");
 const makerShadowMaxHoldingSeconds = Number(env.BOT_MAKER_SHADOW_MAX_HOLDING_SECONDS || "60");
 const makerShadowMaxEventDelayMillis = Number(env.BOT_MAKER_SHADOW_MAX_EVENT_DELAY_MILLIS || "1000");
+const trendShadowEnabled = parseBool(env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED);
+const trendProtocolPath =
+  env.BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH || "config/volume-confirmed-trend-ensemble-v1.json";
+const trendBootstrapPath =
+  env.BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH || "config/volume-confirmed-trend-ensemble-v1-bootstrap.json";
+const trendShadowInitialEquity = Number(env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_INITIAL_EQUITY || "660");
+const trendShadowMaximumDelaySeconds = Number(env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_DELAY_SECONDS || "1200");
+const trendShadowRecentSyncLimit = Number(env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_RECENT_SYNC_LIMIT || "1000");
+const trendShadowHistoryPageLimit = Number(env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_HISTORY_PAGE_LIMIT || "1000");
+const trendShadowMaximumHistoryRequests = Number(
+  env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_MAX_HISTORY_REQUESTS || "1000",
+);
+const trendShadowBoundaryDelaySeconds = Number(
+  env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_BOUNDARY_DELAY_SECONDS || "10",
+);
+const trendShadowRetrySeconds = Number(env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_RETRY_SECONDS || "60");
+const trendLiveEnabled = parseBool(env.BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED);
+const trendApprovalReceiptPath =
+  env.BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH || "config/volume-confirmed-trend-live-approval.json";
+const trendShadowEvidencePath =
+  env.BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH || "data/trend-approval/pending/shadow-evidence.json";
+const trendApprovalReportPath =
+  env.BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH || "data/trend-approval/pending/approval-report.json";
+const trendLiveReconciliationSeconds = Number(
+  env.BOT_VOLUME_CONFIRMED_TREND_LIVE_RECONCILIATION_SECONDS || "15",
+);
+const trendLiveMaximumSignalAgeSeconds = Number(
+  env.BOT_VOLUME_CONFIRMED_TREND_LIVE_MAX_SIGNAL_AGE_SECONDS || "1200",
+);
+const bybitPositionIdx = Number(env.BYBIT_POSITION_IDX || "0");
+const bybitAccountType = (env.BYBIT_ACCOUNT_TYPE || "UNIFIED").toUpperCase();
 const telegramEnabled = parseBool(env.TELEGRAM_ALERTS_ENABLED);
 const discordEnabled = parseBool(env.DISCORD_ALERTS_ENABLED);
 
@@ -133,90 +164,198 @@ if (makerShadowEnabled) {
   check("maker shadow event delay is positive", Number.isInteger(makerShadowMaxEventDelayMillis) && makerShadowMaxEventDelayMillis > 0, `eventDelayMillis=${makerShadowMaxEventDelayMillis}`);
 }
 
-if (mode === "PAPER") {
-  check("paper loop is enabled", paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=true for paper operation");
+check(
+  "trend live execution requires trend Shadow",
+  !trendLiveEnabled || trendShadowEnabled,
+  `trendLive=${trendLiveEnabled}, trendShadow=${trendShadowEnabled}`,
+);
+
+if (trendShadowEnabled || (mode === "TESTNET" && !privateExecutionEnabled && !trendLiveEnabled)) {
+  check("trend protocol file exists", fs.existsSync(trendProtocolPath), trendProtocolPath);
+}
+if (trendShadowEnabled) {
+  check("trend bootstrap file exists", fs.existsSync(trendBootstrapPath), trendBootstrapPath);
+  check("trend Shadow initial equity is positive", trendShadowInitialEquity > 0, `equity=${trendShadowInitialEquity}`);
+  check(
+    "trend Shadow maximum observation delay is positive",
+    Number.isInteger(trendShadowMaximumDelaySeconds) && trendShadowMaximumDelaySeconds > 0,
+    `seconds=${trendShadowMaximumDelaySeconds}`,
+  );
+  check(
+    "trend Shadow recent sync limit respects Bybit page limit",
+    Number.isInteger(trendShadowRecentSyncLimit) && trendShadowRecentSyncLimit >= 1 && trendShadowRecentSyncLimit <= 1000,
+    `limit=${trendShadowRecentSyncLimit}`,
+  );
+  check(
+    "trend Shadow history page limit respects Bybit page limit",
+    Number.isInteger(trendShadowHistoryPageLimit) &&
+      trendShadowHistoryPageLimit >= 1 &&
+      trendShadowHistoryPageLimit <= 1000,
+    `limit=${trendShadowHistoryPageLimit}`,
+  );
+  check(
+    "trend Shadow history request limit is positive",
+    Number.isInteger(trendShadowMaximumHistoryRequests) && trendShadowMaximumHistoryRequests > 0,
+    `requests=${trendShadowMaximumHistoryRequests}`,
+  );
+  check(
+    "trend Shadow boundary delay is non-negative",
+    Number.isInteger(trendShadowBoundaryDelaySeconds) && trendShadowBoundaryDelaySeconds >= 0,
+    `seconds=${trendShadowBoundaryDelaySeconds}`,
+  );
+  check(
+    "trend Shadow retry delay is positive",
+    Number.isInteger(trendShadowRetrySeconds) && trendShadowRetrySeconds > 0,
+    `seconds=${trendShadowRetrySeconds}`,
+  );
+  const mixedTrendSettings = [
+    ["BOT_PAPER_LOOP_ENABLED", paperLoopEnabled],
+    ["BOT_MAKER_SHADOW_ENABLED", makerShadowEnabled],
+    ["BOT_PRIVATE_EXECUTION_ENABLED", privateExecutionEnabled],
+    ["BOT_PRIVATE_EXECUTION_STREAM_ENABLED", privateExecutionStreamEnabled],
+    ["BOT_EXECUTION_LOOP_ENABLED", executionLoopEnabled],
+    ["BOT_EXECUTION_RECONCILIATION_ENABLED", executionReconciliationEnabled],
+  ].filter(([, enabled]) => enabled);
+  check(
+    "trend runtime is isolated from every other trading loop",
+    mixedTrendSettings.length === 0,
+    mixedTrendSettings.length === 0
+      ? "isolated"
+      : `disable ${mixedTrendSettings.map(([name]) => name).join(", ")}`,
+  );
+  check(
+    "Shadow-only trend runtime uses PAPER mode",
+    trendLiveEnabled || mode === "PAPER",
+    `mode=${mode}, trendLive=${trendLiveEnabled}`,
+  );
 }
 
-if (mode === "PAPER" && paperStrategy === "multi-horizon-momentum") {
+if (trendLiveEnabled) {
+  check(
+    "trend live runtime uses TESTNET or LIVE mode",
+    mode === "TESTNET" || mode === "LIVE",
+    `mode=${mode}`,
+  );
+  check("trend live position index is one-way", bybitPositionIdx === 0, `positionIdx=${bybitPositionIdx}`);
+  check("trend live account type is UNIFIED", bybitAccountType === "UNIFIED", `accountType=${bybitAccountType}`);
+  check(
+    "trend live reconciliation interval is valid",
+    Number.isInteger(trendLiveReconciliationSeconds) && trendLiveReconciliationSeconds >= 10,
+    `seconds=${trendLiveReconciliationSeconds}`,
+  );
+  check(
+    "trend live signal age is positive",
+    Number.isInteger(trendLiveMaximumSignalAgeSeconds) && trendLiveMaximumSignalAgeSeconds > 0,
+    `seconds=${trendLiveMaximumSignalAgeSeconds}`,
+  );
+  check("trend live approval receipt exists", fs.existsSync(trendApprovalReceiptPath), trendApprovalReceiptPath);
+  check("trend live frozen Shadow evidence exists", fs.existsSync(trendShadowEvidencePath), trendShadowEvidencePath);
+  check("trend live frozen approval report exists", fs.existsSync(trendApprovalReportPath), trendApprovalReportPath);
+}
+
+if (mode === "PAPER") {
+  if (trendShadowEnabled) {
+    check("legacy paper loop is disabled for trend Shadow", !paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=false");
+  } else {
+    check("paper loop is enabled", paperLoopEnabled, "set BOT_PAPER_LOOP_ENABLED=true for paper operation");
+  }
+}
+
+if (mode === "PAPER" && paperLoopEnabled && paperStrategy === "multi-horizon-momentum") {
   check("multi-horizon paper timeframe is M5", paperTimeframe === "M5", `timeframe=${paperTimeframe}`);
   check(
     "multi-horizon paper candle limit covers causal warmup",
     Number.isInteger(paperCandleLimit) && paperCandleLimit >= 8642,
     `candleLimit=${paperCandleLimit}`,
   );
-} else if (mode === "PAPER" && paperStrategy === "volume-flow-aggressive") {
+} else if (mode === "PAPER" && paperLoopEnabled && paperStrategy === "volume-flow-aggressive") {
   check("aggressive paper timeframe is M5", paperTimeframe === "M5", `timeframe=${paperTimeframe}`);
   check("aggressive paper candle limit covers 60d regime rules", Number.isInteger(paperCandleLimit) && paperCandleLimit >= 17281, `candleLimit=${paperCandleLimit}`);
   checkM5History(databasePath, paperCandleLimit);
-} else if (mode === "PAPER") {
+} else if (mode === "PAPER" && paperLoopEnabled) {
   check("mean-reversion paper candle limit is valid", Number.isInteger(paperCandleLimit) && paperCandleLimit >= 20, `candleLimit=${paperCandleLimit}`);
 }
 
 if (mode !== "PAPER") {
   check("BYBIT_API_KEY is set outside PAPER mode", isLongEnough(env.BYBIT_API_KEY, 8), "required for TESTNET/LIVE");
   check("BYBIT_API_SECRET is set outside PAPER mode", isLongEnough(env.BYBIT_API_SECRET, 16), "required for TESTNET/LIVE");
-  check("private execution is enabled outside PAPER mode", privateExecutionEnabled, "set BOT_PRIVATE_EXECUTION_ENABLED=true");
-  check(
-    "private execution stream has a valid WebSocket URL",
-    !privateExecutionStreamEnabled || /^wss?:\/\/.+/.test(bybitPrivateWebSocketUrl),
-    bybitPrivateWebSocketUrl,
-  );
-  check(
-    "private execution stream has reconciliation enabled",
-    !privateExecutionStreamEnabled || executionReconciliationEnabled,
-    "set BOT_EXECUTION_RECONCILIATION_ENABLED=true or disable the private stream",
-  );
-  check(
-    "rejected runtime profile has no automatic loop",
-    !executionLoopEnabled,
-    "keep BOT_EXECUTION_LOOP_ENABLED=false until a replacement profile passes the replay gate",
-  );
-  check(
-    "execution reconciliation is enabled",
-    executionReconciliationEnabled,
-    "set BOT_EXECUTION_RECONCILIATION_ENABLED=true to observe private orders and positions",
-  );
-  check(
-    "execution reconciliation interval is valid",
-    Number.isInteger(executionReconciliationIntervalSeconds) &&
-      executionReconciliationIntervalSeconds >= 10 &&
-      executionReconciliationIntervalSeconds <= 86400,
-    `intervalSeconds=${executionReconciliationIntervalSeconds}`,
-  );
-  check("execution timeframe is M5", executionTimeframe === "M5", `timeframe=${executionTimeframe}`);
-  check("execution sync limit respects Bybit page limit", Number.isInteger(executionSyncLimit) && executionSyncLimit >= 1 && executionSyncLimit <= 1000, `executionSyncLimit=${executionSyncLimit}`);
-  check("execution candle limit covers 60d regime rules", Number.isInteger(executionCandleLimit) && executionCandleLimit >= 17281, `candleLimit=${executionCandleLimit}`);
-  check("execution risk fraction is within configured risk band", executionRiskFraction > 0 && executionRiskFraction <= 0.2, `riskFraction=${executionRiskFraction}`);
-  check("live account equity is enabled for compounding", executionUseLiveEquity, "set BOT_EXECUTION_USE_LIVE_EQUITY=true");
-  check("execution quantity step is positive", executionQtyStep > 0, `qtyStep=${executionQtyStep}`);
-  check("execution min quantity is positive", executionMinQty > 0, `minQty=${executionMinQty}`);
-  check(
-    "execution max quantity is empty or above min quantity",
-    executionMaxQty === null || executionMaxQty >= executionMinQty,
-    `maxQty=${executionMaxQty ?? ""}, minQty=${executionMinQty}`,
-  );
-  check(
-    "execution max notional is empty or positive",
-    executionMaxNotional === null || executionMaxNotional > 0,
-    `maxNotional=${executionMaxNotional ?? ""}`,
-  );
-  check(
-    "execution leverage is empty or above 1",
-    executionLeverage === null || executionLeverage > 1,
-    `leverage=${executionLeverage ?? ""}`,
-  );
-  check(
-    "execution has a compounding notional limiter",
-    executionLeverage !== null || executionMaxNotional !== null,
-    "set BOT_EXECUTION_LEVERAGE for equity-based compounding or BOT_EXECUTION_MAX_NOTIONAL for a fixed cap",
-  );
   if (mode === "TESTNET") {
     check("TESTNET uses Bybit testnet private base URL", bybitPrivateBaseUrl.includes("api-testnet.bybit.com"), bybitPrivateBaseUrl);
   }
   if (mode === "LIVE") {
     check("LIVE does not use Bybit testnet private base URL", !bybitPrivateBaseUrl.includes("testnet"), bybitPrivateBaseUrl);
   }
-  checkM5History(databasePath, executionCandleLimit);
+
+  if (trendLiveEnabled) {
+    check(
+      "trend live keeps the legacy private execution adapter disabled",
+      !privateExecutionEnabled,
+      "set BOT_PRIVATE_EXECUTION_ENABLED=false",
+    );
+  } else if (mode === "TESTNET" && !privateExecutionEnabled) {
+    check(
+      "read-only TESTNET contract probe has no order-producing loop",
+      !privateExecutionStreamEnabled && !executionLoopEnabled && !executionReconciliationEnabled,
+      "disable private stream, automatic execution, and legacy reconciliation",
+    );
+  } else {
+    check("private execution is enabled outside PAPER mode", privateExecutionEnabled, "set BOT_PRIVATE_EXECUTION_ENABLED=true");
+    check(
+      "private execution stream has a valid WebSocket URL",
+      !privateExecutionStreamEnabled || /^wss?:\/\/.+/.test(bybitPrivateWebSocketUrl),
+      bybitPrivateWebSocketUrl,
+    );
+    check(
+      "private execution stream has reconciliation enabled",
+      !privateExecutionStreamEnabled || executionReconciliationEnabled,
+      "set BOT_EXECUTION_RECONCILIATION_ENABLED=true or disable the private stream",
+    );
+    check(
+      "rejected runtime profile has no automatic loop",
+      !executionLoopEnabled,
+      "keep BOT_EXECUTION_LOOP_ENABLED=false until a replacement profile passes the replay gate",
+    );
+    check(
+      "execution reconciliation is enabled",
+      executionReconciliationEnabled,
+      "set BOT_EXECUTION_RECONCILIATION_ENABLED=true to observe private orders and positions",
+    );
+    check(
+      "execution reconciliation interval is valid",
+      Number.isInteger(executionReconciliationIntervalSeconds) &&
+        executionReconciliationIntervalSeconds >= 10 &&
+        executionReconciliationIntervalSeconds <= 86400,
+      `intervalSeconds=${executionReconciliationIntervalSeconds}`,
+    );
+    check("execution timeframe is M5", executionTimeframe === "M5", `timeframe=${executionTimeframe}`);
+    check("execution sync limit respects Bybit page limit", Number.isInteger(executionSyncLimit) && executionSyncLimit >= 1 && executionSyncLimit <= 1000, `executionSyncLimit=${executionSyncLimit}`);
+    check("execution candle limit covers 60d regime rules", Number.isInteger(executionCandleLimit) && executionCandleLimit >= 17281, `candleLimit=${executionCandleLimit}`);
+    check("execution risk fraction is within configured risk band", executionRiskFraction > 0 && executionRiskFraction <= 0.2, `riskFraction=${executionRiskFraction}`);
+    check("live account equity is enabled for compounding", executionUseLiveEquity, "set BOT_EXECUTION_USE_LIVE_EQUITY=true");
+    check("execution quantity step is positive", executionQtyStep > 0, `qtyStep=${executionQtyStep}`);
+    check("execution min quantity is positive", executionMinQty > 0, `minQty=${executionMinQty}`);
+    check(
+      "execution max quantity is empty or above min quantity",
+      executionMaxQty === null || executionMaxQty >= executionMinQty,
+      `maxQty=${executionMaxQty ?? ""}, minQty=${executionMinQty}`,
+    );
+    check(
+      "execution max notional is empty or positive",
+      executionMaxNotional === null || executionMaxNotional > 0,
+      `maxNotional=${executionMaxNotional ?? ""}`,
+    );
+    check(
+      "execution leverage is empty or above 1",
+      executionLeverage === null || executionLeverage > 1,
+      `leverage=${executionLeverage ?? ""}`,
+    );
+    check(
+      "execution has a compounding notional limiter",
+      executionLeverage !== null || executionMaxNotional !== null,
+      "set BOT_EXECUTION_LEVERAGE for equity-based compounding or BOT_EXECUTION_MAX_NOTIONAL for a fixed cap",
+    );
+    checkM5History(databasePath, executionCandleLimit);
+  }
 }
 
 check("at least one alert sink is enabled", telegramEnabled || discordEnabled, "enable Telegram or Discord alerts");

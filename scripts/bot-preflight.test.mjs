@@ -41,6 +41,95 @@ test("maker shadow requires forward raw evidence and accepts conservative settin
   assert.match(enabled.stdout, /PASS maker shadow queue multiplier is conservative/);
 });
 
+test("frozen trend Shadow accepts an isolated PAPER runtime without the legacy paper loop", () => {
+  const run =
+    runPaperPreflight({
+      BOT_PAPER_LOOP_ENABLED: "false",
+      BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+      BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH: path.join(
+        repoRoot,
+        "config",
+        "volume-confirmed-trend-ensemble-v1.json",
+      ),
+      BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH: path.join(
+        repoRoot,
+        "config",
+        "volume-confirmed-trend-ensemble-v1-bootstrap.json",
+      ),
+    });
+
+  assert.equal(run.status, 0, runOutput(run));
+  assert.match(run.stdout, /PASS trend runtime is isolated from every other trading loop - isolated/);
+  assert.match(run.stdout, /PASS legacy paper loop is disabled for trend Shadow/);
+});
+
+test("frozen trend Shadow rejects any mixed private execution runtime", () => {
+  const run =
+    runPaperPreflight({
+      BOT_PAPER_LOOP_ENABLED: "false",
+      BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+      BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH: path.join(
+        repoRoot,
+        "config",
+        "volume-confirmed-trend-ensemble-v1.json",
+      ),
+      BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH: path.join(
+        repoRoot,
+        "config",
+        "volume-confirmed-trend-ensemble-v1-bootstrap.json",
+      ),
+      BOT_PRIVATE_EXECUTION_ENABLED: "true",
+    });
+
+  assert.equal(run.status, 1, runOutput(run));
+  assert.match(run.stdout, /FAIL trend runtime is isolated from every other trading loop/);
+  assert.match(run.stdout, /BOT_PRIVATE_EXECUTION_ENABLED/);
+});
+
+test("TESTNET supports a read-only frozen-contract probe with every order path disabled", () => {
+  const run = runTestnetPreflight();
+
+  assert.equal(run.status, 0, runOutput(run));
+  assert.match(run.stdout, /PASS read-only TESTNET contract probe has no order-producing loop/);
+  assert.match(run.stdout, /PASS TESTNET uses Bybit testnet private base URL/);
+});
+
+test("trend live preflight requires frozen evidence files and cannot promote pending paths", () => {
+  const run =
+    runTestnetPreflight({
+      BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+      BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "true",
+      BOT_VOLUME_CONFIRMED_TREND_BOOTSTRAP_PATH: path.join(
+        repoRoot,
+        "config",
+        "volume-confirmed-trend-ensemble-v1-bootstrap.json",
+      ),
+      BOT_VOLUME_CONFIRMED_TREND_LIVE_APPROVAL_PATH: path.join(
+        repoRoot,
+        "config",
+        "volume-confirmed-trend-live-approval.json",
+      ),
+      BOT_VOLUME_CONFIRMED_TREND_SHADOW_EVIDENCE_PATH: path.join(
+        repoRoot,
+        "data",
+        "trend-approval",
+        "pending",
+        "shadow-evidence.json",
+      ),
+      BOT_VOLUME_CONFIRMED_TREND_APPROVAL_REPORT_PATH: path.join(
+        repoRoot,
+        "data",
+        "trend-approval",
+        "pending",
+        "approval-report.json",
+      ),
+    });
+
+  assert.equal(run.status, 1, runOutput(run));
+  assert.match(run.stdout, /FAIL trend live frozen Shadow evidence exists/);
+  assert.match(run.stdout, /FAIL trend live frozen approval report exists/);
+});
+
 function runPaperPreflight(overrides = {}) {
   const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "bybit-paper-preflight-"));
   const env = {
@@ -52,6 +141,11 @@ function runPaperPreflight(overrides = {}) {
     BOT_PRIVATE_EXECUTION_STREAM_ENABLED: "false",
     BOT_EXECUTION_LOOP_ENABLED: "false",
     BOT_EXECUTION_RECONCILIATION_ENABLED: "false",
+    BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "false",
+    BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+    BOT_FORWARD_MARKET_CAPTURE_ENABLED: "false",
+    BOT_FORWARD_RAW_ARCHIVE_ENABLED: "false",
+    BOT_MAKER_SHADOW_ENABLED: "false",
     DISCORD_ALERTS_ENABLED: "true",
     DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/test/test",
     BOT_DATABASE_PATH: path.join(temporaryDirectory, "paper.sqlite"),
@@ -62,6 +156,50 @@ function runPaperPreflight(overrides = {}) {
   delete env.BOT_PAPER_STRATEGY;
   delete env.BOT_PAPER_CANDLE_LIMIT;
   if (!("BOT_PAPER_TIMEFRAME" in overrides)) delete env.BOT_PAPER_TIMEFRAME;
+
+  try {
+    return spawnSync(process.execPath, [scriptPath], {
+      cwd: repoRoot,
+      env,
+      encoding: "utf8",
+    });
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+function runTestnetPreflight(overrides = {}) {
+  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "bybit-testnet-preflight-"));
+  const env = {
+    ...process.env,
+    BOT_MODE: "TESTNET",
+    BOT_CONTROL_TOKEN: "0123456789abcdef",
+    BYBIT_API_KEY: "test-api-key",
+    BYBIT_API_SECRET: "0123456789abcdef",
+    BYBIT_PRIVATE_BASE_URL: "https://api-testnet.bybit.com",
+    BYBIT_PRIVATE_WEBSOCKET_URL: "wss://stream-testnet.bybit.com/v5/private",
+    BOT_PAPER_LOOP_ENABLED: "false",
+    BOT_PRIVATE_EXECUTION_ENABLED: "false",
+    BOT_PRIVATE_EXECUTION_STREAM_ENABLED: "false",
+    BOT_EXECUTION_LOOP_ENABLED: "false",
+    BOT_EXECUTION_RECONCILIATION_ENABLED: "false",
+    BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "false",
+    BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+    BOT_VOLUME_CONFIRMED_TREND_PROTOCOL_PATH: path.join(
+      repoRoot,
+      "config",
+      "volume-confirmed-trend-ensemble-v1.json",
+    ),
+    BOT_FORWARD_MARKET_CAPTURE_ENABLED: "false",
+    BOT_FORWARD_RAW_ARCHIVE_ENABLED: "false",
+    BOT_MAKER_SHADOW_ENABLED: "false",
+    DISCORD_ALERTS_ENABLED: "true",
+    DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/test/test",
+    BOT_DATABASE_PATH: path.join(temporaryDirectory, "testnet.sqlite"),
+    BOT_FORWARD_RAW_ARCHIVE_PATH: path.join(temporaryDirectory, "market-events"),
+    BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH: path.join(repoRoot, "config", "volume-flow-composite-current.json"),
+    ...overrides,
+  };
 
   try {
     return spawnSync(process.execPath, [scriptPath], {
