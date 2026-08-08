@@ -75,6 +75,20 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
             }
         }
 
+        "frozen evidence whose closed trade counter exceeds its events cannot be approved" {
+            withRuntimeApprovalFixture(closedTrades = EVIDENCE_CLOSED_TRADES + 1) { fixture ->
+                shouldThrow<IllegalArgumentException> { fixture.load() }.message shouldBe
+                    "Trend Shadow evidence counters do not match append-only events."
+            }
+        }
+
+        "frozen evidence whose transition counter exceeds its events cannot be approved" {
+            withRuntimeApprovalFixture(executedTransitions = EVIDENCE_EXECUTED_TRANSITIONS + 1) { fixture ->
+                shouldThrow<IllegalArgumentException> { fixture.load() }.message shouldBe
+                    "Trend Shadow evidence counters do not match append-only events."
+            }
+        }
+
         "current Shadow continuity and policy gates are checked before private access" {
             withRuntimeApprovalFixture { fixture ->
                 val approval = fixture.load()
@@ -263,6 +277,8 @@ private inline fun withRuntimeApprovalFixture(
     duplicateSessionStart: Boolean = false,
     duplicateEventId: Boolean = false,
     eventSessionId: String = SESSION_ID,
+    closedTrades: Int = EVIDENCE_CLOSED_TRADES,
+    executedTransitions: Int = EVIDENCE_EXECUTED_TRANSITIONS,
     block: (RuntimeApprovalFixture) -> Unit,
 ) {
     val directory = Files.createTempDirectory("trend-live-runtime-approval-")
@@ -276,6 +292,8 @@ private inline fun withRuntimeApprovalFixture(
                 duplicateSessionStart = duplicateSessionStart,
                 duplicateEventId = duplicateEventId,
                 eventSessionId = eventSessionId,
+                closedTrades = closedTrades,
+                executedTransitions = executedTransitions,
             ),
         )
         Files.writeString(reportPath, approvalReportJson(reportGateStatus, omitFrozenGates))
@@ -301,6 +319,8 @@ private fun shadowEvidenceJson(
     duplicateSessionStart: Boolean,
     duplicateEventId: Boolean,
     eventSessionId: String,
+    closedTrades: Int,
+    executedTransitions: Int,
 ): String {
     val events =
         buildList {
@@ -333,6 +353,28 @@ private fun shadowEvidenceJson(
                     observedAt = EVIDENCE_OBSERVED_AT,
                 ),
             )
+            repeat(EVIDENCE_EXECUTED_TRANSITIONS) { index ->
+                add(
+                    shadowEventJson(
+                        eventId = "event-open-$index",
+                        sessionId = eventSessionId,
+                        type = "POSITION_OPENED",
+                        eventAt = EVIDENCE_OBSERVED_AT,
+                        observedAt = EVIDENCE_OBSERVED_AT,
+                    ),
+                )
+            }
+            repeat(EVIDENCE_CLOSED_TRADES) { index ->
+                add(
+                    shadowEventJson(
+                        eventId = "event-close-$index",
+                        sessionId = eventSessionId,
+                        type = "POSITION_CLOSED",
+                        eventAt = EVIDENCE_OBSERVED_AT,
+                        observedAt = EVIDENCE_OBSERVED_AT,
+                    ),
+                )
+            }
         }.joinToString(prefix = "[", postfix = "]", separator = ",")
     return """
         {
@@ -349,7 +391,9 @@ private fun shadowEvidenceJson(
             "status": "OBSERVING",
             "sessionStartedAt": "$SESSION_STARTED_AT",
             "lastObservedAt": "$EVIDENCE_OBSERVED_AT",
-            "updatedAt": "$EVIDENCE_OBSERVED_AT"
+            "updatedAt": "$EVIDENCE_OBSERVED_AT",
+            "closedTrades": $closedTrades,
+            "executedTransitions": $executedTransitions
           },
           "events": $events
         }
@@ -513,5 +557,7 @@ private const val SESSION_STARTED_AT = "2026-08-01T00:00:00Z"
 private const val EVIDENCE_OBSERVED_AT = "2026-11-06T20:00:00Z"
 private const val REPORT_AT = "2026-11-07T00:00:00Z"
 private const val APPROVED_AT = "2026-11-07T01:00:00Z"
+private const val EVIDENCE_CLOSED_TRADES = 5
+private const val EVIDENCE_EXECUTED_TRANSITIONS = 6
 private val PROTOCOL_SHA = "a".repeat(64)
 private val POLICY_SHA = "b".repeat(64)

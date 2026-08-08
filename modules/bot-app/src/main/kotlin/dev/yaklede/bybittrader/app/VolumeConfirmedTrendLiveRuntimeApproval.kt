@@ -159,6 +159,8 @@ private data class FrozenShadowState(
     val sessionStartedAt: Instant,
     val lastObservedAt: Instant,
     val updatedAt: Instant,
+    val closedTrades: Int,
+    val executedTransitions: Int,
 )
 
 private fun validateExpectedIdentity(
@@ -208,7 +210,12 @@ private fun validateShadowEvidence(
             sessionStartedAt = Instant.parse(state.requiredRuntimeApprovalString("sessionStartedAt")),
             lastObservedAt = Instant.parse(state.requiredRuntimeApprovalString("lastObservedAt")),
             updatedAt = Instant.parse(state.requiredRuntimeApprovalString("updatedAt")),
+            closedTrades = state.requiredRuntimeApprovalInt("closedTrades"),
+            executedTransitions = state.requiredRuntimeApprovalInt("executedTransitions"),
         )
+    require(frozenState.closedTrades >= 0 && frozenState.executedTransitions >= 0) {
+        "Trend Shadow evidence counters must be non-negative."
+    }
     require(!frozenState.lastObservedAt.isBefore(frozenState.sessionStartedAt)) {
         "Trend Shadow evidence observation predates its session."
     }
@@ -254,6 +261,22 @@ private fun validateShadowEvidence(
     }
     require(events.none { event -> event.requiredRuntimeApprovalString("type") == "SESSION_INVALIDATED" }) {
         "Trend Shadow evidence does not prove one continuous session."
+    }
+    val closedTradeEvents =
+        events.count { event ->
+            event.requiredRuntimeApprovalString("type") == VolumeConfirmedTrendShadowEventType.POSITION_CLOSED.name
+        }
+    val transitionEvents =
+        events.count { event ->
+            event.requiredRuntimeApprovalString("type") == VolumeConfirmedTrendShadowEventType.POSITION_OPENED.name ||
+                event.requiredRuntimeApprovalString("type") ==
+                VolumeConfirmedTrendShadowEventType.MINIMUM_QUANTITY_SKIPPED.name
+        }
+    require(
+        frozenState.closedTrades == closedTradeEvents &&
+            frozenState.executedTransitions == transitionEvents,
+    ) {
+        "Trend Shadow evidence counters do not match append-only events."
     }
     return frozenState
 }
