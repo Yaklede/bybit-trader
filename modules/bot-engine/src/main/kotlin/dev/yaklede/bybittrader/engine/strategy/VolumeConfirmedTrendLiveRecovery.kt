@@ -4,6 +4,7 @@ import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.domain.OrderType
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
@@ -485,14 +486,21 @@ internal class VolumeConfirmedTrendLiveRecovery(
             )
         }
 
-        val cancelled =
-            gateway.cancelOrder(
-                ExchangeCancelRequest(
-                    symbol = config.symbol,
-                    exchangeOrderId = order.exchangeOrderId ?: state.exchangeOrderId,
-                    clientOrderId = order.clientOrderId ?: state.clientOrderId,
-                ),
+        val cancelRequest =
+            ExchangeCancelRequest(
+                symbol = config.symbol,
+                exchangeOrderId = order.exchangeOrderId ?: state.exchangeOrderId,
+                clientOrderId = order.clientOrderId ?: state.clientOrderId,
             )
+        val cancelled = gateway.cancelOrder(cancelRequest)
+        cancelled.contractFailure(cancelRequest)?.let { cancellationFailure ->
+            return halt(
+                state = state,
+                now = now,
+                reasonCode = "$timeoutReasonCode|$cancellationFailure",
+                position = position,
+            )
+        }
         val cancellationPending =
             state.copy(
                 exchangeOrderId = cancelled.exchangeOrderId ?: order.exchangeOrderId ?: state.exchangeOrderId,
@@ -586,6 +594,17 @@ internal class VolumeConfirmedTrendLiveRecovery(
     }
 
     private fun ExchangeOpenOrder.hasFilledQuantity(): Boolean = filledQuantity?.let { it > BigDecimal.ZERO } == true
+
+    private fun ExchangeCancelResult.contractFailure(request: ExchangeCancelRequest): String? =
+        when {
+            exchangeOrderId.isNullOrBlank() -> "TREND_ACTIVE_ORDER_CANCEL_ACK_EXCHANGE_ID_MISSING"
+            request.exchangeOrderId != null && exchangeOrderId != request.exchangeOrderId ->
+                "TREND_ACTIVE_ORDER_CANCEL_ACK_EXCHANGE_ID_MISMATCH"
+            clientOrderId.isNullOrBlank() -> "TREND_ACTIVE_ORDER_CANCEL_ACK_CLIENT_ID_MISSING"
+            request.clientOrderId != null && clientOrderId != request.clientOrderId ->
+                "TREND_ACTIVE_ORDER_CANCEL_ACK_CLIENT_ID_MISMATCH"
+            else -> null
+        }
 
     private fun VolumeConfirmedTrendLiveState.isEntryRecovery(): Boolean =
         status == VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED ||

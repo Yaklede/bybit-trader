@@ -404,6 +404,15 @@ cancellation request, and waits for terminal order readback. If the order is
 still active after another timeout, recovery halts without repeatedly issuing
 cancellation requests.
 
+A create-order acknowledgement is persisted as submitted only when it contains
+the exact requested client order ID, a non-empty exchange order ID, and the
+submitted status. Invalid acknowledgement identity leaves the durable intent in
+place so exact-order recovery cannot submit a duplicate. A cancellation
+acknowledgement must return both requested order IDs unchanged; a missing or
+different ID halts recovery without replacing the stored identity. In every
+case, the asynchronous acknowledgement is not terminal evidence and exchange
+order readback remains authoritative.
+
 The same initial reconciliation request also projects the newest execution
 lifecycle observation. Newly observed partial fills, protected positions, and
 unprotected positions are passed to the alert layer before market sync. Closed

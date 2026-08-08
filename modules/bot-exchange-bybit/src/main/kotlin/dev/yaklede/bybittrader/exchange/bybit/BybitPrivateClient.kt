@@ -169,9 +169,18 @@ class BybitPrivateClient(
             )
         response.requireSuccess("place order")
         val result = response.result ?: throw ExchangeExecutionException("Bybit place order response had no result.")
+        val exchangeOrderId =
+            result.orderId?.takeIf(String::isNotBlank)
+                ?: throw ExchangeExecutionException("Bybit place order response had no orderId.")
+        val clientOrderId =
+            result.orderLinkId?.takeIf(String::isNotBlank)
+                ?: throw ExchangeExecutionException("Bybit place order response had no orderLinkId.")
+        if (clientOrderId != request.clientOrderId) {
+            throw ExchangeExecutionException("Bybit place order response orderLinkId did not match the request.")
+        }
         return ExchangeOrderResult(
-            exchangeOrderId = result.orderId,
-            clientOrderId = result.orderLinkId ?: request.clientOrderId,
+            exchangeOrderId = exchangeOrderId,
+            clientOrderId = clientOrderId,
             status = OrderStatus.SUBMITTED,
         )
     }

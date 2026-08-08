@@ -118,6 +118,70 @@ class BybitPrivateClientTest :
             result.exchangeOrderId shouldBe "exchange-2"
         }
 
+        "placeOrder rejects a response with a different client order id" {
+            val engine =
+                MockEngine {
+                    respond(
+                        content =
+                            """{"retCode":0,"retMsg":"OK","result":{"orderId":"exchange-3","orderLinkId":"other-client"}}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val error =
+                shouldThrow<ExchangeExecutionException> {
+                    client.placeOrder(
+                        ExchangeOrderRequest(
+                            symbol = Symbol("BTCUSDT"),
+                            side = Side.BUY,
+                            orderType = OrderType.LIMIT,
+                            quantity = BigDecimal("0.001"),
+                            clientOrderId = "expected-client",
+                            takeProfit = null,
+                            stopLoss = null,
+                            price = BigDecimal("60000"),
+                            timeInForce = ExchangeTimeInForce.IOC,
+                        ),
+                    )
+                }
+
+            error.message shouldContain "orderLinkId did not match"
+        }
+
+        "placeOrder rejects a response without an exchange order id" {
+            val engine =
+                MockEngine {
+                    respond(
+                        content =
+                            """{"retCode":0,"retMsg":"OK","result":{"orderLinkId":"expected-client"}}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val error =
+                shouldThrow<ExchangeExecutionException> {
+                    client.placeOrder(
+                        ExchangeOrderRequest(
+                            symbol = Symbol("BTCUSDT"),
+                            side = Side.BUY,
+                            orderType = OrderType.LIMIT,
+                            quantity = BigDecimal("0.001"),
+                            clientOrderId = "expected-client",
+                            takeProfit = null,
+                            stopLoss = null,
+                            price = BigDecimal("60000"),
+                            timeInForce = ExchangeTimeInForce.IOC,
+                        ),
+                    )
+                }
+
+            error.message shouldContain "no orderId"
+        }
+
         "cancelOrder submits orderLinkId when exchange order id is absent" {
             val engine =
                 MockEngine { request ->

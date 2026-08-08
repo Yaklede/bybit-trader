@@ -1059,6 +1059,30 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.cancelRequests.size shouldBe 1
         }
 
+        "entry recovery halts without replacing ownership when cancellation acknowledgement conflicts" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val exchangeOrderId = requireNotNull(submitted.state.exchangeOrderId)
+            gateway.openOrders[0] = gateway.openOrders.single().copy(reduceOnly = true)
+            gateway.cancelResultOverride = { request ->
+                ExchangeCancelResult(
+                    exchangeOrderId = "exchange-other",
+                    clientOrderId = request.clientOrderId,
+                )
+            }
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe
+                "TREND_ENTRY_ORDER_REDUCE_ONLY_MISMATCH|TREND_ACTIVE_ORDER_CANCEL_ACK_EXCHANGE_ID_MISMATCH"
+            result.state.exchangeOrderId shouldBe exchangeOrderId
+            gateway.cancelRequests.size shouldBe 1
+        }
+
         "entry recovery never cancels an order whose exchange identity conflicts" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -1323,6 +1347,35 @@ class VolumeConfirmedTrendLiveServiceTest :
             }
             nextReconciliation.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
             nextReconciliation.state.haltedReasonCode shouldBe null
+            gateway.submittedOrders.size shouldBe 1
+        }
+
+        "place acknowledgement identity mismatch preserves the intent for exact-order recovery" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = TEST_NOW
+            val service = service(gateway, store, clock = { now })
+            gateway.placeOrderResultOverride = { _, exchangeOrderId ->
+                ExchangeOrderResult(
+                    exchangeOrderId = exchangeOrderId,
+                    clientOrderId = "provider-other-client-id",
+                    status = OrderStatus.SUBMITTED,
+                )
+            }
+
+            shouldThrow<IllegalStateException> {
+                service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            }
+
+            store.state?.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED
+            store.state?.exchangeOrderId shouldBe null
+            gateway.submittedOrders.size shouldBe 1
+            now = now.plusSeconds(1)
+
+            val recovered = service.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            recovered.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
             gateway.submittedOrders.size shouldBe 1
         }
 
@@ -1797,6 +1850,8 @@ private class FakeTrendLiveGateway(
     var accountExecutionProfileFailure: Throwable? = null
     var instrumentRulesFailure: Throwable? = null
     var accountTransactionsFailure: Throwable? = null
+    var placeOrderResultOverride: ((ExchangeOrderRequest, String) -> ExchangeOrderResult)? = null
+    var cancelResultOverride: ((ExchangeCancelRequest) -> ExchangeCancelResult)? = null
     var positionProfileResponse =
         ExchangePositionExecutionProfile(
             symbol = Symbol("BTCUSDT"),
@@ -1873,12 +1928,14 @@ private class FakeTrendLiveGateway(
                 price = request.price,
                 timeInForce = request.timeInForce,
             )
-        return ExchangeOrderResult(exchangeOrderId, request.clientOrderId, OrderStatus.SUBMITTED)
+        return placeOrderResultOverride?.invoke(request, exchangeOrderId)
+            ?: ExchangeOrderResult(exchangeOrderId, request.clientOrderId, OrderStatus.SUBMITTED)
     }
 
     override suspend fun cancelOrder(request: ExchangeCancelRequest): ExchangeCancelResult {
         cancelRequests += request
-        return ExchangeCancelResult(request.exchangeOrderId, request.clientOrderId)
+        return cancelResultOverride?.invoke(request)
+            ?: ExchangeCancelResult(request.exchangeOrderId, request.clientOrderId)
     }
 
     override suspend fun openOrders(symbol: Symbol): List<ExchangeOpenOrder> {

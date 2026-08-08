@@ -235,6 +235,12 @@ exact 주문 취소를 요청한 `RECOVERY_PENDING` 결과는 별도 recovery re
 한국어 경고로 전달하고, 단순 조회 지연으로 아직 timeout 전인 일반 `RECOVERY_PENDING`은 알림하지 않는다.
 취소 요청 뒤 terminal 상태가 아직 보이지 않으면 `RECOVERED`로 오인하지 않고 같은 pending 상태를
 유지한다. 추가 취소와 원장 event는 만들지 않으며 다음 timeout에만 자동 복구를 `HALTED`로 전환한다.
+주문 생성 ACK는 영속 intent의 client order ID와 같은 비어 있지 않은 `orderLinkId`, 비어 있지 않은
+`orderId`, `SUBMITTED` 상태를 모두 반환해야 제출 완료로 기록한다. 하나라도 다르면 외부 주문 호출 전에
+저장한 intent를 그대로 유지해 exact-order 복구가 중복 주문 없이 거래소 상태를 확인하게 한다.
+취소 ACK도 요청한 client/exchange order ID를 모두 그대로 반환해야 한다. ACK 식별자가 없거나 다르면
+원래 체크포인트 ID를 덮어쓰지 않고 즉시 `HALTED`하며, 비동기 취소 완료는 계속 terminal readback으로만
+확정한다.
 terminal 주문을 포지션 소유권 증거로 승격할 때는 주문의 양수 누적 체결 수량과 중복되지 않은 exact
 `execId` 체결 합계를 비교한다. 둘 다 있으면 반드시 같아야 하며, 진입은 현재 포지션 수량이 그 체결
 수량과 정확히 일치할 때만 `OPEN`이 된다. 종료는 기존 소유 수량과 exact 체결 수량이 모두 일치할 때만
@@ -270,6 +276,7 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 | `TREND_*_FILL_QUANTITY_EVIDENCE_*` | exact 주문 누적 체결과 execution 합계 누락/불일치 | retry 후 `HALTED`, 포지션 소유권 승격 금지 |
 | `TREND_*_POSITION_QUANTITY_MISMATCH` | 체결 증거로 설명되지 않는 포지션 수량 | retry 후 `HALTED`, 기존 소유권 증거 보존 |
 | `TREND_*_RECOVERY_INTENT_EVIDENCE_*` | 영속 주문 의도 누락/변조 | exact 활성 주문은 취소 후 확인, terminal 주문은 retry 후 `HALTED` |
+| `TREND_ACTIVE_ORDER_CANCEL_ACK_*` | 취소 ACK의 client/exchange order ID 누락 또는 요청 불일치 | 기존 주문 소유권 보존, 즉시 `HALTED`, Bybit 주문 상태 확인 |
 | `TREND_*_ORDER_*_MISMATCH` | provider 주문이 영속 LIMIT IOC 계약과 불일치 | ID가 정확한 활성 주문만 취소, 소유권 승격 금지 |
 | `TREND_*_EXECUTION_*` | exact 체결의 ID·종목·방향·수량·유형·시각 불일치 | 원장 기록 금지, retry 후 `HALTED` |
 | `TREND_EXIT_PENDING` | 종료 미확정 | 신규 진입 차단, 대사 반복 |

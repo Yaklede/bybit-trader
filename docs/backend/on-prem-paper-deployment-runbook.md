@@ -306,6 +306,13 @@ If an active order has stable client/exchange identity but any execution-shape
 field differs, the runtime requests immediate exact cancellation and waits for
 terminal readback. If the client ID, symbol, or exchange order ID itself differs,
 it does not risk cancelling an unrelated order and halts after the retry window.
+Create-order ACKs must return the requested client ID and a non-empty exchange
+order ID before the checkpoint becomes submitted. If that ACK is malformed, the
+durable intent remains pending and exact-order recovery must resolve it before
+another signal can trade. Cancellation ACKs must echo both requested IDs. A
+`TREND_ACTIVE_ORDER_CANCEL_ACK_*` halt means the original checkpoint identity
+was deliberately preserved; compare that identity with Bybit order history and
+confirm the asynchronous cancellation manually before any live restart.
 The critical Korean alert explains the mismatch, tells the operator to compare
 Bybit order history, execution history, and the current position, and keeps live
 execution off until that review is complete.

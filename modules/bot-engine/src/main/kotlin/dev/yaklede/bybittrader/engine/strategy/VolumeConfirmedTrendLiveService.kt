@@ -1,5 +1,6 @@
 package dev.yaklede.bybittrader.engine.strategy
 
+import dev.yaklede.bybittrader.domain.OrderStatus
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
@@ -837,6 +838,15 @@ class VolumeConfirmedTrendLiveService(
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         val result = gateway.placeOrder(plan.toExchangeOrderRequest(config.symbol))
+        check(result.clientOrderId == plan.clientOrderId) {
+            "Trend live place-order acknowledgement client order ID did not match the recorded intent."
+        }
+        check(!result.exchangeOrderId.isNullOrBlank()) {
+            "Trend live place-order acknowledgement did not include an exchange order ID."
+        }
+        check(result.status == OrderStatus.SUBMITTED) {
+            "Trend live place-order acknowledgement did not report the submitted state."
+        }
         val submittedStatus =
             if (plan.action == VolumeConfirmedTrendTargetAction.OPEN) {
                 VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED

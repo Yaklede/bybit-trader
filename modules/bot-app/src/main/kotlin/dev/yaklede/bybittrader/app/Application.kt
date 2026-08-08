@@ -1147,6 +1147,7 @@ internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): Alert
 
 private fun String.toKoreanTrendHaltReason(): String =
     when {
+        contains("TREND_ACTIVE_ORDER_CANCEL_ACK_") -> "주문 취소 응답의 주문 ID가 취소 요청과 일치하지 않아요."
         contains("_RECOVERY_INTENT_EVIDENCE_MISSING") -> "저장된 주문 의도 기록을 찾을 수 없어요."
         contains("_RECOVERY_INTENT_EVIDENCE_INVALID") -> "저장된 주문 의도 기록이 현재 상태와 일치하지 않아요."
         contains("_ORDER_CLIENT_ID_") -> "주문의 클라이언트 ID가 저장된 주문과 다르게 확인됐어요."

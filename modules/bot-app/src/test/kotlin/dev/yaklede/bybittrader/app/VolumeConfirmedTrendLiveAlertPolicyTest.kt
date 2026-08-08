@@ -117,6 +117,23 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             message.body shouldContain "진단 코드: TREND_ENTRY_EXECUTION_SIDE_MISMATCH"
         }
 
+        "cancellation acknowledgement mismatch explains that the cancellation identity is unsafe" {
+            val reasonCode =
+                "TREND_ENTRY_ORDER_REDUCE_ONLY_MISMATCH|" +
+                    "TREND_ACTIVE_ORDER_CANCEL_ACK_EXCHANGE_ID_MISMATCH"
+            val result =
+                liveResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
+                    haltedReasonCode = reasonCode,
+                )
+
+            val message = requireNotNull(result.toTrendLiveAlertMessage())
+
+            message.severity shouldBe AlertSeverity.CRITICAL
+            message.body shouldContain "주문 취소 응답의 주문 ID가 취소 요청과 일치하지 않아요"
+            message.body shouldContain "진단 코드: $reasonCode"
+        }
+
         "approval blocking alerts again when preserved order evidence changes" {
             val policy = VolumeConfirmedTrendLiveAlertPolicy()
             val first = approvalBlockedResult("TREND_ENTRY_ORDER_STATE_UNKNOWN", "vct-entry-001")
