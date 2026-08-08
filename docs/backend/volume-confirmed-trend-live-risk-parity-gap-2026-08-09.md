@@ -35,7 +35,40 @@ Source:
 - `scripts/lib/volume-confirmed-trend-research.mjs`
 
 다음 명령은 동결 protocol, 외부 DB, 승인 결과의 SHA-256과 핵심 지표를 먼저 대조한 뒤 현재 Live
-한도를 동결 종료 거래 경로에 대입한다.
+한도를 동결 종료 거래 경로에 대입한다. 먼저 Node와 Kotlin이 실제 위험 제한을 포함한 동일 재생을
+각각 생성하고 전체 JSON을 대조한다.
+
+```bash
+node scripts/volume-confirmed-trend-node-parity.mjs \
+  --maximum-daily-loss-fraction=0.03 \
+  --maximum-account-drawdown-fraction=0.35 \
+  --maximum-consecutive-losses=3 \
+  --out=build/research/volume-confirmed-trend-node-risk-parity.json
+
+GRADLE_USER_HOME=.gradle-local ./gradlew :modules:bot-app:runVolumeConfirmedTrendParity \
+  --args="--protocol config/volume-confirmed-trend-ensemble-v1.json \
+  --db build/research/binance-volume-confirmed-trend-external-v1.sqlite \
+  --out build/research/volume-confirmed-trend-kotlin-risk-parity.json \
+  --maximum-daily-loss-fraction 0.03 \
+  --maximum-account-drawdown-fraction 0.35 \
+  --maximum-consecutive-losses 3"
+
+node scripts/verify-volume-confirmed-trend-parity.mjs \
+  --node=build/research/volume-confirmed-trend-node-risk-parity.json \
+  --kotlin=build/research/volume-confirmed-trend-kotlin-risk-parity.json
+```
+
+Parity 결과:
+
+| 항목 | 값 |
+|---|---:|
+| 상태 | `PARITY_PASS` |
+| 진입 명령 | 165개 |
+| 자본·비용 조합 | 9개 |
+| 위험 정책 적용 후 전체 종료 거래 | 27건 |
+| 숫자 허용 오차 | `1e-8` |
+
+그 다음 기존 경로 위반 감사와 위험 정책 적용 후 경로를 하나의 결정적 artifact로 생성한다.
 
 ```bash
 node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
@@ -72,12 +105,41 @@ node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
 생성되는 `build/research/volume-confirmed-trend-live-risk-parity-audit.json`은 이 한계를
 `livePathSimulation=false`로 명시하며 `status=FAIL`, `riskPolicyParityPassed=false`로 기록한다.
 
+### 위험 정책 적용 경로
+
+정적 접두 감사와 별도로 `simulateTrendRun`에 현재 Live 임계값을 적용해, 포지션 축소는 항상 허용하고
+신규 노출만 차단하는 H4 결정 경계 재생을 수행했다. Kotlin 시뮬레이터와 Live 회로차단기는
+`ExecutionRiskThresholdEvaluator`의 동일 임계값 코드를 사용하고, Node 구현은 전체 외부 구간에서 Kotlin
+결과와 필드 단위로 일치해야 artifact가 생성된다.
+
+660 USDT, 기본 비용 1배 결과:
+
+| 항목 | 기존 동결 경로 | 현재 Live 위험 정책 적용 |
+|---|---:|---:|
+| 종료 잔고 | 3,605.34525093 | 574.39010661 |
+| 누적 수익률 | 446.26443196% | -12.97119597% |
+| 일복리 | 0.07340346% | -0.00600375% |
+| 종료 거래 | 165건 | 3건 |
+| 차단된 진입 | 0건 | 162건 |
+| 최대 보수적 intrabar MDD | 30.58189901% | 15.88814030% |
+
+차단 162건 중 첫 1건은 일 손실 제한, 이후 161건은 연속 손실 제한이다. 3번째 손실 이후
+`consecutiveLosses=3`이 유지되고 승리 거래가 실행될 수 없어 외부 구간 종료까지 복구되지 않는다.
+100/660/1,000 USDT와 비용 1/1.5/2배의 9개 조합도 모두 3건 거래 후 정지했고 누적 수익률은
+`-12.53688302%`부터 `-13.22014364%`였다.
+
+이 재생은 H4 진입 경계의 정책 결과를 정확히 비교하지만 실제 거래소 체결 예측은 아니다. Live wallet
+snapshot은 H4 내부의 추가 equity 상태를 관측할 수 있으므로 artifact는 계속
+`policyReplay.livePathSimulation=false`를 선언한다. 다만 현재 정책이 검증된 165개 거래 경로를 재현하지
+못하고 영구 정지 상태가 된다는 결론에는 영향을 주지 않는다.
+
 ## 기계적 차단
 
 재생 결과는
 `config/volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json`에 결정적으로 동결했다.
-승인 로더는 이 파일의 SHA-256, protocol SHA, 외부 결과 SHA, 원본 DB SHA와 baseline 핵심 지표를 모두
-검증한다. 현재 artifact의 `riskPolicyParityPassed=false`는 승인 보고서의 필수
+승인 로더는 이 파일의 SHA-256, protocol SHA, 외부 결과 SHA, 원본 DB SHA, baseline 핵심 지표, Node/Kotlin
+재생 hash와 9개 stress matrix의 거래·차단 합계를 모두 검증한다. 현재 artifact의
+`riskPolicyParityPassed=false`는 승인 보고서의 필수
 `LIVE_RISK_POLICY_PARITY` 게이트를 `FAIL`로 만들고 상위 상태를 `RUNTIME_PARITY_REQUIRED`로 유지한다.
 동결 위험 계약에는 일 손실, 계좌 MDD, 연속 손실, 위험 상태 freshness, 지갑 대사 freshness와 불일치
 확정 횟수를 함께 기록한다. 앱은 환경 설정에서 계산한 실제 H4 위험 정책과 이 계약을 필드별로 대조하며,
@@ -95,6 +157,8 @@ node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
 - 신규 진입 차단 판정: `ExecutionRiskCircuitBreaker.evaluate`
 - 동결 역사 재생: `volume-confirmed-trend-research.mjs`
 - 위험 패리티 진단: `volume-confirmed-trend-live-risk-parity-audit.mjs`
+- Node/Kotlin 위험 재생 대조: `verify-volume-confirmed-trend-parity.mjs`
+- 공통 Kotlin 임계값 판정: `ExecutionRiskThresholdEvaluator`
 - 동결 위험 패리티 결과: `volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json`
 - 기존 설계 선언: `volume-confirmed-trend-live-execution.md`
 
@@ -136,6 +200,7 @@ Kotlin/Node 패리티에 포함되지 않았다. MDD 35%와 지갑/원장 freshn
 
 - [ ] Human owner가 A 또는 B를 명시적으로 선택한다.
 - [x] 미해결 상태를 필수 승인 게이트로 연결해 영수증만으로 우회할 수 없게 한다.
+- [x] 현재 Live 위험 정책을 9개 자본·비용 조합에서 Node/Kotlin으로 재생하고 parity를 검증한다.
 - [ ] 선택한 위험 정책이 protocol/approval fingerprint에 포함된다.
 - [ ] 백테스트와 Live 위험 상태 전이가 동일하다는 회귀 테스트가 통과한다.
 - [ ] 외부/비용 스트레스와 runtime parity가 다시 통과한다.

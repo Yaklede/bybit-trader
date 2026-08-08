@@ -3,8 +3,11 @@ package dev.yaklede.bybittrader.engine.strategy
 import dev.yaklede.bybittrader.domain.Candle
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Timeframe
+import dev.yaklede.bybittrader.engine.execution.ExecutionRiskThresholdEvaluator
+import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneOffset
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -398,6 +401,34 @@ data class VolumeConfirmedTrendTrade(
     val reason: String,
 )
 
+data class VolumeConfirmedTrendSimulationRiskPolicy(
+    val maximumDailyLossFraction: Double,
+    val maximumAccountDrawdownFraction: Double,
+    val maximumConsecutiveLosses: Int,
+) {
+    init {
+        require(maximumDailyLossFraction > 0.0 && maximumDailyLossFraction <= 1.0) {
+            "Trend simulation daily loss fraction must be in (0, 1]."
+        }
+        require(maximumAccountDrawdownFraction > 0.0 && maximumAccountDrawdownFraction <= 1.0) {
+            "Trend simulation account drawdown fraction must be in (0, 1]."
+        }
+        require(maximumConsecutiveLosses > 0) {
+            "Trend simulation consecutive loss limit must be positive."
+        }
+    }
+}
+
+data class VolumeConfirmedTrendBlockedEntry(
+    val executionAt: Instant,
+    val side: Side,
+    val equity: Double,
+    val dayStartEquity: Double,
+    val peakEquity: Double,
+    val consecutiveLosses: Int,
+    val reasonCodes: List<String>,
+)
+
 data class VolumeConfirmedTrendSimulation(
     val startingEquity: Double,
     val endingCash: Double,
@@ -413,6 +444,9 @@ data class VolumeConfirmedTrendSimulation(
     val firstActiveAt: Instant?,
     val evaluationEndAt: Instant,
     val trades: List<VolumeConfirmedTrendTrade>,
+    val blockedEntries: List<VolumeConfirmedTrendBlockedEntry>,
+    val maximumObservedConsecutiveLosses: Int,
+    val finalConsecutiveLosses: Int,
 ) {
     val netReturnPct: Double = ((endingEquity / startingEquity) - 1.0) * 100.0
     val compoundDailyReturnPct: Double =
@@ -431,6 +465,7 @@ object VolumeConfirmedTrendSimulator {
         costMultiplier: Double,
         contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
         closeAtEvidenceEnd: Boolean = true,
+        riskPolicy: VolumeConfirmedTrendSimulationRiskPolicy? = null,
     ): VolumeConfirmedTrendSimulation {
         require(bars.isNotEmpty() && commands.size == bars.size) { "Trend simulation evidence and commands must align." }
         require(startingEquity > 0.0 && costMultiplier >= 1.0) { "Trend simulation capital and cost multiplier are invalid." }
@@ -446,7 +481,13 @@ object VolumeConfirmedTrendSimulator {
         var totalFunding = 0.0
         var liquidationCount = 0
         var firstActiveAt: Instant? = null
+        var riskDayStartedAt: Instant? = null
+        var riskDayStartEquity = startingEquity
+        var riskPeakEquity = startingEquity
+        var consecutiveLosses = 0
+        var maximumObservedConsecutiveLosses = 0
         val trades = mutableListOf<VolumeConfirmedTrendTrade>()
+        val blockedEntries = mutableListOf<VolumeConfirmedTrendBlockedEntry>()
 
         fun markEquity(price: Double): Double = VolumeConfirmedTrendExecutionModel.markEquity(cash, position, price)
 
@@ -481,6 +522,13 @@ object VolumeConfirmedTrendSimulator {
                     netPnl = execution.netPnl,
                     reason = reason,
                 )
+            consecutiveLosses =
+                when {
+                    execution.netPnl < 0.0 -> consecutiveLosses + 1
+                    execution.netPnl > 0.0 -> 0
+                    else -> consecutiveLosses
+                }
+            maximumObservedConsecutiveLosses = max(maximumObservedConsecutiveLosses, consecutiveLosses)
             position = null
         }
 
@@ -500,37 +548,67 @@ object VolumeConfirmedTrendSimulator {
                     totalFunding += execution.fundingPnl
                 }
             }
+            val riskOpenEquity = markEquity(bar.open)
+            val currentUtcDay = bar.openedAt.utcDayStartedAt()
+            if (riskDayStartedAt != currentUtcDay) {
+                riskDayStartedAt = currentUtcDay
+                riskDayStartEquity = riskOpenEquity
+            }
+            riskPeakEquity = max(riskPeakEquity, riskOpenEquity)
             val command = commands[index]
             if (command != null && command.side != position?.side) {
                 closePosition(bar.open, bar.openedAt, "OPPOSITE_VOLUME_CONFIRMED_TREND")
                 val equityBeforeEntry = cash
-                val execution =
-                    VolumeConfirmedTrendExecutionModel.open(
-                        cash = equityBeforeEntry,
-                        side = command.side,
-                        referencePrice = bar.open,
-                        at = bar.openedAt,
-                        contract = contract,
-                        costMultiplier = costMultiplier,
-                    )
-                if (execution != null) {
-                    maximumEntryExposure = max(maximumEntryExposure, execution.exposureFraction)
-                    cash = execution.cashAfter
-                    totalFees += execution.fee
-                    totalSlippage += execution.slippage
-                    position = execution.position
-                    if (firstActiveAt == null) firstActiveAt = bar.openedAt
+                val riskReasons =
+                    riskPolicy
+                        ?.reasonCodes(
+                            dayStartEquity = riskDayStartEquity,
+                            peakEquity = riskPeakEquity,
+                            latestEquity = equityBeforeEntry,
+                            consecutiveLosses = consecutiveLosses,
+                        ).orEmpty()
+                if (riskReasons.isNotEmpty()) {
+                    blockedEntries +=
+                        VolumeConfirmedTrendBlockedEntry(
+                            executionAt = bar.openedAt,
+                            side = command.side,
+                            equity = equityBeforeEntry,
+                            dayStartEquity = riskDayStartEquity,
+                            peakEquity = riskPeakEquity,
+                            consecutiveLosses = consecutiveLosses,
+                            reasonCodes = riskReasons,
+                        )
+                } else {
+                    val execution =
+                        VolumeConfirmedTrendExecutionModel.open(
+                            cash = equityBeforeEntry,
+                            side = command.side,
+                            referencePrice = bar.open,
+                            at = bar.openedAt,
+                            contract = contract,
+                            costMultiplier = costMultiplier,
+                        )
+                    if (execution != null) {
+                        maximumEntryExposure = max(maximumEntryExposure, execution.exposureFraction)
+                        cash = execution.cashAfter
+                        totalFees += execution.fee
+                        totalSlippage += execution.slippage
+                        position = execution.position
+                        if (firstActiveAt == null) firstActiveAt = bar.openedAt
+                    }
                 }
             }
             position?.let { current ->
                 val risk = VolumeConfirmedTrendExecutionModel.observeIntrabar(cash, current, bar, peakEquity)
                 peakEquity = risk.peakEquity
+                riskPeakEquity = max(riskPeakEquity, risk.favorableEquity)
                 if (risk.liquidationObserved) liquidationCount += 1
                 maximumAdverseExposure = max(maximumAdverseExposure, risk.adverseExposureFraction)
                 maximumDrawdown = max(maximumDrawdown, risk.drawdownPct)
             }
             val closeEquity = markEquity(bar.close)
             peakEquity = max(peakEquity, closeEquity)
+            riskPeakEquity = max(riskPeakEquity, closeEquity)
         }
         val finalBar = bars.last()
         if (closeAtEvidenceEnd) {
@@ -552,9 +630,34 @@ object VolumeConfirmedTrendSimulator {
             firstActiveAt = firstActiveAt,
             evaluationEndAt = finalBar.openedAt.plusSeconds(H4_SECONDS),
             trades = trades,
+            blockedEntries = blockedEntries,
+            maximumObservedConsecutiveLosses = maximumObservedConsecutiveLosses,
+            finalConsecutiveLosses = consecutiveLosses,
         )
     }
 }
+
+private fun VolumeConfirmedTrendSimulationRiskPolicy.reasonCodes(
+    dayStartEquity: Double,
+    peakEquity: Double,
+    latestEquity: Double,
+    consecutiveLosses: Int,
+): List<String> =
+    ExecutionRiskThresholdEvaluator.reasonCodes(
+        dayStart = BigDecimal.valueOf(dayStartEquity),
+        peak = BigDecimal.valueOf(peakEquity),
+        latest = BigDecimal.valueOf(latestEquity),
+        consecutiveLosses = consecutiveLosses,
+        maximumDailyLossFraction = BigDecimal.valueOf(maximumDailyLossFraction),
+        maximumAccountDrawdownFraction = BigDecimal.valueOf(maximumAccountDrawdownFraction),
+        maximumConsecutiveLosses = maximumConsecutiveLosses,
+    )
+
+private fun Instant.utcDayStartedAt(): Instant =
+    atZone(ZoneOffset.UTC)
+        .toLocalDate()
+        .atStartOfDay(ZoneOffset.UTC)
+        .toInstant()
 
 private fun nextEma(
     previous: Double?,

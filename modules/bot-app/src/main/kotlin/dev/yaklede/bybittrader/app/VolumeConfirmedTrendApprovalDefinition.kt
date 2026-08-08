@@ -138,7 +138,53 @@ private fun validateLiveRiskPolicyParity(
     val decisionReasons = decision.requiredApprovalArray("reasonCodes").map { value -> value.jsonPrimitive.content }
     require(auditReasons == decisionReasons)
     require(parityPassed || auditReasons.isNotEmpty())
+    validateLiveRiskPolicyReplay(
+        replay = root.requiredApprovalObject("policyReplay"),
+        baseline = baseline,
+        policy = policy,
+    )
     return LiveRiskPolicyParityEvidence(parityPassed, policy)
+}
+
+private fun validateLiveRiskPolicyReplay(
+    replay: JsonObject,
+    baseline: JsonObject,
+    policy: VolumeConfirmedTrendLiveRiskPolicy,
+) {
+    require(replay.requiredApprovalString("simulationKind") == "H4_DECISION_BOUNDARY_RISK_POLICY_REPLAY")
+    require(!replay.requiredApprovalBoolean("livePathSimulation"))
+    val crossRuntime = replay.requiredApprovalObject("crossRuntimeParity")
+    require(crossRuntime.requiredApprovalString("status") == "PASS")
+    require(crossRuntime.requiredApprovalString("nodeResultSha256").isSha256())
+    require(crossRuntime.requiredApprovalString("kotlinResultSha256").isSha256())
+    require(crossRuntime.requiredApprovalDouble("numericTolerance") == 1e-8)
+    val commandCount = crossRuntime.requiredApprovalInt("commandCount")
+    val runCount = crossRuntime.requiredApprovalInt("runCount")
+    val tradeCount = crossRuntime.requiredApprovalInt("tradeCount")
+    require(commandCount > 0 && runCount > 0 && tradeCount > 0)
+
+    val canonical = replay.requiredApprovalObject("canonical")
+    require(canonical.requiredApprovalDouble("startingEquityUsdt") == baseline.requiredApprovalDouble("startingEquityUsdt"))
+    require(canonical.requiredApprovalDouble("costMultiplier") == 1.0)
+    require(canonical.requiredApprovalDouble("endingEquityUsdt") > 0.0)
+    require(canonical.requiredApprovalDouble("netReturnPct") < 0.0)
+    val canonicalClosedTrades = canonical.requiredApprovalInt("closedTradeCount")
+    val canonicalBlockedEntries = canonical.requiredApprovalInt("blockedEntryCount")
+    require(canonicalClosedTrades + canonicalBlockedEntries == commandCount)
+    val blockedReasons = canonical.requiredApprovalObject("blockedEntryReasonCounts")
+    require(blockedReasons.requiredApprovalInt("DAILY_EQUITY_LOSS_LIMIT_REACHED") > 0)
+    require(blockedReasons.requiredApprovalInt("CONSECUTIVE_LOSS_LIMIT_REACHED") > 0)
+    require(canonical.requiredApprovalInt("maximumObservedConsecutiveLosses") == policy.maximumConsecutiveLosses)
+    require(canonical.requiredApprovalInt("finalConsecutiveLosses") == policy.maximumConsecutiveLosses)
+
+    val stressMatrix = replay.requiredApprovalArray("stressMatrix").map { value -> value.jsonObject }
+    require(stressMatrix.size == runCount)
+    require(stressMatrix.sumOf { run -> run.requiredApprovalInt("closedTradeCount") } == tradeCount)
+    require(
+        stressMatrix.all { run ->
+            run.requiredApprovalInt("closedTradeCount") + run.requiredApprovalInt("blockedEntryCount") == commandCount
+        },
+    )
 }
 
 private fun validateExternalEvidence(
@@ -312,9 +358,11 @@ private fun ByteArray.sha256(): String =
         .digest(this)
         .joinToString("") { byte -> "%02x".format(byte) }
 
+private fun String.isSha256(): Boolean = matches(Regex("[0-9a-f]{64}"))
+
 private const val FROZEN_TREND_EXTERNAL_RESULT_SHA256 = "1a4a49029e7a24020e21fb90f23490dddeb7c27a98f02a20438fd28bf9cc2cd1"
 private const val FROZEN_TREND_KOTLIN_PARITY_RESULT_SHA256 = "5174139b607139cc664fad861bcea313cc9408dd454e7e44b739d7057c1bdf8f"
 private const val FROZEN_TREND_RUNTIME_PARITY_RESULT_SHA256 = "8421a3df1bd06f19eebcc0d0dd183faf6f74fbf54a2b28b66bf55f5f0c637a70"
 private const val FROZEN_TREND_LIVE_RISK_PARITY_RESULT_SHA256 =
-    "3073eadc11f7fd05eb351897185879b6735276a420c11e55fd00d5f56c7fbe2f"
+    "367f6579566ebea561854e39bb2465b43fcd421aeb42af361e479abcea584767"
 private const val FROZEN_TREND_FORWARD_POLICY_SHA256 = "5ea2185fe9f4299f656ca89848a5ffd77acb578954517cd22432e5b4d64dc62b"

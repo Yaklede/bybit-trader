@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.app.research
 
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendBar
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendBlockedEntry
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendCommand
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaPair
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEngine
@@ -8,6 +9,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExecutionCont
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendFundingRate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendParameters
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendSimulation
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendSimulationRiskPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendSimulator
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendTrade
 import kotlinx.serialization.Serializable
@@ -39,6 +41,7 @@ fun main(args: Array<String>) {
     val protocolPath = Path.of(options.required("protocol")).toAbsolutePath().normalize()
     val databasePath = Path.of(options.required("db")).toAbsolutePath().normalize()
     val outputPath = Path.of(options.required("out")).toAbsolutePath().normalize()
+    val riskPolicy = options.simulationRiskPolicy()
     val protocolBytes = Files.readAllBytes(protocolPath)
     val root = Json.parseToJsonElement(protocolBytes.toString(StandardCharsets.UTF_8)).jsonObject
     require(root.requiredBoolean("automaticExecutionAllowed") == false)
@@ -88,6 +91,7 @@ fun main(args: Array<String>) {
                     VolumeConfirmedTrendParityRun.from(
                         startingEquityUsdt = equityText,
                         costMultiplier = multiplierText,
+                        riskPolicy = riskPolicy,
                         simulation =
                             VolumeConfirmedTrendSimulator.run(
                                 bars = bars,
@@ -96,6 +100,7 @@ fun main(args: Array<String>) {
                                 startingEquity = equityText.toDouble(),
                                 costMultiplier = multiplierText.toDouble(),
                                 contract = contract,
+                                riskPolicy = riskPolicy,
                             ),
                     )
                 }
@@ -195,6 +200,22 @@ private fun parseArgs(args: Array<String>): Map<String, String> {
 
 private fun Map<String, String>.required(name: String): String = requireNotNull(this[name]) { "Missing --$name." }
 
+private fun Map<String, String>.simulationRiskPolicy(): VolumeConfirmedTrendSimulationRiskPolicy? {
+    val daily = this["maximum-daily-loss-fraction"]
+    val drawdown = this["maximum-account-drawdown-fraction"]
+    val consecutive = this["maximum-consecutive-losses"]
+    val values = listOf(daily, drawdown, consecutive)
+    require(values.all { it == null } || values.all { it != null }) {
+        "Trend parity risk policy requires all three risk limits."
+    }
+    if (daily == null) return null
+    return VolumeConfirmedTrendSimulationRiskPolicy(
+        maximumDailyLossFraction = daily.toDouble(),
+        maximumAccountDrawdownFraction = requireNotNull(drawdown).toDouble(),
+        maximumConsecutiveLosses = requireNotNull(consecutive).toInt(),
+    )
+}
+
 private fun JsonObject.requiredObject(name: String): JsonObject = getValue(name).jsonObject
 
 private fun JsonObject.requiredArray(name: String): JsonArray = getValue(name).jsonArray
@@ -270,11 +291,13 @@ private data class VolumeConfirmedTrendParityRun(
     val totalFundingPnlUsdt: Double,
     val liquidationCount: Int,
     val trades: List<VolumeConfirmedTrendParityTrade>,
+    val riskPolicyReplay: VolumeConfirmedTrendParityRiskReplay? = null,
 ) {
     companion object {
         fun from(
             startingEquityUsdt: String,
             costMultiplier: String,
+            riskPolicy: VolumeConfirmedTrendSimulationRiskPolicy?,
             simulation: VolumeConfirmedTrendSimulation,
         ): VolumeConfirmedTrendParityRun =
             VolumeConfirmedTrendParityRun(
@@ -291,6 +314,76 @@ private data class VolumeConfirmedTrendParityRun(
                 totalFundingPnlUsdt = simulation.totalFundingPnl.round8(),
                 liquidationCount = simulation.liquidationCount,
                 trades = simulation.trades.map(VolumeConfirmedTrendParityTrade::from),
+                riskPolicyReplay =
+                    riskPolicy?.let { policy ->
+                        VolumeConfirmedTrendParityRiskReplay.from(policy, simulation)
+                    },
+            )
+    }
+}
+
+@Serializable
+private data class VolumeConfirmedTrendParityRiskPolicy(
+    val maximumDailyLossFraction: Double,
+    val maximumAccountDrawdownFraction: Double,
+    val maximumConsecutiveLosses: Int,
+)
+
+@Serializable
+private data class VolumeConfirmedTrendParityBlockedEntry(
+    val executionAt: String,
+    val side: Int,
+    val equityUsdt: Double,
+    val dayStartEquityUsdt: Double,
+    val peakEquityUsdt: Double,
+    val consecutiveLosses: Int,
+    val reasonCodes: List<String>,
+) {
+    companion object {
+        fun from(entry: VolumeConfirmedTrendBlockedEntry): VolumeConfirmedTrendParityBlockedEntry =
+            VolumeConfirmedTrendParityBlockedEntry(
+                executionAt = SQL_INSTANT.format(entry.executionAt),
+                side = if (entry.side == dev.yaklede.bybittrader.domain.Side.BUY) 1 else -1,
+                equityUsdt = entry.equity.round8(),
+                dayStartEquityUsdt = entry.dayStartEquity.round8(),
+                peakEquityUsdt = entry.peakEquity.round8(),
+                consecutiveLosses = entry.consecutiveLosses,
+                reasonCodes = entry.reasonCodes,
+            )
+    }
+}
+
+@Serializable
+private data class VolumeConfirmedTrendParityRiskReplay(
+    val policy: VolumeConfirmedTrendParityRiskPolicy,
+    val blockedEntryCount: Int,
+    val blockedEntryReasonCounts: Map<String, Int>,
+    val firstBlockedEntry: VolumeConfirmedTrendParityBlockedEntry?,
+    val maximumObservedConsecutiveLosses: Int,
+    val finalConsecutiveLosses: Int,
+) {
+    companion object {
+        fun from(
+            policy: VolumeConfirmedTrendSimulationRiskPolicy,
+            simulation: VolumeConfirmedTrendSimulation,
+        ): VolumeConfirmedTrendParityRiskReplay =
+            VolumeConfirmedTrendParityRiskReplay(
+                policy =
+                    VolumeConfirmedTrendParityRiskPolicy(
+                        maximumDailyLossFraction = policy.maximumDailyLossFraction,
+                        maximumAccountDrawdownFraction = policy.maximumAccountDrawdownFraction,
+                        maximumConsecutiveLosses = policy.maximumConsecutiveLosses,
+                    ),
+                blockedEntryCount = simulation.blockedEntries.size,
+                blockedEntryReasonCounts =
+                    simulation.blockedEntries
+                        .flatMap(VolumeConfirmedTrendBlockedEntry::reasonCodes)
+                        .groupingBy { reason -> reason }
+                        .eachCount()
+                        .toSortedMap(),
+                firstBlockedEntry = simulation.blockedEntries.firstOrNull()?.let(VolumeConfirmedTrendParityBlockedEntry::from),
+                maximumObservedConsecutiveLosses = simulation.maximumObservedConsecutiveLosses,
+                finalConsecutiveLosses = simulation.finalConsecutiveLosses,
             )
     }
 }

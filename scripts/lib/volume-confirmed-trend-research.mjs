@@ -204,7 +204,15 @@ export function calculateTrendQuantity({
   return round12(quantity);
 }
 
-export function simulateTrendRun({ bars, fundingRates, commands, protocol, startingEquity, costMultiplier }) {
+export function simulateTrendRun({
+  bars,
+  fundingRates,
+  commands,
+  protocol,
+  startingEquity,
+  costMultiplier,
+  riskPolicy = null,
+}) {
   const capital = protocol.capital;
   const feeRate = decimal(protocol.costs.oneWayFeeRate) * costMultiplier;
   const slippageRate = decimal(protocol.costs.oneWaySlippageRate) * costMultiplier;
@@ -216,6 +224,7 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
     ? null
     : decimal(capital.absoluteMaximumNotionalUsdt);
   const fundingByTimestamp = new Map(fundingRates.map((row) => [instantMillis(row.timestamp), decimal(row.rate)]));
+  if (riskPolicy != null) validateTrendSimulationRiskPolicy(riskPolicy);
   let cash = startingEquity;
   let position = null;
   let peakEquity = startingEquity;
@@ -231,8 +240,14 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
   let orderLegCount = 0;
   let sideChangeCount = 0;
   let firstActiveAt = null;
+  let riskDayStartedAt = null;
+  let riskDayStartEquity = startingEquity;
+  let riskPeakEquity = startingEquity;
+  let consecutiveLosses = 0;
+  let maximumObservedConsecutiveLosses = 0;
   const equityCurve = [];
   const trades = [];
+  const blockedEntries = [];
 
   const markEquity = (price) => cash + (position == null ? 0 : position.side * position.quantity * (price - position.entryPrice));
   const closePosition = (referencePrice, at, reason) => {
@@ -245,7 +260,7 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
     totalFees += fee;
     totalSlippage += slippage;
     orderLegCount += 1;
-    trades.push({
+    const trade = {
       side: position.side,
       quantity: position.quantity,
       entryAt: new Date(position.entryAt).toISOString(),
@@ -257,7 +272,12 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
       fees: round8(position.entryFee + fee),
       netPnl: round8(grossPnl + position.fundingPnl - position.entryFee - fee),
       reason,
-    });
+    };
+    trades.push(trade);
+    consecutiveLosses = trade.netPnl < 0
+      ? consecutiveLosses + 1
+      : trade.netPnl > 0 ? 0 : consecutiveLosses;
+    maximumObservedConsecutiveLosses = Math.max(maximumObservedConsecutiveLosses, consecutiveLosses);
     position = null;
   };
 
@@ -270,44 +290,72 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
       totalFundingPnl += fundingPnl;
     }
 
+    const riskOpenEquity = markEquity(bar.open);
+    const currentUtcDay = Math.floor(bar.openedAt / DAY_MILLIS) * DAY_MILLIS;
+    if (riskDayStartedAt !== currentUtcDay) {
+      riskDayStartedAt = currentUtcDay;
+      riskDayStartEquity = riskOpenEquity;
+    }
+    riskPeakEquity = Math.max(riskPeakEquity, riskOpenEquity);
     const command = commands[index];
     if (command != null && command.side !== position?.side) {
       const previousSide = position?.side ?? 0;
       closePosition(bar.open, bar.openedAt, "OPPOSITE_VOLUME_CONFIRMED_TREND");
       const equityBeforeEntry = cash;
-      const entryPrice = bar.open * (1 + command.side * slippageRate);
-      const quantity = calculateTrendQuantity({
-        equity: equityBeforeEntry,
-        price: entryPrice,
-        targetExposureFraction,
-        maximumRoundedExposureFraction,
-        quantityStep,
-        minimumQuantity,
-        maximumNotional,
-      });
-      if (quantity === 0) {
-        skippedMinimumQuantity += 1;
-      } else {
-        maximumEntryExposureFraction = Math.max(
-          maximumEntryExposureFraction,
-          quantity * entryPrice / equityBeforeEntry,
-        );
-        const fee = quantity * entryPrice * feeRate;
-        const slippage = quantity * Math.abs(entryPrice - bar.open);
-        cash -= fee;
-        totalFees += fee;
-        totalSlippage += slippage;
-        orderLegCount += 1;
-        if (previousSide !== 0 && previousSide !== command.side) sideChangeCount += 1;
-        position = {
+      const riskReasons = riskPolicy == null
+        ? []
+        : trendSimulationRiskReasonCodes({
+            riskPolicy,
+            dayStartEquity: riskDayStartEquity,
+            peakEquity: riskPeakEquity,
+            latestEquity: equityBeforeEntry,
+            consecutiveLosses,
+          });
+      if (riskReasons.length > 0) {
+        blockedEntries.push({
+          executionAt: new Date(bar.openedAt).toISOString(),
           side: command.side,
-          quantity,
-          entryPrice,
-          entryAt: bar.openedAt,
-          entryFee: fee,
-          fundingPnl: 0,
-        };
-        firstActiveAt ??= bar.openedAt;
+          equityUsdt: round8(equityBeforeEntry),
+          dayStartEquityUsdt: round8(riskDayStartEquity),
+          peakEquityUsdt: round8(riskPeakEquity),
+          consecutiveLosses,
+          reasonCodes: riskReasons,
+        });
+      } else {
+        const entryPrice = bar.open * (1 + command.side * slippageRate);
+        const quantity = calculateTrendQuantity({
+          equity: equityBeforeEntry,
+          price: entryPrice,
+          targetExposureFraction,
+          maximumRoundedExposureFraction,
+          quantityStep,
+          minimumQuantity,
+          maximumNotional,
+        });
+        if (quantity === 0) {
+          skippedMinimumQuantity += 1;
+        } else {
+          maximumEntryExposureFraction = Math.max(
+            maximumEntryExposureFraction,
+            quantity * entryPrice / equityBeforeEntry,
+          );
+          const fee = quantity * entryPrice * feeRate;
+          const slippage = quantity * Math.abs(entryPrice - bar.open);
+          cash -= fee;
+          totalFees += fee;
+          totalSlippage += slippage;
+          orderLegCount += 1;
+          if (previousSide !== 0 && previousSide !== command.side) sideChangeCount += 1;
+          position = {
+            side: command.side,
+            quantity,
+            entryPrice,
+            entryAt: bar.openedAt,
+            entryFee: fee,
+            fundingPnl: 0,
+          };
+          firstActiveAt ??= bar.openedAt;
+        }
       }
     }
 
@@ -319,6 +367,7 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
       const favorableEquity = markEquity(favorablePrice);
       conservativeAdverseEquity = markEquity(adversePrice);
       peakEquity = Math.max(peakEquity, openEquity, favorableEquity);
+      riskPeakEquity = Math.max(riskPeakEquity, favorableEquity);
       if (conservativeAdverseEquity <= 0) liquidationCount += 1;
       const exposure = position.quantity * bar.open / Math.max(conservativeAdverseEquity, 1e-12);
       maximumAdverseExposureFraction = Math.max(maximumAdverseExposureFraction, exposure);
@@ -329,6 +378,7 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
     }
     const closeEquity = markEquity(bar.close);
     peakEquity = Math.max(peakEquity, closeEquity);
+    riskPeakEquity = Math.max(riskPeakEquity, closeEquity);
     maximumCloseDrawdownPct = Math.max(
       maximumCloseDrawdownPct,
       peakEquity <= 0 ? 100 : ((peakEquity - closeEquity) / peakEquity) * 100,
@@ -351,7 +401,7 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
   const losingTrades = trades.filter((trade) => trade.netPnl < 0);
   const grossProfit = sum(profitableTrades.map((trade) => trade.netPnl));
   const grossLoss = Math.abs(sum(losingTrades.map((trade) => trade.netPnl)));
-  return {
+  const result = {
     startingEquityUsdt: round8(startingEquity),
     endingEquityUsdt: round8(cash),
     netPnlUsdt: round8(cash - startingEquity),
@@ -380,6 +430,67 @@ export function simulateTrendRun({ bars, fundingRates, commands, protocol, start
     equityCurve,
     trades,
   };
+  if (riskPolicy != null) {
+    result.riskPolicyReplay = {
+      policy: {
+        maximumDailyLossFraction: riskPolicy.maximumDailyLossFraction,
+        maximumAccountDrawdownFraction: riskPolicy.maximumAccountDrawdownFraction,
+        maximumConsecutiveLosses: riskPolicy.maximumConsecutiveLosses,
+      },
+      blockedEntryCount: blockedEntries.length,
+      blockedEntryReasonCounts: countBlockedEntryReasons(blockedEntries),
+      firstBlockedEntry: blockedEntries[0] ?? null,
+      maximumObservedConsecutiveLosses,
+      finalConsecutiveLosses: consecutiveLosses,
+    };
+  }
+  return result;
+}
+
+function validateTrendSimulationRiskPolicy(riskPolicy) {
+  if (!Number.isFinite(riskPolicy.maximumDailyLossFraction) ||
+      riskPolicy.maximumDailyLossFraction <= 0 || riskPolicy.maximumDailyLossFraction > 1) {
+    throw new Error("Trend simulation daily loss fraction must be in (0, 1].");
+  }
+  if (!Number.isFinite(riskPolicy.maximumAccountDrawdownFraction) ||
+      riskPolicy.maximumAccountDrawdownFraction <= 0 || riskPolicy.maximumAccountDrawdownFraction > 1) {
+    throw new Error("Trend simulation account drawdown fraction must be in (0, 1].");
+  }
+  if (!Number.isInteger(riskPolicy.maximumConsecutiveLosses) || riskPolicy.maximumConsecutiveLosses < 1) {
+    throw new Error("Trend simulation consecutive loss limit must be a positive integer.");
+  }
+}
+
+function trendSimulationRiskReasonCodes({
+  riskPolicy,
+  dayStartEquity,
+  peakEquity,
+  latestEquity,
+  consecutiveLosses,
+}) {
+  const reasons = [];
+  if (lossFraction(dayStartEquity, latestEquity) >= riskPolicy.maximumDailyLossFraction) {
+    reasons.push("DAILY_EQUITY_LOSS_LIMIT_REACHED");
+  }
+  if (lossFraction(peakEquity, latestEquity) >= riskPolicy.maximumAccountDrawdownFraction) {
+    reasons.push("ACCOUNT_DRAWDOWN_LIMIT_REACHED");
+  }
+  if (consecutiveLosses >= riskPolicy.maximumConsecutiveLosses) {
+    reasons.push("CONSECUTIVE_LOSS_LIMIT_REACHED");
+  }
+  return reasons;
+}
+
+function lossFraction(baseline, current) {
+  return baseline <= 0 || current >= baseline ? 0 : (baseline - current) / baseline;
+}
+
+function countBlockedEntryReasons(blockedEntries) {
+  return Object.fromEntries(
+    [...new Set(blockedEntries.flatMap((entry) => entry.reasonCodes))]
+      .sort()
+      .map((reason) => [reason, blockedEntries.filter((entry) => entry.reasonCodes.includes(reason)).length]),
+  );
 }
 
 export function summarizeTrendRun(run, protocol) {

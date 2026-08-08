@@ -97,6 +97,80 @@ class VolumeConfirmedTrendEngineTest :
             (result.maximumAdverseExposureFraction >= result.maximumEntryExposureFraction) shouldBe true
         }
 
+        "risk replay closes exposure but blocks new entries after the loss-streak limit" {
+            val start = Instant.parse("2026-01-01T00:00:00Z")
+            val bars =
+                listOf(
+                    h4Bar(start, 100.0, 100.0),
+                    h4Bar(start.plusSeconds(14_400), 90.0, 90.0),
+                    h4Bar(start.plusSeconds(28_800), 100.0, 100.0),
+                    h4Bar(start.plusSeconds(43_200), 90.0, 90.0),
+                )
+            val result =
+                VolumeConfirmedTrendSimulator.run(
+                    bars = bars,
+                    fundingRates = emptyList(),
+                    commands =
+                        listOf(
+                            command(Side.BUY, bars, 0),
+                            command(Side.SELL, bars, 1),
+                            command(Side.BUY, bars, 2),
+                            command(Side.SELL, bars, 3),
+                        ),
+                    startingEquity = 100.0,
+                    costMultiplier = 1.0,
+                    contract = VolumeConfirmedTrendExecutionContract(oneWayFeeRate = 0.0, oneWaySlippageRate = 0.0),
+                    riskPolicy =
+                        VolumeConfirmedTrendSimulationRiskPolicy(
+                            maximumDailyLossFraction = 1.0,
+                            maximumAccountDrawdownFraction = 1.0,
+                            maximumConsecutiveLosses = 2,
+                        ),
+                )
+
+            result.trades.size shouldBe 2
+            result.blockedEntries.size shouldBe 2
+            result.blockedEntries.first().executionAt shouldBe bars[2].openedAt
+            result.blockedEntries.forEach { blocked ->
+                blocked.reasonCodes shouldBe listOf("CONSECUTIVE_LOSS_LIMIT_REACHED")
+            }
+            result.maximumObservedConsecutiveLosses shouldBe 2
+        }
+
+        "risk replay resets the daily baseline only at the next UTC day" {
+            val start = Instant.parse("2026-01-01T00:00:00Z")
+            val bars =
+                listOf(
+                    h4Bar(start, 100.0, 100.0),
+                    h4Bar(start.plusSeconds(14_400), 90.0, 90.0),
+                    h4Bar(start.plusSeconds(86_400), 90.0, 90.0),
+                )
+            val result =
+                VolumeConfirmedTrendSimulator.run(
+                    bars = bars,
+                    fundingRates = emptyList(),
+                    commands =
+                        listOf(
+                            command(Side.BUY, bars, 0),
+                            command(Side.SELL, bars, 1),
+                            command(Side.BUY, bars, 2),
+                        ),
+                    startingEquity = 100.0,
+                    costMultiplier = 1.0,
+                    contract = VolumeConfirmedTrendExecutionContract(oneWayFeeRate = 0.0, oneWaySlippageRate = 0.0),
+                    riskPolicy =
+                        VolumeConfirmedTrendSimulationRiskPolicy(
+                            maximumDailyLossFraction = 0.03,
+                            maximumAccountDrawdownFraction = 1.0,
+                            maximumConsecutiveLosses = 10,
+                        ),
+                )
+
+            result.blockedEntries.size shouldBe 1
+            result.blockedEntries.single().reasonCodes shouldBe listOf("DAILY_EQUITY_LOSS_LIMIT_REACHED")
+            result.trades.size shouldBe 2
+        }
+
         "can preserve the ending position for runtime replay parity" {
             val start = Instant.parse("2026-01-01T00:00:00Z")
             val bars =

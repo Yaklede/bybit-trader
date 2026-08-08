@@ -478,6 +478,13 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 완료로 보지 않는다. 상세 근거는
 `volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md`에 기록했다.
 
+추가 결정 경계 재생은 Node와 Kotlin 모두에서 일 손실 3%, MDD 35%, 3연속 손실을 적용했다. 두 런타임은
+165개 명령과 9개 자본·비용 조합 전체에서 `1e-8` 오차 안으로 일치했다. 660 USDT 기본 비용 결과는
+3건 종료 후 162개 진입이 차단되고 574.39010661 USDT, -12.97119597%로 끝났다. Kotlin 역사 시뮬레이터와
+Live 회로차단기는 `ExecutionRiskThresholdEvaluator`를 공유해 임계값 계산과 사유 코드가 분기되지 않는다.
+다만 실제 wallet snapshot은 H4 내부 상태를 더 관측할 수 있으므로 이 결과는 거래소 체결 예측이 아니라
+위험 정책을 포함한 H4 결정 경계 계약 재생이다.
+
 실패 결과는 결정적 config artifact로 동결해 승인 서비스의 필수 `LIVE_RISK_POLICY_PARITY` 게이트에
 연결했다. 현재 게이트는 `FAIL`, 승인 상태는 `RUNTIME_PARITY_REQUIRED`이므로 Shadow의 나머지 조건과 사람
 승인 영수증이 갖춰져도 Live 시작 검증을 통과할 수 없다. Docker 이미지와 온프레미스 배포 패키지도 같은
@@ -500,6 +507,7 @@ fresh Bybit Shadow 90일 및 별도 사람 승인이다.
 - [x] Live store와 fault-injection 테스트를 구현한다.
 - [x] Bybit account mode/instrument 및 exact-order adapter를 구현한다.
 - [x] 미해결 Live 위험 정책 패리티를 필수 fail-closed 승인 게이트로 연결한다.
+- [x] 현재 Live 임계값을 Node/Kotlin 역사 재생에 적용하고 공통 임계값 코드와 parity를 검증한다.
 - [ ] Live 전용 일 손실·연속 손실 정책의 제거 또는 protocol 포함을 결정하고 다시 패리티 검증한다.
 - [ ] 90일 Shadow와 사람 승인 후에만 TESTNET/LIVE 경로를 활성화한다.
 

@@ -165,20 +165,20 @@ internal object ExecutionRiskCircuitBreaker {
             }
         }
 
-        val reasonCodes = mutableListOf<String>()
         val dayStart = state.dayStartUnitizedNav.takeIf { useUnitizedNav } ?: state.dayStartEquity
         val peak = state.peakUnitizedNav.takeIf { useUnitizedNav } ?: state.peakEquity
         val latest = state.latestUnitizedNav.takeIf { useUnitizedNav } ?: state.latestEquity
-        if (lossFraction(dayStart, latest) >= maximumDailyLossFraction) {
-            reasonCodes += "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-        }
-        if (lossFraction(peak, latest) >= maximumAccountDrawdownFraction) {
-            reasonCodes += "ACCOUNT_DRAWDOWN_LIMIT_REACHED"
-        }
-        if (state.consecutiveLosses >= maximumConsecutiveLosses) {
-            reasonCodes += "CONSECUTIVE_LOSS_LIMIT_REACHED"
-        }
-        return ExecutionRiskDecision(reasonCodes)
+        return ExecutionRiskDecision(
+            ExecutionRiskThresholdEvaluator.reasonCodes(
+                dayStart = dayStart,
+                peak = peak,
+                latest = latest,
+                consecutiveLosses = state.consecutiveLosses,
+                maximumDailyLossFraction = maximumDailyLossFraction,
+                maximumAccountDrawdownFraction = maximumAccountDrawdownFraction,
+                maximumConsecutiveLosses = maximumConsecutiveLosses,
+            ),
+        )
     }
 
     fun evaluateAccountDrawdown(
@@ -213,13 +213,13 @@ internal object ExecutionRiskCircuitBreaker {
 
         val peak = state.peakUnitizedNav.takeIf { useUnitizedNav } ?: state.peakEquity
         val latest = state.latestUnitizedNav.takeIf { useUnitizedNav } ?: state.latestEquity
-        val reasons =
-            if (lossFraction(peak, latest) >= maximumAccountDrawdownFraction) {
-                listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
-            } else {
-                emptyList()
-            }
-        return ExecutionRiskDecision(reasons)
+        return ExecutionRiskDecision(
+            ExecutionRiskThresholdEvaluator.accountDrawdownReasonCodes(
+                peak = peak,
+                latest = latest,
+                maximumAccountDrawdownFraction = maximumAccountDrawdownFraction,
+            ),
+        )
     }
 
     private fun updateUnitizedNav(
@@ -258,6 +258,38 @@ internal object ExecutionRiskCircuitBreaker {
             cumulativeExternalCashFlow = previous.cumulativeExternalCashFlow + externalCashFlow,
         )
     }
+}
+
+internal object ExecutionRiskThresholdEvaluator {
+    fun reasonCodes(
+        dayStart: BigDecimal,
+        peak: BigDecimal,
+        latest: BigDecimal,
+        consecutiveLosses: Int,
+        maximumDailyLossFraction: BigDecimal,
+        maximumAccountDrawdownFraction: BigDecimal,
+        maximumConsecutiveLosses: Int,
+    ): List<String> =
+        buildList {
+            if (lossFraction(dayStart, latest) >= maximumDailyLossFraction) {
+                add("DAILY_EQUITY_LOSS_LIMIT_REACHED")
+            }
+            addAll(accountDrawdownReasonCodes(peak, latest, maximumAccountDrawdownFraction))
+            if (consecutiveLosses >= maximumConsecutiveLosses) {
+                add("CONSECUTIVE_LOSS_LIMIT_REACHED")
+            }
+        }
+
+    fun accountDrawdownReasonCodes(
+        peak: BigDecimal,
+        latest: BigDecimal,
+        maximumAccountDrawdownFraction: BigDecimal,
+    ): List<String> =
+        if (lossFraction(peak, latest) >= maximumAccountDrawdownFraction) {
+            listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+        } else {
+            emptyList()
+        }
 
     private fun lossFraction(
         baseline: BigDecimal,

@@ -46,6 +46,10 @@ Initial public repository placeholder for a Bybit trading automation project.
 > audit proved that the Live-only 3% daily-loss and three-consecutive-loss
 > entry blocks are absent from the frozen replay; the first frozen closure
 > already breaches the daily proxy and the first three closures are losses.
+> A Node/Kotlin decision-boundary replay then applied those Live limits across
+> all nine capital/cost combinations with zero mismatch. The canonical 660
+> USDT run stopped after three trades, blocked 162 of 165 entries, and ended at
+> 574.39 USDT (`-12.97%`).
 > The current approval status is therefore `RUNTIME_PARITY_REQUIRED`, with the
 > mandatory `LIVE_RISK_POLICY_PARITY` gate failed. A 90-day Shadow session or
 > an edited approval receipt cannot bypass it. Automatic and live execution

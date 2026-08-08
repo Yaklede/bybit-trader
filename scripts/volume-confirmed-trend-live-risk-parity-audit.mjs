@@ -12,6 +12,7 @@ import {
   simulateTrendRun,
   validateTrendProtocol,
 } from "./lib/volume-confirmed-trend-research.mjs";
+import { compareVolumeConfirmedTrendParity } from "./lib/volume-confirmed-trend-parity.mjs";
 import { auditFrozenTrendRiskPolicy } from "./lib/volume-confirmed-trend-risk-parity.mjs";
 
 export function parseArgs(argv) {
@@ -69,6 +70,12 @@ export function parseArgs(argv) {
     out: resolve(
       values.get("out") ?? "build/research/volume-confirmed-trend-live-risk-parity-audit.json",
     ),
+    nodeRiskParity: resolve(
+      values.get("node-risk-parity") ?? "build/research/volume-confirmed-trend-node-risk-parity.json",
+    ),
+    kotlinRiskParity: resolve(
+      values.get("kotlin-risk-parity") ?? "build/research/volume-confirmed-trend-kotlin-risk-parity.json",
+    ),
     maximumDailyLossFraction,
     maximumAccountDrawdownFraction,
     maximumConsecutiveLosses,
@@ -84,11 +91,20 @@ export async function runRiskParityAudit(options) {
   const externalResultBytes = await readFile(options.externalResult);
   const externalResult = JSON.parse(externalResultBytes.toString("utf8"));
   const databaseBytes = await readFile(options.db);
+  const nodeRiskParityBytes = await readFile(options.nodeRiskParity);
+  const kotlinRiskParityBytes = await readFile(options.kotlinRiskParity);
+  const nodeRiskParity = JSON.parse(nodeRiskParityBytes.toString("utf8"));
+  const kotlinRiskParity = JSON.parse(kotlinRiskParityBytes.toString("utf8"));
   const protocolSha256 = sha256(protocolBytes);
   const externalResultSha256 = sha256(externalResultBytes);
   const databaseSha256 = sha256(databaseBytes);
   requireEqual(protocolSha256, externalResult.protocol?.sha256, "protocol SHA-256");
   requireEqual(databaseSha256, externalResult.acquisitionEvidence?.databaseSha256, "database SHA-256");
+  requireEqual(protocolSha256, nodeRiskParity.protocolSha256, "Node risk parity protocol SHA-256");
+  const parityMismatches = compareVolumeConfirmedTrendParity(nodeRiskParity, kotlinRiskParity);
+  if (parityMismatches.length > 0) {
+    throw new Error(`Volume-confirmed trend risk replay parity failed:\n${parityMismatches.slice(0, 50).join("\n")}`);
+  }
 
   const db = new DatabaseSync(options.db, { readOnly: true });
   let bars;
@@ -116,10 +132,11 @@ export async function runRiskParityAudit(options) {
   if (!Number.isFinite(startingEquity) || startingEquity <= 0) {
     throw new Error("Canonical external starting equity is missing or invalid.");
   }
+  const commands = buildTrendCommands(bars, protocol.strategy, protocol.market.warmupDecisionBars);
   const run = simulateTrendRun({
     bars,
     fundingRates,
-    commands: buildTrendCommands(bars, protocol.strategy, protocol.market.warmupDecisionBars),
+    commands,
     protocol,
     startingEquity,
     costMultiplier: 1,
@@ -130,6 +147,45 @@ export async function runRiskParityAudit(options) {
     maximumDailyLossFraction: options.maximumDailyLossFraction,
     maximumConsecutiveLosses: options.maximumConsecutiveLosses,
   });
+  const riskPolicy = {
+    maximumDailyLossFraction: options.maximumDailyLossFraction,
+    maximumAccountDrawdownFraction: options.maximumAccountDrawdownFraction,
+    maximumConsecutiveLosses: options.maximumConsecutiveLosses,
+  };
+  for (const candidate of nodeRiskParity.runs) {
+    const policyMismatches = compareVolumeConfirmedTrendParity(riskPolicy, candidate.riskPolicyReplay?.policy);
+    if (policyMismatches.length > 0) {
+      throw new Error(`Risk parity run policy mismatch:\n${policyMismatches.join("\n")}`);
+    }
+  }
+  const policyRun = simulateTrendRun({
+    bars,
+    fundingRates,
+    commands,
+    protocol,
+    startingEquity,
+    costMultiplier: 1,
+    riskPolicy,
+  });
+  const canonicalParityRun = requireParityRun(nodeRiskParity.runs, String(startingEquity), "1");
+  verifyRiskPolicyReplay(policyRun, canonicalParityRun);
+  const policyReplay = {
+    simulationKind: "H4_DECISION_BOUNDARY_RISK_POLICY_REPLAY",
+    livePathSimulation: false,
+    crossRuntimeParity: {
+      status: "PASS",
+      nodeResultSha256: sha256(nodeRiskParityBytes),
+      kotlinResultSha256: sha256(kotlinRiskParityBytes),
+      numericTolerance: 1e-8,
+      commandCount: nodeRiskParity.commands.length,
+      runCount: nodeRiskParity.runs.length,
+      tradeCount: nodeRiskParity.runs.reduce((total, candidate) => total + candidate.trades.length, 0),
+    },
+    canonical: compactRiskReplayRun(canonicalParityRun),
+    stressMatrix: nodeRiskParity.runs.map(compactRiskReplayRun),
+    limitation:
+      "The replay applies the exact threshold reason codes at causal H4 entry boundaries and is cross-runtime deterministic. Live wallet snapshots can observe additional intrabar equity states, so this is a conservative execution-contract replay rather than a prediction of exchange fills.",
+  };
   return {
     schemaVersion: 1,
     resultId: `${protocol.protocolId}-live-risk-parity-result`,
@@ -157,6 +213,7 @@ export async function runRiskParityAudit(options) {
       closedTradeCount: run.closedTradeCount,
     },
     audit,
+    policyReplay,
     status: audit.frozenPathReproducible ? "PASS" : "FAIL",
     decision: {
       riskPolicyParityPassed: audit.frozenPathReproducible,
@@ -164,6 +221,56 @@ export async function runRiskParityAudit(options) {
       liveExecutionAllowed: false,
       reasonCodes: audit.reasonCodes,
     },
+  };
+}
+
+function requireParityRun(runs, startingEquityUsdt, costMultiplier) {
+  const run = runs.find((candidate) =>
+    candidate.startingEquityUsdt === startingEquityUsdt && candidate.costMultiplier === costMultiplier);
+  if (run == null) {
+    throw new Error(`Missing risk parity run equity=${startingEquityUsdt} cost=${costMultiplier}.`);
+  }
+  return run;
+}
+
+function verifyRiskPolicyReplay(run, parityRun) {
+  const expected = {
+    endingEquityUsdt: run.endingEquityUsdt,
+    netReturnPct: run.netReturnPct,
+    compoundDailyReturnPct: run.compoundDailyReturnPct,
+    maximumConservativeIntrabarDrawdownPct: run.maximumConservativeIntrabarDrawdownPct,
+    closedTradeCount: run.trades.length,
+    riskPolicyReplay: run.riskPolicyReplay,
+  };
+  const actual = {
+    endingEquityUsdt: parityRun.endingEquityUsdt,
+    netReturnPct: parityRun.netReturnPct,
+    compoundDailyReturnPct: parityRun.compoundDailyReturnPct,
+    maximumConservativeIntrabarDrawdownPct: parityRun.maximumConservativeIntrabarDrawdownPct,
+    closedTradeCount: parityRun.trades.length,
+    riskPolicyReplay: parityRun.riskPolicyReplay,
+  };
+  const mismatches = compareVolumeConfirmedTrendParity(expected, actual);
+  if (mismatches.length > 0) {
+    throw new Error(`Canonical risk replay mismatch:\n${mismatches.join("\n")}`);
+  }
+}
+
+function compactRiskReplayRun(run) {
+  if (run.riskPolicyReplay == null) throw new Error("Risk parity run has no policy replay evidence.");
+  return {
+    startingEquityUsdt: Number(run.startingEquityUsdt),
+    costMultiplier: Number(run.costMultiplier),
+    endingEquityUsdt: run.endingEquityUsdt,
+    netReturnPct: run.netReturnPct,
+    compoundDailyReturnPct: run.compoundDailyReturnPct,
+    maximumConservativeIntrabarDrawdownPct: run.maximumConservativeIntrabarDrawdownPct,
+    closedTradeCount: run.trades.length,
+    blockedEntryCount: run.riskPolicyReplay.blockedEntryCount,
+    blockedEntryReasonCounts: run.riskPolicyReplay.blockedEntryReasonCounts,
+    firstBlockedEntry: run.riskPolicyReplay.firstBlockedEntry,
+    maximumObservedConsecutiveLosses: run.riskPolicyReplay.maximumObservedConsecutiveLosses,
+    finalConsecutiveLosses: run.riskPolicyReplay.finalConsecutiveLosses,
   };
 }
 

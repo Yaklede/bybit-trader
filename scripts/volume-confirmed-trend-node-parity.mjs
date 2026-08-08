@@ -20,10 +20,26 @@ function parseArgs(argv) {
     const [name, ...rest] = argument.slice(2).split("=");
     values.set(name, rest.join("="));
   }
+  const riskValues = [
+    values.get("maximum-daily-loss-fraction"),
+    values.get("maximum-account-drawdown-fraction"),
+    values.get("maximum-consecutive-losses"),
+  ];
+  if (riskValues.some((value) => value != null) && riskValues.some((value) => value == null)) {
+    throw new Error("Trend parity risk policy requires all three risk limits.");
+  }
+  const riskPolicy = riskValues[0] == null
+    ? null
+    : {
+        maximumDailyLossFraction: Number(riskValues[0]),
+        maximumAccountDrawdownFraction: Number(riskValues[1]),
+        maximumConsecutiveLosses: Number(riskValues[2]),
+      };
   return {
     protocol: resolve(values.get("protocol") ?? "config/volume-confirmed-trend-ensemble-v1.json"),
     db: resolve(values.get("db") ?? "build/research/binance-volume-confirmed-trend-external-v1.sqlite"),
     out: resolve(values.get("out") ?? "build/research/volume-confirmed-trend-node-parity.json"),
+    riskPolicy,
   };
 }
 
@@ -68,8 +84,9 @@ export async function buildNodeParity(options) {
             protocol,
             startingEquity: Number(startingEquityUsdt),
             costMultiplier: Number(costMultiplier),
+            riskPolicy: options.riskPolicy,
           });
-          return {
+          const parityRun = {
             startingEquityUsdt,
             costMultiplier,
             endingEquityUsdt: run.endingEquityUsdt,
@@ -96,6 +113,8 @@ export async function buildNodeParity(options) {
               reason: trade.reason,
             })),
           };
+          if (run.riskPolicyReplay != null) parityRun.riskPolicyReplay = run.riskPolicyReplay;
+          return parityRun;
         }),
       ),
     };

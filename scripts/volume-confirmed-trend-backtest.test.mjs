@@ -132,6 +132,71 @@ test("funding is charged to the position held before a same-timestamp reversal",
   assert.equal(run.maximumAdverseExposureFraction >= run.maximumEntryExposureFraction, true);
 });
 
+test("risk-policy replay closes exposure but blocks new entries after the loss-streak limit", () => {
+  const protocol = fixtureProtocol();
+  const start = Date.UTC(2026, 0, 1);
+  const bars = [
+    fixtureBar(start, 100, 100),
+    fixtureBar(start + 4 * 60 * 60 * 1_000, 90, 90),
+    fixtureBar(start + 8 * 60 * 60 * 1_000, 100, 100),
+    fixtureBar(start + 12 * 60 * 60 * 1_000, 90, 90),
+  ];
+  const run = simulateTrendRun({
+    bars,
+    fundingRates: [],
+    commands: [
+      { side: 1 },
+      { side: -1 },
+      { side: 1 },
+      { side: -1 },
+    ],
+    protocol,
+    startingEquity: 100,
+    costMultiplier: 1,
+    riskPolicy: {
+      maximumDailyLossFraction: 1,
+      maximumAccountDrawdownFraction: 1,
+      maximumConsecutiveLosses: 2,
+    },
+  });
+
+  assert.equal(run.closedTradeCount, 2);
+  assert.equal(run.riskPolicyReplay.blockedEntryCount, 2);
+  assert.deepEqual(run.riskPolicyReplay.blockedEntryReasonCounts, {
+    CONSECUTIVE_LOSS_LIMIT_REACHED: 2,
+  });
+  assert.equal(run.riskPolicyReplay.firstBlockedEntry.executionAt, new Date(bars[2].openedAt).toISOString());
+  assert.equal(run.riskPolicyReplay.maximumObservedConsecutiveLosses, 2);
+  assert.equal(run.riskPolicyReplay.finalConsecutiveLosses, 2);
+});
+
+test("risk-policy replay resets the daily baseline only at the next UTC day", () => {
+  const protocol = fixtureProtocol();
+  const start = Date.UTC(2026, 0, 1);
+  const bars = [
+    fixtureBar(start, 100, 100),
+    fixtureBar(start + 4 * 60 * 60 * 1_000, 90, 90),
+    fixtureBar(start + 24 * 60 * 60 * 1_000, 90, 90),
+  ];
+  const run = simulateTrendRun({
+    bars,
+    fundingRates: [],
+    commands: [{ side: 1 }, { side: -1 }, { side: 1 }],
+    protocol,
+    startingEquity: 100,
+    costMultiplier: 1,
+    riskPolicy: {
+      maximumDailyLossFraction: 0.03,
+      maximumAccountDrawdownFraction: 1,
+      maximumConsecutiveLosses: 10,
+    },
+  });
+
+  assert.equal(run.riskPolicyReplay.blockedEntryCount, 1);
+  assert.deepEqual(run.riskPolicyReplay.firstBlockedEntry.reasonCodes, ["DAILY_EQUITY_LOSS_LIMIT_REACHED"]);
+  assert.equal(run.closedTradeCount, 2);
+});
+
 test("protocol validation rejects any live permission", () => {
   const protocol = fixtureProtocol();
   assert.equal(validateTrendProtocol(protocol), protocol);
