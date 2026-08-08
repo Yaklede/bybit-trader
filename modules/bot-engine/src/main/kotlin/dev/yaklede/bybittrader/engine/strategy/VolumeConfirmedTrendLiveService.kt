@@ -594,7 +594,20 @@ class VolumeConfirmedTrendLiveService(
             return approvalBlocked(blockByApproval(stored, now), approval)
         }
 
-        val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        val openPositions =
+            try {
+                gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.warn("trend approval-revocation position read failed", error)
+                return halt(
+                    stored,
+                    null,
+                    now,
+                    "TREND_APPROVAL_REVOKED_POSITION_READ_UNAVAILABLE",
+                ).withApproval(approval)
+            }
         if (openPositions.size > 1) {
             return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED").withApproval(approval)
         }
@@ -639,6 +652,59 @@ class VolumeConfirmedTrendLiveService(
             }
         }
 
+        val accountOpenOrders =
+            try {
+                gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.warn("trend approval-revocation order read failed", error)
+                return halt(
+                    stored,
+                    null,
+                    now,
+                    "TREND_APPROVAL_REVOKED_ORDER_READ_UNAVAILABLE",
+                    position = position,
+                ).withApproval(approval)
+            }
+        if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
+            return halt(
+                stored,
+                null,
+                now,
+                "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED",
+                position = position,
+            ).withApproval(approval)
+        }
+
+        val exitContract =
+            try {
+                SafetyExitContract(
+                    position = gateway.positionExecutionProfile(config.symbol),
+                    instrument = gateway.instrumentRules(config.symbol),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.warn("trend approval-revocation instrument read failed", error)
+                return halt(
+                    stored,
+                    null,
+                    now,
+                    "TREND_APPROVAL_REVOKED_INSTRUMENT_READ_UNAVAILABLE",
+                    position = position,
+                ).withApproval(approval)
+            }
+        if (!exitContract.allowsOrder(config.symbol)) {
+            return halt(
+                stored,
+                null,
+                now,
+                "TREND_APPROVAL_REVOKED_EXIT_CONTRACT_UNAVAILABLE",
+                position = position,
+            ).withApproval(approval)
+        }
+
         val exitReferencePrice = referencePrice?.takeIf { it > BigDecimal.ZERO } ?: position.markPrice
         if (exitReferencePrice == null || exitReferencePrice <= BigDecimal.ZERO) {
             return halt(
@@ -649,7 +715,7 @@ class VolumeConfirmedTrendLiveService(
                 position = position,
             ).withApproval(approval)
         }
-        val instrument = gateway.instrumentRules(config.symbol)
+        val instrument = exitContract.instrument
         val plan =
             VolumeConfirmedTrendTargetPlanner.safetyExit(
                 protocolSha256 = config.protocolSha256,

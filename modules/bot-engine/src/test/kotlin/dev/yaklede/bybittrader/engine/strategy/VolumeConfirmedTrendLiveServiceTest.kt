@@ -320,6 +320,51 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 0
         }
 
+        "revoked approval never duplicates an unresolved owned order" {
+            val position = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            gateway.openOrders += foreignOpenOrder(clientOrderId = "vct-x-s-orphan")
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED"
+            result.approvalFailures.contains(VolumeConfirmedTrendLiveApprovalFailure.RECEIPT_NOT_APPROVED) shouldBe true
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "revoked approval does not submit an exit when reduce-only execution is restricted" {
+            val position = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            gateway.positionProfileResponse = gateway.positionProfileResponse.copy(reduceOnlyRestricted = true)
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_APPROVAL_REVOKED_EXIT_CONTRACT_UNAVAILABLE"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "foreign manual order does not block an approval-revocation exit" {
+            val position = position(Side.SELL, "0.004")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            gateway.openOrders += foreignOpenOrder()
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.BUY
+                reduceOnly shouldBe true
+            }
+        }
+
         "repeated safety halt with unchanged state is persisted once" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()

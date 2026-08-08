@@ -248,6 +248,10 @@ missing wallet fields, and residual account margin exposure. Entry sizing uses
 the official [wallet-balance contract](https://bybit-exchange.github.io/docs/v5/account/wallet-balance).
 These checks block new entries but do not prevent a reduce-only exit for a
 position already owned by the strategy.
+Approval revocation closes an exactly owned position only after confirming that
+there is no active `vct-*` order and that one-way, reduce-only, tradable
+BTCUSDT-linear execution remains available. Any uncertainty halts without a
+duplicate exit; unrelated manual orders remain an entry-only blocker.
 During H4 pending-order recovery, an active exact IOC order prevents both
 `OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
 order after the recovery timeout and requires terminal exchange readback; an

@@ -238,6 +238,8 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 | `APPROVAL_REPORT_UNAVAILABLE` | 현재 승인 보고서를 계산할 수 없음 | 신규 노출 차단, 소유 포지션 reduce-only 종료 |
 | `TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED` | 승인 상실 시 거래소 포지션 소유권 불일치 | 자동 종료 금지, `HALTED`, 사람 확인 |
 | `TREND_APPROVAL_REVOKED_EXIT_PRICE_UNAVAILABLE` | 소유 포지션의 유효 mark/reference 가격 없음 | 자동 종료 금지, `HALTED`, 사람 확인 |
+| `TREND_APPROVAL_REVOKED_EXIT_CONTRACT_UNAVAILABLE` | 승인 상실 시 one-way/reduce-only/거래 가능 계약 불일치 | 주문 금지, `HALTED`, 사람 확인 |
+| `TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED` | 승인 상실 시 활성 `vct-*` 주문 존재 | 중복 종료 금지, exact 주문 복구 또는 사람 확인 |
 | `TREND_SHADOW_GATE_NOT_READY` | 현재 report가 human review 전 | 주문 경로 구성 금지 |
 | `TREND_ACCOUNT_MODE_MISMATCH` | hedge/isolated/비 Unified | `HALTED`, Discord 긴급 알림 |
 | `TREND_EXPOSURE_LIMIT_EXCEEDED` | 수량 반올림 후 0.85 초과 | 주문 없음 |
@@ -270,6 +272,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   포지션 관리는 중단하지 않는다. 신규 진입은 즉시 차단하고, 현재 수량 전체에 bounded reduce-only IOC
   종료를 제출한다. 명확히 미체결된 종료만 1분 이후 새 client order ID로 재시도하며 불명확한 응답은
   자동 재주문하지 않는다. 거래소 수량과 영속 상태 수량이 다르면 포지션을 임의 종료하지 않는다.
+- 승인 철회 종료도 계정의 활성 `vct-*` 주문이 없고 one-way mode, reduce-only 허용, 거래 가능한
+  BTCUSDT linear perpetual 계약이 다시 확인된 경우에만 제출한다. 외부 수동 주문은 종료를 막지 않지만
+  신규 진입은 계속 차단한다.
 - 안전 종료는 포지션을 감소시키는 전체 수량 주문이므로 일반 신규 주문의 minimum-notional 사전 차단을
   적용하지 않는다. 거래소의 실제 수락·미체결 결과는 동일한 pending 복구 상태 머신으로 확인한다.
 
