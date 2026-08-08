@@ -99,6 +99,7 @@ case "$1" in
       *'command -v sqlite3'*)
         if [ "$FAKE_SQLITE_AVAILABLE" != "true" ]; then exit 1; fi
         ;;
+      *' cat '*bybit-trader-predeploy-*) printf '%s' 'sqlite-source' ;;
       *bybit-trader.sqlite-wal*)
         if [ "$FAKE_WAL_PRESENT" != "true" ]; then exit 1; fi
         ;;

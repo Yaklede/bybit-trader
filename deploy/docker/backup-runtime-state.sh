@@ -98,9 +98,9 @@ if docker exec "${container_id}" sh -c 'command -v sqlite3 >/dev/null 2>&1'; the
   docker exec "${container_id}" sh -c \
     'rm -f "$1" && sqlite3 "${BOT_DATABASE_PATH:-/data/bybit-trader.sqlite}" ".timeout 10000" ".backup $1"' \
     sh "${container_temporary_database}"
-  docker cp \
-    "${container_id}:${container_temporary_database}" \
-    "${partial_directory}/source.sqlite" >/dev/null
+  docker exec "${container_id}" test -s "${container_temporary_database}"
+  docker exec "${container_id}" cat "${container_temporary_database}" \
+    > "${partial_directory}/source.sqlite"
 else
   database_wal_present=false
   database_shm_present=false

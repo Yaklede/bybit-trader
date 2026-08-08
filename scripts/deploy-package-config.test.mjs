@@ -66,6 +66,7 @@ test("runtime image includes sqlite tooling for consistent deploy backups", () =
   assert.match(dockerfile, /apt-get install -y --no-install-recommends curl ca-certificates sqlite3/);
   assert.match(ciWorkflow, /name: Verify runtime backup recovery/);
   assert.match(ciWorkflow, /sh deploy\/docker\/verify-runtime-backup\.sh/);
+  assert.match(ciWorkflow, /docker exec "\$\{SOURCE_CONTAINER\}" cat \/tmp\/bybit-trader-ci\.sqlite/);
   assert.match(ciWorkflow, /--network none/);
   assert.match(ciWorkflow, /BOT_PRIVATE_EXECUTION_ENABLED=false/);
 });

@@ -92,9 +92,9 @@ jobs:
 
           docker exec "${SOURCE_CONTAINER}" sh -c \
             'sqlite3 "$BOT_DATABASE_PATH" ".backup /tmp/bybit-trader-ci.sqlite"'
-          docker cp \
-            "${SOURCE_CONTAINER}:/tmp/bybit-trader-ci.sqlite" \
-            "${SNAPSHOT_DIRECTORY}/bybit-trader.sqlite" >/dev/null
+          docker exec "${SOURCE_CONTAINER}" test -s /tmp/bybit-trader-ci.sqlite
+          docker exec "${SOURCE_CONTAINER}" cat /tmp/bybit-trader-ci.sqlite \
+            > "${SNAPSHOT_DIRECTORY}/bybit-trader.sqlite"
           DATABASE_SHA256="$(sha256sum "${SNAPSHOT_DIRECTORY}/bybit-trader.sqlite" | awk '{print $1}')"
           printf '%s\n' \
             "databaseSha256=${DATABASE_SHA256}" \
