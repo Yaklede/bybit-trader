@@ -9,7 +9,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
@@ -123,7 +122,7 @@ class VolumeConfirmedTrendLiveManagementLoop(
                     throw error
                 } catch (error: Throwable) {
                     logger.warn("volume-confirmed trend live management loop failed", error)
-                    notifyTrendLiveLoopFailure(
+                    notifyTradingLoopFailure(
                         logger = logger,
                         loopName = "volume-confirmed trend live management loop",
                         onFailure = onFailure,
@@ -283,7 +282,7 @@ class VolumeConfirmedTrendLiveLoop(
                     throw error
                 } catch (error: Throwable) {
                     logger.warn("volume-confirmed trend live loop failed", error)
-                    notifyTrendLiveLoopFailure(
+                    notifyTradingLoopFailure(
                         logger = logger,
                         loopName = "volume-confirmed trend live loop",
                         onFailure = onFailure,
@@ -337,18 +336,3 @@ private fun VolumeConfirmedTrendShadowEvent.toExecutionSignal(): VolumeConfirmed
 private fun VolumeConfirmedTrendLiveEvaluationStatus.blocksLiveLoop(): Boolean =
     this == VolumeConfirmedTrendLiveEvaluationStatus.HALTED ||
         this == VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
-
-private suspend fun notifyTrendLiveLoopFailure(
-    logger: Logger,
-    loopName: String,
-    onFailure: suspend (Throwable) -> Unit,
-    error: Throwable,
-) {
-    try {
-        onFailure(error)
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (callbackError: Throwable) {
-        logger.error("$loopName failure callback failed", callbackError)
-    }
-}

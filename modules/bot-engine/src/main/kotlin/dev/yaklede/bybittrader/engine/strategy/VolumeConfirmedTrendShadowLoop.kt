@@ -103,7 +103,12 @@ class VolumeConfirmedTrendShadowLoop(
                     throw error
                 } catch (error: Throwable) {
                     logger.warn("volume-confirmed trend shadow loop failed", error)
-                    onFailure(error)
+                    notifyTradingLoopFailure(
+                        logger = logger,
+                        loopName = "volume-confirmed trend shadow loop",
+                        onFailure = onFailure,
+                        error = error,
+                    )
                     delay(config.failureRetryDelay.toMillis())
                 }
             }

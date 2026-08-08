@@ -5,11 +5,15 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.market.MarketCandleStore
+import dev.yaklede.bybittrader.engine.market.MarketDataFeed
+import dev.yaklede.bybittrader.engine.market.MarketDataSyncService
 import dev.yaklede.bybittrader.engine.market.MarketTicker
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioPeriod
 import dev.yaklede.bybittrader.engine.market.flow.AccountRatioSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.FlowMarketDataStore
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateFeed
 import dev.yaklede.bybittrader.engine.market.flow.FundingRateSnapshot
+import dev.yaklede.bybittrader.engine.market.flow.FundingRateSyncService
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestInterval
 import dev.yaklede.bybittrader.engine.market.flow.OpenInterestSnapshot
 import dev.yaklede.bybittrader.engine.market.flow.PremiumIndexBar
@@ -18,8 +22,17 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeout
 import java.math.BigDecimal
+import java.time.Clock
+import java.time.Duration
 import java.time.Instant
+import java.time.ZoneOffset
 
 class VolumeConfirmedTrendShadowServiceTest :
     StringSpec({
@@ -150,6 +163,74 @@ class VolumeConfirmedTrendShadowServiceTest :
             report.state shouldBe fixture.store.state
             report.recentEvents shouldBe fixture.events
             shouldThrow<IllegalArgumentException> { service.report(limit = 0) }
+        }
+
+        "shadow loop survives a failing failure callback and resumes observation" {
+            val fixture = ShadowFixture()
+            val now = Instant.parse("2026-01-01T12:01:00Z")
+            val recovered = CompletableDeferred<Unit>()
+            var tickerRequests = 0
+            var failureCallbacks = 0
+            val marketFeed =
+                object : MarketDataFeed {
+                    override suspend fun fetchRecentCandles(
+                        symbol: Symbol,
+                        timeframe: Timeframe,
+                        limit: Int,
+                    ): List<Candle> =
+                        fixture.candles
+                            .filter { it.symbol == symbol && it.timeframe == timeframe }
+                            .takeLast(limit)
+
+                    override suspend fun fetchTicker(symbol: Symbol): MarketTicker {
+                        tickerRequests += 1
+                        if (tickerRequests == 1) error("injected ticker outage")
+                        return fixture.ticker(now.toString(), "110")
+                    }
+                }
+            val fundingFeed =
+                object : FundingRateFeed {
+                    override suspend fun fetchFundingRateSnapshots(
+                        symbol: Symbol,
+                        startAt: Instant,
+                        endAt: Instant,
+                        limit: Int,
+                    ): List<FundingRateSnapshot> = emptyList()
+                }
+            val loop =
+                VolumeConfirmedTrendShadowLoop(
+                    marketDataSyncService =
+                        MarketDataSyncService(
+                            marketDataFeed = marketFeed,
+                            candleStore = InMemoryCandleStore(fixture.candles),
+                            clock = Clock.fixed(now, ZoneOffset.UTC),
+                        ),
+                    fundingRateSyncService = FundingRateSyncService(fundingFeed, fixture.flow),
+                    shadowService = fixture.service(),
+                    config =
+                        VolumeConfirmedTrendShadowLoopConfig(
+                            symbol = fixture.symbol,
+                            recentSyncLimit = 16,
+                            failureRetryDelay = Duration.ofMillis(1),
+                        ),
+                    clock = Clock.fixed(now, ZoneOffset.UTC),
+                    onResult = { recovered.complete(Unit) },
+                    onFailure = {
+                        failureCallbacks += 1
+                        error("injected shadow failure callback outage")
+                    },
+                )
+            val job = loop.start(CoroutineScope(SupervisorJob() + Dispatchers.Default))
+
+            try {
+                withTimeout(1_000) { recovered.await() }
+            } finally {
+                job.cancelAndJoin()
+            }
+
+            tickerRequests shouldBe 2
+            failureCallbacks shouldBe 1
+            fixture.store.state?.status shouldBe VolumeConfirmedTrendShadowStatus.OBSERVING
         }
     })
 
