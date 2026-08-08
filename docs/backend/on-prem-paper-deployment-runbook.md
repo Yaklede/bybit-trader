@@ -265,6 +265,10 @@ An opposite H4 signal for an exactly owned position also bypasses entry-only
 account, balance, risk-ledger, and accounting checks. It still requires no
 active `vct-*` order plus a valid one-way, reduce-only, tradable BTCUSDT-linear
 exit contract. Thus an accounting outage blocks exposure growth, not reduction.
+Any position whose side or quantity differs from persisted ownership evidence is
+never copied into that evidence during halt, approval revocation, safety exit, or
+pending recovery. Repeated reconciliation therefore cannot promote a manual or
+foreign position into an H4-owned position eligible for automatic closure.
 During H4 pending-order recovery, an active exact IOC order prevents both
 `OPEN` and `FLAT` confirmation. The runtime requests cancellation for that exact
 order after the recovery timeout and requires terminal exchange readback; an

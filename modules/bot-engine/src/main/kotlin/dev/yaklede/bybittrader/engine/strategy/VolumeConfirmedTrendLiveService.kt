@@ -474,6 +474,9 @@ class VolumeConfirmedTrendLiveService(
             return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
         }
         val position = positions.singleOrNull()
+        if (position != null && !stored.ownsManagedPosition(position)) {
+            return halt(stored, null, now, "TREND_HALTED_POSITION_OWNERSHIP_MISMATCH")
+        }
         if (stored.haltedReasonCode?.startsWith(TREND_EXCHANGE_CONTRACT_MISMATCH_REASON_CODE) == true &&
             position != null
         ) {
@@ -1136,14 +1139,15 @@ class VolumeConfirmedTrendLiveService(
         position: ExchangePosition? = null,
         contractFailures: List<VolumeConfirmedTrendExchangeContractFailure> = emptyList(),
     ): VolumeConfirmedTrendLiveEvaluationResult {
+        val ownedPosition = position?.takeIf { observed -> previous?.ownsManagedPosition(observed) == true }
         val state =
             baseState(previous, now).copy(
                 status = VolumeConfirmedTrendLiveStatus.HALTED,
                 approvalId = approvalReceipt.approvalId ?: previous?.approvalId,
                 activeDecisionKey = signal?.let { signalDecisionKey(it) } ?: previous?.activeDecisionKey,
                 pendingTargetSide = signal?.side ?: previous?.pendingTargetSide,
-                observedPositionSide = position?.side ?: previous?.observedPositionSide,
-                observedPositionQuantity = position?.size ?: previous?.observedPositionQuantity,
+                observedPositionSide = ownedPosition?.side ?: previous?.observedPositionSide,
+                observedPositionQuantity = ownedPosition?.size ?: previous?.observedPositionQuantity,
                 haltedReasonCode = reasonCode,
                 updatedAt = now,
             )

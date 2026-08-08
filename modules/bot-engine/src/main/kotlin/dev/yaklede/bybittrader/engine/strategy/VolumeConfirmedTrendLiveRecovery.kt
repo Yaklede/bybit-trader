@@ -254,8 +254,6 @@ internal class VolumeConfirmedTrendLiveRecovery(
         val cancellationPending =
             state.copy(
                 exchangeOrderId = cancelled.exchangeOrderId ?: order.exchangeOrderId ?: state.exchangeOrderId,
-                observedPositionSide = position?.side,
-                observedPositionQuantity = position?.size,
                 updatedAt = now,
             )
         val event =
@@ -327,11 +325,12 @@ internal class VolumeConfirmedTrendLiveRecovery(
         reasonCode: String,
         position: ExchangePosition? = null,
     ): VolumeConfirmedTrendLiveEvaluationResult {
+        val verifiedPosition = position?.takeIf { observed -> state.matchesObservedPosition(observed) }
         val halted =
             state.copy(
                 status = VolumeConfirmedTrendLiveStatus.HALTED,
-                observedPositionSide = position?.side ?: state.observedPositionSide,
-                observedPositionQuantity = position?.size ?: state.observedPositionQuantity,
+                observedPositionSide = verifiedPosition?.side ?: state.observedPositionSide,
+                observedPositionQuantity = verifiedPosition?.size ?: state.observedPositionQuantity,
                 haltedReasonCode = reasonCode,
                 updatedAt = now,
             )
@@ -345,6 +344,9 @@ internal class VolumeConfirmedTrendLiveRecovery(
     }
 
     private fun ExchangeOpenOrder.hasFilledQuantity(): Boolean = filledQuantity?.let { it > BigDecimal.ZERO } == true
+
+    private fun VolumeConfirmedTrendLiveState.matchesObservedPosition(position: ExchangePosition): Boolean =
+        observedPositionSide == position.side && observedPositionQuantity?.compareTo(position.size) == 0
 
     private fun OrderStatus.isActive(): Boolean =
         this == OrderStatus.CREATED || this == OrderStatus.SUBMITTED || this == OrderStatus.PARTIALLY_FILLED

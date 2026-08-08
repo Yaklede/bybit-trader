@@ -313,10 +313,14 @@ class VolumeConfirmedTrendLiveServiceTest :
             val service = service(gateway, store, approved = false)
 
             val result = service.reconcile()
+            val repeated = service.reconcile()
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            repeated.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             result.state.approvalId shouldBe APPROVAL_ID
             result.state.haltedReasonCode shouldBe "TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED"
+            result.state.observedPositionQuantity shouldBe BigDecimal("0.006")
+            repeated.state.observedPositionQuantity shouldBe BigDecimal("0.006")
             gateway.submittedOrders.size shouldBe 0
         }
 
@@ -401,10 +405,38 @@ class VolumeConfirmedTrendLiveServiceTest :
             val service = service(gateway, store)
 
             val result = service.haltForSafety("TREND_SHADOW_TARGET_SIGNAL_MISMATCH")
+            val repeated = service.haltForSafety("TREND_SHADOW_TARGET_SIGNAL_MISMATCH")
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            repeated.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             result.state.haltedReasonCode shouldBe
                 "TREND_SHADOW_TARGET_SIGNAL_MISMATCH|TREND_SAFETY_POSITION_OWNERSHIP_UNCONFIRMED"
+            result.state.observedPositionSide shouldBe null
+            result.state.observedPositionQuantity shouldBe null
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "halted reconciliation never adopts a newly observed unowned position" {
+            val exchangePosition = position(Side.SELL, "0.004")
+            val gateway = FakeTrendLiveGateway(mutableListOf(exchangePosition))
+            val haltedWithoutOwnership =
+                openState(exchangePosition).copy(
+                    status = VolumeConfirmedTrendLiveStatus.HALTED,
+                    observedPositionSide = null,
+                    observedPositionQuantity = null,
+                    haltedReasonCode = "TREND_TEST_HALT",
+                )
+            val store = InMemoryTrendLiveStore(state = haltedWithoutOwnership)
+            val service = service(gateway, store)
+
+            val reconciled = service.reconcile()
+            val safetyCheck = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+
+            reconciled.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            reconciled.state.haltedReasonCode shouldBe "TREND_HALTED_POSITION_OWNERSHIP_MISMATCH"
+            reconciled.state.observedPositionSide shouldBe null
+            reconciled.state.observedPositionQuantity shouldBe null
+            safetyCheck.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             gateway.submittedOrders.size shouldBe 0
         }
 
@@ -936,6 +968,8 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             cancellationPending.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING
             cancellationPending.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+            cancellationPending.state.observedPositionSide shouldBe null
+            cancellationPending.state.observedPositionQuantity shouldBe null
             gateway.cancelRequests.single().clientOrderId shouldBe clientOrderId
             gateway.openOrders[0] =
                 gateway.openOrders.single().copy(
@@ -1290,9 +1324,13 @@ class VolumeConfirmedTrendLiveServiceTest :
             now = now.plusSeconds(11)
 
             val result = service.reconcile()
+            val safetyCheck = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
 
             result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             result.state.haltedReasonCode shouldBe "TREND_ENTRY_POSITION_WITHOUT_ORDER_EVIDENCE"
+            result.state.observedPositionSide shouldBe null
+            result.state.observedPositionQuantity shouldBe null
+            safetyCheck.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
             gateway.submittedOrders.size shouldBe 1
         }
 
