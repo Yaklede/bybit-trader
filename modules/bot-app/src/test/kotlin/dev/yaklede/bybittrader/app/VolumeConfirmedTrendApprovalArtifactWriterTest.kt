@@ -45,7 +45,7 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                 Files.readAllBytes(exported.shadowEvidencePath).sha256() shouldBe exported.shadowEvidenceSha256
                 Files.readAllBytes(exported.approvalReportPath).sha256() shouldBe exported.approvalReportSha256
                 val evidence = Files.readString(exported.shadowEvidencePath)
-                evidence shouldContain "\"schemaVersion\": 1"
+                evidence shouldContain "\"schemaVersion\": 2"
                 evidence shouldContain "\"sessionId\": \"shadow-ready-1\""
                 (evidence.indexOf("SESSION_STARTED") < evidence.indexOf("H4_EVALUATED")) shouldBe true
                 Files.readString(exported.manifestPath).also { manifest ->
@@ -115,6 +115,27 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                     VolumeConfirmedTrendApprovalArtifactWriter(
                         outputDirectory = output,
                         shadowReportProvider = { shadow.copy(recentEvents = shadow.recentEvents + duplicate) },
+                        approvalReportProvider = { readyApprovalReport() },
+                    )
+
+                shouldThrow<IllegalArgumentException> { writer.export() }
+                Files.list(output).use { entries -> entries.count() shouldBe 0L }
+            } finally {
+                output.toFile().deleteRecursively()
+            }
+        }
+
+        "ready snapshot with a mismatched event strategy cannot be exported" {
+            val output = Files.createTempDirectory("trend-approval-writer-event-identity-test")
+            try {
+                val shadow = readyShadowReport()
+                val mismatched = shadow.recentEvents.last().copy(protocolSha256 = "f".repeat(64))
+                val writer =
+                    VolumeConfirmedTrendApprovalArtifactWriter(
+                        outputDirectory = output,
+                        shadowReportProvider = {
+                            shadow.copy(recentEvents = shadow.recentEvents.dropLast(1) + mismatched)
+                        },
                         approvalReportProvider = { readyApprovalReport() },
                     )
 

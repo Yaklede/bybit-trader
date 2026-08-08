@@ -8,6 +8,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatu
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalReceipt
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalValidator
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowStatus
 import kotlinx.serialization.json.Json
@@ -183,7 +184,7 @@ private fun validateShadowEvidence(
     protocol: VolumeConfirmedTrendProtocolDefinition,
     forwardPolicy: VolumeConfirmedTrendForwardPolicy,
 ): FrozenShadowState {
-    require(root.requiredRuntimeApprovalInt("schemaVersion") == 1) {
+    require(root.requiredRuntimeApprovalInt("schemaVersion") == SHADOW_EVIDENCE_SCHEMA_VERSION) {
         "Unsupported trend Shadow evidence schema."
     }
     require(root.requiredRuntimeApprovalString("protocolId") == protocol.protocolId)
@@ -215,6 +216,34 @@ private fun validateShadowEvidence(
         "Trend Shadow evidence state timestamp predates its latest observation."
     }
     val events = root.requiredRuntimeApprovalArray("events").map { event -> event.jsonObject }
+    require(events.isNotEmpty() && events.size < MAX_RUNTIME_APPROVAL_EVENTS) {
+        "Trend Shadow evidence must contain a complete, non-truncated event set."
+    }
+    val eventIds = events.map { event -> event.requiredRuntimeApprovalString("eventId") }
+    require(eventIds.all(String::isNotBlank) && eventIds.toSet().size == eventIds.size) {
+        "Trend Shadow evidence event IDs must be non-blank and unique."
+    }
+    events.forEach { event ->
+        require(event.requiredRuntimeApprovalString("sessionId") == receipt.shadowSessionId) {
+            "Trend Shadow evidence contains an event from another session."
+        }
+        require(
+            event.requiredRuntimeApprovalString("protocolId") == protocol.protocolId &&
+                event.requiredRuntimeApprovalString("protocolSha256") == protocol.protocolSha256 &&
+                event.requiredRuntimeApprovalString("symbol") == protocol.symbol.value,
+        ) {
+            "Trend Shadow evidence event identity does not match the runtime strategy."
+        }
+        VolumeConfirmedTrendShadowEventType.valueOf(event.requiredRuntimeApprovalString("type"))
+        val eventAt = Instant.parse(event.requiredRuntimeApprovalString("eventAt"))
+        val observedAt = Instant.parse(event.requiredRuntimeApprovalString("observedAt"))
+        require(!eventAt.isBefore(frozenState.sessionStartedAt) && !eventAt.isAfter(observedAt)) {
+            "Trend Shadow evidence event time falls outside its causal session order."
+        }
+        require(!observedAt.isAfter(frozenState.updatedAt)) {
+            "Trend Shadow evidence observation postdates the frozen state."
+        }
+    }
     val sessionStartEvents = events.filter { event -> event.requiredRuntimeApprovalString("type") == "SESSION_STARTED" }
     require(
         sessionStartEvents.size == 1 &&
@@ -292,3 +321,6 @@ private fun ByteArray.sha256(): String =
         .getInstance("SHA-256")
         .digest(this)
         .joinToString("") { byte -> "%02x".format(byte) }
+
+private const val MAX_RUNTIME_APPROVAL_EVENTS = 100_000
+private const val SHADOW_EVIDENCE_SCHEMA_VERSION = 2

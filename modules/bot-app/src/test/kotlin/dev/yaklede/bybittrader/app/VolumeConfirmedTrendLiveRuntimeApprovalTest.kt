@@ -58,6 +58,18 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
             }
         }
 
+        "frozen evidence with duplicate event IDs cannot be approved" {
+            withRuntimeApprovalFixture(duplicateEventId = true) { fixture ->
+                shouldThrow<IllegalArgumentException> { fixture.load() }
+            }
+        }
+
+        "frozen evidence containing another session cannot be approved" {
+            withRuntimeApprovalFixture(eventSessionId = "another-session") { fixture ->
+                shouldThrow<IllegalArgumentException> { fixture.load() }
+            }
+        }
+
         "current Shadow continuity and policy gates are checked before private access" {
             withRuntimeApprovalFixture { fixture ->
                 val approval = fixture.load()
@@ -118,6 +130,8 @@ private inline fun withRuntimeApprovalFixture(
     reportGateStatus: String = "PASS",
     omitFrozenGates: Boolean = false,
     duplicateSessionStart: Boolean = false,
+    duplicateEventId: Boolean = false,
+    eventSessionId: String = SESSION_ID,
     block: (RuntimeApprovalFixture) -> Unit,
 ) {
     val directory = Files.createTempDirectory("trend-live-runtime-approval-")
@@ -125,7 +139,14 @@ private inline fun withRuntimeApprovalFixture(
         val shadowPath = directory.resolve("shadow-evidence.json")
         val reportPath = directory.resolve("approval-report.json")
         val receiptPath = directory.resolve("receipt.json")
-        Files.writeString(shadowPath, shadowEvidenceJson(duplicateSessionStart))
+        Files.writeString(
+            shadowPath,
+            shadowEvidenceJson(
+                duplicateSessionStart = duplicateSessionStart,
+                duplicateEventId = duplicateEventId,
+                eventSessionId = eventSessionId,
+            ),
+        )
         Files.writeString(reportPath, approvalReportJson(reportGateStatus, omitFrozenGates))
         val shadowSha = Files.readAllBytes(shadowPath).sha256()
         val reportSha = Files.readAllBytes(reportPath).sha256()
@@ -145,16 +166,46 @@ private inline fun withRuntimeApprovalFixture(
     }
 }
 
-private fun shadowEvidenceJson(duplicateSessionStart: Boolean): String {
+private fun shadowEvidenceJson(
+    duplicateSessionStart: Boolean,
+    duplicateEventId: Boolean,
+    eventSessionId: String,
+): String {
     val events =
-        if (duplicateSessionStart) {
-            """[{"type":"SESSION_STARTED","eventAt":"$SESSION_STARTED_AT","observedAt":"$SESSION_STARTED_AT"},{"type":"SESSION_STARTED","eventAt":"$SESSION_STARTED_AT","observedAt":"$SESSION_STARTED_AT"},{"type":"H4_EVALUATED","eventAt":"$EVIDENCE_OBSERVED_AT","observedAt":"$EVIDENCE_OBSERVED_AT"}]"""
-        } else {
-            """[{"type":"SESSION_STARTED","eventAt":"$SESSION_STARTED_AT","observedAt":"$SESSION_STARTED_AT"},{"type":"H4_EVALUATED","eventAt":"$EVIDENCE_OBSERVED_AT","observedAt":"$EVIDENCE_OBSERVED_AT"}]"""
-        }
+        buildList {
+            add(
+                shadowEventJson(
+                    eventId = "event-start",
+                    sessionId = eventSessionId,
+                    type = "SESSION_STARTED",
+                    eventAt = SESSION_STARTED_AT,
+                    observedAt = SESSION_STARTED_AT,
+                ),
+            )
+            if (duplicateSessionStart) {
+                add(
+                    shadowEventJson(
+                        eventId = "event-start-duplicate",
+                        sessionId = eventSessionId,
+                        type = "SESSION_STARTED",
+                        eventAt = SESSION_STARTED_AT,
+                        observedAt = SESSION_STARTED_AT,
+                    ),
+                )
+            }
+            add(
+                shadowEventJson(
+                    eventId = if (duplicateEventId) "event-start" else "event-h4",
+                    sessionId = eventSessionId,
+                    type = "H4_EVALUATED",
+                    eventAt = EVIDENCE_OBSERVED_AT,
+                    observedAt = EVIDENCE_OBSERVED_AT,
+                ),
+            )
+        }.joinToString(prefix = "[", postfix = "]", separator = ",")
     return """
         {
-          "schemaVersion": 1,
+          "schemaVersion": 2,
           "generatedAt": "$REPORT_AT",
           "policyId": "$POLICY_ID",
           "policySha256": "$POLICY_SHA",
@@ -173,6 +224,26 @@ private fun shadowEvidenceJson(duplicateSessionStart: Boolean): String {
         }
         """.trimIndent() + "\n"
 }
+
+private fun shadowEventJson(
+    eventId: String,
+    sessionId: String,
+    type: String,
+    eventAt: String,
+    observedAt: String,
+): String =
+    """
+    {
+      "eventId": "$eventId",
+      "sessionId": "$sessionId",
+      "protocolId": "$PROTOCOL_ID",
+      "protocolSha256": "$PROTOCOL_SHA",
+      "symbol": "BTCUSDT",
+      "type": "$type",
+      "eventAt": "$eventAt",
+      "observedAt": "$observedAt"
+    }
+    """.trimIndent()
 
 private fun approvalReportJson(
     gateStatus: String,

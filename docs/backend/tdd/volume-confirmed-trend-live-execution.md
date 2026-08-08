@@ -298,6 +298,8 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 승인 영수증, 불변 Shadow 증거, 승인 보고서의 SHA-256과 protocol/policy/session을 앱 부팅 시 검증한다.
 - 승인 보고서는 고정된 15개 gate ID를 중복·누락 없이 모두 `PASS`해야 하며, 보고서 자체의 자동·실거래 권한은 계속 `false`여야 한다.
 - 현재 SQLite Shadow checkpoint가 승인 증거보다 과거로 롤백되지 않았고 같은 연속 세션이며, 정확히 하나의 상태 시각과 일치하는 `SESSION_STARTED`, 최신성·MDD·노출·청산 및 모든 현재 forward gate를 계속 통과하는지 확인한다.
+- 동결 이벤트는 event ID, session ID, protocol fingerprint, symbol, type, event/observation time을 보존하며 런타임이 중복·다른 세션·다른 전략·비인과 시간 순서를 독립적으로 거부한다.
+- 이 이벤트 정체성 계약은 Shadow evidence schema `2`이며, 이전 schema `1` pending 산출물은 승인에 재사용하지 않고 현재 세션에서 다시 export한다.
 - 위 검증은 `BybitPrivateClient` 생성보다 먼저 수행되므로 실패 시 개인 API 조회나 주문 경로가 구성되지 않는다.
 - 승인된 경우에만 `VolumeConfirmedTrendLiveLoop`를 시작하고, PAUSE 상태에서도 거래소 포지션 대사는 유지한다.
 - 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.

@@ -52,7 +52,7 @@ class VolumeConfirmedTrendApprovalArtifactWriter(
             approvalArtifactJson
                 .encodeToString(
                     ShadowEvidenceArtifact(
-                        schemaVersion = ARTIFACT_SCHEMA_VERSION,
+                        schemaVersion = SHADOW_EVIDENCE_SCHEMA_VERSION,
                         generatedAt = approvalReport.evaluatedAt.toString(),
                         policyId = approvalReport.policyId,
                         policySha256 = approvalReport.policySha256,
@@ -149,6 +149,15 @@ class VolumeConfirmedTrendApprovalArtifactWriter(
             "Trend approval evidence contains an event from another session."
         }
         require(
+            shadow.recentEvents.all { event ->
+                event.protocolId == shadow.protocolId &&
+                    event.protocolSha256 == shadow.protocolSha256 &&
+                    event.symbol == shadow.symbol
+            },
+        ) {
+            "Trend approval evidence contains an event from another strategy."
+        }
+        require(
             shadow.recentEvents
                 .map(VolumeConfirmedTrendShadowEvent::eventId)
                 .toSet()
@@ -156,12 +165,22 @@ class VolumeConfirmedTrendApprovalArtifactWriter(
         ) {
             "Trend approval evidence contains duplicate event IDs."
         }
+        val sessionStartedAt = requireNotNull(state.sessionStartedAt)
+        require(
+            shadow.recentEvents.all { event ->
+                !event.eventAt.isBefore(sessionStartedAt) &&
+                    !event.eventAt.isAfter(event.observedAt) &&
+                    !event.observedAt.isAfter(state.updatedAt)
+            },
+        ) {
+            "Trend approval evidence contains an event outside its causal session order."
+        }
         val sessionStartEvents =
             shadow.recentEvents.filter { event -> event.type == VolumeConfirmedTrendShadowEventType.SESSION_STARTED }
         require(
             sessionStartEvents.size == 1 &&
-                sessionStartEvents.single().eventAt == state.sessionStartedAt &&
-                sessionStartEvents.single().observedAt == state.sessionStartedAt,
+                sessionStartEvents.single().eventAt == sessionStartedAt &&
+                sessionStartEvents.single().observedAt == sessionStartedAt,
         ) {
             "Trend approval evidence requires exactly one session start matching the persisted state."
         }
@@ -250,6 +269,10 @@ private data class ShadowPositionArtifact(
 @Serializable
 private data class ShadowEventArtifact(
     val eventId: String,
+    val sessionId: String,
+    val protocolId: String,
+    val protocolSha256: String,
+    val symbol: String,
     val type: String,
     val eventAt: String,
     val observedAt: String,
@@ -366,6 +389,10 @@ private fun VolumeConfirmedTrendShadowPosition.toArtifact(): ShadowPositionArtif
 private fun VolumeConfirmedTrendShadowEvent.toArtifact(): ShadowEventArtifact =
     ShadowEventArtifact(
         eventId = eventId,
+        sessionId = sessionId,
+        protocolId = protocolId,
+        protocolSha256 = protocolSha256,
+        symbol = symbol.value,
         type = type.name,
         eventAt = eventAt.toString(),
         observedAt = observedAt.toString(),
@@ -432,6 +459,7 @@ private val approvalArtifactJson =
     }
 
 private const val ARTIFACT_SCHEMA_VERSION = 1
+private const val SHADOW_EVIDENCE_SCHEMA_VERSION = 2
 private const val MAX_ARTIFACT_EVENTS = 100_000
 private const val SHADOW_EVIDENCE_FILE = "shadow-evidence.json"
 private const val APPROVAL_REPORT_FILE = "approval-report.json"
