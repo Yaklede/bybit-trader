@@ -113,10 +113,12 @@ still required for host-level disaster recovery.
 
 ## GitHub Actions Deployment
 
-The on-prem GitHub Actions workflow builds the backend and dashboard Docker
-images in CI, saves both as image tarballs, connects to the private host through
-Twingate, uploads the package with `appleboy/scp-action@v1`, and restarts the
-containers with `appleboy/ssh-action@v1`.
+The on-prem GitHub Actions workflow first runs every Node research and deployment
+contract test, then builds the backend and dashboard Docker images. The backend
+Docker build also runs the complete Gradle test, lint, and build gate. It saves
+both images as tarballs, connects to the private host through Twingate, uploads
+the package with `appleboy/scp-action@v1`, and restarts the containers with
+`appleboy/ssh-action@v1`.
 
 Required GitHub Environment secrets are documented in
 `docs/backend/on-prem-github-actions-deploy.md`. Keep Bybit keys, alert tokens,

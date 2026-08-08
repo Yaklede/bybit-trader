@@ -22,6 +22,18 @@ const dockerfile = fs.readFileSync("Dockerfile", "utf8");
 const activationScript = fs.readFileSync("deploy/docker/activate-runtime-release.sh", "utf8");
 const runtimeEnvScript = extractRuntimeEnvScript(workflow);
 
+test("on-prem deployment verifies Node contracts before building images", () => {
+  const setupIndex = workflow.indexOf("- name: Set up Node.js");
+  const verificationIndex = workflow.indexOf("- name: Verify research and deployment contracts");
+  const buildIndex = workflow.indexOf("- name: Build Docker images");
+
+  assert.ok(setupIndex > 0, "deploy workflow must configure its frozen Node runtime");
+  assert.ok(verificationIndex > setupIndex, "Node contract verification must follow runtime setup");
+  assert.ok(buildIndex > verificationIndex, "image packaging must follow Node contract verification");
+  assert.match(workflow, /node-version: "22"/);
+  assert.match(workflow, /run: node --test scripts\/\*\.test\.mjs/);
+});
+
 test("on-prem package preserves every runtime config hidden by the compose mount", () => {
   const packagingStep = workflow.match(/- name: Build Docker images[\s\S]*?- name: Build runtime env file/)?.[0];
   assert.ok(packagingStep, "Build Docker images step must exist");

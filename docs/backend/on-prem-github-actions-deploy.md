@@ -103,6 +103,10 @@ gate is one continuous 90-day forward observation using public Bybit data only.
 `Deploy Trend Shadow On-Prem` generates that isolated profile directly from the
 reviewed workflow. Stale `BOT_MODE`, private-execution, legacy-loop, leverage,
 or live-equity variables in `onprem-live` cannot change the generated profile.
+Before either a dry-run package or host deployment is built, the workflow pins
+Node.js 22 and requires every research, protocol, and deployment contract test
+under `scripts/*.test.mjs` to pass. The backend Docker build independently runs
+the complete Gradle test, lint, and build gate.
 
 The deployment package includes the frozen protocol, bootstrap, external
 validation, Kotlin parity, runtime parity, and forward-policy JSON files. The

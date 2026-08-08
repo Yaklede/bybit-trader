@@ -21,6 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Verify research and deployment contracts
+        run: node --test scripts/*.test.mjs
+
       - name: Validate on-prem connection secrets
         if: ${{ inputs.deploy == true }}
         shell: bash
