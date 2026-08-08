@@ -31,6 +31,13 @@ jobs:
       - name: Verify research scripts
         run: node --test scripts/*.test.mjs
 
+      - name: Verify dashboard dependencies and build
+        working-directory: apps/dashboard
+        run: |
+          npm ci
+          npm audit --audit-level=high
+          npm run build
+
       - name: Verify
         run: ./gradlew test lint build
 
