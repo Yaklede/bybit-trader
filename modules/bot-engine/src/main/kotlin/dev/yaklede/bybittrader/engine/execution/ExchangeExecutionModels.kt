@@ -500,7 +500,25 @@ interface ExchangeExecutionGateway {
 
     suspend fun executions(symbol: Symbol): List<ExchangeExecutionFill>
 
+    suspend fun executions(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeExecutionFill> {
+        requireValidExchangeHistoryRange(startAt, endAt)
+        return executions(symbol).filter { fill -> fill.executedAt in startAt..endAt }
+    }
+
     suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> = emptyList()
+
+    suspend fun closedPnls(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeClosedPnl> {
+        requireValidExchangeHistoryRange(startAt, endAt)
+        return closedPnls(symbol).filter { closedPnl -> closedPnl.closedAt in startAt..endAt }
+    }
 
     suspend fun accountBalance(coin: String? = null): ExchangeAccountBalance
 
@@ -509,6 +527,13 @@ interface ExchangeExecutionGateway {
         startAt: Instant,
         endAt: Instant,
     ): List<ExchangeAccountTransaction> = emptyList()
+}
+
+private fun requireValidExchangeHistoryRange(
+    startAt: Instant,
+    endAt: Instant,
+) {
+    require(!endAt.isBefore(startAt)) { "Exchange history end must not precede its start." }
 }
 
 class ExchangeExecutionException(

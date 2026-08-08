@@ -24,8 +24,11 @@ internal class VolumeConfirmedTrendLiveRecovery(
         val order = gateway.order(config.symbol, clientOrderId)
         val executions =
             gateway
-                .executions(config.symbol)
-                .filter { it.clientOrderId == clientOrderId }
+                .executions(
+                    symbol = config.symbol,
+                    startAt = state.updatedAt.minus(config.recoveryHistoryOverlap),
+                    endAt = now,
+                ).filter { it.clientOrderId == clientOrderId }
                 .sortedWith(
                     compareBy<ExchangeExecutionFill>(ExchangeExecutionFill::executedAt)
                         .thenBy { it.executionId.orEmpty() },

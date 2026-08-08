@@ -399,6 +399,60 @@ class BybitPrivateClientTest :
             requestCount shouldBe 2
         }
 
+        "executions partitions a long range and deduplicates window overlap" {
+            val requestedRanges = mutableListOf<Pair<String?, String?>>()
+            val engine =
+                MockEngine { request ->
+                    requestedRanges += request.url.parameters["startTime"] to request.url.parameters["endTime"]
+                    respond(
+                        content =
+                            executionHistoryResponse(
+                                nextCursor = "",
+                                executionId = "shared-execution",
+                            ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val executions =
+                client.executions(
+                    symbol = Symbol("BTCUSDT"),
+                    startAt = Instant.parse("2024-06-01T00:00:00Z"),
+                    endAt = Instant.parse("2024-06-16T00:00:00Z"),
+                )
+
+            requestedRanges.shouldContainExactly(
+                Instant.parse("2024-06-01T00:00:00Z").toEpochMilli().toString() to
+                    Instant.parse("2024-06-07T23:59:59.999Z").toEpochMilli().toString(),
+                Instant.parse("2024-06-08T00:00:00Z").toEpochMilli().toString() to
+                    Instant.parse("2024-06-14T23:59:59.999Z").toEpochMilli().toString(),
+                Instant.parse("2024-06-15T00:00:00Z").toEpochMilli().toString() to
+                    Instant.parse("2024-06-16T00:00:00Z").toEpochMilli().toString(),
+            )
+            executions.mapNotNull { it.executionId }.shouldContainExactly("shared-execution")
+        }
+
+        "executions reject history beyond the global page budget" {
+            var requestCount = 0
+            val engine =
+                MockEngine {
+                    requestCount += 1
+                    respond(
+                        content = executionHistoryResponse(nextCursor = "cursor-$requestCount"),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val error = shouldThrow<ExchangeExecutionException> { client.executions(Symbol("BTCUSDT")) }
+
+            error.message shouldBe "Bybit execution history pagination exceeded its page budget."
+            requestCount shouldBe 1_000
+        }
+
         "closedPnls retrieves every cursor page" {
             var requestCount = 0
             val engine =
@@ -444,6 +498,44 @@ class BybitPrivateClientTest :
 
             error.message shouldBe "Bybit closed PnL history pagination repeated a cursor."
             requestCount shouldBe 2
+        }
+
+        "closedPnls partitions a long range and deduplicates window overlap" {
+            val requestedRanges = mutableListOf<Pair<String?, String?>>()
+            val engine =
+                MockEngine { request ->
+                    requestedRanges += request.url.parameters["startTime"] to request.url.parameters["endTime"]
+                    respond(
+                        content =
+                            closedPnlHistoryResponse(
+                                nextCursor = "",
+                                orderId = "shared-close",
+                            ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val closedPnls =
+                client.closedPnls(
+                    symbol = Symbol("BTCUSDT"),
+                    startAt = Instant.parse("2024-06-01T00:00:00Z"),
+                    endAt = Instant.parse("2024-06-16T00:00:00Z"),
+                )
+
+            requestedRanges.size shouldBe 3
+            requestedRanges.first() shouldBe
+                (
+                    Instant.parse("2024-06-01T00:00:00Z").toEpochMilli().toString() to
+                        Instant.parse("2024-06-07T23:59:59.999Z").toEpochMilli().toString()
+                )
+            requestedRanges.last() shouldBe
+                (
+                    Instant.parse("2024-06-15T00:00:00Z").toEpochMilli().toString() to
+                        Instant.parse("2024-06-16T00:00:00Z").toEpochMilli().toString()
+                )
+            closedPnls.mapNotNull { it.exchangeOrderId }.shouldContainExactly("shared-close")
         }
 
         "order lookup falls back to history for a completed IOC" {

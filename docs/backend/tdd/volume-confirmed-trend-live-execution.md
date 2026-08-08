@@ -246,8 +246,13 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 
 - 한 프로세스에서는 Kotlin `Mutex`로 H4 평가, private stream callback, 수동 reconcile을 직렬화한다.
 - 다중 replica를 지원하지 않는다. Compose replica가 1이 아닌 경우 배포 전 검증을 실패시킨다.
-- 체결·종료손익 REST 복구는 Bybit의 7일 기본 조회 범위를 100건 단위 cursor로 끝까지 읽는다.
-  같은 cursor가 반복되거나 1,000페이지를 넘으면 부분 원장을 반환하지 않고 fail closed한다.
+- 체결·종료손익 REST 복구는 명시적 시작·종료 시각을 전달하고 Bybit 최대 범위에 맞춰 7일 이하의
+  연속 구간으로 분할한다. 각 구간은 100건 단위 cursor를 끝까지 읽고 전체 요청 합계가 1,000페이지를
+  넘거나 같은 cursor가 반복되거나 result가 누락되면 부분 원장을 반환하지 않고 fail closed한다.
+- pending 주문 복구는 영속 상태 시각보다 5분 앞에서 현재까지 조회한다. 종료손익 회계 동기화는
+  마지막 성공 시각보다 5분 앞에서 재조회하고, 실패 시 성공 워터마크를 전진시키지 않는다. 재시작
+  직후에는 영속 전략 상태 시각을 복구 시작점으로 사용한다.
+- 겹쳐 읽은 체결은 `execId`, 종료손익은 거래소 order ID를 우선 identity로 사용해 멱등 제거한다.
 - websocket은 빠른 wake-up 용도이며 REST 대사가 복구 source다.
 - API rate limit은 전환 실행을 늦추더라도 재시도 폭주보다 fail closed를 우선한다.
 
@@ -308,8 +313,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 승인된 실행 중 USDT account equity를 1분 간격으로 공통 account snapshot에 저장하고, 복구에서 확인한
   모든 H4 `execId`의 가격·수량·수수료·실현 PnL을 공통 체결 원장에 중복 없이 저장한다.
 - H4 실행 경로가 기존 공격형 reconciliation loop와 격리된 상태에서도 종료손익은 1분, USDT transaction
-  log는 5분 간격으로 별도 동기화한다. `vct-*` client order ID 또는 그 ID를 가진 exact execution으로
-  소유권이 확인된 BTCUSDT 종료건만 H4 성과로 귀속하며, 수동 주문은 제외한다.
+  log는 5분 간격으로 별도 동기화한다. 종료손익은 영속 상태 기반 시작점부터 현재까지 7일 이하의
+  연속 API 구간으로 복구하고, 성공 이후에도 5분을 겹쳐 재조회한다. `vct-*` client order ID 또는 그
+  ID를 가진 exact execution으로 소유권이 확인된 BTCUSDT 종료건만 H4 성과로 귀속하며, 수동 주문은 제외한다.
 - transaction log의 거래 수수료, funding, cash flow, 입출금 변화는 거래소 transaction ID로 멱등 저장하고,
   wallet balance 변화와 원장 변화의 대사 상태를 `BASELINE`, `MATCHED`, `MISMATCH`, `SYNC_ERROR`로 보존한다.
 - 종료 사유가 일반 `CLOSED_PNL`이어도 H4 client order ID가 확인되면 `STRATEGY_EXIT`으로 분류하고, 실제

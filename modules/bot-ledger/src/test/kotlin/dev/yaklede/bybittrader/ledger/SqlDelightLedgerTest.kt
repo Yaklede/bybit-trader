@@ -880,6 +880,7 @@ class SqlDelightLedgerTest :
                 ),
             )
             val request = requireNotNull(sink.reserveAccountingRequest(capturedAt))
+            request.closureStartAt shouldBe capturedAt.minusSeconds(360)
             val ownedFill =
                 ExchangeExecutionFill(
                     executionId = "trend-accounting-exec-001",
@@ -990,13 +991,17 @@ class SqlDelightLedgerTest :
             sink.reserveAccountingRequest(capturedAt.plusSeconds(60))?.apply {
                 closuresDue shouldBe true
                 transactionsDue shouldBe false
+                closureStartAt shouldBe capturedAt.minusSeconds(300)
             }
             val failedTransactionRequest = requireNotNull(sink.reserveAccountingRequest(capturedAt.plusSeconds(300)))
             failedTransactionRequest.transactionsDue shouldBe true
+            failedTransactionRequest.closureStartAt shouldBe capturedAt.minusSeconds(300)
             failedTransactionRequest.transactionStartAt shouldBe funding.transactionAt.minusSeconds(300)
             sink.recordAccountingFailure(failedTransactionRequest, capturedAt.plusSeconds(300))
             ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT")?.status shouldBe
                 ExecutionWalletReconciliationStatus.SYNC_ERROR
+            sink.reserveAccountingRequest(capturedAt.plusSeconds(360))?.closureStartAt shouldBe
+                capturedAt.minusSeconds(300)
         }
 
         "trend live risk assessment blocks a reconciled account drawdown above the frozen limit" {

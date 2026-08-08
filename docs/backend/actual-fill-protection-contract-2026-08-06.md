@@ -95,10 +95,19 @@ is the preferred deduplication identity; a deterministic
 order/price/quantity/time identity is used only when the provider omits
 `execId`. REST reconciliation backfills the same journal, so reconnects and
 WebSocket retries cannot duplicate fees or quantities and process restarts do
-not erase partial-fill evidence. Execution and closed-PnL recovery consumes all
-available 100-row cursor pages for the provider's seven-day default window;
-repeated cursors and an exhausted page budget fail the reconciliation instead
+not erase partial-fill evidence. Execution and closed-PnL recovery always sends
+an explicit inclusive start and end time. Ranges longer than Bybit's seven-day
+limit are partitioned into adjacent windows, and every 100-row cursor page is
+consumed in every window. Rows repeated across retry overlap or provider
+windows are deduplicated by provider identity. Repeated cursors, a missing
+result, or an exhausted global 1,000-page budget fail the reconciliation instead
 of accepting a truncated ledger.
+
+Pending-order recovery starts five minutes before the persisted strategy-state
+timestamp. Periodic accounting starts five minutes before the most recent
+successful in-process closure sync, or before the persisted recovery seed after
+a restart. A failed fetch or ledger write does not advance that success
+watermark, so the next attempt requests the same recoverable range.
 
 An order acknowledgement is not treated as a fill. The same authenticated
 WebSocket subscribes to both `execution` and `order`. Order updates distinguish:

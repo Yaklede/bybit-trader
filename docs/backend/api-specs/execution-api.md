@@ -315,10 +315,20 @@ or callback exception increments the attempt metadata and remains pending for
 the next five-minute cycle. Each pending row is handled independently, so one
 Discord failure does not prevent later pending alerts.
 
-Bybit execution and closed-PnL recovery follows every 100-row response cursor
-within the provider's default seven-day window. A repeated cursor or more than
-1,000 pages aborts reconciliation; a first-page-only or silently truncated
-ledger is never accepted.
+Bybit execution and closed-PnL recovery sends explicit inclusive start and end
+times. A longer request is partitioned into adjacent windows no greater than
+seven days, and every 100-row response cursor is followed in every window. The
+1,000-page budget applies to the complete logical request, not to each window.
+A repeated cursor, missing result, or exhausted budget aborts reconciliation;
+a first-page-only or silently truncated ledger is never accepted. Provider rows
+repeated across windows or a five-minute retry overlap are deduplicated before
+projection.
+
+The H4 runtime seeds restart recovery from its persisted state timestamp.
+Pending-order execution recovery and periodic closed-PnL accounting both read a
+five-minute overlap. The accounting success watermark advances only after the
+fetched rows are durably projected; a failed fetch or projection retries from
+the previous successful range.
 
 The same initial reconciliation request also projects the newest execution
 lifecycle observation. Newly observed partial fills, protected positions, and

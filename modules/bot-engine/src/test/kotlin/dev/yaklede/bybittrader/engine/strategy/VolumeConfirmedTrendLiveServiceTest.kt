@@ -114,6 +114,7 @@ class VolumeConfirmedTrendLiveServiceTest :
                     requestedAt = TEST_NOW,
                     closuresDue = true,
                     transactionsDue = true,
+                    closureStartAt = TEST_NOW.minusSeconds(3_600),
                     transactionStartAt = TEST_NOW.minusSeconds(3_600),
                 )
             val projection = RecordingTrendLiveProjectionSink(accountingRequest = request)
@@ -131,6 +132,10 @@ class VolumeConfirmedTrendLiveServiceTest :
                     listOf("transaction-accounting-001")
             }
             gateway.accountTransactionRanges.single() shouldBe
+                (TEST_NOW.minusSeconds(3_600) to TEST_NOW)
+            gateway.executionRanges.single() shouldBe
+                (TEST_NOW.minusSeconds(3_600) to TEST_NOW)
+            gateway.closedPnlRanges.single() shouldBe
                 (TEST_NOW.minusSeconds(3_600) to TEST_NOW)
         }
 
@@ -150,6 +155,27 @@ class VolumeConfirmedTrendLiveServiceTest :
             recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
             recovered.state.lastExecutionId shouldBe "execution-001"
             projection.fills.single().executionId shouldBe "execution-001"
+            gateway.executionRanges.single() shouldBe
+                (submitted.state.updatedAt.minusSeconds(300) to TEST_NOW)
+        }
+
+        "entry recovery requests the full persisted range after a long shutdown" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = TEST_NOW
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.007")
+            gateway.executionFills += executionFill(clientOrderId, "execution-after-downtime")
+            now = now.plusSeconds(10L * 24L * 60L * 60L)
+
+            val recovered = service.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            gateway.executionRanges.single() shouldBe
+                (submitted.state.updatedAt.minusSeconds(300) to now)
         }
 
         "partial entry fill preserves the exchange-observed quantity" {
@@ -464,6 +490,8 @@ private class FakeTrendLiveGateway(
     val closedPnlRecords = mutableListOf<ExchangeClosedPnl>()
     val accountTransactionRecords = mutableListOf<ExchangeAccountTransaction>()
     val accountTransactionRanges = mutableListOf<Pair<Instant, Instant>>()
+    val executionRanges = mutableListOf<Pair<Instant, Instant>>()
+    val closedPnlRanges = mutableListOf<Pair<Instant, Instant>>()
     val submittedOrders = mutableListOf<ExchangeOrderRequest>()
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
@@ -557,9 +585,29 @@ private class FakeTrendLiveGateway(
         return executionFills.toList()
     }
 
+    override suspend fun executions(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeExecutionFill> {
+        exchangeReadCount += 1
+        executionRanges += startAt to endAt
+        return executionFills.filter { fill -> fill.executedAt in startAt..endAt }
+    }
+
     override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> {
         exchangeReadCount += 1
         return closedPnlRecords.toList()
+    }
+
+    override suspend fun closedPnls(
+        symbol: Symbol,
+        startAt: Instant,
+        endAt: Instant,
+    ): List<ExchangeClosedPnl> {
+        exchangeReadCount += 1
+        closedPnlRanges += startAt to endAt
+        return closedPnlRecords.filter { closedPnl -> closedPnl.closedAt in startAt..endAt }
     }
 
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {

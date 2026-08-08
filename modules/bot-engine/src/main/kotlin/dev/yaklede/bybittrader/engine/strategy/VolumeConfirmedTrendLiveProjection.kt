@@ -24,12 +24,19 @@ data class VolumeConfirmedTrendLiveAccountingRequest(
     val requestedAt: Instant,
     val closuresDue: Boolean,
     val transactionsDue: Boolean,
+    val closureStartAt: Instant?,
     val transactionStartAt: Instant?,
 ) {
     init {
         require(closuresDue || transactionsDue) { "A trend accounting request must contain work." }
+        require(closuresDue == (closureStartAt != null)) {
+            "Trend accounting closure range must match the closure sync flag."
+        }
         require(transactionsDue == (transactionStartAt != null)) {
             "Trend accounting transaction range must match the transaction sync flag."
+        }
+        require(closureStartAt == null || !closureStartAt.isAfter(requestedAt)) {
+            "Trend accounting closure start must not be after the request time."
         }
         require(transactionStartAt == null || !transactionStartAt.isAfter(requestedAt)) {
             "Trend accounting transaction start must not be after the request time."
@@ -63,6 +70,11 @@ interface VolumeConfirmedTrendLiveProjectionSink {
     )
 
     suspend fun reserveAccountingRequest(now: Instant): VolumeConfirmedTrendLiveAccountingRequest? = null
+
+    suspend fun reserveAccountingRequest(
+        now: Instant,
+        recoveryStartAt: Instant,
+    ): VolumeConfirmedTrendLiveAccountingRequest? = reserveAccountingRequest(now)
 
     suspend fun recordAccounting(observation: VolumeConfirmedTrendLiveAccountingObservation) = Unit
 
@@ -98,6 +110,7 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
     private val sessionStartedAt: Instant = Instant.now(),
     private val accountSnapshotInterval: Duration = Duration.ofMinutes(1),
     private val closureSyncInterval: Duration = Duration.ofMinutes(1),
+    private val closureOverlap: Duration = Duration.ofMinutes(5),
     private val transactionSyncInterval: Duration = Duration.ofMinutes(5),
     private val transactionBootstrapRange: Duration = Duration.ofHours(24),
     private val transactionOverlap: Duration = Duration.ofMinutes(5),
@@ -106,6 +119,7 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
 ) : VolumeConfirmedTrendLiveProjectionSink {
     private val logger = LoggerFactory.getLogger(javaClass)
     private var lastClosureSyncAttemptAt: Instant? = null
+    private var lastClosureSyncSucceededAt: Instant? = null
     private var lastTransactionSyncAttemptAt: Instant? = null
 
     init {
@@ -115,6 +129,7 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         listOf(
             accountSnapshotInterval,
             closureSyncInterval,
+            closureOverlap,
             transactionSyncInterval,
             transactionBootstrapRange,
             transactionOverlap,
@@ -160,7 +175,16 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         }
     }
 
-    override suspend fun reserveAccountingRequest(now: Instant): VolumeConfirmedTrendLiveAccountingRequest? {
+    override suspend fun reserveAccountingRequest(now: Instant): VolumeConfirmedTrendLiveAccountingRequest? =
+        reserveAccountingRequest(now, sessionStartedAt)
+
+    override suspend fun reserveAccountingRequest(
+        now: Instant,
+        recoveryStartAt: Instant,
+    ): VolumeConfirmedTrendLiveAccountingRequest? {
+        require(!recoveryStartAt.isAfter(now)) {
+            "Trend accounting recovery start must not be after the request time."
+        }
         val closuresDue = syncDue(lastClosureSyncAttemptAt, now, closureSyncInterval)
         val transactionsDue = syncDue(lastTransactionSyncAttemptAt, now, transactionSyncInterval)
         if (!closuresDue && !transactionsDue) return null
@@ -171,6 +195,12 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
             requestedAt = now,
             closuresDue = closuresDue,
             transactionsDue = transactionsDue,
+            closureStartAt =
+                if (closuresDue) {
+                    (lastClosureSyncSucceededAt ?: recoveryStartAt).minus(closureOverlap)
+                } else {
+                    null
+                },
             transactionStartAt = if (transactionsDue) transactionStartAt(now) else null,
         )
     }
@@ -209,6 +239,7 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
                 }
             reconcileWallet(request.requestedAt, transactionSyncSucceeded = true)
         }
+        if (request.closuresDue) lastClosureSyncSucceededAt = request.requestedAt
         logger.info(
             "trend live accounting persisted mode={} symbol={} executions={} newClosures={} newTransactions={} transactionsSynced={}",
             runtimeMode.name,

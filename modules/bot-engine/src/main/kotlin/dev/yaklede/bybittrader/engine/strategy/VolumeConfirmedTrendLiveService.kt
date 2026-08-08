@@ -108,7 +108,7 @@ class VolumeConfirmedTrendLiveService(
             )
         }
         captureAccountSnapshotIfDue(now)
-        captureAccountingIfDue(now)
+        captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
@@ -206,7 +206,7 @@ class VolumeConfirmedTrendLiveService(
             )
         }
         captureAccountSnapshotIfDue(now)
-        captureAccountingIfDue(now)
+        captureAccountingIfDue(now, stored?.updatedAt ?: now)
         val riskAssessment = projectionSink.assessEntryRisk(stored?.riskState, now, config.riskPolicy)
         val effectiveStored = persistRiskState(stored, riskAssessment, now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
@@ -266,7 +266,7 @@ class VolumeConfirmedTrendLiveService(
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         captureAccountSnapshotIfDue(now)
-        captureAccountingIfDue(now)
+        captureAccountingIfDue(now, stored.updatedAt)
         val riskAssessment = projectionSink.assessEntryRisk(stored.riskState, now, config.riskPolicy)
         val riskStored = requireNotNull(persistRiskState(stored, riskAssessment, now))
         val positions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
@@ -305,11 +305,20 @@ class VolumeConfirmedTrendLiveService(
         projectionSink.recordAccountBalance(gateway.accountBalance("USDT"))
     }
 
-    private suspend fun captureAccountingIfDue(now: Instant) {
-        val request = projectionSink.reserveAccountingRequest(now) ?: return
+    private suspend fun captureAccountingIfDue(
+        now: Instant,
+        recoveryStartAt: Instant,
+    ) {
+        val request = projectionSink.reserveAccountingRequest(now, recoveryStartAt) ?: return
         try {
-            val executions = if (request.closuresDue) gateway.executions(config.symbol) else emptyList()
-            val closedPnls = if (request.closuresDue) gateway.closedPnls(config.symbol) else emptyList()
+            val executions =
+                request.closureStartAt
+                    ?.let { startAt -> gateway.executions(config.symbol, startAt, request.requestedAt) }
+                    .orEmpty()
+            val closedPnls =
+                request.closureStartAt
+                    ?.let { startAt -> gateway.closedPnls(config.symbol, startAt, request.requestedAt) }
+                    .orEmpty()
             val accountTransactions =
                 request.transactionStartAt
                     ?.let { startAt -> gateway.accountTransactions("USDT", startAt, request.requestedAt) }
