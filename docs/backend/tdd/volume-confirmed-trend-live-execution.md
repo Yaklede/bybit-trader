@@ -336,6 +336,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   주문 ID를 보존해 승인 차단이 복구 증거를 덮어쓰지 못한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는
   개인 API를 조회하지 않는다.
 - 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.
+  승인 차단 중 기존 `HALTED` 주문 증거가 남아 있으면 Discord 지문과 본문에 중단 사유, 주문 ID,
+  관측 포지션을 포함한다. 증거가 바뀌면 반복 주기를 기다리지 않고 새 알림을 보내며 대시보드·Bybit 확인과
+  원인 해결 전 재활성화 금지를 안내한다.
 - `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트뿐 아니라 실제 process wiring을
   `DISABLED`, `MANAGEMENT_ONLY`, `SIGNAL_ENABLED`로 구분하고 coroutine 활성 상태를 인증된 운영자에게 제공한다.
 - 승인된 실행 중 USDT account equity를 1분 간격으로 공통 account snapshot에 저장하고, 복구에서 확인한

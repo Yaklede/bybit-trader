@@ -1,7 +1,9 @@
 package dev.yaklede.bybittrader.app
 
+import dev.yaklede.bybittrader.alerts.AlertSeverity
 import dev.yaklede.bybittrader.domain.BotMode
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalFailure
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationResult
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResult
@@ -10,6 +12,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -55,6 +58,35 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             policy.shouldAlert(drawdown) shouldBe false
             policy.shouldAlert(walletMismatch) shouldBe true
         }
+
+        "approval blocking alerts again when preserved order evidence changes" {
+            val policy = VolumeConfirmedTrendLiveAlertPolicy()
+            val first = approvalBlockedResult("TREND_ENTRY_ORDER_STATE_UNKNOWN", "vct-entry-001")
+            val changed = approvalBlockedResult("TREND_ENTRY_FILL_WITHOUT_POSITION", "vct-entry-001")
+
+            policy.shouldAlert(first) shouldBe true
+            policy.shouldAlert(first) shouldBe false
+            policy.shouldAlert(changed) shouldBe true
+        }
+
+        "approval-blocked alert includes recovery evidence and a next action" {
+            val result =
+                approvalBlockedResult(
+                    haltedReasonCode = "TREND_ENTRY_ORDER_STATE_UNKNOWN",
+                    clientOrderId = "vct-entry-001",
+                    exchangeOrderId = "exchange-entry-001",
+                )
+
+            val message = requireNotNull(result.toTrendLiveAlertMessage())
+
+            message.severity shouldBe AlertSeverity.CRITICAL
+            message.title shouldBe "H4 실거래 승인 무효"
+            message.body shouldContain "기존 중단 사유: TREND_ENTRY_ORDER_STATE_UNKNOWN"
+            message.body shouldContain "클라이언트 주문 ID: vct-entry-001"
+            message.body shouldContain "거래소 주문 ID: exchange-entry-001"
+            message.body shouldContain "대시보드와 Bybit에서 주문·포지션을 확인"
+            message.body shouldContain "실거래를 다시 켜지 마세요"
+        }
     })
 
 private fun liveResult(
@@ -93,6 +125,29 @@ private fun liveResult(
                 riskReasonCodes = riskReasonCodes,
             ),
         evaluatedAt = state.updatedAt,
+    )
+}
+
+private fun approvalBlockedResult(
+    haltedReasonCode: String,
+    clientOrderId: String,
+    exchangeOrderId: String? = null,
+): VolumeConfirmedTrendLiveLoopResult {
+    val base = liveResult(VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED)
+    val halted =
+        base.evaluation.state.copy(
+            status = VolumeConfirmedTrendLiveStatus.HALTED,
+            clientOrderId = clientOrderId,
+            exchangeOrderId = exchangeOrderId,
+            haltedReasonCode = haltedReasonCode,
+        )
+    return base.copy(
+        status = VolumeConfirmedTrendLiveLoopStatus.HALTED,
+        evaluation =
+            base.evaluation.copy(
+                state = halted,
+                approvalFailures = listOf(VolumeConfirmedTrendLiveApprovalFailure.RECEIPT_NOT_APPROVED),
+            ),
     )
 }
 

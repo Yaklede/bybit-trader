@@ -64,8 +64,19 @@ private fun VolumeConfirmedTrendLiveLoopResult.alertFingerprint(): String? =
             "RECOVERED|${evaluation.state.lastExecutionId}|${evaluation.state.status.name}"
         VolumeConfirmedTrendLiveEvaluationStatus.HALTED ->
             "HALTED|${evaluation.state.haltedReasonCode}"
-        VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED ->
-            "APPROVAL_BLOCKED|${evaluation.approvalFailures.joinToString(",") { it.name }}"
+        VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED -> {
+            val state = evaluation.state
+            listOf(
+                "APPROVAL_BLOCKED",
+                evaluation.approvalFailures.joinToString(",") { it.name },
+                state.status.name,
+                state.haltedReasonCode.orEmpty(),
+                state.clientOrderId.orEmpty(),
+                state.exchangeOrderId.orEmpty(),
+                state.observedPositionSide?.name.orEmpty(),
+                state.observedPositionQuantity?.toPlainString().orEmpty(),
+            ).joinToString("|")
+        }
         VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED ->
             "RISK_BLOCKED|${evaluation.riskReasonCodes.joinToString(",")}"
         else -> null

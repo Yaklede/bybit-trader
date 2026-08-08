@@ -1035,78 +1035,106 @@ internal fun managementOnlyTrendLiveReceipt(
         reasonCode = "MANAGEMENT_ONLY_RECOVERY",
     )
 
-private suspend fun AlertingService.sendTrendLiveResult(
-    result: dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResult,
-) {
-    val evaluation = result.evaluation
+private suspend fun AlertingService.sendTrendLiveResult(result: VolumeConfirmedTrendLiveLoopResult) {
+    result.toTrendLiveAlertMessage()?.let { send(it) }
+}
+
+internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): AlertMessage? {
+    val evaluation = this.evaluation
     val state = evaluation.state
-    val message =
-        when (evaluation.status) {
-            VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED ->
-                if (evaluation.plan?.reasonCode == TREND_APPROVAL_REVOKED_EXIT_REASON_CODE) {
-                    AlertMessage(
-                        severity = AlertSeverity.CRITICAL,
-                        title = "H4 승인 무효 포지션 정리",
-                        body =
-                            "실거래 승인이 무효가 되어 ${state.symbol.value} 기존 포지션에 reduce-only 종료 주문을 제출했어요. " +
-                                "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
-                                "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
-                                "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
-                    )
-                } else {
-                    AlertMessage(
-                        severity = AlertSeverity.INFO,
-                        title = "H4 실거래 주문 제출",
-                        body =
-                            "${state.symbol.value} 목표 방향 ${evaluation.plan?.targetSide?.name ?: "확인 필요"} 주문을 제출했어요. " +
-                                "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
-                                "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
-                                "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
-                    )
-                }
-            VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED ->
+    return when (evaluation.status) {
+        VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED ->
+            if (evaluation.plan?.reasonCode == TREND_APPROVAL_REVOKED_EXIT_REASON_CODE) {
                 AlertMessage(
-                    severity = AlertSeverity.WARNING,
-                    title = "H4 실거래 주문 미체결",
+                    severity = AlertSeverity.CRITICAL,
+                    title = "H4 승인 무효 포지션 정리",
                     body =
-                        "${state.symbol.value} 주문이 허용 시간 안에 체결되지 않았어요. " +
-                            "클라이언트 주문 ID: ${state.clientOrderId ?: "확인 필요"}",
+                        "실거래 승인이 무효가 되어 ${state.symbol.value} 기존 포지션에 reduce-only 종료 주문을 제출했어요. " +
+                            "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
+                            "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
+                            "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
                 )
-            VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED ->
+            } else {
                 AlertMessage(
                     severity = AlertSeverity.INFO,
-                    title = "H4 실거래 상태 복구",
+                    title = "H4 실거래 주문 제출",
                     body =
-                        "거래소 체결을 대사해 상태를 ${state.status.name}로 복구했어요. " +
-                            "최근 체결 ID: ${state.lastExecutionId ?: "없음"}",
+                        "${state.symbol.value} 목표 방향 ${evaluation.plan?.targetSide?.name ?: "확인 필요"} 주문을 제출했어요. " +
+                            "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
+                            "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
+                            "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
                 )
-            VolumeConfirmedTrendLiveEvaluationStatus.HALTED ->
-                AlertMessage(
-                    severity = AlertSeverity.CRITICAL,
-                    title = "H4 실거래 자동 중단",
-                    body =
-                        "안전 조건 불일치로 신규 주문을 차단했어요. " +
-                            "중단 사유: ${state.haltedReasonCode ?: "상세 원인 없음"}",
+            }
+        VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED ->
+            AlertMessage(
+                severity = AlertSeverity.WARNING,
+                title = "H4 실거래 주문 미체결",
+                body =
+                    "${state.symbol.value} 주문이 허용 시간 안에 체결되지 않았어요. " +
+                        "클라이언트 주문 ID: ${state.clientOrderId ?: "확인 필요"}",
+            )
+        VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED ->
+            AlertMessage(
+                severity = AlertSeverity.INFO,
+                title = "H4 실거래 상태 복구",
+                body =
+                    "거래소 체결을 대사해 상태를 ${state.status.name}로 복구했어요. " +
+                        "최근 체결 ID: ${state.lastExecutionId ?: "없음"}",
+            )
+        VolumeConfirmedTrendLiveEvaluationStatus.HALTED ->
+            AlertMessage(
+                severity = AlertSeverity.CRITICAL,
+                title = "H4 실거래 자동 중단",
+                body =
+                    "안전 조건 불일치로 신규 주문을 차단했어요. " +
+                        "중단 사유: ${state.haltedReasonCode ?: "상세 원인 없음"}",
+            )
+        VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED ->
+            AlertMessage(
+                severity = AlertSeverity.CRITICAL,
+                title = "H4 실거래 승인 무효",
+                body = approvalBlockedAlertBody(evaluation),
+            )
+        VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED ->
+            AlertMessage(
+                severity = AlertSeverity.WARNING,
+                title = "H4 신규 진입 위험 차단",
+                body =
+                    "기존 포지션 정리는 계속 허용하지만 신규 진입은 보류했어요. " +
+                        "확인 항목: ${evaluation.riskReasonCodes.joinToString(", ")}",
+            )
+        else -> null
+    }
+}
+
+private fun approvalBlockedAlertBody(
+    evaluation: dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationResult,
+): String {
+    val state = evaluation.state
+    val recoveryContext =
+        buildList {
+            state.haltedReasonCode?.let { add("기존 중단 사유: $it") }
+            state.clientOrderId?.let { add("클라이언트 주문 ID: $it") }
+            state.exchangeOrderId?.let { add("거래소 주문 ID: $it") }
+            state.observedPositionSide?.let { side ->
+                add(
+                    "관측 포지션: ${side.name} " +
+                        "${state.observedPositionQuantity?.toPlainString() ?: "수량 확인 필요"} BTC",
                 )
-            VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED ->
-                AlertMessage(
-                    severity = AlertSeverity.CRITICAL,
-                    title = "H4 실거래 승인 무효",
-                    body =
-                        "승인 또는 현재 검증 조건이 달라져 신규 주문을 차단했어요. " +
-                            "실패 항목: ${evaluation.approvalFailures.joinToString(", ") { it.name }}",
-                )
-            VolumeConfirmedTrendLiveEvaluationStatus.RISK_BLOCKED ->
-                AlertMessage(
-                    severity = AlertSeverity.WARNING,
-                    title = "H4 신규 진입 위험 차단",
-                    body =
-                        "기존 포지션 정리는 계속 허용하지만 신규 진입은 보류했어요. " +
-                            "확인 항목: ${evaluation.riskReasonCodes.joinToString(", ")}",
-                )
-            else -> return
+            }
+        }.joinToString(". ")
+    val nextAction =
+        if (recoveryContext.isEmpty()) {
+            "승인 파일과 현재 Shadow 검증 상태를 확인하고, 원인이 해결될 때까지 실거래를 다시 켜지 마세요."
+        } else {
+            "대시보드와 Bybit에서 주문·포지션을 확인하고, 원인이 해결될 때까지 실거래를 다시 켜지 마세요."
         }
-    send(message)
+    return buildString {
+        append("승인 또는 현재 검증 조건이 달라져 신규 주문을 차단했어요. ")
+        append("실패 항목: ${evaluation.approvalFailures.joinToString(", ") { it.name }}.")
+        if (recoveryContext.isNotEmpty()) append(" $recoveryContext.")
+        append(" $nextAction")
+    }
 }
 
 internal fun openLedgerDatabase(path: Path): LedgerDatabase {
