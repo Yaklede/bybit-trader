@@ -31,10 +31,11 @@ jobs:
 
           docker build --tag "bybit-trader:${IMAGE_TAG}" .
           docker build --file apps/dashboard/Dockerfile --tag "bybit-trader-dashboard:${IMAGE_TAG}" apps/dashboard
-          mkdir -p deploy-package/config deploy-package/images
+          mkdir -p deploy-package/bin deploy-package/config deploy-package/images
           docker save "bybit-trader:${IMAGE_TAG}" | gzip > "deploy-package/images/${BOT_IMAGE_TAR}"
           docker save "bybit-trader-dashboard:${IMAGE_TAG}" | gzip > "deploy-package/images/${DASHBOARD_IMAGE_TAR}"
           cp compose.yaml deploy-package/compose.yaml
+          cp deploy/docker/verify-runtime-profile.sh deploy-package/bin/verify-runtime-profile.sh
           cp \
             config/volume-flow-composite-current.json \
             config/volume-confirmed-trend-ensemble-v1.json \
@@ -415,6 +416,7 @@ jobs:
           script: |
             set -eu
             mkdir -p '${{ secrets.ONPREM_DEPLOY_DIR }}/config' \
+              '${{ secrets.ONPREM_DEPLOY_DIR }}/bin' \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/env' \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/images'
 
@@ -468,12 +470,17 @@ jobs:
             docker compose --env-file .env -f compose.yaml up -d --remove-orphans
             docker compose --env-file .env -f compose.yaml ps
             . ./.env
+            runtime_ready=false
             for i in $(seq 1 30); do
               if curl -fsS "http://${DASHBOARD_BIND_HOST}:${DASHBOARD_PORT}/" >/dev/null \
                 && curl -fsS "http://${DASHBOARD_BIND_HOST}:${DASHBOARD_PORT}/api/health" >/dev/null; then
-                exit 0
+                runtime_ready=true
+                break
               fi
               sleep 2
             done
-            docker compose --env-file .env -f compose.yaml logs --tail=120 bybit-trader bybit-trader-dashboard
-            exit 1
+            if [ "${runtime_ready}" != "true" ]; then
+              docker compose --env-file .env -f compose.yaml logs --tail=120 bybit-trader bybit-trader-dashboard
+              exit 1
+            fi
+            sh bin/verify-runtime-profile.sh .env compose.yaml env/bybit-trader.env

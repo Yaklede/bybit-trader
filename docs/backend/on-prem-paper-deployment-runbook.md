@@ -255,6 +255,12 @@ docker compose --env-file .env -f compose.yaml up -d
 docker compose --env-file .env -f compose.yaml ps
 ```
 
+GitHub Actions deployment performs an additional profile check after both
+services become healthy. `deploy/docker/verify-runtime-profile.sh` verifies the
+frozen H4 Shadow identity and immutable order boundary, or the read-only
+TESTNET/H4 live exchange contract when those profiles are selected. A plain
+`/health` response is not sufficient for deployment success.
+
 3. The Paper loop automatically warms required M5 history. To pre-warm it
    manually before starting the loop, run:
 

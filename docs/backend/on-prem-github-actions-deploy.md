@@ -227,7 +227,17 @@ deployment values only.
 - `appleboy/scp-action@v1`: uploads `deploy-package` contents to
   `ONPREM_DEPLOY_DIR`.
 - `appleboy/ssh-action@v1`: creates remote directories, runs `docker load`,
-  restarts Compose, and checks `/health`.
+  restarts Compose, checks the dashboard and `/health`, then runs
+  `bin/verify-runtime-profile.sh`.
+
+The post-deploy verifier reads the generated runtime env without printing
+secrets and calls authenticated endpoints from inside the API container. An H4
+Shadow deployment succeeds only when the Shadow provider has the frozen
+protocol identity and the approval report still exposes both execution
+permissions as `false`. A read-only TESTNET probe or approved H4 execution
+deployment also requires `exchange-contract.available=true` and `valid=true`.
+The workflow therefore fails when the process is healthy but the selected H4
+runtime is not actually usable.
 
 ## Trigger
 

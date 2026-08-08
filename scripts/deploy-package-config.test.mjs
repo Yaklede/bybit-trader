@@ -33,6 +33,19 @@ test("on-prem package preserves every runtime config hidden by the compose mount
   assert.match(packagingStep, /deploy-package\/config\//);
 });
 
+test("on-prem deployment packages and runs profile-specific post-deploy verification", () => {
+  assert.ok(fs.existsSync("deploy/docker/verify-runtime-profile.sh"));
+  assert.match(
+    workflow,
+    /cp deploy\/docker\/verify-runtime-profile\.sh deploy-package\/bin\/verify-runtime-profile\.sh/,
+  );
+  assert.match(workflow, /runtime_ready=false/);
+  assert.match(
+    workflow,
+    /sh bin\/verify-runtime-profile\.sh \.env compose\.yaml env\/bybit-trader\.env/,
+  );
+});
+
 test("on-prem deployment defaults cannot enable private execution", () => {
   assert.match(workflow, /BOT_MODE: \$\{\{ vars\.BOT_MODE \|\| 'PAPER' \}\}/);
   assert.match(workflow, /BOT_PRIVATE_EXECUTION_ENABLED: \$\{\{ vars\.BOT_PRIVATE_EXECUTION_ENABLED \|\| 'false' \}\}/);

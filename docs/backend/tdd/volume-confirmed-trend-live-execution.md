@@ -327,6 +327,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - Shadow 평가 성공 뒤 현재 승인 보고서를 다시 계산하고 세션·전체 상태·게이트 상태 조합이 바뀐 경우에만
   Discord/Telegram 전진 검증 알림을 보낸다. 검토 준비 알림도 자동·실거래 주문 차단과 별도 사람 승인을
   명시하며 같은 상태의 H4 반복 평가는 중복 알림을 만들지 않는다.
+- 온프레미스 배포는 단순 health 확인 뒤에도 선택한 실행 프로필을 다시 검증한다. H4 Shadow는 동결
+  protocol identity와 자동·실거래 주문 권한 `false`를, read-only TESTNET과 승인된 H4 실행은 읽기 전용
+  exchange contract의 `available=true`, `valid=true`를 충족하지 못하면 배포를 실패시킨다.
 
 아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다. 일 손실·연속 손실 제한은 미완료 항목이 아니라 v1의
