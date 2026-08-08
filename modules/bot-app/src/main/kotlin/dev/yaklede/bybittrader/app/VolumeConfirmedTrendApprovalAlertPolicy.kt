@@ -114,6 +114,7 @@ private fun VolumeConfirmedTrendApprovalGate.operatorLabel(): String =
         "MAXIMUM_ADVERSE_EXPOSURE_FRACTION" -> "최대 불리 노출"
         "LIQUIDATION_COUNT" -> "청산 횟수"
         "OBSERVATION_STALENESS_SECONDS" -> "최근 관측 지연"
+        "CURRENT_SESSION_START" -> "세션 시작 기록"
         "CURRENT_SESSION_CONTINUITY" -> "현재 세션 연속성"
         else -> "검증 조건"
     }

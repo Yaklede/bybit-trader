@@ -1,7 +1,10 @@
 package dev.yaklede.bybittrader.app
 
+import dev.yaklede.bybittrader.alerts.AlertSeverity
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -33,5 +36,14 @@ class VolumeConfirmedTrendShadowAlertPolicyTest :
             policy.recordSuccess()
 
             policy.shouldAlert(error) shouldBe true
+        }
+
+        "failure alert explains that the loop will retry instead of claiming it stopped" {
+            val alert = IllegalStateException("missing funding").toVolumeConfirmedTrendShadowFailureAlert(Duration.ofSeconds(60))
+
+            alert.severity shouldBe AlertSeverity.WARNING
+            alert.body shouldContain "60초 후 자동으로 다시 시도"
+            alert.body shouldContain "missing funding"
+            alert.body shouldNotContain "중단"
         }
     })

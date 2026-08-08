@@ -541,15 +541,7 @@ fun main() {
                 },
                 onFailure = { error ->
                     if (trendShadowAlertPolicy.shouldAlert(error)) {
-                        alertingService.send(
-                            AlertMessage(
-                                severity = AlertSeverity.WARNING,
-                                title = "추세 Shadow 점검 필요",
-                                body =
-                                    "가상 검증 루프가 안전하게 중단됐어요. " +
-                                        "오류: ${error::class.simpleName}. 원인: ${error.message ?: "상세 원인 없음"}",
-                            ),
-                        )
+                        alertingService.send(error.toVolumeConfirmedTrendShadowFailureAlert(settings.failureRetryDelay))
                     }
                 },
             ).start(trendShadowScope)

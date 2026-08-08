@@ -56,6 +56,17 @@ class VolumeConfirmedTrendApprovalAlertPolicyTest :
             failed.severity shouldBe AlertSeverity.CRITICAL
             failed.body shouldContain "현재 세션을 승인에 사용하지 마세요"
         }
+
+        "session start evidence failure has an operator-visible label" {
+            val collecting = report()
+            val alert =
+                collecting
+                    .copy(
+                        gates = collecting.gates.map { gate -> gate.copy(id = "CURRENT_SESSION_START") },
+                    ).toOperatorAlert()
+
+            alert.body shouldContain "세션 시작 기록"
+        }
     })
 
 private fun report(
