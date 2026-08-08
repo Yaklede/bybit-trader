@@ -34,14 +34,13 @@ class VolumeConfirmedTrendLiveEvidenceService(
     private val store: ExecutionProjectionStore,
     private val runtimeMode: ExecutionRuntimeMode,
     private val sessionStartedAt: Instant,
+    private val ownedClientOrderIds: suspend () -> Set<String>,
     private val tradingSymbol: Symbol = Symbol("BTCUSDT"),
     private val accountCoin: String = "USDT",
-    private val orderIdPrefix: String = "vct-",
 ) {
     init {
         require(tradingSymbol.value == "BTCUSDT") { "Trend live evidence supports BTCUSDT only." }
         require(accountCoin == "USDT") { "Trend live evidence supports the USDT account ledger only." }
-        require(orderIdPrefix.isNotBlank()) { "Trend live evidence order prefix must not be blank." }
     }
 
     suspend fun read(
@@ -49,10 +48,11 @@ class VolumeConfirmedTrendLiveEvidenceService(
         limit: Int,
     ): VolumeConfirmedTrendLiveEvidence {
         require(limit in 1..100) { "Trend live evidence limit must be between 1 and 100." }
+        val ownedOrderIds = ownedClientOrderIds()
         val closures =
             store
                 .performanceClosures(runtimeMode, null)
-                .filter(::isOwnedClosure)
+                .filter { closure -> isOwnedClosure(closure, ownedOrderIds) }
         val accountTransactions =
             store.accountTransactions(
                 mode = runtimeMode,
@@ -88,7 +88,7 @@ class VolumeConfirmedTrendLiveEvidenceService(
                     strategyTransactionFees =
                         windowTransactions
                             .asSequence()
-                            .filter(::isOwnedTransaction)
+                            .filter { event -> isOwnedTransaction(event, ownedOrderIds) }
                             .map { event -> event.transaction.fee }
                             .fold(BigDecimal.ZERO, BigDecimal::add),
                 )
@@ -102,7 +102,7 @@ class VolumeConfirmedTrendLiveEvidenceService(
             recentExecutionFills =
                 store
                     .executionFills(runtimeMode, tradingSymbol, null, fillQueryLimit)
-                    .filter(::isOwnedExecution)
+                    .filter { event -> isOwnedExecution(event, ownedOrderIds) }
                     .take(limit),
             recentAccountTransactions =
                 accountTransactions
@@ -111,12 +111,18 @@ class VolumeConfirmedTrendLiveEvidenceService(
         )
     }
 
-    private fun isOwnedClosure(closure: ExecutionTradeClosure): Boolean =
-        closure.symbol == tradingSymbol && closure.clientOrderId?.startsWith(orderIdPrefix) == true
+    private fun isOwnedClosure(
+        closure: ExecutionTradeClosure,
+        ownedOrderIds: Set<String>,
+    ): Boolean = closure.symbol == tradingSymbol && closure.clientOrderId in ownedOrderIds
 
-    private fun isOwnedExecution(event: ExecutionFillEvent): Boolean =
-        event.fill.symbol == tradingSymbol && event.fill.clientOrderId?.startsWith(orderIdPrefix) == true
+    private fun isOwnedExecution(
+        event: ExecutionFillEvent,
+        ownedOrderIds: Set<String>,
+    ): Boolean = event.fill.symbol == tradingSymbol && event.fill.clientOrderId in ownedOrderIds
 
-    private fun isOwnedTransaction(event: ExecutionAccountTransactionEvent): Boolean =
-        event.transaction.symbol == tradingSymbol && event.transaction.clientOrderId?.startsWith(orderIdPrefix) == true
+    private fun isOwnedTransaction(
+        event: ExecutionAccountTransactionEvent,
+        ownedOrderIds: Set<String>,
+    ): Boolean = event.transaction.symbol == tradingSymbol && event.transaction.clientOrderId in ownedOrderIds
 }

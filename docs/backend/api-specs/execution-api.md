@@ -67,8 +67,10 @@ The response contains:
   calculated from H4-owned closures. Each row includes net PnL, fees, profit
   factor, expectancy, closed-trade drawdown, account-equity drawdown, BTCUSDT
   funding, and H4-attributed transaction fees.
-- `recentClosedTrades`: closures attributed to H4 client order IDs.
-- `recentExecutionFills`: fills attributed to H4 client order IDs, including
+- `recentClosedTrades`: closures attributed to client order IDs present in the
+  current protocol's durable intent/submitted lifecycle.
+- `recentExecutionFills`: fills attributed to those same durable client order
+  IDs, including
   Bybit `execId`, price, quantity, fee, execution PnL, exchange time, and local
   receive time.
 - `recentAccountTransactions`: the latest persisted USDT transaction records
@@ -80,6 +82,12 @@ table. H4 performance is calculated on read from H4-attributed closures so it
 cannot overwrite or be contaminated by the legacy M5 dashboard projection.
 BTCUSDT funding is reported separately because a funding transaction does not
 always carry an H4 client order ID.
+
+The `vct-` prefix alone is not ownership evidence. Projection, risk evaluation,
+and this endpoint use only client order IDs recorded by append-only lifecycle
+events whose protocol ID, protocol SHA-256, and symbol match the running frozen
+protocol. A manual or older order that merely copies the prefix is excluded,
+including if it was persisted by an earlier prefix-only projection.
 
 `enabled` reflects whether H4 signal execution was requested in process
 configuration. It does not describe recovery capability: `enabled=false` can

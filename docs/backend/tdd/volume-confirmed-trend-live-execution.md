@@ -408,12 +408,17 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
   모든 H4 `execId`의 가격·수량·수수료·실현 PnL을 공통 체결 원장에 중복 없이 저장한다.
 - H4 실행 경로가 기존 공격형 reconciliation loop와 격리된 상태에서도 종료손익은 1분, USDT transaction
   log는 5분 간격으로 별도 동기화한다. 종료손익은 영속 상태 기반 시작점부터 현재까지 7일 이하의
-  연속 API 구간으로 복구하고, 성공 이후에도 5분을 겹쳐 재조회한다. `vct-*` client order ID 또는 그
-  ID를 가진 exact execution으로 소유권이 확인된 BTCUSDT 종료건만 H4 성과로 귀속하며, 수동 주문은 제외한다.
+  연속 API 구간으로 복구하고, 성공 이후에도 5분을 겹쳐 재조회한다. 현재 protocol ID·SHA·symbol이 같은
+  append-only intent/submitted event에 영속된 client order ID 또는 그 ID를 가진 exact execution으로
+  소유권이 확인된 BTCUSDT 종료건만 H4 성과로 귀속하며, 접두사만 같은 수동·구버전 주문은 제외한다.
 - transaction log의 거래 수수료, funding, cash flow, 입출금 변화는 거래소 transaction ID로 멱등 저장하고,
   wallet balance 변화와 원장 변화의 대사 상태를 `BASELINE`, `MATCHED`, `MISMATCH`, `SYNC_ERROR`로 보존한다.
 - 종료 사유가 일반 `CLOSED_PNL`이어도 H4 client order ID가 확인되면 `STRATEGY_EXIT`으로 분류하고, 실제
   종료 손익과 account equity로 공통 성과 스냅샷을 갱신한다.
+- 체결 투영, 종료손익 투영, 위험 회로차단기, 운영 증거 API는 매 호출마다 같은 영속 주문 ID 집합을
+  사용한다. 과거에 접두사만으로 잘못 저장된 closure/fill도 현재 lifecycle 소유권이 없으면 성과와 위험
+  계산에서 제외한다. lifecycle 조회 실패는 소유권을 추측하지 않고 해당 회계를 실패 처리해 신규 진입을
+  차단한다.
 - 계좌 입출금을 전략 손익과 분리한 unitized NAV를 Live checkpoint에 저장한다. 시작 기준점, 유효하지 않은
   NAV, 10분보다 오래된 위험 상태는 fail closed하고 동결 protocol의 MDD 상한 `35%` 이상에서는 신규
   진입만 차단한다.

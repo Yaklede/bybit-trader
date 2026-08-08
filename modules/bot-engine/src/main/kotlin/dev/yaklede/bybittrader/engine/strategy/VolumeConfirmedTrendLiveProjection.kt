@@ -104,9 +104,9 @@ object NoopVolumeConfirmedTrendLiveProjectionSink : VolumeConfirmedTrendLiveProj
 class LedgerVolumeConfirmedTrendLiveProjectionSink(
     private val store: ExecutionProjectionStore,
     private val runtimeMode: ExecutionRuntimeMode,
+    private val ownedClientOrderIds: suspend () -> Set<String>,
     private val tradingSymbol: Symbol = Symbol("BTCUSDT"),
     private val accountCoin: String = "USDT",
-    private val orderIdPrefix: String = "vct-",
     private val sessionStartedAt: Instant = Instant.now(),
     private val accountSnapshotInterval: Duration = Duration.ofMinutes(1),
     private val closureSyncInterval: Duration = Duration.ofMinutes(1),
@@ -128,7 +128,6 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
     init {
         require(tradingSymbol.value == "BTCUSDT") { "Trend live projection supports BTCUSDT only." }
         require(accountCoin == "USDT") { "Trend live projection supports the USDT account ledger only." }
-        require(orderIdPrefix.isNotBlank()) { "Trend live projection order prefix must not be blank." }
         listOf(
             accountSnapshotInterval,
             closureSyncInterval,
@@ -167,7 +166,15 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         fills: List<ExchangeExecutionFill>,
         receivedAt: Instant,
     ) {
-        fills.filter(::isOwnedExecution).forEach { fill ->
+        recordExecutionFills(fills, receivedAt, ownedClientOrderIds())
+    }
+
+    private suspend fun recordExecutionFills(
+        fills: List<ExchangeExecutionFill>,
+        receivedAt: Instant,
+        ownedOrderIds: Set<String>,
+    ) {
+        fills.filter { fill -> isOwnedExecution(fill, ownedOrderIds) }.forEach { fill ->
             store.recordExecutionFill(
                 ExecutionFillEvent(
                     mode = runtimeMode,
@@ -210,13 +217,14 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
 
     override suspend fun recordAccounting(observation: VolumeConfirmedTrendLiveAccountingObservation) {
         val request = observation.request
-        val ownedExecutions = observation.executions.filter(::isOwnedExecution)
-        recordExecutionFills(ownedExecutions, observation.receivedAt)
+        val ownedOrderIds = ownedClientOrderIds()
+        val ownedExecutions = observation.executions.filter { fill -> isOwnedExecution(fill, ownedOrderIds) }
+        recordExecutionFills(ownedExecutions, observation.receivedAt, ownedOrderIds)
 
         var newClosureCount = 0
         if (request.closuresDue) {
             observation.closedPnls
-                .mapNotNull { closedPnl -> closedPnl.ownedBy(ownedExecutions) }
+                .mapNotNull { closedPnl -> closedPnl.ownedBy(ownedExecutions, ownedOrderIds) }
                 .forEach { closedPnl ->
                     val closure = closedPnl.resolveExitReason(ownedExecutions).toTradeClosure(runtimeMode)
                     val suppressedAt = sessionStartedAt.takeIf { closure.closedAt.isBefore(it) }
@@ -276,13 +284,14 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         policy: VolumeConfirmedTrendLiveRiskPolicy,
     ): VolumeConfirmedTrendLiveRiskAssessment {
         val snapshot = store.latestAccountSnapshot(runtimeMode, now)
+        val ownedOrderIds = ownedClientOrderIds()
         val updated =
             snapshot?.let { current ->
                 val closures =
                     store
                         .performanceClosures(runtimeMode, null)
                         .asSequence()
-                        .filter(::isOwnedClosure)
+                        .filter { closure -> isOwnedClosure(closure, ownedOrderIds) }
                         .filter { closure -> previous?.lastClosureId?.let { closure.id > it } ?: true }
                         .toList()
                 val accountTransactions =
@@ -374,9 +383,12 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         )
     }
 
-    private fun ExchangeClosedPnl.ownedBy(executions: List<ExchangeExecutionFill>): ExchangeClosedPnl? {
+    private fun ExchangeClosedPnl.ownedBy(
+        executions: List<ExchangeExecutionFill>,
+        ownedOrderIds: Set<String>,
+    ): ExchangeClosedPnl? {
         if (symbol != tradingSymbol) return null
-        if (clientOrderId?.startsWith(orderIdPrefix) == true) return this
+        if (clientOrderId in ownedOrderIds) return this
         val matchingExecution =
             executions.firstOrNull { execution ->
                 !exchangeOrderId.isNullOrBlank() && execution.exchangeOrderId == exchangeOrderId
@@ -384,11 +396,15 @@ class LedgerVolumeConfirmedTrendLiveProjectionSink(
         return copy(clientOrderId = matchingExecution.clientOrderId)
     }
 
-    private fun isOwnedExecution(fill: ExchangeExecutionFill): Boolean =
-        fill.symbol == tradingSymbol && fill.clientOrderId?.startsWith(orderIdPrefix) == true
+    private fun isOwnedExecution(
+        fill: ExchangeExecutionFill,
+        ownedOrderIds: Set<String>,
+    ): Boolean = fill.symbol == tradingSymbol && fill.clientOrderId in ownedOrderIds
 
-    private fun isOwnedClosure(closure: dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure): Boolean =
-        closure.symbol == tradingSymbol && closure.clientOrderId?.startsWith(orderIdPrefix) == true
+    private fun isOwnedClosure(
+        closure: dev.yaklede.bybittrader.engine.execution.ExecutionTradeClosure,
+        ownedOrderIds: Set<String>,
+    ): Boolean = closure.symbol == tradingSymbol && closure.clientOrderId in ownedOrderIds
 
     private fun syncDue(
         lastAttemptAt: Instant?,

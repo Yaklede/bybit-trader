@@ -302,6 +302,11 @@ only after their order IDs, symbol, side, positive price/quantity, unique
 `execId`, `Trade` type, and timestamp pass the same contract. An ACK recovered
 after a local write failure copies the original intent fields instead of
 creating a weaker checkpoint.
+Accounting and dashboard ownership additionally require the client order ID to
+exist in an append-only intent/submitted event for the current protocol ID,
+protocol SHA-256, and BTCUSDT symbol. A `vct-` prefix by itself is never enough.
+If a fill or closure appears with only a copied prefix, compare it with the H4
+lifecycle API; it must remain excluded from H4 PnL, fees, and risk metrics.
 If an active order has stable client/exchange identity but any execution-shape
 field differs, the runtime requests immediate exact cancellation and waits for
 terminal readback. If the client ID, symbol, or exchange order ID itself differs,

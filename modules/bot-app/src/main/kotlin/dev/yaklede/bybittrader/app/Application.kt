@@ -58,6 +58,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
+import dev.yaklede.bybittrader.engine.strategy.PersistedVolumeConfirmedTrendLiveOrderOwnership
 import dev.yaklede.bybittrader.engine.strategy.TREND_ACTIVE_ORDER_CANCEL_REQUESTED_REASON_CODE
 import dev.yaklede.bybittrader.engine.strategy.TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
 import dev.yaklede.bybittrader.engine.strategy.TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX
@@ -575,6 +576,13 @@ fun main() {
             ).start(trendShadowScope)
         }
     val trendLiveSessionStartedAt = Instant.now()
+    val trendLiveOrderOwnership =
+        PersistedVolumeConfirmedTrendLiveOrderOwnership(
+            store = ledger,
+            protocolId = trendProtocolDefinition.protocolId,
+            protocolSha256 = trendProtocolDefinition.protocolSha256,
+            symbol = trendProtocolDefinition.symbol,
+        )
     val trendLiveRiskPolicy =
         config.execution.toVolumeConfirmedTrendLiveRiskPolicy(
             approvalMaximumDrawdownFraction =
@@ -587,6 +595,7 @@ fun main() {
             store = ledger,
             runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
             sessionStartedAt = trendLiveSessionStartedAt,
+            ownedClientOrderIds = trendLiveOrderOwnership::clientOrderIds,
             tradingSymbol = trendProtocolDefinition.symbol,
         )
     val persistedTrendLiveState =
@@ -633,6 +642,7 @@ fun main() {
                     LedgerVolumeConfirmedTrendLiveProjectionSink(
                         store = ledger,
                         runtimeMode = config.runtimeMode.toExecutionRuntimeMode(),
+                        ownedClientOrderIds = trendLiveOrderOwnership::clientOrderIds,
                         sessionStartedAt = trendLiveSessionStartedAt,
                         walletReconciliationTolerance =
                             config.execution.volumeConfirmedTrendLiveWalletTolerance(),

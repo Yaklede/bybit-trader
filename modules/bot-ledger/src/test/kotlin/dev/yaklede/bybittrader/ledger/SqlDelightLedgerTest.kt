@@ -56,6 +56,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperRuntimeState
 import dev.yaklede.bybittrader.engine.paper.PaperSignalRecord
 import dev.yaklede.bybittrader.engine.position.CausalPositionState
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
+import dev.yaklede.bybittrader.engine.strategy.PersistedVolumeConfirmedTrendLiveOrderOwnership
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveAccountingObservation
@@ -783,10 +784,14 @@ class SqlDelightLedgerTest :
             val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             LedgerDatabase.Schema.create(driver)
             val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val ownedClientOrderId = "vct-entry-live-order-001"
+            persistTrendOrderOwnership(ledger, ownedClientOrderId)
+            val ownership = trendOrderOwnership(ledger)
             val sink =
                 LedgerVolumeConfirmedTrendLiveProjectionSink(
                     store = ledger,
                     runtimeMode = ExecutionRuntimeMode.LIVE,
+                    ownedClientOrderIds = ownership::clientOrderIds,
                 )
             val capturedAt = Instant.parse("2026-08-08T00:00:00Z")
             val balance =
@@ -817,7 +822,7 @@ class SqlDelightLedgerTest :
                 ExchangeExecutionFill(
                     executionId = "trend-exec-001",
                     exchangeOrderId = "trend-order-001",
-                    clientOrderId = "vct-entry-live-order-001",
+                    clientOrderId = ownedClientOrderId,
                     symbol = Symbol("BTCUSDT"),
                     side = Side.BUY,
                     price = BigDecimal("60000"),
@@ -850,10 +855,14 @@ class SqlDelightLedgerTest :
             LedgerDatabase.Schema.create(driver)
             val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
             val capturedAt = Instant.parse("2026-08-08T00:05:00Z")
+            val ownedClientOrderId = "vct-exit-accounting-001"
+            persistTrendOrderOwnership(ledger, ownedClientOrderId)
+            val ownership = trendOrderOwnership(ledger)
             val sink =
                 LedgerVolumeConfirmedTrendLiveProjectionSink(
                     store = ledger,
                     runtimeMode = ExecutionRuntimeMode.LIVE,
+                    ownedClientOrderIds = ownership::clientOrderIds,
                     sessionStartedAt = capturedAt.minusSeconds(60),
                 )
             sink.recordAccountBalance(
@@ -886,7 +895,7 @@ class SqlDelightLedgerTest :
                 ExchangeExecutionFill(
                     executionId = "trend-accounting-exec-001",
                     exchangeOrderId = "trend-accounting-order-001",
-                    clientOrderId = "vct-exit-accounting-001",
+                    clientOrderId = ownedClientOrderId,
                     symbol = Symbol("BTCUSDT"),
                     side = Side.SELL,
                     price = BigDecimal("60000"),
@@ -896,7 +905,12 @@ class SqlDelightLedgerTest :
                     executionType = "Trade",
                     executionPnl = BigDecimal("7"),
                 )
-            val unrelatedFill = ownedFill.copy(executionId = "manual-exec-001", clientOrderId = "manual-order-001")
+            val unrelatedFill =
+                ownedFill.copy(
+                    executionId = "manual-exec-001",
+                    exchangeOrderId = "manual-order-001",
+                    clientOrderId = "vct-spoof-unowned",
+                )
             val ownedClosure =
                 ExchangeClosedPnl(
                     exchangeOrderId = ownedFill.exchangeOrderId,
@@ -916,7 +930,7 @@ class SqlDelightLedgerTest :
             val unrelatedClosure =
                 ownedClosure.copy(
                     exchangeOrderId = "manual-order-001",
-                    clientOrderId = "manual-order-001",
+                    clientOrderId = "vct-spoof-unowned",
                 )
             val funding =
                 ExchangeAccountTransaction(
@@ -972,6 +986,7 @@ class SqlDelightLedgerTest :
                     store = ledger,
                     runtimeMode = ExecutionRuntimeMode.LIVE,
                     sessionStartedAt = capturedAt.minusSeconds(60),
+                    ownedClientOrderIds = ownership::clientOrderIds,
                 ).read(capturedAt, 10)
             evidence.performance.single { it.snapshot.window == LivePerformanceWindow.ALL }.apply {
                 snapshot.tradeCount shouldBe 1
@@ -1015,6 +1030,7 @@ class SqlDelightLedgerTest :
                 LedgerVolumeConfirmedTrendLiveProjectionSink(
                     store = ledger,
                     runtimeMode = ExecutionRuntimeMode.LIVE,
+                    ownedClientOrderIds = { emptySet() },
                     sessionStartedAt = baselineAt,
                 )
 
@@ -1104,6 +1120,7 @@ class SqlDelightLedgerTest :
                 LedgerVolumeConfirmedTrendLiveProjectionSink(
                     store = ledger,
                     runtimeMode = ExecutionRuntimeMode.LIVE,
+                    ownedClientOrderIds = { emptySet() },
                     sessionStartedAt = startedAt,
                 )
             sink.recordAccountBalance(trendLiveBalance("660", startedAt))
@@ -1540,6 +1557,32 @@ private fun sampleTrendLiveState(): VolumeConfirmedTrendLiveState =
         riskReasonCodes = listOf("ACCOUNT_LEDGER_MISMATCH_PENDING"),
         updatedAt = Instant.parse("2026-08-07T00:00:02Z"),
     )
+
+private fun trendOrderOwnership(ledger: SqlDelightLedger): PersistedVolumeConfirmedTrendLiveOrderOwnership =
+    PersistedVolumeConfirmedTrendLiveOrderOwnership(
+        store = ledger,
+        protocolId = "volume-confirmed-trend-ensemble-v1",
+        protocolSha256 = "a".repeat(64),
+        symbol = Symbol("BTCUSDT"),
+    )
+
+private suspend fun persistTrendOrderOwnership(
+    ledger: SqlDelightLedger,
+    clientOrderId: String,
+) {
+    val state =
+        sampleTrendLiveState().copy(
+            clientOrderId = clientOrderId,
+            exchangeOrderId = "exchange-$clientOrderId",
+        )
+    val event =
+        sampleTrendLiveEvent(state).copy(
+            eventId = "event-$clientOrderId",
+            clientOrderId = clientOrderId,
+            exchangeOrderId = state.exchangeOrderId,
+        )
+    ledger.commitTrendLive(state, listOf(event))
+}
 
 private fun trendLiveBalance(
     amount: String,
