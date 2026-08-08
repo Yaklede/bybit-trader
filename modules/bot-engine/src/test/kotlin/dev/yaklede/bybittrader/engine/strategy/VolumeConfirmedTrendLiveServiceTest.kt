@@ -1243,6 +1243,31 @@ class VolumeConfirmedTrendLiveServiceTest :
             }
         }
 
+        "approval lost after planning blocks entry before intent persistence" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var approvalChecks = 0
+            val service =
+                service(
+                    gateway = gateway,
+                    store = store,
+                    approvalReportProvider = {
+                        approvalChecks += 1
+                        approvalReport().copy(readyForHumanReview = approvalChecks == 1)
+                    },
+                )
+
+            val result = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.DISABLED
+            result.approvalFailures shouldBe
+                listOf(VolumeConfirmedTrendLiveApprovalFailure.FORWARD_REPORT_NOT_READY)
+            approvalChecks shouldBe 2
+            gateway.submittedOrders.size shouldBe 0
+            store.events.map { it.type } shouldBe listOf(VolumeConfirmedTrendLiveEventType.HALTED)
+        }
+
         "risk failure blocks a new entry without submitting an exchange order" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -1688,6 +1713,28 @@ class VolumeConfirmedTrendLiveServiceTest :
                 side shouldBe Side.SELL
                 reduceOnly shouldBe false
             }
+        }
+
+        "entry approval recheck never blocks a reduce-only position close" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            var approvalChecks = 0
+            val service =
+                service(
+                    gateway = gateway,
+                    store = store,
+                    approvalReportProvider = {
+                        approvalChecks += 1
+                        approvalReport().copy(readyForHumanReview = approvalChecks == 1)
+                    },
+                )
+
+            val result = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            approvalChecks shouldBe 1
+            gateway.submittedOrders.single().reduceOnly shouldBe true
         }
 
         "risk failure never prevents an existing position from closing" {

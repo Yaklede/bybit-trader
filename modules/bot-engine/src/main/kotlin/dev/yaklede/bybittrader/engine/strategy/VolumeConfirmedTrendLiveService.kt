@@ -792,6 +792,21 @@ class VolumeConfirmedTrendLiveService(
         position: ExchangePosition?,
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
+        if (plan.action == VolumeConfirmedTrendTargetAction.OPEN) {
+            val submissionApproval = approvalValidation()
+            if (!submissionApproval.liveExecutionAllowed) {
+                require(position == null) { "A trend entry approval block requires a confirmed flat position." }
+                return approvalBlocked(
+                    state =
+                        blockByApproval(
+                            previous = previous,
+                            now = maxOf(now, clock()),
+                            positionConfirmedFlat = true,
+                        ),
+                    approval = submissionApproval,
+                )
+            }
+        }
         val quantity = requireNotNull(plan.orderQuantity)
         val limitPrice = requireNotNull(plan.limitPrice)
         if (plan.action == VolumeConfirmedTrendTargetAction.OPEN && quantity * limitPrice < instrument.minimumNotional) {
