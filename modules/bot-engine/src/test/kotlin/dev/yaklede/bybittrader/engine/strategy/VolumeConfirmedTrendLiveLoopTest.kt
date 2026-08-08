@@ -76,6 +76,36 @@ class VolumeConfirmedTrendLiveLoopTest :
             fixture.tickerRequestCount() shouldBe 0
         }
 
+        "stale ticker halts before evaluating a fresh entry signal" {
+            val fixture =
+                fixture(
+                    eventAt = TEST_NOW.minusSeconds(10),
+                    tickerCapturedAt = TEST_NOW.minusSeconds(31),
+                )
+
+            val result = fixture.loop.runOnce()
+
+            result.status shouldBe VolumeConfirmedTrendLiveLoopStatus.HALTED
+            fixture.executor.haltReasons shouldBe listOf("TREND_TICKER_STALE")
+            fixture.executor.evaluatedSignals shouldBe emptyList()
+            fixture.tickerRequestCount() shouldBe 1
+        }
+
+        "ticker beyond the allowed future skew halts before evaluating a fresh entry signal" {
+            val fixture =
+                fixture(
+                    eventAt = TEST_NOW.minusSeconds(10),
+                    tickerCapturedAt = TEST_NOW.plusSeconds(6),
+                )
+
+            val result = fixture.loop.runOnce()
+
+            result.status shouldBe VolumeConfirmedTrendLiveLoopStatus.HALTED
+            fixture.executor.haltReasons shouldBe listOf("TREND_TICKER_FROM_FUTURE")
+            fixture.executor.evaluatedSignals shouldBe emptyList()
+            fixture.tickerRequestCount() shouldBe 1
+        }
+
         "changed Shadow session halts before any private reconciliation" {
             val fixture = fixture(eventAt = TEST_NOW.minusSeconds(10), shadowSessionId = "replacement-session")
 
@@ -237,6 +267,7 @@ private fun fixture(
     targetSide: Side = Side.BUY,
     reconciledState: VolumeConfirmedTrendLiveState = liveState(),
     events: List<VolumeConfirmedTrendShadowEvent>? = null,
+    tickerCapturedAt: Instant = TEST_NOW,
 ): LiveLoopFixture {
     val shadowState = shadowState(sessionId = shadowSessionId, targetSide = targetSide)
     val event = confirmedEvent(sessionId = shadowSessionId, side = targetSide, eventAt = eventAt)
@@ -258,7 +289,7 @@ private fun fixture(
                     price24hPcnt = null,
                     fundingRate = null,
                     nextFundingTime = null,
-                    capturedAt = TEST_NOW,
+                    capturedAt = tickerCapturedAt,
                 )
             },
             config =

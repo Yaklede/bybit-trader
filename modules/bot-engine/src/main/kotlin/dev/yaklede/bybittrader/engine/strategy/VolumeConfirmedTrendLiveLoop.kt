@@ -24,6 +24,8 @@ data class VolumeConfirmedTrendLiveLoopConfig(
     val approvedShadowSessionId: String,
     val interval: Duration = Duration.ofSeconds(15),
     val maximumSignalAge: Duration = Duration.ofMinutes(20),
+    val maximumTickerAge: Duration = Duration.ofSeconds(30),
+    val maximumTickerFutureSkew: Duration = Duration.ofSeconds(5),
     val signalEventLimit: Int = 32,
 ) {
     init {
@@ -37,6 +39,12 @@ data class VolumeConfirmedTrendLiveLoopConfig(
         require(!interval.isNegative && !interval.isZero) { "Trend live loop interval must be positive." }
         require(!maximumSignalAge.isNegative && !maximumSignalAge.isZero && maximumSignalAge < Duration.ofHours(4)) {
             "Trend live maximum signal age must be positive and shorter than one H4 period."
+        }
+        require(!maximumTickerAge.isNegative && !maximumTickerAge.isZero) {
+            "Trend live maximum ticker age must be positive."
+        }
+        require(!maximumTickerFutureSkew.isNegative) {
+            "Trend live maximum ticker future skew must not be negative."
         }
         require(signalEventLimit in 1..100) { "Trend live signal event limit must be between 1 and 100." }
     }
@@ -229,6 +237,27 @@ class VolumeConfirmedTrendLiveLoop(
         val ticker = tickerProvider(config.symbol)
         require(ticker.symbol == config.symbol) { "Trend live ticker symbol does not match its configuration." }
         require(ticker.lastPrice.signum() > 0) { "Trend live ticker price must be positive." }
+        val tickerObservedAt = Instant.now(clock)
+        if (ticker.capturedAt.isAfter(tickerObservedAt.plus(config.maximumTickerFutureSkew))) {
+            return publish(
+                status = VolumeConfirmedTrendLiveLoopStatus.HALTED,
+                botMode = botMode,
+                shadowSessionId = validShadow.sessionId,
+                signal = signal,
+                evaluation = liveExecutor.haltForSafety("TREND_TICKER_FROM_FUTURE"),
+                evaluatedAt = tickerObservedAt,
+            )
+        }
+        if (Duration.between(ticker.capturedAt, tickerObservedAt) > config.maximumTickerAge) {
+            return publish(
+                status = VolumeConfirmedTrendLiveLoopStatus.HALTED,
+                botMode = botMode,
+                shadowSessionId = validShadow.sessionId,
+                signal = signal,
+                evaluation = liveExecutor.haltForSafety("TREND_TICKER_STALE"),
+                evaluatedAt = tickerObservedAt,
+            )
+        }
         val evaluation = liveExecutor.evaluate(requireNotNull(signal), ticker.lastPrice)
         return publish(
             status =
