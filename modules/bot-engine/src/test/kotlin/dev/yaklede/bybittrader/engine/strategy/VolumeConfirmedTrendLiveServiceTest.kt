@@ -946,6 +946,89 @@ class VolumeConfirmedTrendLiveServiceTest :
                 (submitted.state.updatedAt.minusSeconds(300) to now)
         }
 
+        "entry recovery does not adopt a position larger than its exact fill evidence" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.007")
+            gateway.executionFills += executionFill(clientOrderId, "execution-entry-quantity-mismatch", quantity = "0.003")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.003"),
+                    providerStatus = "Filled",
+                )
+            now = now.plusSeconds(11)
+
+            val result = service.reconcile()
+            val safetyCheck = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_ENTRY_POSITION_QUANTITY_MISMATCH"
+            result.state.observedPositionSide shouldBe null
+            result.state.observedPositionQuantity shouldBe null
+            safetyCheck.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            gateway.submittedOrders.size shouldBe 1
+        }
+
+        "entry recovery rejects inconsistent order and execution fill quantities" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = TEST_NOW
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.003")
+            gateway.executionFills += executionFill(clientOrderId, "execution-entry-evidence-mismatch", quantity = "0.003")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.FILLED,
+                    filledQuantity = BigDecimal("0.004"),
+                    providerStatus = "Filled",
+                )
+            now = now.plusSeconds(11)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_ENTRY_FILL_QUANTITY_EVIDENCE_MISMATCH"
+            result.state.observedPositionSide shouldBe null
+            result.state.observedPositionQuantity shouldBe null
+            gateway.submittedOrders.size shouldBe 1
+        }
+
+        "entry recovery rejects a zero order fill that conflicts with an execution" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            var now = TEST_NOW
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.003")
+            gateway.executionFills += executionFill(clientOrderId, "execution-entry-zero-order-fill", quantity = "0.003")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    filledQuantity = BigDecimal.ZERO,
+                    providerStatus = "Cancelled",
+                )
+            now = now.plusSeconds(11)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_ENTRY_FILL_QUANTITY_EVIDENCE_MISMATCH"
+            result.state.observedPositionSide shouldBe null
+            result.state.observedPositionQuantity shouldBe null
+            gateway.submittedOrders.size shouldBe 1
+        }
+
         "partial entry cancels its active remainder before becoming open" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -1310,6 +1393,58 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
             recovered.state.status shouldBe VolumeConfirmedTrendLiveStatus.FLAT
+        }
+
+        "partial exit updates the owned remainder only when exact fill evidence matches" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            val service = service(gateway, store)
+
+            val submitted = service.evaluate(command(Side.SELL), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions[0] = position(Side.BUY, "0.004")
+            gateway.executionFills += executionFill(clientOrderId, "execution-exit-quantity-proven", quantity = "0.003")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    filledQuantity = BigDecimal("0.003"),
+                    providerStatus = "PartiallyFilledCanceled",
+                )
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED
+            result.state.observedPositionSide shouldBe Side.BUY
+            result.state.observedPositionQuantity shouldBe BigDecimal("0.004")
+            gateway.submittedOrders.size shouldBe 1
+        }
+
+        "partial exit does not replace ownership quantity without exact fill evidence" {
+            val openPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(positions = mutableListOf(openPosition))
+            val store = InMemoryTrendLiveStore(state = openState(openPosition))
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val service = service(gateway, store, clock = { now })
+
+            service.evaluate(command(Side.SELL), BigDecimal("60000"))
+            gateway.positions[0] = position(Side.BUY, "0.004")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    filledQuantity = BigDecimal.ZERO,
+                    providerStatus = "Cancelled",
+                )
+            now = now.plusSeconds(11)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_EXIT_FILL_QUANTITY_EVIDENCE_MISSING"
+            result.state.observedPositionSide shouldBe Side.BUY
+            result.state.observedPositionQuantity shouldBe BigDecimal("0.007")
+            gateway.submittedOrders.size shouldBe 1
         }
 
         "a same-side position without exact order evidence is not adopted" {

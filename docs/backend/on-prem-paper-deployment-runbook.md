@@ -282,6 +282,18 @@ waits remain silent, and the same cancellation fingerprint is rate-limited.
 Until terminal readback arrives, subsequent checks remain recovery-pending and
 do not emit a false recovered state or repeat the cancel request. The next
 timeout promotes an unresolved active order to `HALTED`.
+Terminal readback is still not sufficient by itself. The runtime compares the
+exact order's positive cumulative filled quantity with the deduplicated exact
+execution quantity. Entry ownership is created only when that quantity equals
+the observed position. A full exit must explain the complete persisted owned
+quantity, and a partial exit must explain the exact reduction before the
+remaining quantity replaces the checkpoint. Missing, duplicate, malformed, or
+conflicting fill evidence remains pending until the retry timeout and then
+halts while preserving the previous ownership evidence. Treat any
+`TREND_*_FILL_QUANTITY_EVIDENCE_*` or
+`TREND_*_POSITION_QUANTITY_MISMATCH` reason as an operator-review condition;
+compare the Bybit order history, execution history, and live position before
+changing state manually.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

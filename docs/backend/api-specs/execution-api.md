@@ -87,7 +87,12 @@ coexist with `runtimeMode=MANAGEMENT_ONLY` when persisted exposure still needs
 reconciliation. A persisted state can also be returned while the runtime mode is
 `DISABLED` so an operator can inspect a prior halted run. `ORDER_SUBMITTED` is an
 acknowledgement, not fill proof; `ENTRY_FILL_OBSERVED` or `EXIT_FILL_OBSERVED`
-plus the observed position state is the current recovery evidence. A
+plus the observed position state is the current recovery evidence. Recovery
+creates or changes position ownership only when the exact order's cumulative
+filled quantity agrees with deduplicated exact executions and exactly explains
+the observed position quantity or reduction. Missing or conflicting quantity
+evidence remains pending until timeout and then halts without replacing prior
+ownership evidence. A
 missing/stale unitized NAV or wallet reconciliation, a confirmed wallet
 mismatch, or drawdown at or above 35% returns `risk.allowsNewEntry=false`.
 Existing position exits remain allowed. This endpoint requires the control

@@ -68,6 +68,16 @@ internal class VolumeConfirmedTrendLiveRecovery(
             if (position.side != state.pendingTargetSide) {
                 return halt(state, now, "TREND_ENTRY_FILLED_WRONG_SIDE", position)
             }
+            val fillEvidence = fillQuantityEvidence(order, executions)
+            if (!fillEvidence.consistent) {
+                return pendingOrHalt(state, now, "TREND_ENTRY_FILL_QUANTITY_EVIDENCE_MISMATCH", position)
+            }
+            val filledQuantity =
+                fillEvidence.quantity
+                    ?: return pendingOrHalt(state, now, "TREND_ENTRY_FILL_QUANTITY_EVIDENCE_MISSING", position)
+            if (position.size.compareTo(filledQuantity) != 0) {
+                return pendingOrHalt(state, now, "TREND_ENTRY_POSITION_QUANTITY_MISMATCH", position)
+            }
             val opened =
                 state.copy(
                     status = VolumeConfirmedTrendLiveStatus.OPEN,
@@ -132,6 +142,20 @@ internal class VolumeConfirmedTrendLiveRecovery(
             if (order?.hasUnknownProviderStatus() == true) {
                 return halt(state, now, "TREND_EXIT_ORDER_STATUS_UNKNOWN")
             }
+            val expectedExitQuantity = state.observedPositionQuantity
+            if (expectedExitQuantity == null || expectedExitQuantity <= BigDecimal.ZERO) {
+                return halt(state, now, "TREND_EXIT_OWNERSHIP_QUANTITY_EVIDENCE_MISSING")
+            }
+            val fillEvidence = fillQuantityEvidence(order, executions)
+            if (!fillEvidence.consistent) {
+                return pendingOrHalt(state, now, "TREND_EXIT_FILL_QUANTITY_EVIDENCE_MISMATCH")
+            }
+            val filledQuantity =
+                fillEvidence.quantity
+                    ?: return pendingOrHalt(state, now, "TREND_EXIT_FILL_QUANTITY_EVIDENCE_MISSING")
+            if (filledQuantity.compareTo(expectedExitQuantity) != 0) {
+                return pendingOrHalt(state, now, "TREND_EXIT_FLAT_QUANTITY_MISMATCH")
+            }
             val flat =
                 state.copy(
                     status = VolumeConfirmedTrendLiveStatus.FLAT,
@@ -153,6 +177,14 @@ internal class VolumeConfirmedTrendLiveRecovery(
         if (order?.hasUnknownProviderStatus() == true) {
             return halt(state, now, "TREND_EXIT_ORDER_STATUS_UNKNOWN", position)
         }
+        val originalSide = state.observedPositionSide
+        val originalQuantity = state.observedPositionQuantity
+        if (originalSide == null || originalQuantity == null || originalQuantity <= BigDecimal.ZERO) {
+            return halt(state, now, "TREND_EXIT_OWNERSHIP_QUANTITY_EVIDENCE_MISSING", position)
+        }
+        if (position.side != originalSide || position.size > originalQuantity) {
+            return halt(state, now, "TREND_EXIT_POSITION_QUANTITY_MISMATCH", position)
+        }
         return when (order?.status) {
             OrderStatus.CREATED,
             OrderStatus.SUBMITTED,
@@ -160,7 +192,21 @@ internal class VolumeConfirmedTrendLiveRecovery(
             -> error("Active exit orders must be handled before terminal recovery.")
             OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
-            -> recordNotFilled(state, order, entry = false, position = position, now = now)
+            -> {
+                val fillEvidence = fillQuantityEvidence(order, executions)
+                val reducedQuantity = originalQuantity - position.size
+                when {
+                    !fillEvidence.consistent ->
+                        pendingOrHalt(state, now, "TREND_EXIT_FILL_QUANTITY_EVIDENCE_MISMATCH", position)
+                    reducedQuantity.compareTo(BigDecimal.ZERO) == 0 && fillEvidence.quantity == null ->
+                        recordNotFilled(state, order, entry = false, position = position, now = now)
+                    fillEvidence.quantity == null ->
+                        pendingOrHalt(state, now, "TREND_EXIT_FILL_QUANTITY_EVIDENCE_MISSING", position)
+                    fillEvidence.quantity.compareTo(reducedQuantity) != 0 ->
+                        pendingOrHalt(state, now, "TREND_EXIT_POSITION_QUANTITY_MISMATCH", position)
+                    else -> recordNotFilled(state, order, entry = false, position = position, now = now)
+                }
+            }
             OrderStatus.FILLED -> pendingOrHalt(state, now, "TREND_EXIT_FILL_POSITION_REMAINS", position)
             null -> {
                 val reason =
@@ -345,6 +391,35 @@ internal class VolumeConfirmedTrendLiveRecovery(
 
     private fun ExchangeOpenOrder.hasFilledQuantity(): Boolean = filledQuantity?.let { it > BigDecimal.ZERO } == true
 
+    private fun fillQuantityEvidence(
+        order: ExchangeOpenOrder?,
+        executions: List<ExchangeExecutionFill>,
+    ): FillQuantityEvidence {
+        val executionIds = executions.map(ExchangeExecutionFill::executionId)
+        val malformedExecutions =
+            executions.any { it.executionId.isNullOrBlank() || it.quantity <= BigDecimal.ZERO } ||
+                executionIds.distinct().size != executionIds.size
+        val executionQuantity =
+            executions
+                .takeIf { it.isNotEmpty() && !malformedExecutions }
+                ?.fold(BigDecimal.ZERO) { total, execution -> total + execution.quantity }
+        val rawOrderQuantity = order?.filledQuantity
+        val malformedOrderQuantity = rawOrderQuantity != null && rawOrderQuantity < BigDecimal.ZERO
+        val orderQuantity = rawOrderQuantity?.takeIf { it > BigDecimal.ZERO }
+        val orderExecutionQuantityMismatch =
+            rawOrderQuantity != null &&
+                executionQuantity != null &&
+                rawOrderQuantity.compareTo(executionQuantity) != 0
+        val consistent =
+            !malformedExecutions &&
+                !malformedOrderQuantity &&
+                !orderExecutionQuantityMismatch
+        return FillQuantityEvidence(
+            quantity = if (consistent) executionQuantity ?: orderQuantity else null,
+            consistent = consistent,
+        )
+    }
+
     private fun VolumeConfirmedTrendLiveState.matchesObservedPosition(position: ExchangePosition): Boolean =
         observedPositionSide == position.side && observedPositionQuantity?.compareTo(position.size) == 0
 
@@ -374,4 +449,9 @@ internal class VolumeConfirmedTrendLiveRecovery(
                 "Rejected",
             )
     }
+
+    private data class FillQuantityEvidence(
+        val quantity: BigDecimal?,
+        val consistent: Boolean,
+    )
 }

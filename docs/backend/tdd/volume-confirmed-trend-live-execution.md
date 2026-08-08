@@ -235,6 +235,12 @@ exact 주문 취소를 요청한 `RECOVERY_PENDING` 결과는 별도 recovery re
 한국어 경고로 전달하고, 단순 조회 지연으로 아직 timeout 전인 일반 `RECOVERY_PENDING`은 알림하지 않는다.
 취소 요청 뒤 terminal 상태가 아직 보이지 않으면 `RECOVERED`로 오인하지 않고 같은 pending 상태를
 유지한다. 추가 취소와 원장 event는 만들지 않으며 다음 timeout에만 자동 복구를 `HALTED`로 전환한다.
+terminal 주문을 포지션 소유권 증거로 승격할 때는 주문의 양수 누적 체결 수량과 중복되지 않은 exact
+`execId` 체결 합계를 비교한다. 둘 다 있으면 반드시 같아야 하며, 진입은 현재 포지션 수량이 그 체결
+수량과 정확히 일치할 때만 `OPEN`이 된다. 종료는 기존 소유 수량과 exact 체결 수량이 모두 일치할 때만
+`FLAT`이 되고, 부분 종료는 `기존 소유 수량 - 현재 수량`이 exact 체결 수량과 일치할 때만 남은 수량으로
+소유권을 갱신한다. 누락, 음수/0 체결, 중복 `execId`, 주문·execution 합계 불일치 또는 설명되지 않는
+포지션 증감은 retry timeout까지 대기한 뒤 `HALTED`하며 기존 소유권 증거를 보존한다.
 
 ## 6. 예외 및 실패 처리
 
@@ -252,6 +258,8 @@ exact 주문 취소를 요청한 `RECOVERY_PENDING` 결과는 별도 recovery re
 | `TREND_EXCHANGE_CONTRACT_MISMATCH` | 승인된 진입 계약과 현재 거래소 설정 불일치 | 신규 진입 차단, pending 복구, 안전한 경우 소유 포지션 reduce-only 종료 |
 | `TREND_EXPOSURE_LIMIT_EXCEEDED` | 수량 반올림 후 0.85 초과 | 주문 없음 |
 | `TREND_POSITION_MISMATCH` | 로컬과 거래소 방향/수량 불일치 | `HALTED`, 신규 진입 차단 |
+| `TREND_*_FILL_QUANTITY_EVIDENCE_*` | exact 주문 누적 체결과 execution 합계 누락/불일치 | retry 후 `HALTED`, 포지션 소유권 승격 금지 |
+| `TREND_*_POSITION_QUANTITY_MISMATCH` | 체결 증거로 설명되지 않는 포지션 수량 | retry 후 `HALTED`, 기존 소유권 증거 보존 |
 | `TREND_EXIT_PENDING` | 종료 미확정 | 신규 진입 차단, 대사 반복 |
 | `TREND_DATA_STALE` | H4 또는 ticker 지연 | 해당 전환 폐기, 다음 신호까지 대기 |
 | `TREND_ORDER_STATE_UNKNOWN` | ack/stream/REST 불일치 | `HALTED`, 자동 재주문 금지 |
