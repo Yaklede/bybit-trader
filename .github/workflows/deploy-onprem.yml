@@ -84,6 +84,7 @@ jobs:
           docker save "bybit-trader-dashboard:${IMAGE_TAG}" | gzip > "deploy-package/images/${DASHBOARD_IMAGE_TAR}"
           cp compose.yaml deploy-package/compose.yaml
           cp deploy/docker/backup-runtime-state.sh deploy-package/bin/backup-runtime-state.sh
+          cp deploy/docker/activate-runtime-release.sh deploy-package/bin/activate-runtime-release.sh
           cp deploy/docker/verify-runtime-backup.sh deploy-package/bin/verify-runtime-backup.sh
           cp deploy/docker/verify-runtime-profile.sh deploy-package/bin/verify-runtime-profile.sh
           cp \
@@ -469,11 +470,13 @@ jobs:
           command_timeout: 5m
           script: |
             set -eu
-            mkdir -p '${{ secrets.ONPREM_DEPLOY_DIR }}/config' \
-              '${{ secrets.ONPREM_DEPLOY_DIR }}/bin' \
+            umask 077
+            STAGING_DIR='${{ secrets.ONPREM_DEPLOY_DIR }}/.deploy-staging-${{ github.run_id }}'
+            rm -rf "${STAGING_DIR}"
+            mkdir -p "${STAGING_DIR}" \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/backups' \
-              '${{ secrets.ONPREM_DEPLOY_DIR }}/env' \
               '${{ secrets.ONPREM_DEPLOY_DIR }}/images'
+            chmod 700 "${STAGING_DIR}"
 
       - name: Upload Docker deployment package
         if: ${{ inputs.deploy == true }}
@@ -487,7 +490,7 @@ jobs:
           fingerprint: ${{ secrets.ONPREM_SSH_FINGERPRINT }}
           command_timeout: 20m
           source: "deploy-package/*"
-          target: ${{ secrets.ONPREM_DEPLOY_DIR }}
+          target: ${{ secrets.ONPREM_DEPLOY_DIR }}/.deploy-staging-${{ github.run_id }}
           strip_components: 1
 
       - name: Load images and restart compose services
@@ -503,66 +506,12 @@ jobs:
           command_timeout: 20m
           script: |
             set -eu
-            cd '${{ secrets.ONPREM_DEPLOY_DIR }}'
-            . ./release.env
-            docker load -i "images/${BOT_IMAGE_TAR}"
-            docker load -i "images/${DASHBOARD_IMAGE_TAR}"
-            prune_image_archives() {
-              name_pattern="$1"
-              find images -maxdepth 1 -type f -name "${name_pattern}" -exec ls -1t {} + 2>/dev/null \
-                | tail -n +4 \
-                | while IFS= read -r archive; do
-                    rm -f "${archive}"
-                  done
-            }
-            prune_image_archives "bybit-trader-v*.tar.gz"
-            prune_image_archives "bybit-trader-dashboard-v*.tar.gz"
-            printf '%s\n' \
-              "BOT_IMAGE=${BOT_IMAGE}" \
-              "DASHBOARD_IMAGE=${DASHBOARD_IMAGE}" \
-              'DASHBOARD_BIND_HOST=${{ secrets.ONPREM_DOCKER_BIND_HOST }}' \
-              'DASHBOARD_PORT=${{ vars.DASHBOARD_PORT || '8080' }}' \
-              'BOT_ENV_FILE=${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env' > .env
-            test -f '${{ secrets.ONPREM_DEPLOY_DIR }}/env/bybit-trader.env'
-            RUNTIME_BACKUP_SNAPSHOT="$(
-              sh bin/backup-runtime-state.sh \
-                .env \
-                compose.yaml \
-                env/bybit-trader.env \
-                backups \
-                "${BOT_IMAGE}"
-            )"
-            if [ "${RUNTIME_BACKUP_SNAPSHOT}" != "NONE" ]; then
-              sh bin/verify-runtime-backup.sh \
-                "${RUNTIME_BACKUP_SNAPSHOT}" \
-                "${BOT_IMAGE}"
-            fi
-            docker compose --env-file .env -f compose.yaml up -d --remove-orphans
-            docker compose --env-file .env -f compose.yaml ps
-            . ./.env
-            runtime_ready=false
-            for i in $(seq 1 30); do
-              if curl -fsS "http://${DASHBOARD_BIND_HOST}:${DASHBOARD_PORT}/" >/dev/null \
-                && curl -fsS "http://${DASHBOARD_BIND_HOST}:${DASHBOARD_PORT}/api/health" >/dev/null; then
-                runtime_ready=true
-                break
-              fi
-              sleep 2
-            done
-            if [ "${runtime_ready}" != "true" ]; then
-              docker compose --env-file .env -f compose.yaml logs --tail=120 bybit-trader bybit-trader-dashboard
-              exit 1
-            fi
-            CONTINUITY_SNAPSHOT=""
-            if [ "${RUNTIME_BACKUP_SNAPSHOT}" != "NONE" ] \
-              && [ -f "${RUNTIME_BACKUP_SNAPSHOT}/shadow-before.json" ]; then
-              CONTINUITY_SNAPSHOT="${RUNTIME_BACKUP_SNAPSHOT}/shadow-before.json"
-            fi
-            sh bin/verify-runtime-profile.sh \
-              .env \
-              compose.yaml \
-              env/bybit-trader.env \
-              "${CONTINUITY_SNAPSHOT}"
+            sh '${{ secrets.ONPREM_DEPLOY_DIR }}/.deploy-staging-${{ github.run_id }}/bin/activate-runtime-release.sh' \
+              '${{ secrets.ONPREM_DEPLOY_DIR }}' \
+              '${{ secrets.ONPREM_DEPLOY_DIR }}/.deploy-staging-${{ github.run_id }}' \
+              '${{ secrets.ONPREM_DOCKER_BIND_HOST }}' \
+              '${{ vars.DASHBOARD_PORT || '8080' }}' \
+              '${{ github.run_id }}'
 
       - name: Report dry-run result
         if: ${{ inputs.deploy != true }}

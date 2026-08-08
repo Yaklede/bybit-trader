@@ -186,10 +186,11 @@ deployment values only.
 - `twingate/github-action@v1`: attaches the GitHub runner to the private
   Twingate network with `TWINGATE_SERVICE_KEY`.
 - `appleboy/scp-action@v1`: uploads `deploy-package` contents to
-  `ONPREM_DEPLOY_DIR`.
-- `appleboy/ssh-action@v1`: creates remote directories, runs `docker load`,
-  creates and validates a pre-deploy state backup, restarts Compose, checks the
-  dashboard and `/health`, then runs `bin/verify-runtime-profile.sh`.
+  `ONPREM_DEPLOY_DIR/.deploy-staging-<GitHub run ID>`.
+- `appleboy/ssh-action@v1`: invokes the staged
+  `bin/activate-runtime-release.sh`, which loads images, validates a pre-deploy
+  state backup, activates the candidate, checks the dashboard and `/health`, and
+  runs `bin/verify-runtime-profile.sh`.
 
 Before restart, `bin/backup-runtime-state.sh` writes a consistent SQLite backup
 to `ONPREM_DEPLOY_DIR/backups/<UTC timestamp>` and retains the latest 14
@@ -207,6 +208,24 @@ continues only after `/health` succeeds. If the backup contains an active H4
 Shadow session, its checkpoint, protocol identity, session-start event, and
 non-invalidated status must also agree. The temporary container and volume are
 removed whether the drill succeeds or fails.
+
+The active release is not overwritten by SCP. After backup verification, the
+activation script prepares all active files beneath the isolated staging
+directory, snapshots the previous `env`, `config`, `bin`, Compose, and release
+files into a mode-`0700` `.deploy-rollback-<GitHub run ID>` directory, and only
+then switches the active files. If Compose startup, either HTTP probe, profile
+verification, or Shadow-session continuity fails, it restores the previous file
+set exactly and restarts the previous Compose release. If no previous release
+exists, it stops the unverified first deployment. A rollback restart that does
+not become healthy is reported as an additional deployment error and still
+leaves the workflow failed.
+
+Successful deployments remove their staging directory and retain the newest
+three rollback directories and three versioned image archives per service.
+Failed staging directories are intentionally retained for diagnosis. Both
+staging and rollback directories may contain generated runtime configuration;
+protect `ONPREM_DEPLOY_DIR` from other host users and remove obsolete failed
+staging directories after the incident is resolved.
 
 The regular `CI` workflow runs the same recovery path after building the backend
 image: it creates a real application database, snapshots it with SQLite, then
@@ -257,11 +276,11 @@ case, use a separate maintenance environment with the same narrowly scoped
 Twingate/SSH access and no deployment write permissions, then point the two
 maintenance workflows at it.
 
-The retained snapshots are local to `ONPREM_DEPLOY_DIR/backups`. They provide
-rollback and state-recovery evidence for application failures, but do not protect
-against physical disk or host loss. Keep encrypted off-host backups under a
-separate retention and access policy before treating the runtime as fully
-disaster-recoverable.
+The retained SQLite snapshots and release rollback directories are local to
+`ONPREM_DEPLOY_DIR`. They provide rollback and state-recovery evidence for
+application failures, but do not protect against physical disk or host loss.
+Keep encrypted off-host backups under a separate retention and access policy
+before treating the runtime as fully disaster-recoverable.
 
 ## Trigger
 

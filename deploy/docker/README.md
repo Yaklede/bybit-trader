@@ -10,6 +10,7 @@ This is the preferred on-prem deployment path.
 - `compose.yaml`: backend service, dashboard service, SQLite volume, config mount, healthchecks.
 - `deploy/docker/env/bybit-trader.env.example`: host-side environment template.
 - `deploy/docker/backup-runtime-state.sh`: validated pre-deploy SQLite snapshot and Shadow continuity evidence.
+- `deploy/docker/activate-runtime-release.sh`: staged activation, health/profile verification, and automatic release rollback.
 - `deploy/docker/verify-runtime-backup.sh`: isolated, network-disabled backup restore drill.
 - `deploy/docker/verify-runtime-profile.sh`: selected-profile and restarted Shadow-session verification.
 
@@ -66,8 +67,11 @@ The backend API is not published directly by compose. The dashboard publishes
 `DASHBOARD_BIND_HOST:DASHBOARD_PORT` and proxies `/api/*` to the backend service
 inside the Docker network. The application secrets stay in `BOT_ENV_FILE`.
 
-Before a running container is replaced, the GitHub Actions workflow stores a
-consistent SQLite snapshot under `ONPREM_DEPLOY_DIR/backups/<UTC timestamp>`.
+The workflow uploads each package to
+`ONPREM_DEPLOY_DIR/.deploy-staging-<GitHub run ID>` instead of overwriting the
+active release. Before a running container or active configuration is replaced,
+it stores a consistent SQLite snapshot under
+`ONPREM_DEPLOY_DIR/backups/<UTC timestamp>`.
 Each snapshot contains `bybit-trader.sqlite`, a SHA-256 manifest, and, for H4
 Shadow, the authenticated pre-deploy Shadow and approval responses. The newest
 14 snapshots are retained. Deployment fails when SQLite `PRAGMA quick_check`
@@ -78,6 +82,16 @@ container is restarted. The drill starts the application with `--network none`
 and all order-producing flags disabled, waits for `/health`, then removes its
 temporary container and volume. A current H4 Shadow session must also contain a
 matching checkpoint and exactly one `SESSION_STARTED` event with no invalidation.
+
+Only after the backup and restore drill pass does the activation script build a
+complete runtime candidate and replace the active `env`, `config`, `bin`,
+Compose, and release files. A failed Compose start, health probe, profile check,
+or Shadow continuity check restores the previous files exactly and restarts the
+previous release. A failed first deployment stops the unverified containers.
+Successful runs remove their staging directory and retain the newest three
+mode-`0700` `.deploy-rollback-*` directories. Failed staging directories remain
+for diagnosis and can contain generated runtime configuration, so they must stay
+inside the protected deployment directory.
 
 Two maintenance workflows reuse these checks without changing the running
 containers:

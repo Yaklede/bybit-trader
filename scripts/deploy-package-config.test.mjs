@@ -19,6 +19,7 @@ const runtimeConfigFiles = [
 const workflow = fs.readFileSync(".github/workflows/deploy-onprem.yml", "utf8");
 const ciWorkflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 const dockerfile = fs.readFileSync("Dockerfile", "utf8");
+const activationScript = fs.readFileSync("deploy/docker/activate-runtime-release.sh", "utf8");
 const runtimeEnvScript = extractRuntimeEnvScript(workflow);
 
 test("on-prem package preserves every runtime config hidden by the compose mount", () => {
@@ -36,11 +37,16 @@ test("on-prem package preserves every runtime config hidden by the compose mount
 
 test("on-prem deployment packages and runs profile-specific post-deploy verification", () => {
   assert.ok(fs.existsSync("deploy/docker/backup-runtime-state.sh"));
+  assert.ok(fs.existsSync("deploy/docker/activate-runtime-release.sh"));
   assert.ok(fs.existsSync("deploy/docker/verify-runtime-backup.sh"));
   assert.ok(fs.existsSync("deploy/docker/verify-runtime-profile.sh"));
   assert.match(
     workflow,
     /cp deploy\/docker\/backup-runtime-state\.sh deploy-package\/bin\/backup-runtime-state\.sh/,
+  );
+  assert.match(
+    workflow,
+    /cp deploy\/docker\/activate-runtime-release\.sh deploy-package\/bin\/activate-runtime-release\.sh/,
   );
   assert.match(
     workflow,
@@ -50,15 +56,36 @@ test("on-prem deployment packages and runs profile-specific post-deploy verifica
     workflow,
     /cp deploy\/docker\/verify-runtime-profile\.sh deploy-package\/bin\/verify-runtime-profile\.sh/,
   );
-  assert.match(workflow, /runtime_ready=false/);
-  assert.match(workflow, /sh bin\/backup-runtime-state\.sh/);
-  assert.match(workflow, /sh bin\/verify-runtime-backup\.sh/);
-  assert.match(workflow, /RUNTIME_BACKUP_SNAPSHOT/);
-  assert.match(workflow, /CONTINUITY_SNAPSHOT/);
+  assert.match(workflow, /\.deploy-staging-\$\{\{ github\.run_id \}\}/);
+  assert.match(workflow, /umask 077[\s\S]*chmod 700 "\$\{STAGING_DIR\}"/);
+  assert.match(workflow, /sh '\$\{\{ secrets\.ONPREM_DEPLOY_DIR \}\}\/\.deploy-staging-/);
+  assert.match(activationScript, /sh "\$\{staging_directory\}\/bin\/backup-runtime-state\.sh"/);
+  assert.match(activationScript, /sh "\$\{staging_directory\}\/bin\/verify-runtime-backup\.sh"/);
+  assert.match(activationScript, /runtime_backup_snapshot/);
+  assert.match(activationScript, /continuity_snapshot/);
   assert.match(
-    workflow,
-    /sh bin\/verify-runtime-profile\.sh[\s\S]*env\/bybit-trader\.env[\s\S]*"\$\{CONTINUITY_SNAPSHOT\}"/,
+    activationScript,
+    /sh bin\/verify-runtime-profile\.sh[\s\S]*env\/bybit-trader\.env[\s\S]*"\$\{continuity_snapshot\}"/,
   );
+});
+
+test("on-prem activation backs up before mutation and rolls back a failed release", () => {
+  const syntax = spawnSync("sh", ["-n", "deploy/docker/activate-runtime-release.sh"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(syntax.status, 0, syntax.stderr);
+  assert.ok(
+    activationScript.indexOf("runtime_backup_snapshot=\"NONE\"") <
+      activationScript.indexOf("activated=true"),
+    "runtime backup must happen before activation",
+  );
+  assert.match(activationScript, /rollback_release\(\)/);
+  assert.match(activationScript, /trap on_exit EXIT/);
+  assert.match(activationScript, /cp -p "\$\{rollback_directory\}\/\.env" \.env/);
+  assert.match(activationScript, /docker compose --env-file \.env -f compose\.yaml up -d --remove-orphans/);
+  assert.match(activationScript, /First deployment failed; the unverified runtime was stopped/);
+  assert.match(activationScript, /rm -rf "\$\{staging_directory\}"/);
 });
 
 test("on-prem deployment is a dry-run unless host deployment is explicitly selected", () => {
