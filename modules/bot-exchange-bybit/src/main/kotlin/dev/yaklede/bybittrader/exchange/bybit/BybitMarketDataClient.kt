@@ -238,7 +238,7 @@ class BybitMarketDataClient(
             val page = result.list.map { row -> row.toPremiumIndexBar(symbol = symbol, timeframe = timeframe) }
             bars += page
             val earliest = page.minOfOrNull { bar -> bar.openedAt } ?: break
-            pageEndAt = earliest.minusMillis(1)
+            pageEndAt = requireEarlierPageEnd(pageEndAt, earliest, "premium index kline")
         } while (!pageEndAt.isBefore(startAt))
 
         return bars
@@ -285,7 +285,7 @@ class BybitMarketDataClient(
             }
             snapshots += page
             val earliest = page.minOfOrNull { snapshot -> snapshot.timestamp } ?: break
-            pageEndAt = earliest.minusMillis(1)
+            pageEndAt = requireEarlierPageEnd(pageEndAt, earliest, "funding history")
         } while (!pageEndAt.isBefore(startAt))
 
         return snapshots
@@ -304,6 +304,18 @@ enum class BybitMarketCategory(
 class BybitMarketDataException(
     message: String,
 ) : MarketDataException(message)
+
+private fun requireEarlierPageEnd(
+    currentPageEndAt: Instant,
+    earliestItemAt: Instant,
+    source: String,
+): Instant {
+    val nextPageEndAt = earliestItemAt.minusMillis(1)
+    if (!nextPageEndAt.isBefore(currentPageEndAt)) {
+        throw BybitMarketDataException("Bybit $source pagination did not move to an earlier page.")
+    }
+    return nextPageEndAt
+}
 
 private fun Timeframe.toBybitInterval(): String =
     when (this) {

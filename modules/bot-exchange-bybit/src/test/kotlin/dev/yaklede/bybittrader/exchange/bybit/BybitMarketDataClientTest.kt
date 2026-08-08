@@ -515,6 +515,42 @@ class BybitMarketDataClientTest :
             requestCount shouldBe 2
         }
 
+        "fetchPremiumIndexBars rejects a repeated time page" {
+            var requestCount = 0
+            val engine =
+                MockEngine {
+                    requestCount += 1
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "symbol": "BTCUSDT",
+                                "category": "linear",
+                                "list": [["1719749700000", "0.1", "0.2", "0.0", "0.15"]]
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            shouldThrow<BybitMarketDataException> {
+                client.fetchPremiumIndexBars(
+                    symbol = Symbol("BTCUSDT"),
+                    timeframe = Timeframe.M15,
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719750600000),
+                    limit = 1,
+                )
+            }
+            requestCount shouldBe 2
+        }
+
         "fetchFundingRateSnapshots fails on Bybit retCode error" {
             val engine =
                 MockEngine {
@@ -533,6 +569,44 @@ class BybitMarketDataClientTest :
                     endAt = Instant.ofEpochMilli(1719749700000),
                 )
             }
+        }
+
+        "fetchFundingRateSnapshots rejects a repeated time page" {
+            var requestCount = 0
+            val engine =
+                MockEngine {
+                    requestCount += 1
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "category": "linear",
+                                "list": [{
+                                  "symbol": "BTCUSDT",
+                                  "fundingRate": "0.0001",
+                                  "fundingRateTimestamp": "1719749700000"
+                                }]
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = BybitMarketDataClient(jsonClient(engine), baseUrl = "https://api.bybit.test")
+
+            shouldThrow<BybitMarketDataException> {
+                client.fetchFundingRateSnapshots(
+                    symbol = Symbol("BTCUSDT"),
+                    startAt = Instant.ofEpochMilli(1719748800000),
+                    endAt = Instant.ofEpochMilli(1719750600000),
+                    limit = 1,
+                )
+            }
+            requestCount shouldBe 2
         }
 
         "archive CSV parser aggregates taker side flow by minute boundary" {
