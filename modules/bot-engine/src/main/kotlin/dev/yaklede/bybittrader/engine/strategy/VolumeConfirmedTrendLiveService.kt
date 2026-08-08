@@ -6,7 +6,9 @@ import dev.yaklede.bybittrader.engine.execution.ExchangePosition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.slf4j.LoggerFactory
 import java.math.BigDecimal
+import java.time.Duration
 import java.time.Instant
 
 class VolumeConfirmedTrendLiveService(
@@ -21,6 +23,7 @@ class VolumeConfirmedTrendLiveService(
     private val executionContract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
     private val clock: () -> Instant = Instant::now,
 ) : VolumeConfirmedTrendLiveExecutor {
+    private val logger = LoggerFactory.getLogger(javaClass)
     private val evaluationMutex = Mutex()
     private val recovery = VolumeConfirmedTrendLiveRecovery(gateway, store, config, projectionSink)
 
@@ -66,21 +69,9 @@ class VolumeConfirmedTrendLiveService(
         require(referencePrice > BigDecimal.ZERO) { "Trend live reference price must be positive." }
         val now = clock()
         val stored = store.trendLiveState(config.protocolId, config.symbol)
-        val approval =
-            VolumeConfirmedTrendLiveApprovalValidator.validate(
-                receipt = approvalReceipt,
-                report = approvalReportProvider(),
-                actualShadowEvidenceSha256 = shadowEvidenceSha256,
-                actualApprovalReportSha256 = approvalReportSha256,
-            )
+        val approval = approvalValidation()
         if (!approval.liveExecutionAllowed) {
-            val state = blockByApproval(stored, now)
-            return VolumeConfirmedTrendLiveEvaluationResult(
-                status = VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED,
-                state = state,
-                plan = null,
-                approvalFailures = approval.failures,
-            )
+            return manageApprovalRevocation(stored, approval, now, referencePrice)
         }
         if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) {
             return VolumeConfirmedTrendLiveEvaluationResult(
@@ -178,13 +169,7 @@ class VolumeConfirmedTrendLiveService(
         val stored = store.trendLiveState(config.protocolId, config.symbol)
         val approval = approvalValidation()
         if (!approval.liveExecutionAllowed) {
-            val state = blockByApproval(stored, now)
-            return VolumeConfirmedTrendLiveEvaluationResult(
-                status = VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED,
-                state = state,
-                plan = null,
-                approvalFailures = approval.failures,
-            )
+            return manageApprovalRevocation(stored, approval, now, null)
         }
         if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED) return reconcileHalted(stored, now)
 
@@ -367,12 +352,99 @@ class VolumeConfirmedTrendLiveService(
     }
 
     private suspend fun approvalValidation(): VolumeConfirmedTrendLiveApprovalValidation =
-        VolumeConfirmedTrendLiveApprovalValidator.validate(
-            receipt = approvalReceipt,
-            report = approvalReportProvider(),
-            actualShadowEvidenceSha256 = shadowEvidenceSha256,
-            actualApprovalReportSha256 = approvalReportSha256,
-        )
+        try {
+            VolumeConfirmedTrendLiveApprovalValidator.validate(
+                receipt = approvalReceipt,
+                report = approvalReportProvider(),
+                actualShadowEvidenceSha256 = shadowEvidenceSha256,
+                actualApprovalReportSha256 = approvalReportSha256,
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            logger.warn("volume-confirmed trend live approval report unavailable", error)
+            VolumeConfirmedTrendLiveApprovalValidation(
+                liveExecutionAllowed = false,
+                failures = listOf(VolumeConfirmedTrendLiveApprovalFailure.APPROVAL_REPORT_UNAVAILABLE),
+            )
+        }
+
+    private suspend fun manageApprovalRevocation(
+        stored: VolumeConfirmedTrendLiveState?,
+        approval: VolumeConfirmedTrendLiveApprovalValidation,
+        now: Instant,
+        referencePrice: BigDecimal?,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        if (stored == null || stored.status == VolumeConfirmedTrendLiveStatus.DISABLED) {
+            return approvalBlocked(blockByApproval(stored, now), approval)
+        }
+
+        val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+        if (openPositions.size > 1) {
+            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED").withApproval(approval)
+        }
+        val position = openPositions.singleOrNull()
+        if (stored.status in PENDING_ORDER_STATES) {
+            return recovery.recover(stored, position, now).withApproval(approval)
+        }
+        if (position == null) {
+            captureAccountSnapshotIfDue(now)
+            captureAccountingIfDue(now, stored.updatedAt)
+            return approvalBlocked(blockByApproval(stored, now), approval)
+        }
+        if (!stored.ownsPositionDuringApprovalRevocation(position)) {
+            return halt(
+                previous = stored,
+                signal = null,
+                now = now,
+                reasonCode = "TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED",
+                position = position,
+            ).withApproval(approval)
+        }
+        if (stored.status == VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) {
+            val retryAge = Duration.between(stored.updatedAt, now)
+            if (retryAge.isNegative) {
+                return halt(
+                    previous = stored,
+                    signal = null,
+                    now = now,
+                    reasonCode = "TREND_APPROVAL_REVOKED_EXIT_RETRY_CLOCK_SKEW",
+                    position = position,
+                ).withApproval(approval)
+            }
+            if (retryAge < config.approvalRevocationExitRetryDelay) {
+                return approvalBlocked(stored, approval)
+            }
+        }
+
+        val exitReferencePrice = referencePrice?.takeIf { it > BigDecimal.ZERO } ?: position.markPrice
+        if (exitReferencePrice == null || exitReferencePrice <= BigDecimal.ZERO) {
+            return halt(
+                previous = stored,
+                signal = null,
+                now = now,
+                reasonCode = "TREND_APPROVAL_REVOKED_EXIT_PRICE_UNAVAILABLE",
+                position = position,
+            ).withApproval(approval)
+        }
+        val instrument = gateway.instrumentRules(config.symbol)
+        val plan =
+            VolumeConfirmedTrendTargetPlanner.safetyExit(
+                protocolSha256 = config.protocolSha256,
+                observedAt = now,
+                referencePrice = exitReferencePrice,
+                priceTick = instrument.priceTick,
+                currentPosition = position.toObservedPosition(),
+                contract = executionContract,
+            )
+        val signal =
+            VolumeConfirmedTrendExecutionSignal(
+                side = plan.targetSide,
+                decisionAt = now,
+                executionAt = now,
+            )
+        return submitPlan(stored, signal, plan, instrument, position, now).withApproval(approval)
+    }
 
     private suspend fun submitPlan(
         previous: VolumeConfirmedTrendLiveState?,
@@ -384,7 +456,7 @@ class VolumeConfirmedTrendLiveService(
     ): VolumeConfirmedTrendLiveEvaluationResult {
         val quantity = requireNotNull(plan.orderQuantity)
         val limitPrice = requireNotNull(plan.limitPrice)
-        if (quantity * limitPrice < instrument.minimumNotional) {
+        if (plan.action == VolumeConfirmedTrendTargetAction.OPEN && quantity * limitPrice < instrument.minimumNotional) {
             return noTrade(previous, signal, plan, now, reasonCode = "MINIMUM_NOTIONAL_NOT_MET")
         }
         val intentType =
@@ -562,6 +634,21 @@ class VolumeConfirmedTrendLiveService(
         return state
     }
 
+    private fun approvalBlocked(
+        state: VolumeConfirmedTrendLiveState,
+        approval: VolumeConfirmedTrendLiveApprovalValidation,
+    ): VolumeConfirmedTrendLiveEvaluationResult =
+        VolumeConfirmedTrendLiveEvaluationResult(
+            status = VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED,
+            state = state,
+            plan = null,
+            approvalFailures = approval.failures,
+        )
+
+    private fun VolumeConfirmedTrendLiveEvaluationResult.withApproval(
+        approval: VolumeConfirmedTrendLiveApprovalValidation,
+    ): VolumeConfirmedTrendLiveEvaluationResult = copy(approvalFailures = approval.failures)
+
     private suspend fun halt(
         previous: VolumeConfirmedTrendLiveState?,
         signal: VolumeConfirmedTrendExecutionSignal?,
@@ -631,6 +718,9 @@ class VolumeConfirmedTrendLiveService(
     private fun VolumeConfirmedTrendLiveState.matches(position: ExchangePosition?): Boolean =
         position != null && observedPositionSide == position.side && observedPositionQuantity?.compareTo(position.size) == 0
 
+    private fun VolumeConfirmedTrendLiveState.ownsPositionDuringApprovalRevocation(position: ExchangePosition): Boolean =
+        status in APPROVAL_REVOCATION_OWNED_POSITION_STATES && matches(position)
+
     private companion object {
         val PENDING_ORDER_STATES =
             setOf(
@@ -643,6 +733,12 @@ class VolumeConfirmedTrendLiveService(
             setOf(
                 VolumeConfirmedTrendLiveStatus.ENTRY_NOT_FILLED,
                 VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED,
+            )
+        val APPROVAL_REVOCATION_OWNED_POSITION_STATES =
+            setOf(
+                VolumeConfirmedTrendLiveStatus.OPEN,
+                VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED,
+                VolumeConfirmedTrendLiveStatus.HALTED,
             )
     }
 }

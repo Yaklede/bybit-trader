@@ -4,6 +4,9 @@ import dev.yaklede.bybittrader.domain.Side
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.security.MessageDigest
+import java.time.Instant
+
+const val TREND_APPROVAL_REVOKED_EXIT_REASON_CODE = "TREND_APPROVAL_REVOKED_EXIT"
 
 enum class VolumeConfirmedTrendTargetAction {
     NO_ACTION,
@@ -56,6 +59,39 @@ data class VolumeConfirmedTrendTargetPlan(
 }
 
 object VolumeConfirmedTrendTargetPlanner {
+    fun safetyExit(
+        protocolSha256: String,
+        observedAt: Instant,
+        referencePrice: BigDecimal,
+        priceTick: BigDecimal,
+        currentPosition: VolumeConfirmedTrendObservedPosition,
+        contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+    ): VolumeConfirmedTrendTargetPlan {
+        require(protocolSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "Trend safety-exit planner requires a lowercase protocol SHA-256."
+        }
+        require(referencePrice > BigDecimal.ZERO) { "Trend safety-exit reference price must be positive." }
+        require(priceTick > BigDecimal.ZERO) { "Trend safety-exit price tick must be positive." }
+        val exitSide = currentPosition.side.opposite()
+        val signal =
+            VolumeConfirmedTrendExecutionSignal(
+                side = exitSide,
+                decisionAt = observedAt,
+                executionAt = observedAt,
+            )
+        return orderPlan(
+            action = VolumeConfirmedTrendTargetAction.CLOSE,
+            targetSide = exitSide,
+            orderSide = exitSide,
+            orderQuantity = currentPosition.quantity,
+            reduceOnly = true,
+            limitPrice = boundedLimitPrice(referencePrice, exitSide, priceTick, contract),
+            decisionKey = "$protocolSha256|$observedAt|SAFETY_EXIT|${currentPosition.side.name}",
+            clientOrderId = clientOrderId(protocolSha256, signal, phase = "s", side = exitSide),
+            reasonCode = TREND_APPROVAL_REVOKED_EXIT_REASON_CODE,
+        )
+    }
+
     fun plan(
         protocolSha256: String,
         command: VolumeConfirmedTrendCommand,

@@ -75,6 +75,34 @@ class VolumeConfirmedTrendTargetPlannerTest :
             first.clientOrderId shouldBe replay.clientOrderId
             replay.limitPrice shouldBe BigDecimal("61012.2")
         }
+
+        "approval revocation creates a deterministic reduce-only safety exit" {
+            val position = VolumeConfirmedTrendObservedPosition(Side.BUY, BigDecimal("0.007"))
+            val first =
+                VolumeConfirmedTrendTargetPlanner.safetyExit(
+                    protocolSha256 = "a".repeat(64),
+                    observedAt = Instant.parse("2026-08-07T00:00:00Z"),
+                    referencePrice = BigDecimal("60000"),
+                    priceTick = BigDecimal("0.1"),
+                    currentPosition = position,
+                )
+            val replay =
+                VolumeConfirmedTrendTargetPlanner.safetyExit(
+                    protocolSha256 = "a".repeat(64),
+                    observedAt = Instant.parse("2026-08-07T00:00:00Z"),
+                    referencePrice = BigDecimal("61000"),
+                    priceTick = BigDecimal("0.1"),
+                    currentPosition = position,
+                )
+
+            first.action shouldBe VolumeConfirmedTrendTargetAction.CLOSE
+            first.orderSide shouldBe Side.SELL
+            first.orderQuantity shouldBe BigDecimal("0.007")
+            first.reduceOnly shouldBe true
+            first.reasonCode shouldBe TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
+            first.clientOrderId shouldBe replay.clientOrderId
+            replay.limitPrice shouldBe BigDecimal("60987.8")
+        }
     })
 
 private fun plan(

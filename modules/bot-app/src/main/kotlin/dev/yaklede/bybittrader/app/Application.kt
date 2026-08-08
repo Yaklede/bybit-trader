@@ -58,6 +58,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoop
 import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
+import dev.yaklede.bybittrader.engine.strategy.TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractInspector
@@ -926,15 +927,27 @@ private suspend fun AlertingService.sendTrendLiveResult(
     val message =
         when (evaluation.status) {
             VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED ->
-                AlertMessage(
-                    severity = AlertSeverity.INFO,
-                    title = "H4 실거래 주문 제출",
-                    body =
-                        "${state.symbol.value} 목표 방향 ${evaluation.plan?.targetSide?.name ?: "확인 필요"} 주문을 제출했어요. " +
-                            "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
-                            "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
-                            "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
-                )
+                if (evaluation.plan?.reasonCode == TREND_APPROVAL_REVOKED_EXIT_REASON_CODE) {
+                    AlertMessage(
+                        severity = AlertSeverity.CRITICAL,
+                        title = "H4 승인 무효 포지션 정리",
+                        body =
+                            "실거래 승인이 무효가 되어 ${state.symbol.value} 기존 포지션에 reduce-only 종료 주문을 제출했어요. " +
+                                "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
+                                "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
+                                "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
+                    )
+                } else {
+                    AlertMessage(
+                        severity = AlertSeverity.INFO,
+                        title = "H4 실거래 주문 제출",
+                        body =
+                            "${state.symbol.value} 목표 방향 ${evaluation.plan?.targetSide?.name ?: "확인 필요"} 주문을 제출했어요. " +
+                                "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
+                                "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
+                                "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
+                    )
+                }
             VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED ->
                 AlertMessage(
                     severity = AlertSeverity.WARNING,

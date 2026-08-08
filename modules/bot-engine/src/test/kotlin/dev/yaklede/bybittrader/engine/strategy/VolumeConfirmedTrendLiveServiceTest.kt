@@ -59,6 +59,23 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.exchangeReadCount shouldBe 0
         }
 
+        "approval report outage without a prior live state remains private-read free" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service =
+                service(
+                    gateway = gateway,
+                    store = store,
+                    approvalReportProvider = { error("injected approval report outage") },
+                )
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            result.approvalFailures shouldBe listOf(VolumeConfirmedTrendLiveApprovalFailure.APPROVAL_REPORT_UNAVAILABLE)
+            gateway.exchangeReadCount shouldBe 0
+        }
+
         "repeated approval blocking does not append duplicate halt events" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -69,6 +86,126 @@ class VolumeConfirmedTrendLiveServiceTest :
 
             store.events.map { it.type } shouldBe listOf(VolumeConfirmedTrendLiveEventType.HALTED)
             gateway.exchangeReadCount shouldBe 0
+        }
+
+        "revoked approval submits one reduce-only safety exit for an owned position" {
+            val position = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED
+            result.plan?.reasonCode shouldBe TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
+            result.approvalFailures.contains(VolumeConfirmedTrendLiveApprovalFailure.RECEIPT_NOT_APPROVED) shouldBe true
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.SELL
+                quantity shouldBe BigDecimal("0.007")
+                reduceOnly shouldBe true
+                takeProfit shouldBe null
+                stopLoss shouldBe null
+            }
+        }
+
+        "approval report outage blocks entry but still exits an owned position" {
+            val position = position(Side.SELL, "0.004")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service =
+                service(
+                    gateway = gateway,
+                    store = store,
+                    approvalReportProvider = { error("injected approval report outage") },
+                )
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            result.approvalFailures shouldBe listOf(VolumeConfirmedTrendLiveApprovalFailure.APPROVAL_REPORT_UNAVAILABLE)
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.BUY
+                reduceOnly shouldBe true
+            }
+        }
+
+        "revoked approval recovers a pending entry before submitting its safety exit" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val approvedService = service(gateway, store)
+            val submitted = approvedService.evaluate(command(Side.BUY), BigDecimal("60000"))
+            val clientOrderId = requireNotNull(submitted.state.clientOrderId)
+            gateway.positions += position(Side.BUY, "0.007")
+            gateway.executionFills += executionFill(clientOrderId, "execution-before-revocation")
+            val revokedService = service(gateway, store, approved = false)
+
+            val recovered = revokedService.reconcile()
+            val safetyExit = revokedService.reconcile()
+
+            recovered.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED
+            recovered.state.status shouldBe VolumeConfirmedTrendLiveStatus.OPEN
+            safetyExit.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            safetyExit.plan?.reasonCode shouldBe TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
+            gateway.submittedOrders.last().reduceOnly shouldBe true
+        }
+
+        "revoked approval retries a known unfilled safety exit only after its delay" {
+            var now = TEST_NOW
+            val position = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service = service(gateway, store, approved = false, clock = { now })
+
+            val submitted = service.reconcile()
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    providerStatus = "Cancelled",
+                    cancelType = "UNKNOWN",
+                )
+            val notFilled = service.reconcile()
+            val waiting = service.reconcile()
+            now = now.plusSeconds(61)
+            val retried = service.reconcile()
+
+            submitted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            notFilled.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED
+            waiting.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED
+            retried.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.size shouldBe 2
+            gateway.submittedOrders
+                .map { it.clientOrderId }
+                .distinct()
+                .size shouldBe 2
+        }
+
+        "safety exit is not suppressed when its position is below minimum notional" {
+            val position = position(Side.BUY, "0.001").copy(markPrice = BigDecimal("1000"))
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            val store = InMemoryTrendLiveStore(state = openState(position))
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.single().apply {
+                quantity * requireNotNull(price) shouldBe BigDecimal("0.9998")
+                reduceOnly shouldBe true
+            }
+        }
+
+        "revoked approval never closes a position whose ownership is not proven" {
+            val position = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(position))
+            val store = InMemoryTrendLiveStore(state = openState(position).copy(observedPositionQuantity = BigDecimal("0.006")))
+            val service = service(gateway, store, approved = false)
+
+            val result = service.reconcile()
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe "TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED"
+            gateway.submittedOrders.size shouldBe 0
         }
 
         "repeated safety halt with unchanged state is persisted once" {
@@ -643,6 +780,7 @@ private fun service(
     approved: Boolean = true,
     clock: () -> Instant = { TEST_NOW },
     projectionSink: VolumeConfirmedTrendLiveProjectionSink = NoopVolumeConfirmedTrendLiveProjectionSink,
+    approvalReportProvider: suspend () -> VolumeConfirmedTrendApprovalReport = { approvalReport() },
 ): VolumeConfirmedTrendLiveService =
     VolumeConfirmedTrendLiveService(
         gateway = gateway,
@@ -655,7 +793,7 @@ private fun service(
                 symbol = Symbol("BTCUSDT"),
             ),
         approvalReceipt = approvalReceipt(approved),
-        approvalReportProvider = { approvalReport() },
+        approvalReportProvider = approvalReportProvider,
         shadowEvidenceSha256 = EVIDENCE_SHA,
         approvalReportSha256 = REPORT_SHA,
         projectionSink = projectionSink,

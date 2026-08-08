@@ -49,6 +49,7 @@ data class VolumeConfirmedTrendLiveApprovalReceipt(
 }
 
 enum class VolumeConfirmedTrendLiveApprovalFailure {
+    APPROVAL_REPORT_UNAVAILABLE,
     RECEIPT_NOT_APPROVED,
     RECEIPT_LIVE_EXECUTION_DISABLED,
     FORWARD_REPORT_NOT_READY,

@@ -200,6 +200,7 @@ data class VolumeConfirmedTrendLiveConfig(
     val symbol: Symbol,
     val recoveryRetryDelay: Duration = Duration.ofSeconds(10),
     val recoveryHistoryOverlap: Duration = Duration.ofMinutes(5),
+    val approvalRevocationExitRetryDelay: Duration = Duration.ofMinutes(1),
     val recoveryEventLimit: Int = 100,
     val riskPolicy: VolumeConfirmedTrendLiveRiskPolicy = VolumeConfirmedTrendLiveRiskPolicy(),
 ) {
@@ -214,6 +215,9 @@ data class VolumeConfirmedTrendLiveConfig(
         }
         require(!recoveryHistoryOverlap.isNegative && !recoveryHistoryOverlap.isZero) {
             "Trend live recovery history overlap must be positive."
+        }
+        require(!approvalRevocationExitRetryDelay.isNegative && !approvalRevocationExitRetryDelay.isZero) {
+            "Trend live approval-revocation exit retry delay must be positive."
         }
         require(recoveryEventLimit in 1..100_000) { "Trend live recovery event limit must be valid." }
     }

@@ -83,6 +83,17 @@ reconciliation, a confirmed wallet mismatch, or drawdown at or above 35%
 returns `risk.allowsNewEntry=false`. Existing position exits remain allowed.
 This endpoint requires the control Bearer token.
 
+Runtime approval loss is also an entry gate, not permission to abandon an
+existing position. A process with no prior live state remains private-read
+free. When a persisted live state exists, the executor first recovers any
+pending order. It then submits a bounded reduce-only IOC safety exit only when
+the persisted side and quantity exactly match the exchange position. A known
+unfilled safety exit may retry after one minute with a new client order ID;
+unknown order outcomes are reconciled and never blindly resubmitted. Missing
+mark/reference price or unproven ownership halts automatic handling and emits a
+critical operator alert. The safety exit is not suppressed solely because the
+remaining position is below the normal entry minimum-notional check.
+
 ## GET /strategy/volume-confirmed-trend/exchange-contract
 
 Runs a fresh, read-only inspection of the private Bybit account contract used

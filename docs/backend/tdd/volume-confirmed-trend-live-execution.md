@@ -228,7 +228,10 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 
 | 코드 | 조건 | 처리 |
 |---|---|---|
-| `TREND_LIVE_NOT_APPROVED` | 영수증 없음/false/hash 불일치 | 부팅 또는 loop 시작 실패 |
+| `TREND_LIVE_NOT_APPROVED` | 영수증 없음/false/hash 불일치 | 신규 노출 차단, 기존 주문·포지션 안전 복구 |
+| `APPROVAL_REPORT_UNAVAILABLE` | 현재 승인 보고서를 계산할 수 없음 | 신규 노출 차단, 소유 포지션 reduce-only 종료 |
+| `TREND_APPROVAL_REVOKED_POSITION_OWNERSHIP_UNCONFIRMED` | 승인 상실 시 거래소 포지션 소유권 불일치 | 자동 종료 금지, `HALTED`, 사람 확인 |
+| `TREND_APPROVAL_REVOKED_EXIT_PRICE_UNAVAILABLE` | 소유 포지션의 유효 mark/reference 가격 없음 | 자동 종료 금지, `HALTED`, 사람 확인 |
 | `TREND_SHADOW_GATE_NOT_READY` | 현재 report가 human review 전 | 주문 경로 구성 금지 |
 | `TREND_ACCOUNT_MODE_MISMATCH` | hedge/isolated/비 Unified | `HALTED`, Discord 긴급 알림 |
 | `TREND_EXPOSURE_LIMIT_EXCEEDED` | 수량 반올림 후 0.85 초과 | 주문 없음 |
@@ -255,6 +258,12 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 겹쳐 읽은 체결은 `execId`, 종료손익은 거래소 order ID를 우선 identity로 사용해 멱등 제거한다.
 - websocket은 빠른 wake-up 용도이며 REST 대사가 복구 source다.
 - API rate limit은 전환 실행을 늦추더라도 재시도 폭주보다 fail closed를 우선한다.
+- 실행 중 승인 검증이 무효가 되거나 승인 보고서 계산이 실패해도 pending 주문 복구와 소유가 확인된
+  포지션 관리는 중단하지 않는다. 신규 진입은 즉시 차단하고, 현재 수량 전체에 bounded reduce-only IOC
+  종료를 제출한다. 명확히 미체결된 종료만 1분 이후 새 client order ID로 재시도하며 불명확한 응답은
+  자동 재주문하지 않는다. 거래소 수량과 영속 상태 수량이 다르면 포지션을 임의 종료하지 않는다.
+- 안전 종료는 포지션을 감소시키는 전체 수량 주문이므로 일반 신규 주문의 minimum-notional 사전 차단을
+  적용하지 않는다. 거래소의 실제 수락·미체결 결과는 동일한 pending 복구 상태 머신으로 확인한다.
 
 ## 8. 변경 파일 계획
 
@@ -308,6 +317,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 이 이벤트 정체성 계약은 Shadow evidence schema `2`이며, 이전 schema `1` pending 산출물은 승인에 재사용하지 않고 현재 세션에서 다시 export한다.
 - 위 검증은 `BybitPrivateClient` 생성보다 먼저 수행되므로 실패 시 개인 API 조회나 주문 경로가 구성되지 않는다.
 - 승인된 경우에만 `VolumeConfirmedTrendLiveLoop`를 시작하고, PAUSE 상태에서도 거래소 포지션 대사는 유지한다.
+- 루프 시작 뒤 승인이 상실되면 신규 노출은 만들지 않지만, 이미 기록된 pending 주문을 먼저 복구하고
+  영속 상태와 방향·수량이 일치하는 기존 포지션은 `TREND_APPROVAL_REVOKED_EXIT` reduce-only 주문으로
+  정리한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는 개인 API를 조회하지 않는다.
 - 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.
 - `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트를 인증된 운영자에게 제공한다.
 - 승인된 실행 중 USDT account equity를 1분 간격으로 공통 account snapshot에 저장하고, 복구에서 확인한
