@@ -42,6 +42,26 @@ class VolumeConfirmedTrendApprovalServiceTest :
             report.liveExecutionAllowed shouldBe false
         }
 
+        "freezes one shadow read and evaluates its report from the same snapshot" {
+            val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
+            val shadow = shadowReport(state, consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0)))
+            var reads = 0
+            val service =
+                approvalService(
+                    shadowReport = null,
+                    shadowReportProvider = {
+                        reads += 1
+                        shadow
+                    },
+                )
+
+            val snapshot = service.snapshot()
+
+            reads shouldBe 1
+            snapshot.shadowReport shouldBe shadow
+            snapshot.approvalReport.status shouldBe VolumeConfirmedTrendApprovalStatus.READY_FOR_HUMAN_REVIEW
+        }
+
         "fails the current shadow session after a hard risk breach" {
             val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6).copy(liquidationCount = 1)
             val report = approvalService(shadowReport(state, consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0)))).evaluate()
@@ -97,6 +117,7 @@ class VolumeConfirmedTrendApprovalServiceTest :
 private fun approvalService(
     shadowReport: VolumeConfirmedTrendShadowReport?,
     evidence: VolumeConfirmedTrendHistoricalEvidence = historicalEvidence(),
+    shadowReportProvider: suspend () -> VolumeConfirmedTrendShadowReport? = { shadowReport },
 ): VolumeConfirmedTrendApprovalService =
     VolumeConfirmedTrendApprovalService(
         historicalEvidence = evidence,
@@ -115,7 +136,7 @@ private fun approvalService(
                 maximumLiquidationCount = 0,
                 maximumObservationStaleness = Duration.ofMinutes(300),
             ),
-        shadowReportProvider = { shadowReport },
+        shadowReportProvider = shadowReportProvider,
         clock = { APPROVAL_NOW },
     )
 

@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.app
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalSnapshot
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
@@ -34,12 +35,12 @@ data class VolumeConfirmedTrendApprovalArtifactExport(
 
 class VolumeConfirmedTrendApprovalArtifactWriter(
     private val outputDirectory: Path,
-    private val shadowReportProvider: suspend () -> VolumeConfirmedTrendShadowReport,
-    private val approvalReportProvider: suspend () -> VolumeConfirmedTrendApprovalReport,
+    private val approvalSnapshotProvider: suspend () -> VolumeConfirmedTrendApprovalSnapshot,
 ) {
     suspend fun export(): VolumeConfirmedTrendApprovalArtifactExport {
-        val shadowReport = shadowReportProvider()
-        val approvalReport = approvalReportProvider()
+        val snapshot = approvalSnapshotProvider()
+        val shadowReport = requireNotNull(snapshot.shadowReport) { "Trend approval Shadow snapshot is unavailable." }
+        val approvalReport = snapshot.approvalReport
         validateSnapshot(shadowReport, approvalReport)
         val state = requireNotNull(shadowReport.state)
         val orderedEvents =

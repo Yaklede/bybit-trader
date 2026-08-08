@@ -82,6 +82,11 @@ data class VolumeConfirmedTrendApprovalReport(
     val liveExecutionAllowed: Boolean = false,
 )
 
+data class VolumeConfirmedTrendApprovalSnapshot(
+    val shadowReport: VolumeConfirmedTrendShadowReport?,
+    val approvalReport: VolumeConfirmedTrendApprovalReport,
+)
+
 object VolumeConfirmedTrendApprovalGateContract {
     val requiredIds: Set<String> =
         linkedSetOf(
@@ -118,9 +123,21 @@ class VolumeConfirmedTrendApprovalService(
     private val shadowReportProvider: suspend () -> VolumeConfirmedTrendShadowReport?,
     private val clock: () -> Instant = Instant::now,
 ) {
-    suspend fun evaluate(): VolumeConfirmedTrendApprovalReport {
-        val evaluatedAt = clock()
+    suspend fun evaluate(): VolumeConfirmedTrendApprovalReport = snapshot().approvalReport
+
+    suspend fun snapshot(): VolumeConfirmedTrendApprovalSnapshot {
         val shadowReport = shadowReportProvider()
+        val evaluatedAt = clock()
+        return VolumeConfirmedTrendApprovalSnapshot(
+            shadowReport = shadowReport,
+            approvalReport = evaluateSnapshot(shadowReport, evaluatedAt),
+        )
+    }
+
+    private fun evaluateSnapshot(
+        shadowReport: VolumeConfirmedTrendShadowReport?,
+        evaluatedAt: Instant,
+    ): VolumeConfirmedTrendApprovalReport {
         val state = shadowReport?.state
         val gates = mutableListOf<VolumeConfirmedTrendApprovalGate>()
         gates +=

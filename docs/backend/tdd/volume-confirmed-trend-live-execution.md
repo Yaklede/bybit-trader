@@ -375,6 +375,7 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 2026-08-08 기준으로 다음 경로가 연결됐다.
 
 - 승인 영수증, 불변 Shadow 증거, 승인 보고서의 SHA-256과 protocol/policy/session을 앱 부팅 시 검증한다.
+- Shadow 증거와 승인 보고서는 하나의 원자 DB 스냅샷에서 함께 계산해 서로 다른 평가 시점의 상태가 한 승인 묶음에 섞이지 않게 한다.
 - 승인 보고서는 고정된 15개 gate ID를 중복·누락 없이 모두 `PASS`해야 하며, 보고서 자체의 자동·실거래 권한은 계속 `false`여야 한다.
 - 현재 SQLite Shadow checkpoint가 승인 증거보다 과거로 롤백되지 않았고 같은 연속 세션이며, 정확히 하나의 상태 시각과 일치하는 `SESSION_STARTED`, checkpoint의 종료 거래·방향 전환 누적값과 append-only 이벤트 수, 최신성·MDD·노출·청산 및 모든 현재 forward gate를 계속 통과하는지 확인한다.
 - 동결 이벤트는 event ID, session ID, protocol fingerprint, symbol, type, event/observation time을 보존하며 런타임이 중복·다른 세션·다른 전략·비인과 시간 순서를 독립적으로 거부한다.

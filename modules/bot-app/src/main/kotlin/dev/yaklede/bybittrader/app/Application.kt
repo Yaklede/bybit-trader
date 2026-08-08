@@ -246,8 +246,7 @@ fun main() {
         trendShadowService?.let { shadowService ->
             VolumeConfirmedTrendApprovalArtifactWriter(
                 outputDirectory = Path.of(config.volumeConfirmedTrendLive.approvalExportDirectory),
-                shadowReportProvider = { shadowService.report(100_000) },
-                approvalReportProvider = trendApprovalService::evaluate,
+                approvalSnapshotProvider = trendApprovalService::snapshot,
             )
         }
     logger.info(

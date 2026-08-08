@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalSnapshot
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
@@ -32,8 +33,7 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                 val writer =
                     VolumeConfirmedTrendApprovalArtifactWriter(
                         outputDirectory = output,
-                        shadowReportProvider = { shadow },
-                        approvalReportProvider = { approval },
+                        approvalSnapshotProvider = { approvalSnapshot(shadow, approval) },
                     )
 
                 val exported = writer.export()
@@ -67,11 +67,14 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                 val writer =
                     VolumeConfirmedTrendApprovalArtifactWriter(
                         outputDirectory = output,
-                        shadowReportProvider = { readyShadowReport() },
-                        approvalReportProvider = {
-                            readyApprovalReport().copy(
-                                status = VolumeConfirmedTrendApprovalStatus.SHADOW_COLLECTING,
-                                readyForHumanReview = false,
+                        approvalSnapshotProvider = {
+                            approvalSnapshot(
+                                shadow = readyShadowReport(),
+                                approval =
+                                    readyApprovalReport().copy(
+                                        status = VolumeConfirmedTrendApprovalStatus.SHADOW_COLLECTING,
+                                        readyForHumanReview = false,
+                                    ),
                             )
                         },
                     )
@@ -89,8 +92,12 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                 val writer =
                     VolumeConfirmedTrendApprovalArtifactWriter(
                         outputDirectory = output,
-                        shadowReportProvider = { readyShadowReport() },
-                        approvalReportProvider = { readyApprovalReport().copy(gates = readyApprovalReport().gates.take(1)) },
+                        approvalSnapshotProvider = {
+                            approvalSnapshot(
+                                shadow = readyShadowReport(),
+                                approval = readyApprovalReport().copy(gates = readyApprovalReport().gates.take(1)),
+                            )
+                        },
                     )
 
                 shouldThrow<IllegalArgumentException> { writer.export() }
@@ -114,8 +121,12 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                 val writer =
                     VolumeConfirmedTrendApprovalArtifactWriter(
                         outputDirectory = output,
-                        shadowReportProvider = { shadow.copy(recentEvents = shadow.recentEvents + duplicate) },
-                        approvalReportProvider = { readyApprovalReport() },
+                        approvalSnapshotProvider = {
+                            approvalSnapshot(
+                                shadow = shadow.copy(recentEvents = shadow.recentEvents + duplicate),
+                                approval = readyApprovalReport(),
+                            )
+                        },
                     )
 
                 shouldThrow<IllegalArgumentException> { writer.export() }
@@ -133,10 +144,12 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                 val writer =
                     VolumeConfirmedTrendApprovalArtifactWriter(
                         outputDirectory = output,
-                        shadowReportProvider = {
-                            shadow.copy(recentEvents = shadow.recentEvents.dropLast(1) + mismatched)
+                        approvalSnapshotProvider = {
+                            approvalSnapshot(
+                                shadow = shadow.copy(recentEvents = shadow.recentEvents.dropLast(1) + mismatched),
+                                approval = readyApprovalReport(),
+                            )
                         },
-                        approvalReportProvider = { readyApprovalReport() },
                     )
 
                 shouldThrow<IllegalArgumentException> { writer.export() }
@@ -146,6 +159,15 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
             }
         }
     })
+
+private fun approvalSnapshot(
+    shadow: VolumeConfirmedTrendShadowReport,
+    approval: VolumeConfirmedTrendApprovalReport,
+): VolumeConfirmedTrendApprovalSnapshot =
+    VolumeConfirmedTrendApprovalSnapshot(
+        shadowReport = shadow,
+        approvalReport = approval,
+    )
 
 private fun readyShadowReport(): VolumeConfirmedTrendShadowReport {
     val state = readyShadowState()
