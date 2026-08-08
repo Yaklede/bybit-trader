@@ -59,6 +59,7 @@ sqlite_query() {
   query="$1"
   docker run --rm \
     --network none \
+    --user root \
     --entrypoint sqlite3 \
     -v "${absolute_snapshot_directory}:/backup:ro" \
     "${validator_image}" \

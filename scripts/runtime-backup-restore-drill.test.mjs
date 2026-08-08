@@ -21,6 +21,7 @@ test("restore drill validates H4 evidence and boots the application from a tempo
     assert.equal(run.result.status, 0, output(run.result));
     assert.match(run.result.stdout, /shadowSession=trend-shadow-existing/);
     const calls = readFileSync(run.logPath, "utf8");
+    assert.match(calls, /--network none --user root --entrypoint sqlite3/);
     assert.match(calls, /volume create bybit-trader-restore-drill-/);
     assert.match(calls, /BOT_PRIVATE_EXECUTION_ENABLED=false/);
     assert.match(calls, /rm -f bybit-trader-restore-drill-/);
