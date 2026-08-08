@@ -6,6 +6,7 @@ import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
+import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionException
 import dev.yaklede.bybittrader.engine.execution.ExchangeMarginMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeOrderRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
@@ -615,6 +616,43 @@ class BybitPrivateClientTest :
             transactions.first().side shouldBe Side.BUY
             transactions.last().funding shouldBe BigDecimal("-0.5")
             transactions.last().side shouldBe null
+        }
+
+        "accountTransactions rejects a repeated cursor" {
+            var requestCount = 0
+            val engine =
+                MockEngine { request ->
+                    requestCount += 1
+                    request.url.parameters["cursor"] shouldBe if (requestCount == 1) null else "stuck"
+                    respond(
+                        content =
+                            """
+                            {
+                              "retCode": 0,
+                              "retMsg": "OK",
+                              "result": {
+                                "nextPageCursor": "stuck",
+                                "list": []
+                              }
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+            val client = testPrivateClient(engine)
+
+            val error =
+                shouldThrow<ExchangeExecutionException> {
+                    client.accountTransactions(
+                        currency = "USDT",
+                        startAt = Instant.parse("2024-06-30T00:00:00Z"),
+                        endAt = Instant.parse("2024-07-01T00:00:00Z"),
+                    )
+                }
+
+            error.message shouldBe "Bybit transaction log pagination repeated a cursor."
+            requestCount shouldBe 2
         }
 
         "bybit error responses throw sanitized execution exception" {

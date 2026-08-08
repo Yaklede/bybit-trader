@@ -389,7 +389,10 @@ class BybitPrivateClient(
             val result = response.result ?: break
             transactions += result.list.mapNotNull(BybitTransactionLogItem::toExchangeAccountTransaction)
             val nextCursor = result.nextPageCursor?.takeIf(String::isNotBlank)
-            cursor = nextCursor?.takeIf(observedCursors::add)
+            if (nextCursor != null && !observedCursors.add(nextCursor)) {
+                throw ExchangeExecutionException("Bybit transaction log pagination repeated a cursor.")
+            }
+            cursor = nextCursor
         } while (cursor != null)
         return transactions.distinctBy(ExchangeAccountTransaction::identityKey)
     }
