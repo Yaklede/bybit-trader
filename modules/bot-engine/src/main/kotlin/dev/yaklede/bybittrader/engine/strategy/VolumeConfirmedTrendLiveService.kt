@@ -5,6 +5,8 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
+import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,17 +54,133 @@ class VolumeConfirmedTrendLiveService(
             require(reasonCode.isNotBlank()) { "Trend live safety halt reason must not be blank." }
             val now = clock()
             val stored = store.trendLiveState(config.protocolId, config.symbol)
-            if (stored?.status == VolumeConfirmedTrendLiveStatus.HALTED && stored.haltedReasonCode == reasonCode) {
-                reconcileHalted(stored, now)
-            } else {
-                halt(
+            safetyHalt(stored, reasonCode, now)
+        }
+
+    private suspend fun safetyHalt(
+        stored: VolumeConfirmedTrendLiveState?,
+        reasonCode: String,
+        now: Instant,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        val positions =
+            try {
+                gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.warn("trend safety halt position read failed reason={}", reasonCode, error)
+                return halt(stored, null, now, "$reasonCode|TREND_SAFETY_POSITION_READ_UNAVAILABLE")
+            }
+        if (positions.size > 1) {
+            return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
+        }
+        val position = positions.singleOrNull()
+        if (stored != null && stored.status in PENDING_ORDER_STATES) {
+            return recovery.recover(stored, position, now)
+        }
+        if (position == null) return halt(stored, null, now, reasonCode)
+        if (stored == null || !stored.ownsManagedPosition(position)) {
+            return halt(
+                previous = stored,
+                signal = null,
+                now = now,
+                reasonCode = "$reasonCode|TREND_SAFETY_POSITION_OWNERSHIP_UNCONFIRMED",
+                position = position,
+            )
+        }
+        if (stored.status == VolumeConfirmedTrendLiveStatus.EXIT_NOT_FILLED) {
+            val retryAge = Duration.between(stored.updatedAt, now)
+            if (retryAge.isNegative) {
+                return halt(
                     previous = stored,
                     signal = null,
                     now = now,
-                    reasonCode = reasonCode,
+                    reasonCode = "$reasonCode|TREND_SAFETY_EXIT_RETRY_CLOCK_SKEW",
+                    position = position,
+                )
+            }
+            if (retryAge < config.approvalRevocationExitRetryDelay) {
+                return VolumeConfirmedTrendLiveEvaluationResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED,
+                    state = stored,
+                    plan = null,
                 )
             }
         }
+        val accountOpenOrders =
+            try {
+                gateway.openOrdersBySettleCoin(TREND_SETTLE_COIN)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.warn("trend safety halt order read failed reason={}", reasonCode, error)
+                return halt(
+                    stored,
+                    null,
+                    now,
+                    "$reasonCode|TREND_SAFETY_ORDER_READ_UNAVAILABLE",
+                    position = position,
+                )
+            }
+        if (accountOpenOrders.any(::isUnresolvedOwnedOrder)) {
+            return halt(stored, null, now, "TREND_UNRESOLVED_OWNED_OPEN_ORDER_OBSERVED", position = position)
+        }
+        val referencePrice = position.markPrice
+        if (referencePrice == null || referencePrice <= BigDecimal.ZERO) {
+            return halt(
+                stored,
+                null,
+                now,
+                "$reasonCode|TREND_SAFETY_EXIT_PRICE_UNAVAILABLE",
+                position = position,
+            )
+        }
+        val exitContract =
+            try {
+                SafetyExitContract(
+                    position = gateway.positionExecutionProfile(config.symbol),
+                    instrument = gateway.instrumentRules(config.symbol),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                logger.warn("trend safety halt instrument read failed reason={}", reasonCode, error)
+                return halt(
+                    stored,
+                    null,
+                    now,
+                    "$reasonCode|TREND_SAFETY_INSTRUMENT_READ_UNAVAILABLE",
+                    position = position,
+                )
+            }
+        if (!exitContract.allowsOrder(config.symbol)) {
+            return halt(
+                stored,
+                null,
+                now,
+                "$reasonCode|TREND_SAFETY_EXIT_CONTRACT_UNAVAILABLE",
+                position = position,
+            )
+        }
+        val instrument = exitContract.instrument
+        val plan =
+            VolumeConfirmedTrendTargetPlanner.safetyExit(
+                protocolSha256 = config.protocolSha256,
+                observedAt = now,
+                referencePrice = referencePrice,
+                priceTick = instrument.priceTick,
+                currentPosition = position.toObservedPosition(),
+                contract = executionContract,
+                reasonCode = "$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|$reasonCode",
+            )
+        val signal =
+            VolumeConfirmedTrendExecutionSignal(
+                side = plan.targetSide,
+                decisionAt = now,
+                executionAt = now,
+            )
+        return submitPlan(stored, signal, plan, instrument, position, now)
+    }
 
     private suspend fun evaluateLocked(
         signal: VolumeConfirmedTrendExecutionSignal,
@@ -496,7 +614,7 @@ class VolumeConfirmedTrendLiveService(
                 approval,
             )
         }
-        if (!stored.ownsPositionDuringApprovalRevocation(position)) {
+        if (!stored.ownsManagedPosition(position)) {
             return halt(
                 previous = stored,
                 signal = null,
@@ -967,7 +1085,7 @@ class VolumeConfirmedTrendLiveService(
     private fun VolumeConfirmedTrendLiveState.matches(position: ExchangePosition?): Boolean =
         position != null && observedPositionSide == position.side && observedPositionQuantity?.compareTo(position.size) == 0
 
-    private fun VolumeConfirmedTrendLiveState.ownsPositionDuringApprovalRevocation(position: ExchangePosition): Boolean =
+    private fun VolumeConfirmedTrendLiveState.ownsManagedPosition(position: ExchangePosition): Boolean =
         status in APPROVAL_REVOCATION_OWNED_POSITION_STATES && matches(position)
 
     private fun accountInventoryReasonCodes(
@@ -980,6 +1098,22 @@ class VolumeConfirmedTrendLiveService(
         }
 
     private fun isUnresolvedOwnedOrder(order: ExchangeOpenOrder): Boolean = order.clientOrderId?.startsWith(TREND_ORDER_ID_PREFIX) == true
+
+    private data class SafetyExitContract(
+        val position: ExchangePositionExecutionProfile,
+        val instrument: ExchangeInstrumentRules,
+    ) {
+        fun allowsOrder(symbol: dev.yaklede.bybittrader.domain.Symbol): Boolean =
+            position.symbol == symbol &&
+                position.positionMode == ExchangePositionMode.ONE_WAY &&
+                !position.reduceOnlyRestricted &&
+                instrument.symbol == symbol &&
+                instrument.status == "Trading" &&
+                instrument.contractType == "LinearPerpetual" &&
+                instrument.baseCoin == "BTC" &&
+                instrument.quoteCoin == "USDT" &&
+                instrument.settleCoin == "USDT"
+    }
 
     private companion object {
         const val TREND_SETTLE_COIN = "USDT"

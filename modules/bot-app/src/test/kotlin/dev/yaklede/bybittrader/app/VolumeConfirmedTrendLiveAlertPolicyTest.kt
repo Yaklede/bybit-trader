@@ -2,7 +2,9 @@ package dev.yaklede.bybittrader.app
 
 import dev.yaklede.bybittrader.alerts.AlertSeverity
 import dev.yaklede.bybittrader.domain.BotMode
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.strategy.TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveApprovalFailure
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationResult
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationStatus
@@ -10,9 +12,12 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResul
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendTargetAction
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendTargetPlan
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import java.math.BigDecimal
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -86,6 +91,46 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             message.body shouldContain "거래소 주문 ID: exchange-entry-001"
             message.body shouldContain "대시보드와 Bybit에서 주문·포지션을 확인"
             message.body shouldContain "실거래를 다시 켜지 마세요"
+        }
+
+        "safety exit alert explains the cause in Korean" {
+            val base = liveResult(VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED)
+            val plan =
+                VolumeConfirmedTrendTargetPlan(
+                    action = VolumeConfirmedTrendTargetAction.CLOSE,
+                    targetSide = Side.SELL,
+                    orderSide = Side.SELL,
+                    orderQuantity = BigDecimal("0.007"),
+                    reduceOnly = true,
+                    limitPrice = BigDecimal("59988"),
+                    decisionKey = "safety-decision-001",
+                    clientOrderId = "vct-s-s-001",
+                    reasonCode =
+                        "$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|TREND_SIGNAL_FROM_FUTURE",
+                )
+            val state =
+                base.evaluation.state.copy(
+                    status = VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
+                    activeDecisionKey = plan.decisionKey,
+                    pendingTargetSide = plan.targetSide,
+                    clientOrderId = plan.clientOrderId,
+                    exchangeOrderId = "exchange-safety-001",
+                    observedPositionSide = Side.BUY,
+                    observedPositionQuantity = BigDecimal("0.007"),
+                )
+            val result =
+                base.copy(
+                    status = VolumeConfirmedTrendLiveLoopStatus.HALTED,
+                    evaluation = base.evaluation.copy(state = state, plan = plan),
+                )
+
+            val message = requireNotNull(result.toTrendLiveAlertMessage())
+
+            message.severity shouldBe AlertSeverity.CRITICAL
+            message.title shouldBe "H4 안전 포지션 정리"
+            message.body shouldContain "안전 조건 불일치"
+            message.body shouldContain "원인: 신호 시각이 서버 시각보다 미래임 (TREND_SIGNAL_FROM_FUTURE)"
+            message.body shouldContain "수량: 0.007"
         }
     })
 

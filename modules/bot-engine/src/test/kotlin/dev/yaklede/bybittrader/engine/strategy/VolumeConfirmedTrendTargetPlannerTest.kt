@@ -117,6 +117,23 @@ class VolumeConfirmedTrendTargetPlannerTest :
             first.clientOrderId shouldBe replay.clientOrderId
             replay.limitPrice shouldBe BigDecimal("60987.8")
         }
+
+        "safety halt exit preserves its explicit operational reason" {
+            val plan =
+                VolumeConfirmedTrendTargetPlanner.safetyExit(
+                    protocolSha256 = "a".repeat(64),
+                    observedAt = Instant.parse("2026-08-07T00:00:00Z"),
+                    referencePrice = BigDecimal("60000"),
+                    priceTick = BigDecimal("0.1"),
+                    currentPosition = VolumeConfirmedTrendObservedPosition(Side.SELL, BigDecimal("0.004")),
+                    reasonCode = "$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|TREND_SIGNAL_FROM_FUTURE",
+                )
+
+            plan.action shouldBe VolumeConfirmedTrendTargetAction.CLOSE
+            plan.orderSide shouldBe Side.BUY
+            plan.reduceOnly shouldBe true
+            plan.reasonCode shouldBe "$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|TREND_SIGNAL_FROM_FUTURE"
+        }
     })
 
 private fun plan(

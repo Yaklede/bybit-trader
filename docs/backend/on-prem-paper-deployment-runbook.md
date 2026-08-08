@@ -216,6 +216,9 @@ block new entries but do not prevent reduce-only position management.
 Foreign derivatives inventory or operator-owned orders follow the same
 entry-only rule when the persisted BTCUSDT position still matches exactly.
 Untracked `vct-*` orders remain a hard stop and require order-history review.
+Invalid or future Shadow signals trigger a bounded reduce-only safety exit only
+for an exactly matched owned position. A read, ownership, or price uncertainty
+keeps the runtime halted without submitting another order.
 
 Wallet reconciliation is also enabled by default. After startup, wait for the
 first `BASELINE` and the following `MATCHED` reconciliation before considering

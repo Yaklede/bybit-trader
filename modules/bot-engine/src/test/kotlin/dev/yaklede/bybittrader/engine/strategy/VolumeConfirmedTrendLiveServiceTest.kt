@@ -325,6 +325,83 @@ class VolumeConfirmedTrendLiveServiceTest :
             store.events.map { it.type } shouldBe listOf(VolumeConfirmedTrendLiveEventType.HALTED)
         }
 
+        "safety halt submits a reduce-only exit for an owned position" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val result = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            result.state.status shouldBe VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED
+            result.plan?.reasonCode shouldBe
+                "$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|TREND_SIGNAL_FROM_FUTURE"
+            gateway.submittedOrders.single().apply {
+                side shouldBe Side.SELL
+                quantity shouldBe BigDecimal("0.007")
+                reduceOnly shouldBe true
+            }
+        }
+
+        "safety halt never exits a position without persisted ownership" {
+            val gateway = FakeTrendLiveGateway(mutableListOf(position(Side.BUY, "0.007")))
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            val result = service.haltForSafety("TREND_SHADOW_TARGET_SIGNAL_MISMATCH")
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe
+                "TREND_SHADOW_TARGET_SIGNAL_MISMATCH|TREND_SAFETY_POSITION_OWNERSHIP_UNCONFIRMED"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "safety halt does not order when reduce-only execution becomes restricted" {
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            gateway.positionProfileResponse = gateway.positionProfileResponse.copy(reduceOnlyRestricted = true)
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store)
+
+            val result = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+
+            result.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            result.state.haltedReasonCode shouldBe
+                "TREND_SIGNAL_FROM_FUTURE|TREND_SAFETY_EXIT_CONTRACT_UNAVAILABLE"
+            gateway.submittedOrders.size shouldBe 0
+        }
+
+        "safety halt retries a known unfilled exit only after its delay" {
+            var now = TEST_NOW
+            val ownedPosition = position(Side.BUY, "0.007")
+            val gateway = FakeTrendLiveGateway(mutableListOf(ownedPosition))
+            val store = InMemoryTrendLiveStore(state = openState(ownedPosition))
+            val service = service(gateway, store, clock = { now })
+
+            val submitted = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+            gateway.openOrders[0] =
+                gateway.openOrders.single().copy(
+                    status = OrderStatus.CANCELLED,
+                    providerStatus = "Cancelled",
+                    cancelType = "UNKNOWN",
+                )
+            val notFilled = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+            val waiting = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+            now = now.plusSeconds(61)
+            val retried = service.haltForSafety("TREND_SIGNAL_FROM_FUTURE")
+
+            submitted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            notFilled.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED
+            waiting.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_NOT_FILLED
+            retried.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.ORDER_SUBMITTED
+            gateway.submittedOrders.size shouldBe 2
+            gateway.submittedOrders
+                .map { it.clientOrderId }
+                .distinct()
+                .size shouldBe 2
+        }
+
         "approved reconciliation initializes a flat checkpoint before the first signal" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -978,6 +1055,15 @@ private class FakeTrendLiveGateway(
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
     var balance: ExchangeAccountBalance = isolatedAccountBalance()
+    var positionProfileResponse =
+        ExchangePositionExecutionProfile(
+            symbol = Symbol("BTCUSDT"),
+            positionMode = ExchangePositionMode.ONE_WAY,
+            buyLeverage = BigDecimal.ONE,
+            sellLeverage = BigDecimal.ONE,
+            observedPositionIndices = setOf(0),
+            reduceOnlyRestricted = false,
+        )
 
     override suspend fun accountExecutionProfile(): ExchangeAccountExecutionProfile {
         exchangeReadCount += 1
@@ -993,14 +1079,7 @@ private class FakeTrendLiveGateway(
 
     override suspend fun positionExecutionProfile(symbol: Symbol): ExchangePositionExecutionProfile {
         exchangeReadCount += 1
-        return ExchangePositionExecutionProfile(
-            symbol = symbol,
-            positionMode = ExchangePositionMode.ONE_WAY,
-            buyLeverage = BigDecimal.ONE,
-            sellLeverage = BigDecimal.ONE,
-            observedPositionIndices = setOf(0),
-            reduceOnlyRestricted = false,
-        )
+        return positionProfileResponse
     }
 
     override suspend fun instrumentRules(symbol: Symbol): ExchangeInstrumentRules {

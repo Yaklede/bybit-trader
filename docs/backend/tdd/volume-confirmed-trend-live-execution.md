@@ -366,6 +366,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - 위험 상태 JSON은 schema v2로 저장하며 schema v1 checkpoint는 위험 기준점이 없는 상태로 읽어 다음
   대사에서 안전하게 기준점을 다시 만든다.
 - `HALTED` 상태에서도 신규 주문은 만들지 않지만 실제 포지션과 account snapshot 관측은 계속한다.
+- Shadow checkpoint 불일치, 미래 시각 신호, 만료 신호와 실제 포지션 방향 불일치로 안전 중단할 때는
+  영속 방향·수량과 거래소 포지션이 정확히 같고 미확정 `vct-*` 주문이 없는 경우에만 bounded reduce-only
+  IOC 안전 종료를 제출한다. 조회·소유권·가격이 불확실하면 주문 없이 `HALTED` 증거를 보존하고 재시도한다.
 - 의도 저장 실패, 주문 응답 불명확, 주문 ack 저장 실패, 체결 projection 저장 실패, 부분 체결 및
   exact-order 증거 누락을 장애 주입 테스트로 검증한다.
 - 승인이나 주문 경로를 켜지 않은 TESTNET 프로세스에서도 인증된

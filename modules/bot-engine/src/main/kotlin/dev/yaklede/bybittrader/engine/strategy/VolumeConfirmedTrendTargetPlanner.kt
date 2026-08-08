@@ -7,6 +7,7 @@ import java.security.MessageDigest
 import java.time.Instant
 
 const val TREND_APPROVAL_REVOKED_EXIT_REASON_CODE = "TREND_APPROVAL_REVOKED_EXIT"
+const val TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX = "TREND_SAFETY_HALT_EXIT"
 
 enum class VolumeConfirmedTrendTargetAction {
     NO_ACTION,
@@ -66,12 +67,14 @@ object VolumeConfirmedTrendTargetPlanner {
         priceTick: BigDecimal,
         currentPosition: VolumeConfirmedTrendObservedPosition,
         contract: VolumeConfirmedTrendExecutionContract = VolumeConfirmedTrendExecutionContract(),
+        reasonCode: String = TREND_APPROVAL_REVOKED_EXIT_REASON_CODE,
     ): VolumeConfirmedTrendTargetPlan {
         require(protocolSha256.matches(Regex("[0-9a-f]{64}"))) {
             "Trend safety-exit planner requires a lowercase protocol SHA-256."
         }
         require(referencePrice > BigDecimal.ZERO) { "Trend safety-exit reference price must be positive." }
         require(priceTick > BigDecimal.ZERO) { "Trend safety-exit price tick must be positive." }
+        require(reasonCode.isNotBlank()) { "Trend safety-exit reason must not be blank." }
         val exitSide = currentPosition.side.opposite()
         val signal =
             VolumeConfirmedTrendExecutionSignal(
@@ -88,7 +91,7 @@ object VolumeConfirmedTrendTargetPlanner {
             limitPrice = boundedLimitPrice(referencePrice, exitSide, priceTick, contract),
             decisionKey = "$protocolSha256|$observedAt|SAFETY_EXIT|${currentPosition.side.name}",
             clientOrderId = clientOrderId(protocolSha256, signal, phase = "s", side = exitSide),
-            reasonCode = TREND_APPROVAL_REVOKED_EXIT_REASON_CODE,
+            reasonCode = reasonCode,
         )
     }
 

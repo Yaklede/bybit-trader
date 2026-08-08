@@ -59,6 +59,7 @@ import dev.yaklede.bybittrader.engine.paper.PaperTradingLoopConfig
 import dev.yaklede.bybittrader.engine.paper.PaperTradingService
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
 import dev.yaklede.bybittrader.engine.strategy.TREND_APPROVAL_REVOKED_EXIT_REASON_CODE
+import dev.yaklede.bybittrader.engine.strategy.TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractInspector
@@ -1055,6 +1056,21 @@ internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): Alert
                             "지정가: ${evaluation.plan?.limitPrice?.toPlainString() ?: "확인 필요"}, " +
                             "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
                 )
+            } else if (evaluation.plan?.reasonCode?.startsWith("$TREND_SAFETY_HALT_EXIT_REASON_CODE_PREFIX|") == true) {
+                val safetyReason =
+                    evaluation.plan
+                        ?.reasonCode
+                        ?.substringAfter('|')
+                        .orEmpty()
+                AlertMessage(
+                    severity = AlertSeverity.CRITICAL,
+                    title = "H4 안전 포지션 정리",
+                    body =
+                        "안전 조건 불일치로 ${state.symbol.value} 소유 포지션의 reduce-only 종료 주문을 제출했어요. " +
+                            "원인: ${safetyReason.toKoreanTrendSafetyReason()} ($safetyReason), " +
+                            "수량: ${evaluation.plan?.orderQuantity?.toPlainString() ?: "확인 필요"}, " +
+                            "거래소 주문 ID: ${state.exchangeOrderId ?: "확인 중"}",
+                )
             } else {
                 AlertMessage(
                     severity = AlertSeverity.INFO,
@@ -1107,6 +1123,18 @@ internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): Alert
         else -> null
     }
 }
+
+private fun String.toKoreanTrendSafetyReason(): String =
+    when (this) {
+        "TREND_SHADOW_STATE_UNAVAILABLE" -> "Shadow 상태를 확인할 수 없음"
+        "TREND_SHADOW_IDENTITY_MISMATCH" -> "Shadow 전략 식별 정보가 승인 내용과 다름"
+        "TREND_SHADOW_APPROVED_SESSION_CHANGED" -> "승인된 Shadow 세션이 변경됨"
+        "TREND_SHADOW_NOT_OBSERVING" -> "Shadow 검증 상태가 관찰 중이 아님"
+        "TREND_SHADOW_TARGET_SIGNAL_MISMATCH" -> "Shadow 목표 방향과 최근 확정 신호가 다름"
+        "TREND_SIGNAL_FROM_FUTURE" -> "신호 시각이 서버 시각보다 미래임"
+        "TREND_SIGNAL_EXPIRED_WITH_POSITION_MISMATCH" -> "만료된 신호 방향과 실제 포지션이 다름"
+        else -> "알 수 없는 안전 조건 불일치"
+    }
 
 private fun approvalBlockedAlertBody(
     evaluation: dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvaluationResult,

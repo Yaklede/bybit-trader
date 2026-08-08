@@ -209,6 +209,13 @@ reduce-only exit. A `vct-*` open order that is not represented by a pending
 lifecycle state remains a hard halt because another automatic exit could be a
 duplicate.
 
+Safety-loop failures such as an invalid Shadow checkpoint, a future-dated
+signal, or an expired signal that disagrees with the owned position do not only
+write `HALTED`. If persisted side and quantity exactly match the exchange and
+no unresolved `vct-*` order exists, the executor submits a bounded reduce-only
+IOC exit. Position, order, instrument, or ownership uncertainty remains a hard
+halt without a new order.
+
 When wallet reconciliation is enabled, daily loss and account drawdown use a
 unitized strategy NAV rather than raw account equity. Transaction-log changes
 outside `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`, `FEE_REFUND`,
