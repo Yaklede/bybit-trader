@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.engine.strategy
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.math.BigDecimal
@@ -106,6 +107,8 @@ class VolumeConfirmedTrendLiveService(
                 contractFailures = contractValidation.failures,
             )
         }
+        captureAccountSnapshotIfDue(now)
+        captureAccountingIfDue(now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (openPositions.size > 1) {
             return halt(stored, signal, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
@@ -194,6 +197,7 @@ class VolumeConfirmedTrendLiveService(
             )
         }
         captureAccountSnapshotIfDue(now)
+        captureAccountingIfDue(now)
         val openPositions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (openPositions.size > 1) {
             return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
@@ -249,6 +253,7 @@ class VolumeConfirmedTrendLiveService(
         now: Instant,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         captureAccountSnapshotIfDue(now)
+        captureAccountingIfDue(now)
         val positions = gateway.positions(config.symbol).filter { it.size > BigDecimal.ZERO }
         if (positions.size > 1) {
             return halt(stored, null, now, "TREND_MULTIPLE_POSITIONS_OBSERVED")
@@ -283,6 +288,36 @@ class VolumeConfirmedTrendLiveService(
     private suspend fun captureAccountSnapshotIfDue(now: Instant) {
         if (!projectionSink.accountSnapshotDue(now)) return
         projectionSink.recordAccountBalance(gateway.accountBalance("USDT"))
+    }
+
+    private suspend fun captureAccountingIfDue(now: Instant) {
+        val request = projectionSink.reserveAccountingRequest(now) ?: return
+        try {
+            val executions = if (request.closuresDue) gateway.executions(config.symbol) else emptyList()
+            val closedPnls = if (request.closuresDue) gateway.closedPnls(config.symbol) else emptyList()
+            val accountTransactions =
+                request.transactionStartAt
+                    ?.let { startAt -> gateway.accountTransactions("USDT", startAt, request.requestedAt) }
+                    .orEmpty()
+            projectionSink.recordAccounting(
+                VolumeConfirmedTrendLiveAccountingObservation(
+                    request = request,
+                    executions = executions,
+                    closedPnls = closedPnls,
+                    accountTransactions = accountTransactions,
+                    receivedAt = now,
+                ),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            try {
+                projectionSink.recordAccountingFailure(request, now)
+            } catch (projectionError: Throwable) {
+                error.addSuppressed(projectionError)
+            }
+            throw error
+        }
     }
 
     private suspend fun approvalValidation(): VolumeConfirmedTrendLiveApprovalValidation =

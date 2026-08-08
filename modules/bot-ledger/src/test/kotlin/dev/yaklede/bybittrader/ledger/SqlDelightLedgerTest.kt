@@ -15,6 +15,7 @@ import dev.yaklede.bybittrader.domain.Timeframe
 import dev.yaklede.bybittrader.engine.control.ControlEvent
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
+import dev.yaklede.bybittrader.engine.execution.ExchangeClosedPnl
 import dev.yaklede.bybittrader.engine.execution.ExchangeCoinBalance
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExecutionAccountSnapshot
@@ -57,6 +58,7 @@ import dev.yaklede.bybittrader.engine.position.CausalPositionState
 import dev.yaklede.bybittrader.engine.strategy.LedgerVolumeConfirmedTrendLiveProjectionSink
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveAccountingObservation
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
@@ -811,7 +813,7 @@ class SqlDelightLedgerTest :
                 ExchangeExecutionFill(
                     executionId = "trend-exec-001",
                     exchangeOrderId = "trend-order-001",
-                    clientOrderId = "vcte-live-order-001",
+                    clientOrderId = "vct-entry-live-order-001",
                     symbol = Symbol("BTCUSDT"),
                     side = Side.BUY,
                     price = BigDecimal("60000"),
@@ -837,6 +839,146 @@ class SqlDelightLedgerTest :
                 this.fill.executionId shouldBe "trend-exec-001"
                 this.fill.fee shouldBe BigDecimal("0.252")
             }
+        }
+
+        "trend live accounting attributes only owned closures and reconciles USDT transactions" {
+            val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            LedgerDatabase.Schema.create(driver)
+            val ledger = SqlDelightLedger(database = createLedgerDatabase(driver))
+            val capturedAt = Instant.parse("2026-08-08T00:05:00Z")
+            val sink =
+                LedgerVolumeConfirmedTrendLiveProjectionSink(
+                    store = ledger,
+                    runtimeMode = ExecutionRuntimeMode.LIVE,
+                    sessionStartedAt = capturedAt.minusSeconds(60),
+                )
+            sink.recordAccountBalance(
+                ExchangeAccountBalance(
+                    accountType = "UNIFIED",
+                    totalEquity = BigDecimal("666.24"),
+                    totalWalletBalance = BigDecimal("666.24"),
+                    totalMarginBalance = BigDecimal("666.24"),
+                    totalAvailableBalance = BigDecimal("666.24"),
+                    totalPerpUnrealizedPnl = BigDecimal.ZERO,
+                    totalInitialMargin = BigDecimal.ZERO,
+                    totalMaintenanceMargin = BigDecimal.ZERO,
+                    coins =
+                        listOf(
+                            ExchangeCoinBalance(
+                                coin = "USDT",
+                                equity = BigDecimal("666.24"),
+                                usdValue = BigDecimal("666.24"),
+                                walletBalance = BigDecimal("666.24"),
+                                locked = BigDecimal.ZERO,
+                                unrealizedPnl = BigDecimal.ZERO,
+                            ),
+                        ),
+                    capturedAt = capturedAt,
+                ),
+            )
+            val request = requireNotNull(sink.reserveAccountingRequest(capturedAt))
+            val ownedFill =
+                ExchangeExecutionFill(
+                    executionId = "trend-accounting-exec-001",
+                    exchangeOrderId = "trend-accounting-order-001",
+                    clientOrderId = "vct-exit-accounting-001",
+                    symbol = Symbol("BTCUSDT"),
+                    side = Side.SELL,
+                    price = BigDecimal("60000"),
+                    quantity = BigDecimal("0.007"),
+                    fee = BigDecimal("0.25"),
+                    executedAt = capturedAt.minusSeconds(1),
+                    executionType = "Trade",
+                    executionPnl = BigDecimal("7"),
+                )
+            val unrelatedFill = ownedFill.copy(executionId = "manual-exec-001", clientOrderId = "manual-order-001")
+            val ownedClosure =
+                ExchangeClosedPnl(
+                    exchangeOrderId = ownedFill.exchangeOrderId,
+                    clientOrderId = null,
+                    symbol = Symbol("BTCUSDT"),
+                    side = Side.BUY,
+                    openedAt = capturedAt.minusSeconds(14_400),
+                    closedAt = capturedAt.minusSeconds(1),
+                    entryPrice = BigDecimal("59000"),
+                    exitPrice = BigDecimal("60000"),
+                    quantity = BigDecimal("0.007"),
+                    grossPnl = BigDecimal("7.5"),
+                    fees = BigDecimal("0.5"),
+                    netPnl = BigDecimal("7"),
+                    exitReason = "CLOSED_PNL",
+                )
+            val unrelatedClosure =
+                ownedClosure.copy(
+                    exchangeOrderId = "manual-order-001",
+                    clientOrderId = "manual-order-001",
+                )
+            val funding =
+                ExchangeAccountTransaction(
+                    transactionId = "trend-funding-001",
+                    symbol = Symbol("BTCUSDT"),
+                    category = "linear",
+                    side = Side.BUY,
+                    transactionAt = capturedAt.minusSeconds(30),
+                    type = "SETTLEMENT",
+                    subtype = "FUNDING",
+                    quantity = null,
+                    size = BigDecimal("0.007"),
+                    currency = "USDT",
+                    tradePrice = BigDecimal("60000"),
+                    funding = BigDecimal("-0.01"),
+                    fee = BigDecimal.ZERO,
+                    cashFlow = BigDecimal.ZERO,
+                    change = BigDecimal("-0.01"),
+                    cashBalance = BigDecimal("666.24"),
+                    feeRate = null,
+                    tradeId = null,
+                    exchangeOrderId = null,
+                    clientOrderId = null,
+                )
+            sink.recordAccounting(
+                VolumeConfirmedTrendLiveAccountingObservation(
+                    request = request,
+                    executions = listOf(ownedFill, unrelatedFill),
+                    closedPnls = listOf(ownedClosure, unrelatedClosure),
+                    accountTransactions = listOf(funding, funding.copy(transactionId = "usdc-transaction", currency = "USDC")),
+                    receivedAt = capturedAt,
+                ),
+            )
+
+            ledger
+                .executionFills(ExecutionRuntimeMode.LIVE, Symbol("BTCUSDT"), null, 10)
+                .single()
+                .fill
+                .executionId shouldBe "trend-accounting-exec-001"
+            ledger.closedTrades(Symbol("BTCUSDT"), ExecutionRuntimeMode.LIVE, 10, null).single().apply {
+                clientOrderId shouldBe "vct-exit-accounting-001"
+                exitReason shouldBe "STRATEGY_EXIT"
+                netPnl shouldBe BigDecimal("7")
+            }
+            ledger.accountTransactions(ExecutionRuntimeMode.LIVE, "USDT", null, capturedAt).single().transaction.apply {
+                transactionId shouldBe "trend-funding-001"
+                this.funding shouldBe BigDecimal("-0.01")
+            }
+            ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT")?.status shouldBe
+                ExecutionWalletReconciliationStatus.BASELINE
+            ledger.latestLivePerformanceSummary(ExecutionRuntimeMode.LIVE, LivePerformanceWindow.ALL)?.apply {
+                tradeCount shouldBe 1
+                netPnl shouldBe BigDecimal("7")
+                fees shouldBe BigDecimal("0.5")
+            }
+
+            sink.reserveAccountingRequest(capturedAt.plusSeconds(30)) shouldBe null
+            sink.reserveAccountingRequest(capturedAt.plusSeconds(60))?.apply {
+                closuresDue shouldBe true
+                transactionsDue shouldBe false
+            }
+            val failedTransactionRequest = requireNotNull(sink.reserveAccountingRequest(capturedAt.plusSeconds(300)))
+            failedTransactionRequest.transactionsDue shouldBe true
+            failedTransactionRequest.transactionStartAt shouldBe funding.transactionAt.minusSeconds(300)
+            sink.recordAccountingFailure(failedTransactionRequest, capturedAt.plusSeconds(300))
+            ledger.walletReconciliationState(ExecutionRuntimeMode.LIVE, "USDT")?.status shouldBe
+                ExecutionWalletReconciliationStatus.SYNC_ERROR
         }
 
         "additive migration adds actual-fill protection metadata to a legacy lifecycle table" {

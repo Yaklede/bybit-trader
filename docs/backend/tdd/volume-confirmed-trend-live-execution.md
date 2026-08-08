@@ -1,7 +1,7 @@
 # 거래량 확인형 추세 전략 실거래 실행 기술 설계
 
 > 작성일: 2026-08-07
-> 상태: 승인 기반 런타임·체결/계좌 projection 완료, 전진 승인 대기
+> 상태: 승인 기반 런타임·체결/계좌/거래내역 projection 완료, 위험 게이트·전진 승인 대기
 > 대상 모듈: `bot-engine`, `bot-exchange-bybit`, `bot-ledger`, `bot-app`
 
 ## 1. 설계 배경 및 목적
@@ -291,12 +291,20 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
 - `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트를 인증된 운영자에게 제공한다.
 - 승인된 실행 중 USDT account equity를 1분 간격으로 공통 account snapshot에 저장하고, 복구에서 확인한
   모든 H4 `execId`의 가격·수량·수수료·실현 PnL을 공통 체결 원장에 중복 없이 저장한다.
+- H4 실행 경로가 기존 공격형 reconciliation loop와 격리된 상태에서도 종료손익은 1분, USDT transaction
+  log는 5분 간격으로 별도 동기화한다. `vct-*` client order ID 또는 그 ID를 가진 exact execution으로
+  소유권이 확인된 BTCUSDT 종료건만 H4 성과로 귀속하며, 수동 주문은 제외한다.
+- transaction log의 거래 수수료, funding, cash flow, 입출금 변화는 거래소 transaction ID로 멱등 저장하고,
+  wallet balance 변화와 원장 변화의 대사 상태를 `BASELINE`, `MATCHED`, `MISMATCH`, `SYNC_ERROR`로 보존한다.
+- 종료 사유가 일반 `CLOSED_PNL`이어도 H4 client order ID가 확인되면 `STRATEGY_EXIT`으로 분류하고, 실제
+  종료 손익과 account equity로 공통 성과 스냅샷을 갱신한다.
 - `HALTED` 상태에서도 신규 주문은 만들지 않지만 실제 포지션과 account snapshot 관측은 계속한다.
 - 의도 저장 실패, 주문 응답 불명확, 주문 ack 저장 실패, 체결 projection 저장 실패, 부분 체결 및
   exact-order 증거 누락을 장애 주입 테스트로 검증한다.
 
-아직 완료되지 않은 항목은 transaction log 기반 funding/입출금 세부 대사, 실제 Bybit TESTNET 최소 주문,
-fresh Bybit Shadow 90일 및 별도 사람 승인이다. 따라서 기본 승인 파일과
+아직 완료되지 않은 항목은 wallet 대사·일 손실·MDD·연속 손실을 신규 진입 차단과 연결하는 위험 게이트,
+운영 대시보드의 H4 성과 표시, 실제 Bybit TESTNET 최소 주문, fresh Bybit Shadow 90일 및 별도 사람 승인이다.
+따라서 기본 승인 파일과
 `BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false`는 유지한다.
 
 ## 11. 완료 체크리스트

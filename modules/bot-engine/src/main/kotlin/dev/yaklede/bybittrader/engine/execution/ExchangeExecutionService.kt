@@ -2593,7 +2593,7 @@ private fun Timeframe.executionDurationMillis(): Long =
         Timeframe.H1 -> 3_600_000L
     }
 
-private fun LivePerformanceWindow.startAt(
+internal fun LivePerformanceWindow.startAt(
     capturedAt: Instant,
     sessionStartedAt: Instant,
 ): Instant? =
@@ -2685,7 +2685,7 @@ private fun readinessLossFraction(
     return baseline.subtract(current).divide(baseline, MathContext.DECIMAL64)
 }
 
-private fun ExchangeClosedPnl.toTradeClosure(mode: ExecutionRuntimeMode): ExecutionTradeClosure =
+internal fun ExchangeClosedPnl.toTradeClosure(mode: ExecutionRuntimeMode): ExecutionTradeClosure =
     ExecutionTradeClosure(
         mode = mode,
         symbol = symbol,
@@ -2703,7 +2703,7 @@ private fun ExchangeClosedPnl.toTradeClosure(mode: ExecutionRuntimeMode): Execut
         clientOrderId = clientOrderId,
     )
 
-private fun ExchangeClosedPnl.resolveExitReason(executions: List<ExchangeExecutionFill>): ExchangeClosedPnl {
+internal fun ExchangeClosedPnl.resolveExitReason(executions: List<ExchangeExecutionFill>): ExchangeClosedPnl {
     val existingReason = exitReason?.trim()?.uppercase()
     if (existingReason != null && existingReason !in GENERIC_EXIT_REASONS) return this
 
@@ -2741,13 +2741,14 @@ private fun clientOrderExitReason(clientOrderId: String): String? {
         "TIME" -> "TIME_EXIT"
         "CLOSE" -> "MANUAL_EXIT"
         "MANUAL" -> "MANUAL_EXIT"
+        "VCT" -> "STRATEGY_EXIT"
         else -> null
     }
 }
 
 private val GENERIC_EXIT_REASONS = setOf("", "CLOSED_PNL", "CLOSED_PNL_OBSERVED", "UNKNOWN")
 
-private fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRuntimeMode): ExecutionAccountSnapshot {
+internal fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRuntimeMode): ExecutionAccountSnapshot {
     val trackedCoin = coins.firstOrNull { coin -> coin.coin.equals(ACCOUNT_LEDGER_CURRENCY, ignoreCase = true) }
     return ExecutionAccountSnapshot(
         mode = mode,
@@ -2768,7 +2769,7 @@ private fun ExchangeAccountBalance.toExecutionAccountSnapshot(mode: ExecutionRun
     )
 }
 
-private fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
+internal fun List<ExecutionTradeClosure>.toPerformanceSnapshot(
     mode: ExecutionRuntimeMode,
     window: LivePerformanceWindow,
     capturedAt: Instant,

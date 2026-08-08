@@ -10,6 +10,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangeAccountMode
 import dev.yaklede.bybittrader.engine.execution.ExchangeAccountTransaction
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelResult
+import dev.yaklede.bybittrader.engine.execution.ExchangeClosedPnl
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeInstrumentRules
@@ -103,6 +104,34 @@ class VolumeConfirmedTrendLiveServiceTest :
             service.reconcile()
 
             projection.balances.single().totalEquity shouldBe BigDecimal("660")
+        }
+
+        "due accounting reads executions closures and the bounded transaction range once" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val request =
+                VolumeConfirmedTrendLiveAccountingRequest(
+                    requestedAt = TEST_NOW,
+                    closuresDue = true,
+                    transactionsDue = true,
+                    transactionStartAt = TEST_NOW.minusSeconds(3_600),
+                )
+            val projection = RecordingTrendLiveProjectionSink(accountingRequest = request)
+            val service = service(gateway, store, projectionSink = projection)
+            gateway.executionFills += executionFill("vct-entry-test", "execution-accounting-001")
+            gateway.closedPnlRecords += closedPnl("vct-exit-test")
+            gateway.accountTransactionRecords += accountTransaction("transaction-accounting-001")
+
+            service.reconcile()
+
+            projection.accountingObservations.single().apply {
+                executions.mapNotNull(ExchangeExecutionFill::executionId) shouldBe listOf("execution-accounting-001")
+                closedPnls.mapNotNull(ExchangeClosedPnl::clientOrderId) shouldBe listOf("vct-exit-test")
+                accountTransactions.map(ExchangeAccountTransaction::transactionId) shouldBe
+                    listOf("transaction-accounting-001")
+            }
+            gateway.accountTransactionRanges.single() shouldBe
+                (TEST_NOW.minusSeconds(3_600) to TEST_NOW)
         }
 
         "entry recovery records exact fills and their latest execution id" {
@@ -393,6 +422,9 @@ private class FakeTrendLiveGateway(
 ) : ExchangeExecutionGateway {
     val openOrders = mutableListOf<ExchangeOpenOrder>()
     val executionFills = mutableListOf<ExchangeExecutionFill>()
+    val closedPnlRecords = mutableListOf<ExchangeClosedPnl>()
+    val accountTransactionRecords = mutableListOf<ExchangeAccountTransaction>()
+    val accountTransactionRanges = mutableListOf<Pair<Instant, Instant>>()
     val submittedOrders = mutableListOf<ExchangeOrderRequest>()
     var exchangeReadCount = 0
     var beforePlaceOrder: suspend () -> Unit = {}
@@ -486,6 +518,11 @@ private class FakeTrendLiveGateway(
         return executionFills.toList()
     }
 
+    override suspend fun closedPnls(symbol: Symbol): List<ExchangeClosedPnl> {
+        exchangeReadCount += 1
+        return closedPnlRecords.toList()
+    }
+
     override suspend fun accountBalance(coin: String?): ExchangeAccountBalance {
         exchangeReadCount += 1
         return ExchangeAccountBalance(
@@ -506,7 +543,11 @@ private class FakeTrendLiveGateway(
         currency: String,
         startAt: Instant,
         endAt: Instant,
-    ): List<ExchangeAccountTransaction> = emptyList()
+    ): List<ExchangeAccountTransaction> {
+        exchangeReadCount += 1
+        accountTransactionRanges += startAt to endAt
+        return accountTransactionRecords.toList()
+    }
 }
 
 private fun service(
@@ -537,9 +578,12 @@ private fun service(
 private class RecordingTrendLiveProjectionSink(
     private val accountSnapshotDue: Boolean = false,
     private var failExecutionRecordingOnce: Boolean = false,
+    private var accountingRequest: VolumeConfirmedTrendLiveAccountingRequest? = null,
 ) : VolumeConfirmedTrendLiveProjectionSink {
     val balances = mutableListOf<ExchangeAccountBalance>()
     val fills = mutableListOf<ExchangeExecutionFill>()
+    val accountingObservations = mutableListOf<VolumeConfirmedTrendLiveAccountingObservation>()
+    val accountingFailures = mutableListOf<VolumeConfirmedTrendLiveAccountingRequest>()
 
     override suspend fun accountSnapshotDue(now: Instant): Boolean = accountSnapshotDue
 
@@ -556,6 +600,20 @@ private class RecordingTrendLiveProjectionSink(
             throw IllegalStateException("injected trend projection failure")
         }
         this.fills += fills
+    }
+
+    override suspend fun reserveAccountingRequest(now: Instant): VolumeConfirmedTrendLiveAccountingRequest? =
+        accountingRequest.also { accountingRequest = null }
+
+    override suspend fun recordAccounting(observation: VolumeConfirmedTrendLiveAccountingObservation) {
+        accountingObservations += observation
+    }
+
+    override suspend fun recordAccountingFailure(
+        request: VolumeConfirmedTrendLiveAccountingRequest,
+        failedAt: Instant,
+    ) {
+        accountingFailures += request
     }
 }
 
@@ -576,6 +634,47 @@ private fun executionFill(
         executionId = executionId,
         executionType = "Trade",
         executionPnl = BigDecimal.ZERO,
+    )
+
+private fun closedPnl(clientOrderId: String): ExchangeClosedPnl =
+    ExchangeClosedPnl(
+        exchangeOrderId = "exchange-close-001",
+        clientOrderId = clientOrderId,
+        symbol = Symbol("BTCUSDT"),
+        side = Side.BUY,
+        openedAt = TEST_NOW.minusSeconds(14_400),
+        closedAt = TEST_NOW.minusSeconds(1),
+        entryPrice = BigDecimal("59000"),
+        exitPrice = BigDecimal("60000"),
+        quantity = BigDecimal("0.007"),
+        grossPnl = BigDecimal("7"),
+        fees = BigDecimal("0.5"),
+        netPnl = BigDecimal("6.5"),
+        exitReason = "CLOSED_PNL",
+    )
+
+private fun accountTransaction(transactionId: String): ExchangeAccountTransaction =
+    ExchangeAccountTransaction(
+        transactionId = transactionId,
+        symbol = Symbol("BTCUSDT"),
+        category = "linear",
+        side = Side.BUY,
+        transactionAt = TEST_NOW.minusSeconds(30),
+        type = "TRADE",
+        subtype = null,
+        quantity = BigDecimal("0.007"),
+        size = BigDecimal("0.007"),
+        currency = "USDT",
+        tradePrice = BigDecimal("60000"),
+        funding = BigDecimal("-0.01"),
+        fee = BigDecimal("-0.25"),
+        cashFlow = BigDecimal.ZERO,
+        change = BigDecimal("6.24"),
+        cashBalance = BigDecimal("666.24"),
+        feeRate = BigDecimal("0.0006"),
+        tradeId = "trade-$transactionId",
+        exchangeOrderId = "exchange-close-001",
+        clientOrderId = "vct-exit-test",
     )
 
 private fun approvalReceipt(approved: Boolean): VolumeConfirmedTrendLiveApprovalReceipt =
