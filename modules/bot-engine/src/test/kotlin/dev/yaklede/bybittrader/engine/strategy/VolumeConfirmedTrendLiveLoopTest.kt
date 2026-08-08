@@ -8,6 +8,12 @@ import dev.yaklede.bybittrader.engine.control.BotStateStore
 import dev.yaklede.bybittrader.engine.market.MarketTicker
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeout
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Duration
@@ -133,6 +139,89 @@ class VolumeConfirmedTrendLiveLoopTest :
             result.status shouldBe VolumeConfirmedTrendLiveLoopStatus.HALTED
             executor.reconcileCount shouldBe 1
         }
+
+        "management-only loop survives a failing failure callback" {
+            val executor = FakeTrendLiveExecutor(liveState()).apply { reconcileFailuresRemaining = 1 }
+            val recovered = CompletableDeferred<Unit>()
+            var failureCallbacks = 0
+            val loop =
+                VolumeConfirmedTrendLiveManagementLoop(
+                    botStateStore = FakeBotStateStore(BotMode.RUNNING),
+                    liveExecutor = executor,
+                    config = VolumeConfirmedTrendLiveManagementLoopConfig(interval = Duration.ofMillis(1)),
+                    clock = Clock.fixed(TEST_NOW, ZoneOffset.UTC),
+                    onResult = { recovered.complete(Unit) },
+                    onFailure = {
+                        failureCallbacks += 1
+                        error("injected management failure callback outage")
+                    },
+                )
+            val job = loop.start(CoroutineScope(SupervisorJob() + Dispatchers.Default))
+
+            try {
+                withTimeout(1_000) { recovered.await() }
+            } finally {
+                job.cancelAndJoin()
+            }
+
+            (executor.reconcileCount >= 2) shouldBe true
+            failureCallbacks shouldBe 1
+        }
+
+        "signal loop survives a failing failure callback" {
+            val shadowState = shadowState(APPROVED_SESSION_ID, Side.BUY)
+            val event = confirmedEvent(APPROVED_SESSION_ID, Side.BUY, TEST_NOW.minusSeconds(10))
+            val executor = FakeTrendLiveExecutor(liveState())
+            val recovered = CompletableDeferred<Unit>()
+            var tickerRequests = 0
+            var failureCallbacks = 0
+            val loop =
+                VolumeConfirmedTrendLiveLoop(
+                    shadowStore = FakeTrendShadowStore(shadowState, listOf(event)),
+                    botStateStore = FakeBotStateStore(BotMode.RUNNING),
+                    liveExecutor = executor,
+                    tickerProvider = { symbol ->
+                        tickerRequests += 1
+                        if (tickerRequests == 1) error("injected ticker outage")
+                        MarketTicker(
+                            symbol = symbol,
+                            lastPrice = BigDecimal("60000"),
+                            markPrice = null,
+                            indexPrice = null,
+                            price24hPcnt = null,
+                            fundingRate = null,
+                            nextFundingTime = null,
+                            capturedAt = TEST_NOW,
+                        )
+                    },
+                    config =
+                        VolumeConfirmedTrendLiveLoopConfig(
+                            protocolId = PROTOCOL_ID,
+                            candidateId = CANDIDATE_ID,
+                            protocolSha256 = PROTOCOL_SHA,
+                            symbol = SYMBOL,
+                            approvedShadowSessionId = APPROVED_SESSION_ID,
+                            interval = Duration.ofMillis(1),
+                        ),
+                    clock = Clock.fixed(TEST_NOW, ZoneOffset.UTC),
+                    onResult = { recovered.complete(Unit) },
+                    onFailure = {
+                        failureCallbacks += 1
+                        error("injected signal failure callback outage")
+                    },
+                )
+            val job = loop.start(CoroutineScope(SupervisorJob() + Dispatchers.Default))
+
+            try {
+                withTimeout(1_000) { recovered.await() }
+            } finally {
+                job.cancelAndJoin()
+            }
+
+            (tickerRequests >= 2) shouldBe true
+            (executor.evaluatedSignals.size >= 1) shouldBe true
+            failureCallbacks shouldBe 1
+        }
     })
 
 private data class LiveLoopFixture(
@@ -241,6 +330,7 @@ private class FakeTrendLiveExecutor(
     val evaluatedSignals = mutableListOf<VolumeConfirmedTrendExecutionSignal>()
     val haltReasons = mutableListOf<String>()
     var reconcileCount = 0
+    var reconcileFailuresRemaining = 0
 
     override suspend fun evaluate(
         signal: VolumeConfirmedTrendExecutionSignal,
@@ -252,6 +342,10 @@ private class FakeTrendLiveExecutor(
 
     override suspend fun reconcile(): VolumeConfirmedTrendLiveEvaluationResult {
         reconcileCount += 1
+        if (reconcileFailuresRemaining > 0) {
+            reconcileFailuresRemaining -= 1
+            error("injected reconciliation outage")
+        }
         return result(reconciledState, reconciledStatus)
     }
 
