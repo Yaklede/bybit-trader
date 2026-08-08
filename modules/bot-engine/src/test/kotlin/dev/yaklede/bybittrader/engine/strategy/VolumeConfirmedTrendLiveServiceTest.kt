@@ -616,6 +616,26 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.submittedOrders.size shouldBe 1
         }
 
+        "risk projection updates do not reset a pending order recovery timeout" {
+            var now = Instant.parse("2026-08-07T00:00:10Z")
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val projection = RecordingTrendLiveProjectionSink()
+            val service = service(gateway, store, projectionSink = projection, clock = { now })
+
+            val submitted = service.evaluate(command(Side.BUY), BigDecimal("60000"))
+            projection.riskReasonCodes = listOf("ACCOUNT_LEDGER_MISMATCH_PENDING")
+            now = now.plusSeconds(11)
+
+            val halted = service.reconcile()
+
+            submitted.state.status shouldBe VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+            halted.status shouldBe VolumeConfirmedTrendLiveEvaluationStatus.HALTED
+            halted.state.haltedReasonCode shouldBe "TREND_ENTRY_IOC_REMAINS_ACTIVE"
+            halted.state.riskReasonCodes shouldBe listOf("ACCOUNT_LEDGER_MISMATCH_PENDING")
+            gateway.submittedOrders.size shouldBe 1
+        }
+
         "a same-side position without exact order evidence is not adopted" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()
@@ -908,7 +928,7 @@ private class RecordingTrendLiveProjectionSink(
     private val accountSnapshotDue: Boolean = false,
     private var failExecutionRecordingOnce: Boolean = false,
     private var accountingRequest: VolumeConfirmedTrendLiveAccountingRequest? = null,
-    private val riskReasonCodes: List<String> = emptyList(),
+    var riskReasonCodes: List<String> = emptyList(),
 ) : VolumeConfirmedTrendLiveProjectionSink {
     val balances = mutableListOf<ExchangeAccountBalance>()
     val fills = mutableListOf<ExchangeExecutionFill>()

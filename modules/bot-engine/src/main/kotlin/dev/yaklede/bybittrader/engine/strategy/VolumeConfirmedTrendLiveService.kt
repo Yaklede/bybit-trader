@@ -345,7 +345,12 @@ class VolumeConfirmedTrendLiveService(
             previous.copy(
                 riskState = assessment.state,
                 riskReasonCodes = assessment.reasonCodes,
-                updatedAt = now,
+                updatedAt =
+                    if (previous.status in PENDING_ORDER_STATES) {
+                        previous.updatedAt
+                    } else {
+                        now
+                    },
             )
         store.commitTrendLive(updated, emptyList())
         return updated

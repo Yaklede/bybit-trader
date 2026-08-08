@@ -256,7 +256,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   넘거나 같은 cursor가 반복되거나 result가 누락되면 부분 원장을 반환하지 않고 fail closed한다.
 - pending 주문 복구는 영속 상태 시각보다 5분 앞에서 현재까지 조회한다. 종료손익 회계 동기화는
   마지막 성공 시각보다 5분 앞에서 재조회하고, 실패 시 성공 워터마크를 전진시키지 않는다. 재시작
-  직후에는 영속 전략 상태 시각을 복구 시작점으로 사용한다.
+  직후에는 영속 전략 상태 시각을 복구 시작점으로 사용한다. `ENTRY_INTENT_RECORDED`, `ENTRY_SUBMITTED`,
+  `EXIT_INTENT_RECORDED`, `EXIT_SUBMITTED` 중 위험 상태만 갱신할 때는 주문 생명주기 시각을 전진시키지
+  않는다. 따라서 위험 원장 변화가 미확정 주문의 복구 범위나 timeout을 초기화할 수 없다.
 - 겹쳐 읽은 체결은 `execId`, 종료손익은 거래소 order ID를 우선 identity로 사용해 멱등 제거한다.
 - websocket은 빠른 wake-up 용도이며 REST 대사가 복구 source다.
 - API rate limit은 전환 실행을 늦추더라도 재시도 폭주보다 fail closed를 우선한다.
