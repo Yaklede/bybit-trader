@@ -1120,8 +1120,12 @@ internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): Alert
                 severity = AlertSeverity.CRITICAL,
                 title = "H4 실거래 자동 중단",
                 body =
-                    "안전 조건 불일치로 신규 주문을 차단했어요. " +
-                        "중단 사유: ${state.haltedReasonCode ?: "상세 원인 없음"}",
+                    state.haltedReasonCode?.let { reasonCode ->
+                        "${reasonCode.toKoreanTrendHaltReason()} 신규 주문을 차단했어요. " +
+                            "Bybit 주문 내역, 체결 내역, 현재 포지션 수량을 서로 비교해 주세요. " +
+                            "확인이 끝나기 전에는 실거래를 다시 켜지 마세요. " +
+                            "진단 코드: $reasonCode"
+                    } ?: "안전 상태를 확인할 수 없어 신규 주문을 차단했어요. 서버 로그와 Bybit 거래 상태를 확인해 주세요.",
             )
         VolumeConfirmedTrendLiveEvaluationStatus.APPROVAL_BLOCKED ->
             AlertMessage(
@@ -1140,6 +1144,35 @@ internal fun VolumeConfirmedTrendLiveLoopResult.toTrendLiveAlertMessage(): Alert
         else -> null
     }
 }
+
+private fun String.toKoreanTrendHaltReason(): String =
+    when {
+        contains("_RECOVERY_INTENT_EVIDENCE_MISSING") -> "저장된 주문 의도 기록을 찾을 수 없어요."
+        contains("_RECOVERY_INTENT_EVIDENCE_INVALID") -> "저장된 주문 의도 기록이 현재 상태와 일치하지 않아요."
+        contains("_ORDER_CLIENT_ID_") -> "주문의 클라이언트 ID가 저장된 주문과 다르게 확인됐어요."
+        contains("_ORDER_EXCHANGE_ID_") -> "거래소 주문 ID가 저장된 주문과 다르게 확인됐어요."
+        contains("_ORDER_SYMBOL_") -> "주문의 거래 종목이 저장된 주문과 다르게 확인됐어요."
+        contains("_ORDER_SIDE_") -> "주문 방향이 저장된 주문과 다르게 확인됐어요."
+        contains("_ORDER_TYPE_") -> "주문 방식이 지정가 주문으로 확인되지 않았어요."
+        contains("_ORDER_TIME_IN_FORCE_") -> "주문의 즉시 체결 조건을 확인할 수 없어요."
+        contains("_ORDER_REDUCE_ONLY_") -> "주문의 포지션 축소 조건이 저장된 주문과 다르게 확인됐어요."
+        contains("_ORDER_PRICE_") -> "주문 가격이 저장된 주문과 다르게 확인됐어요."
+        contains("_ORDER_QUANTITY_") || contains("_ORDER_FILL_QUANTITY_") ->
+            "주문 수량 또는 누적 체결 수량이 저장된 주문과 다르게 확인됐어요."
+        contains("_EXECUTION_EXCHANGE_ORDER_ID_") -> "체결의 거래소 주문 ID가 저장된 주문과 다르게 확인됐어요."
+        contains("_EXECUTION_CLIENT_ID_") -> "체결의 클라이언트 ID가 저장된 주문과 다르게 확인됐어요."
+        contains("_EXECUTION_SYMBOL_") -> "체결 종목이 저장된 주문과 다르게 확인됐어요."
+        contains("_EXECUTION_SIDE_") -> "체결 방향이 저장된 주문과 다르게 확인됐어요."
+        contains("_EXECUTION_ID_") -> "체결 ID가 없거나 중복으로 확인됐어요."
+        contains("_EXECUTION_PRICE_") -> "체결 가격을 정상적으로 확인할 수 없어요."
+        contains("_EXECUTION_QUANTITY_") -> "체결 수량이 주문 계약과 일치하지 않아요."
+        contains("_EXECUTION_TYPE_") -> "일반 주문 체결이 아닌 거래 기록이 확인됐어요."
+        contains("_EXECUTION_TIME_") -> "체결 시각이 현재 시각보다 미래로 확인됐어요."
+        contains("_FILL_QUANTITY_EVIDENCE_") -> "주문 누적 체결량과 체결 내역의 수량이 일치하지 않아요."
+        contains("_POSITION_QUANTITY_") || contains("_FLAT_QUANTITY_") ->
+            "현재 포지션 수량 변화를 주문 체결 내역으로 설명할 수 없어요."
+        else -> "자동 안전 조건을 통과하지 못했어요."
+    }
 
 private fun String.toKoreanTrendSafetyReason(): String =
     when (this) {

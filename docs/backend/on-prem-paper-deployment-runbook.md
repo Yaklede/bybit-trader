@@ -294,6 +294,21 @@ halts while preserving the previous ownership evidence. Treat any
 `TREND_*_POSITION_QUANTITY_MISMATCH` reason as an operator-review condition;
 compare the Bybit order history, execution history, and live position before
 changing state manually.
+Recovery also reloads the persisted intent/submitted event and compares its
+side, quantity, and bounded limit price with the provider order. The provider
+record must retain the same client/exchange IDs, BTCUSDT symbol, side, `LIMIT`,
+quantity, price, `IOC`, and reduce-only flag. Exact executions are attributed
+only after their order IDs, symbol, side, positive price/quantity, unique
+`execId`, `Trade` type, and timestamp pass the same contract. An ACK recovered
+after a local write failure copies the original intent fields instead of
+creating a weaker checkpoint.
+If an active order has stable client/exchange identity but any execution-shape
+field differs, the runtime requests immediate exact cancellation and waits for
+terminal readback. If the client ID, symbol, or exchange order ID itself differs,
+it does not risk cancelling an unrelated order and halts after the retry window.
+The critical Korean alert explains the mismatch, tells the operator to compare
+Bybit order history, execution history, and the current position, and keeps live
+execution off until that review is complete.
 The alert sink sends `신규 진입 자동 차단` only when the active risk-reason set
 first appears or changes, then sends `신규 진입 차단 해제` once after recovery.
 Repeated five-minute loop evaluations with the same reason do not create alert

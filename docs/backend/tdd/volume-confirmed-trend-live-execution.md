@@ -241,6 +241,15 @@ terminal 주문을 포지션 소유권 증거로 승격할 때는 주문의 양�
 `FLAT`이 되고, 부분 종료는 `기존 소유 수량 - 현재 수량`이 exact 체결 수량과 일치할 때만 남은 수량으로
 소유권을 갱신한다. 누락, 음수/0 체결, 중복 `execId`, 주문·execution 합계 불일치 또는 설명되지 않는
 포지션 증감은 retry timeout까지 대기한 뒤 `HALTED`하며 기존 소유권 증거를 보존한다.
+복구 주문 계약은 checkpoint만으로 추측하지 않고 같은 decision/client order ID의 영속
+`*_INTENT_RECORDED` 또는 `*_SUBMITTED` event에서 주문 방향, 수량, bounded limit 가격을 복원한다.
+Bybit 주문은 client/exchange order ID, BTCUSDT, 방향, `LIMIT`, 수량, 가격, `IOC`, reduce-only가 이
+계약과 모두 일치해야 한다. exact execution도 client/exchange order ID, BTCUSDT, 방향, 양수 가격·수량,
+고유 `execId`, `Trade` 유형, 현재보다 늦지 않은 시각을 통과한 뒤에만 원장에 기록한다. ACK 저장 실패를
+복구할 때는 원래 intent event의 계약 필드를 복제해 다음 대사에서도 같은 계약을 유지한다.
+같은 client ID와 exchange order ID가 확인된 활성 주문의 비가격/방향 계약이 바뀌면 노출 확대를 막기
+위해 즉시 exact 취소를 요청하고 terminal readback을 기다린다. 반대로 client ID, symbol 또는 exchange
+order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자동 취소하지 않고 retry 뒤 `HALTED`한다.
 
 ## 6. 예외 및 실패 처리
 
@@ -260,6 +269,9 @@ terminal 주문을 포지션 소유권 증거로 승격할 때는 주문의 양�
 | `TREND_POSITION_MISMATCH` | 로컬과 거래소 방향/수량 불일치 | `HALTED`, 신규 진입 차단 |
 | `TREND_*_FILL_QUANTITY_EVIDENCE_*` | exact 주문 누적 체결과 execution 합계 누락/불일치 | retry 후 `HALTED`, 포지션 소유권 승격 금지 |
 | `TREND_*_POSITION_QUANTITY_MISMATCH` | 체결 증거로 설명되지 않는 포지션 수량 | retry 후 `HALTED`, 기존 소유권 증거 보존 |
+| `TREND_*_RECOVERY_INTENT_EVIDENCE_*` | 영속 주문 의도 누락/변조 | exact 활성 주문은 취소 후 확인, terminal 주문은 retry 후 `HALTED` |
+| `TREND_*_ORDER_*_MISMATCH` | provider 주문이 영속 LIMIT IOC 계약과 불일치 | ID가 정확한 활성 주문만 취소, 소유권 승격 금지 |
+| `TREND_*_EXECUTION_*` | exact 체결의 ID·종목·방향·수량·유형·시각 불일치 | 원장 기록 금지, retry 후 `HALTED` |
 | `TREND_EXIT_PENDING` | 종료 미확정 | 신규 진입 차단, 대사 반복 |
 | `TREND_DATA_STALE` | H4 또는 ticker 지연 | 해당 전환 폐기, 다음 신호까지 대기 |
 | `TREND_ORDER_STATE_UNKNOWN` | ack/stream/REST 불일치 | `HALTED`, 자동 재주문 금지 |

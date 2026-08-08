@@ -651,6 +651,8 @@ class BybitPrivateClientTest :
                               "orderType":"Limit",
                               "orderStatus":"Cancelled",
                               "qty":"0.007",
+                              "price":"60012",
+                              "timeInForce":"IOC",
                               "cumExecQty":"0",
                               "createdTime":"1786060800000",
                               "updatedTime":"1786060800100",
@@ -672,6 +674,8 @@ class BybitPrivateClientTest :
 
             requestedPaths.shouldContainExactly(listOf("/v5/order/realtime", "/v5/order/history"))
             order?.status shouldBe OrderStatus.CANCELLED
+            order?.price shouldBe BigDecimal("60012")
+            order?.timeInForce shouldBe ExchangeTimeInForce.IOC
             order?.filledQuantity shouldBe BigDecimal.ZERO
             order?.providerStatus shouldBe "Cancelled"
             order?.cancelType shouldBe "CancelByNoImmediateQtyToFill"

@@ -25,6 +25,7 @@ import dev.yaklede.bybittrader.engine.execution.ExchangePositionExecutionProfile
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionMode
 import dev.yaklede.bybittrader.engine.execution.ExchangePositionProtectionRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeSpotHedgingStatus
+import dev.yaklede.bybittrader.engine.execution.ExchangeTimeInForce
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -834,8 +835,17 @@ private fun BybitOpenOrderItem.toExchangeOpenOrder(fallbackSymbol: Symbol): Exch
         providerStatus = orderStatus,
         cancelType = cancelType,
         rejectReason = rejectReason,
+        price = price.toBigDecimalOrNull(),
+        timeInForce = timeInForce.toExchangeTimeInForceOrNull(),
     )
 }
+
+private fun String?.toExchangeTimeInForceOrNull(): ExchangeTimeInForce? =
+    when (this) {
+        "GTC" -> ExchangeTimeInForce.GTC
+        "IOC" -> ExchangeTimeInForce.IOC
+        else -> null
+    }
 
 private fun BybitPositionItem.toExchangePosition(fallbackSymbol: Symbol): ExchangePosition? {
     val side = side.toSide() ?: return null
@@ -1095,6 +1105,8 @@ private data class BybitOpenOrderItem(
     val orderType: String? = null,
     val orderStatus: String? = null,
     val qty: String? = null,
+    val price: String? = null,
+    val timeInForce: String? = null,
     val cumExecQty: String? = null,
     val createdTime: String? = null,
     val updatedTime: String? = null,

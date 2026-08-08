@@ -92,7 +92,12 @@ creates or changes position ownership only when the exact order's cumulative
 filled quantity agrees with deduplicated exact executions and exactly explains
 the observed position quantity or reduction. Missing or conflicting quantity
 evidence remains pending until timeout and then halts without replacing prior
-ownership evidence. A
+ownership evidence. The persisted intent event also binds side, quantity, limit
+price, `LIMIT`, `IOC`, and reduce-only semantics. Provider orders and exact
+executions must match their client/exchange IDs, symbol, side, and execution
+shape before a fill is projected. A stable-identity active order with a changed
+shape is cancelled immediately; an identity conflict is never cancelled
+automatically. A
 missing/stale unitized NAV or wallet reconciliation, a confirmed wallet
 mismatch, or drawdown at or above 35% returns `risk.allowsNewEntry=false`.
 Existing position exits remain allowed. This endpoint requires the control

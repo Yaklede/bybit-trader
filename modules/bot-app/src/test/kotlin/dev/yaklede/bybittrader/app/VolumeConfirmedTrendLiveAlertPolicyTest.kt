@@ -100,6 +100,23 @@ class VolumeConfirmedTrendLiveAlertPolicyTest :
             message.body shouldContain "거래소 주문 ID: exchange-exit-001"
         }
 
+        "execution contract halt explains the mismatch and required operator checks in Korean" {
+            val result =
+                liveResult(
+                    status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
+                    haltedReasonCode = "TREND_ENTRY_EXECUTION_SIDE_MISMATCH",
+                )
+
+            val message = requireNotNull(result.toTrendLiveAlertMessage())
+
+            message.severity shouldBe AlertSeverity.CRITICAL
+            message.title shouldBe "H4 실거래 자동 중단"
+            message.body shouldContain "체결 방향이 저장된 주문과 다르게 확인됐어요"
+            message.body shouldContain "Bybit 주문 내역, 체결 내역, 현재 포지션 수량을 서로 비교해 주세요"
+            message.body shouldContain "확인이 끝나기 전에는 실거래를 다시 켜지 마세요"
+            message.body shouldContain "진단 코드: TREND_ENTRY_EXECUTION_SIDE_MISMATCH"
+        }
+
         "approval blocking alerts again when preserved order evidence changes" {
             val policy = VolumeConfirmedTrendLiveAlertPolicy()
             val first = approvalBlockedResult("TREND_ENTRY_ORDER_STATE_UNKNOWN", "vct-entry-001")
@@ -176,6 +193,7 @@ private fun liveResult(
     recoveryReasonCode: String? = null,
     clientOrderId: String? = null,
     exchangeOrderId: String? = null,
+    haltedReasonCode: String = "TREND_TEST_HALT",
 ): VolumeConfirmedTrendLiveLoopResult {
     val halted = status == VolumeConfirmedTrendLiveEvaluationStatus.HALTED
     val state =
@@ -193,7 +211,7 @@ private fun liveResult(
             observedPositionSide = null,
             observedPositionQuantity = null,
             lastExecutionId = null,
-            haltedReasonCode = if (halted) "TREND_TEST_HALT" else null,
+            haltedReasonCode = if (halted) haltedReasonCode else null,
             updatedAt = Instant.parse("2026-08-08T00:00:00Z"),
         )
     return VolumeConfirmedTrendLiveLoopResult(

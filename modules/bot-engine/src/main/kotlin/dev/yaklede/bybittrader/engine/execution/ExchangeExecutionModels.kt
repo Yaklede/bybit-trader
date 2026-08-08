@@ -173,6 +173,8 @@ data class ExchangeOpenOrder(
     val providerStatus: String? = null,
     val cancelType: String? = null,
     val rejectReason: String? = null,
+    val price: BigDecimal? = null,
+    val timeInForce: ExchangeTimeInForce? = null,
 )
 
 data class ExchangePosition(

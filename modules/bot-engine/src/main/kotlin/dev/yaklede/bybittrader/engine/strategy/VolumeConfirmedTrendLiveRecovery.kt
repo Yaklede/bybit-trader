@@ -1,11 +1,14 @@
 package dev.yaklede.bybittrader.engine.strategy
 
 import dev.yaklede.bybittrader.domain.OrderStatus
+import dev.yaklede.bybittrader.domain.OrderType
+import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.engine.execution.ExchangeCancelRequest
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionFill
 import dev.yaklede.bybittrader.engine.execution.ExchangeExecutionGateway
 import dev.yaklede.bybittrader.engine.execution.ExchangeOpenOrder
 import dev.yaklede.bybittrader.engine.execution.ExchangePosition
+import dev.yaklede.bybittrader.engine.execution.ExchangeTimeInForce
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
@@ -36,6 +39,24 @@ internal class VolumeConfirmedTrendLiveRecovery(
                     compareBy<ExchangeExecutionFill>(ExchangeExecutionFill::executedAt)
                         .thenBy { it.executionId.orEmpty() },
                 )
+        val lifecycleEvents = store.trendLiveEvents(config.protocolId, config.symbol, config.recoveryEventLimit)
+        val contractLookup = recoveryOrderContract(state, lifecycleEvents)
+        val contract =
+            contractLookup.contract
+                ?: return contractFailureOrHalt(
+                    state = state,
+                    order = order,
+                    contract = null,
+                    now = now,
+                    reasonCode = requireNotNull(contractLookup.failureReasonCode),
+                    position = position,
+                )
+        order?.contractFailure(state, contract)?.let { reasonCode ->
+            return contractFailureOrHalt(state, order, contract, now, reasonCode, position)
+        }
+        executions.contractFailure(state, order, contract, now)?.let { reasonCode ->
+            return contractFailureOrHalt(state, order, contract, now, reasonCode, position)
+        }
         projectionSink.recordExecutionFills(executions, now)
         return when (state.status) {
             VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED,
@@ -83,7 +104,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
                     status = VolumeConfirmedTrendLiveStatus.OPEN,
                     observedPositionSide = position.side,
                     observedPositionQuantity = position.size,
-                    exchangeOrderId = order?.exchangeOrderId ?: state.exchangeOrderId,
+                    exchangeOrderId = order?.exchangeOrderId ?: executions.firstOrNull()?.exchangeOrderId ?: state.exchangeOrderId,
                     lastExecutionId = executions.lastExecutionId() ?: state.lastExecutionId,
                     haltedReasonCode = null,
                     updatedAt = now,
@@ -220,6 +241,158 @@ internal class VolumeConfirmedTrendLiveRecovery(
         }
     }
 
+    private fun recoveryOrderContract(
+        state: VolumeConfirmedTrendLiveState,
+        lifecycleEvents: List<VolumeConfirmedTrendLiveEvent>,
+    ): RecoveryOrderContractLookup {
+        val entry = state.isEntryRecovery()
+        val phase = state.recoveryPhase()
+        val expectedEventTypes =
+            if (entry) {
+                setOf(
+                    VolumeConfirmedTrendLiveEventType.ENTRY_INTENT_RECORDED,
+                    VolumeConfirmedTrendLiveEventType.ENTRY_SUBMITTED,
+                )
+            } else {
+                setOf(
+                    VolumeConfirmedTrendLiveEventType.EXIT_INTENT_RECORDED,
+                    VolumeConfirmedTrendLiveEventType.EXIT_SUBMITTED,
+                )
+            }
+        val event =
+            lifecycleEvents.lastOrNull { candidate ->
+                candidate.clientOrderId == state.clientOrderId &&
+                    candidate.decisionKey == state.activeDecisionKey &&
+                    candidate.type in expectedEventTypes
+            } ?: return RecoveryOrderContractLookup(null, "${phase}_RECOVERY_INTENT_EVIDENCE_MISSING")
+        val expectedOrderSide =
+            if (entry) {
+                state.pendingTargetSide
+            } else {
+                state.observedPositionSide?.opposite()
+            }
+        val quantity = event.orderQuantity
+        val limitPrice = event.limitPrice
+        val observedPositionQuantity = state.observedPositionQuantity
+        val exchangeOrderIds = listOfNotNull(state.exchangeOrderId, event.exchangeOrderId).distinct()
+        val invalid =
+            event.protocolId != state.protocolId ||
+                event.protocolSha256 != state.protocolSha256 ||
+                event.symbol != config.symbol ||
+                event.targetSide != state.pendingTargetSide ||
+                event.orderSide == null ||
+                event.orderSide != expectedOrderSide ||
+                quantity == null ||
+                quantity <= BigDecimal.ZERO ||
+                limitPrice == null ||
+                limitPrice <= BigDecimal.ZERO ||
+                (!entry && (observedPositionQuantity == null || quantity.compareTo(observedPositionQuantity) != 0)) ||
+                exchangeOrderIds.size > 1
+        if (invalid) {
+            return RecoveryOrderContractLookup(null, "${phase}_RECOVERY_INTENT_EVIDENCE_INVALID")
+        }
+        return RecoveryOrderContractLookup(
+            contract =
+                RecoveryOrderContract(
+                    side = requireNotNull(event.orderSide),
+                    quantity = requireNotNull(quantity),
+                    limitPrice = requireNotNull(limitPrice),
+                    reduceOnly = !entry,
+                    exchangeOrderId = exchangeOrderIds.singleOrNull(),
+                ),
+            failureReasonCode = null,
+        )
+    }
+
+    private fun ExchangeOpenOrder.contractFailure(
+        state: VolumeConfirmedTrendLiveState,
+        contract: RecoveryOrderContract,
+    ): String? {
+        val phase = state.recoveryPhase()
+        val providerQuantity = quantity
+        val providerPrice = price
+        return when {
+            clientOrderId != state.clientOrderId -> "${phase}_ORDER_CLIENT_ID_MISMATCH"
+            symbol != config.symbol -> "${phase}_ORDER_SYMBOL_MISMATCH"
+            exchangeOrderId.isNullOrBlank() -> "${phase}_ORDER_EXCHANGE_ID_MISSING"
+            contract.exchangeOrderId != null && exchangeOrderId != contract.exchangeOrderId ->
+                "${phase}_ORDER_EXCHANGE_ID_MISMATCH"
+            side != contract.side -> "${phase}_ORDER_SIDE_MISMATCH"
+            orderType != OrderType.LIMIT -> "${phase}_ORDER_TYPE_MISMATCH"
+            providerQuantity == null || providerQuantity.compareTo(contract.quantity) != 0 ->
+                "${phase}_ORDER_QUANTITY_MISMATCH"
+            providerPrice == null || providerPrice.compareTo(contract.limitPrice) != 0 ->
+                "${phase}_ORDER_PRICE_MISMATCH"
+            timeInForce != ExchangeTimeInForce.IOC -> "${phase}_ORDER_TIME_IN_FORCE_MISMATCH"
+            reduceOnly != contract.reduceOnly -> "${phase}_ORDER_REDUCE_ONLY_MISMATCH"
+            filledQuantity != null && (filledQuantity < BigDecimal.ZERO || filledQuantity > providerQuantity) ->
+                "${phase}_ORDER_FILL_QUANTITY_INVALID"
+            else -> null
+        }
+    }
+
+    private fun List<ExchangeExecutionFill>.contractFailure(
+        state: VolumeConfirmedTrendLiveState,
+        order: ExchangeOpenOrder?,
+        contract: RecoveryOrderContract,
+        now: Instant,
+    ): String? {
+        if (isEmpty()) return null
+        val phase = state.recoveryPhase()
+        val executionIds = map(ExchangeExecutionFill::executionId)
+        val exchangeOrderIds = map(ExchangeExecutionFill::exchangeOrderId)
+        val expectedExchangeOrderId = contract.exchangeOrderId ?: order?.exchangeOrderId
+        return when {
+            any { it.clientOrderId != state.clientOrderId } -> "${phase}_EXECUTION_CLIENT_ID_MISMATCH"
+            any { it.symbol != config.symbol } -> "${phase}_EXECUTION_SYMBOL_MISMATCH"
+            any { it.side != contract.side } -> "${phase}_EXECUTION_SIDE_MISMATCH"
+            any { it.executionId.isNullOrBlank() } -> "${phase}_EXECUTION_ID_MISSING"
+            executionIds.distinct().size != executionIds.size -> "${phase}_EXECUTION_ID_DUPLICATED"
+            any { it.exchangeOrderId.isNullOrBlank() } -> "${phase}_EXECUTION_EXCHANGE_ORDER_ID_MISSING"
+            exchangeOrderIds.distinct().size != 1 -> "${phase}_EXECUTION_EXCHANGE_ORDER_ID_MISMATCH"
+            expectedExchangeOrderId != null && exchangeOrderIds.single() != expectedExchangeOrderId ->
+                "${phase}_EXECUTION_EXCHANGE_ORDER_ID_MISMATCH"
+            any { it.price <= BigDecimal.ZERO } -> "${phase}_EXECUTION_PRICE_INVALID"
+            any { it.quantity <= BigDecimal.ZERO } -> "${phase}_EXECUTION_QUANTITY_INVALID"
+            fold(BigDecimal.ZERO) { total, execution -> total + execution.quantity } > contract.quantity ->
+                "${phase}_EXECUTION_QUANTITY_EXCEEDS_ORDER"
+            any { it.executionType != "Trade" } -> "${phase}_EXECUTION_TYPE_MISMATCH"
+            any { it.executedAt.isAfter(now) } -> "${phase}_EXECUTION_TIME_INVALID"
+            else -> null
+        }
+    }
+
+    private suspend fun contractFailureOrHalt(
+        state: VolumeConfirmedTrendLiveState,
+        order: ExchangeOpenOrder?,
+        contract: RecoveryOrderContract?,
+        now: Instant,
+        reasonCode: String,
+        position: ExchangePosition?,
+    ): VolumeConfirmedTrendLiveEvaluationResult {
+        if (order?.status?.isActive() == true && order.hasStableIdentity(state, contract)) {
+            return activeOrderOrHalt(
+                state = state,
+                order = order,
+                now = now,
+                timeoutReasonCode = reasonCode,
+                position = position,
+                cancelImmediately = true,
+            )
+        }
+        return pendingOrHalt(state, now, reasonCode, position)
+    }
+
+    private fun ExchangeOpenOrder.hasStableIdentity(
+        state: VolumeConfirmedTrendLiveState,
+        contract: RecoveryOrderContract?,
+    ): Boolean =
+        clientOrderId == state.clientOrderId &&
+            symbol == config.symbol &&
+            !exchangeOrderId.isNullOrBlank() &&
+            (state.exchangeOrderId == null || exchangeOrderId == state.exchangeOrderId) &&
+            (contract?.exchangeOrderId == null || exchangeOrderId == contract.exchangeOrderId)
+
     private suspend fun recordSubmittedRecovery(
         state: VolumeConfirmedTrendLiveState,
         order: ExchangeOpenOrder,
@@ -227,6 +400,20 @@ internal class VolumeConfirmedTrendLiveRecovery(
     ): VolumeConfirmedTrendLiveEvaluationResult {
         val entry =
             state.status in setOf(VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED, VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED)
+        val intentType =
+            if (entry) {
+                VolumeConfirmedTrendLiveEventType.ENTRY_INTENT_RECORDED
+            } else {
+                VolumeConfirmedTrendLiveEventType.EXIT_INTENT_RECORDED
+            }
+        val intentEvent =
+            store
+                .trendLiveEvents(config.protocolId, config.symbol, config.recoveryEventLimit)
+                .lastOrNull { event ->
+                    event.type == intentType &&
+                        event.clientOrderId == state.clientOrderId &&
+                        event.decisionKey == state.activeDecisionKey
+                } ?: return halt(state, now, "${state.recoveryPhase()}_RECOVERY_INTENT_EVIDENCE_MISSING")
         val submitted =
             state.copy(
                 status = if (entry) VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED else VolumeConfirmedTrendLiveStatus.EXIT_SUBMITTED,
@@ -241,7 +428,15 @@ internal class VolumeConfirmedTrendLiveRecovery(
                     },
             )
         val type = if (entry) VolumeConfirmedTrendLiveEventType.ENTRY_SUBMITTED else VolumeConfirmedTrendLiveEventType.EXIT_SUBMITTED
-        val event = lifecycleEvent(submitted, type, "TREND_ORDER_ACK_RECOVERED", now)
+        val lifecycle = lifecycleEvent(submitted, type, "TREND_ORDER_ACK_RECOVERED", now)
+        val event =
+            intentEvent.copy(
+                eventId = lifecycle.eventId,
+                type = type,
+                exchangeOrderId = order.exchangeOrderId,
+                reasonCode = "TREND_ORDER_ACK_RECOVERED",
+                occurredAt = now,
+            )
         store.commitTrendLive(submitted, listOf(event))
         return VolumeConfirmedTrendLiveEvaluationResult(VolumeConfirmedTrendLiveEvaluationStatus.RECOVERED, submitted, null)
     }
@@ -252,6 +447,7 @@ internal class VolumeConfirmedTrendLiveRecovery(
         now: Instant,
         timeoutReasonCode: String,
         position: ExchangePosition? = null,
+        cancelImmediately: Boolean = false,
     ): VolumeConfirmedTrendLiveEvaluationResult {
         val intentOnly =
             state.status == VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED ||
@@ -280,8 +476,8 @@ internal class VolumeConfirmedTrendLiveRecovery(
                 position = position,
             )
         }
-        if (intentOnly) return recordSubmittedRecovery(state, order, now)
-        if (retryDelayPending) {
+        if (intentOnly && !cancelImmediately) return recordSubmittedRecovery(state, order, now)
+        if (retryDelayPending && !cancelImmediately) {
             return VolumeConfirmedTrendLiveEvaluationResult(
                 status = VolumeConfirmedTrendLiveEvaluationStatus.RECOVERY_PENDING,
                 state = state,
@@ -391,6 +587,14 @@ internal class VolumeConfirmedTrendLiveRecovery(
 
     private fun ExchangeOpenOrder.hasFilledQuantity(): Boolean = filledQuantity?.let { it > BigDecimal.ZERO } == true
 
+    private fun VolumeConfirmedTrendLiveState.isEntryRecovery(): Boolean =
+        status == VolumeConfirmedTrendLiveStatus.ENTRY_INTENT_RECORDED ||
+            status == VolumeConfirmedTrendLiveStatus.ENTRY_SUBMITTED
+
+    private fun VolumeConfirmedTrendLiveState.recoveryPhase(): String = if (isEntryRecovery()) "TREND_ENTRY" else "TREND_EXIT"
+
+    private fun Side.opposite(): Side = if (this == Side.BUY) Side.SELL else Side.BUY
+
     private fun fillQuantityEvidence(
         order: ExchangeOpenOrder?,
         executions: List<ExchangeExecutionFill>,
@@ -453,5 +657,18 @@ internal class VolumeConfirmedTrendLiveRecovery(
     private data class FillQuantityEvidence(
         val quantity: BigDecimal?,
         val consistent: Boolean,
+    )
+
+    private data class RecoveryOrderContract(
+        val side: Side,
+        val quantity: BigDecimal,
+        val limitPrice: BigDecimal,
+        val reduceOnly: Boolean,
+        val exchangeOrderId: String?,
+    )
+
+    private data class RecoveryOrderContractLookup(
+        val contract: RecoveryOrderContract?,
+        val failureReasonCode: String?,
     )
 }
