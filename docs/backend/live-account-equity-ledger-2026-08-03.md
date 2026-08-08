@@ -59,8 +59,10 @@ currentUnits  = previousUnits + F / currentNAV
 ```
 
 Bybit 거래 유형 중 `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`,
-`FEE_REFUND`, `INTEREST`는 전략 성과로 포함한다. 그 밖의 USDT 잔고 변화는
-봇 외부의 자본 흐름으로 단위화한다. 거래 원장 row ID를 체크포인트로
+`FEE_REFUND`, `INTEREST`는 전략 성과로 포함한다. `TRANSFER_IN`,
+`TRANSFER_OUT`, `BONUS`만 봇 외부의 자본 흐름으로 단위화한다. 이 두 목록에
+없는 거래 유형은 외부 자본으로 추측하지 않고 NAV를 `INVALID`로 전환해 신규
+진입을 차단한다. 거래 원장 row ID를 체크포인트로
 저장하므로 재조회·재시작 시 같은 현금흐름을 두 번 적용하지 않고, 늦게
 도착한 과거 시각의 거래도 더 큰 row ID로 다음 주기에 처리한다.
 
@@ -100,5 +102,6 @@ Source: [Bybit Get Transaction Log](https://bybit-exchange.github.io/docs/v5/acc
 - 입금 후 raw equity가 증가해도 unitized NAV와 NAV MDD는 변하지 않는다.
 - 출금 후 raw equity가 감소해도 unitized NAV와 NAV MDD는 변하지 않는다.
 - 거래 손실은 입출금 뒤에도 unitized NAV 손실로 반영된다.
+- 분류되지 않은 거래 유형은 unitized NAV를 무효화하고 신규 진입을 차단한다.
 - 거래 원장 ID checkpoint는 재처리된 외부 현금흐름의 중복 적용을 막는다.
 - 기존 risk state는 `UNAVAILABLE` NAV로 이관되고 새 기준점이 준비될 때까지 신규 진입을 차단한다.

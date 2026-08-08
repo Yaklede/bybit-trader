@@ -185,6 +185,38 @@ class ExecutionRiskCircuitBreakerTest :
                 listOf("DAILY_EQUITY_LOSS_LIMIT_REACHED")
         }
 
+        "invalidates unitized nav instead of treating an unclassified transaction as capital" {
+            val now = Instant.parse("2026-08-06T00:00:00Z")
+            val baseline =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = null,
+                    snapshot = riskSnapshot("100", now.toString()),
+                    newClosures = emptyList(),
+                )!!
+            val invalid =
+                ExecutionRiskCircuitBreaker.update(
+                    previous = baseline,
+                    snapshot = riskSnapshot("95", now.plusSeconds(60).toString()),
+                    newClosures = emptyList(),
+                    accountTransactions =
+                        listOf(
+                            riskTransaction(
+                                id = 1,
+                                type = "NEW_BYBIT_DEBIT",
+                                change = "-5",
+                                transactionAt = now.plusSeconds(30),
+                            ),
+                        ),
+                )!!
+
+            invalid.navStatus shouldBe ExecutionRiskNavStatus.INVALID
+            invalid.latestUnitizedNav shouldBe BigDecimal.ONE
+            invalid.cumulativeExternalCashFlow shouldBe BigDecimal.ZERO
+            invalid.lastAccountTransactionId shouldBe 1L
+            walletRiskDecision(invalid, now.plusSeconds(60)).reasonCodes shouldBe
+                listOf("RISK_NAV_INVALID")
+        }
+
         "uses transaction ids as an external cash flow checkpoint" {
             val now = Instant.parse("2026-08-06T00:00:00Z")
             val baseline =

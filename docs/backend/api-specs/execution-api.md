@@ -235,9 +235,11 @@ IOC exit. Position, order, instrument, or ownership uncertainty remains a hard
 halt without a new order.
 
 When wallet reconciliation is enabled, daily loss and account drawdown use a
-unitized strategy NAV rather than raw account equity. Transaction-log changes
-outside `TRADE`, `SETTLEMENT`, `DELIVERY`, `LIQUIDATION`, `ADL`, `FEE_REFUND`,
-and `INTEREST` are treated as external capital flows. Deposits and withdrawals
+unitized strategy NAV rather than raw account equity. `TRADE`, `SETTLEMENT`,
+`DELIVERY`, `LIQUIDATION`, `ADL`, `FEE_REFUND`, and `INTEREST` are strategy
+performance. Only `TRANSFER_IN`, `TRANSFER_OUT`, and `BONUS` are external
+capital flows. Any unclassified transaction type invalidates NAV and blocks
+new entries instead of being silently neutralized. Deposits and withdrawals
 therefore change strategy units without resetting or fabricating strategy
 returns. A new or migrated NAV state blocks entries for one baseline interval.
 The automatic loop emits a Korean Discord/Telegram alert when an entry-risk

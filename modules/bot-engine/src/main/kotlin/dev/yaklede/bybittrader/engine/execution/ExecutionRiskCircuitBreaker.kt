@@ -96,6 +96,7 @@ internal object ExecutionRiskCircuitBreaker {
                 ?: previous?.lastAccountTransactionId
         val requiresNavBaseline =
             previous == null || previous.navStatus == ExecutionRiskNavStatus.UNAVAILABLE
+        val transactionSummary = eligibleTransactions.summarizeForUnitizedNav()
         val navUpdate =
             if (requiresNavBaseline) {
                 UnitizedNavUpdate(
@@ -106,11 +107,13 @@ internal object ExecutionRiskCircuitBreaker {
                     dayStartNav = BigDecimal.ONE,
                     cumulativeExternalCashFlow = BigDecimal.ZERO,
                 )
+            } else if (transactionSummary.hasUnclassifiedType) {
+                previous.invalidNavUpdate()
             } else {
                 updateUnitizedNav(
                     previous = previous,
                     currentEquity = equity,
-                    externalCashFlow = eligibleTransactions.externalCashFlow(),
+                    externalCashFlow = transactionSummary.externalCashFlow,
                     sameUtcDay = sameUtcDay,
                 )
             }
@@ -284,10 +287,30 @@ private fun ExecutionRiskState.invalidNavUpdate(): UnitizedNavUpdate =
         cumulativeExternalCashFlow = cumulativeExternalCashFlow,
     )
 
-private fun List<ExecutionAccountTransactionEvent>.externalCashFlow(): BigDecimal =
-    asSequence()
-        .filterNot { event -> event.transaction.type.uppercase() in STRATEGY_PERFORMANCE_TRANSACTION_TYPES }
-        .fold(BigDecimal.ZERO) { total, event -> total + event.transaction.change }
+private data class UnitizedNavTransactionSummary(
+    val externalCashFlow: BigDecimal,
+    val hasUnclassifiedType: Boolean,
+)
+
+private fun List<ExecutionAccountTransactionEvent>.summarizeForUnitizedNav(): UnitizedNavTransactionSummary {
+    var externalCashFlow = BigDecimal.ZERO
+    var hasUnclassifiedType = false
+    forEach { event ->
+        val transactionType =
+            event.transaction.type
+                .trim()
+                .uppercase()
+        when (transactionType) {
+            in STRATEGY_PERFORMANCE_TRANSACTION_TYPES -> Unit
+            in EXTERNAL_CAPITAL_TRANSACTION_TYPES -> externalCashFlow += event.transaction.change
+            else -> hasUnclassifiedType = true
+        }
+    }
+    return UnitizedNavTransactionSummary(
+        externalCashFlow = externalCashFlow,
+        hasUnclassifiedType = hasUnclassifiedType,
+    )
+}
 
 private fun Instant.utcDayStartedAt(): Instant =
     atZone(ZoneOffset.UTC)
@@ -306,4 +329,11 @@ private val STRATEGY_PERFORMANCE_TRANSACTION_TYPES =
         "ADL",
         "FEE_REFUND",
         "INTEREST",
+    )
+
+private val EXTERNAL_CAPITAL_TRANSACTION_TYPES =
+    setOf(
+        "TRANSFER_IN",
+        "TRANSFER_OUT",
+        "BONUS",
     )
