@@ -49,6 +49,12 @@ enum class VolumeConfirmedTrendLiveLoopStatus {
     HALTED,
 }
 
+enum class VolumeConfirmedTrendLiveRuntimeMode {
+    DISABLED,
+    MANAGEMENT_ONLY,
+    SIGNAL_ENABLED,
+}
+
 data class VolumeConfirmedTrendLiveLoopResult(
     val status: VolumeConfirmedTrendLiveLoopStatus,
     val botMode: BotMode,

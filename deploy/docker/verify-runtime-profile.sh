@@ -107,6 +107,13 @@ if [ "${mode}" = "TESTNET" ] && \
   read_only_testnet_probe=true
 fi
 
+if [ "${trend_live_enabled}" = "true" ]; then
+  live_payload="$(container_get '/strategy/volume-confirmed-trend/live?limit=1')"
+  require_fragment "${live_payload}" '"enabled":true' "H4 live runtime is not configured"
+  require_fragment "${live_payload}" '"runtimeMode":"SIGNAL_ENABLED"' "H4 live runtime is not signal-enabled"
+  require_fragment "${live_payload}" '"runtimeActive":true' "H4 live signal loop is not active"
+fi
+
 if [ "${trend_live_enabled}" = "true" ] || [ "${read_only_testnet_probe}" = "true" ]; then
   contract_payload="$(container_get '/strategy/volume-confirmed-trend/exchange-contract')"
   require_fragment "${contract_payload}" '"available":true' "Bybit exchange contract is unavailable"

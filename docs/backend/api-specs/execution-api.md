@@ -49,6 +49,13 @@ accepts 1-100.
 
 The response contains:
 
+- `runtimeMode`: the process wiring selected at startup. `DISABLED` has no
+  private H4 loop, `MANAGEMENT_ONLY` can only reconcile and safely reduce
+  persisted exposure, and `SIGNAL_ENABLED` is the only mode with Shadow signal
+  evaluation and new-entry capability.
+- `runtimeActive`: whether the selected process-local coroutine is currently
+  active. This is runtime evidence and is not reconstructed from persisted
+  checkpoints.
 - `state`: approval ID, decision key, pending target side, exchange-observed
   position, order/fill IDs, halt reason, and update time.
 - `account`: the latest persisted USDT account snapshot.
@@ -74,14 +81,17 @@ cannot overwrite or be contaminated by the legacy M5 dashboard projection.
 BTCUSDT funding is reported separately because a funding transaction does not
 always carry an H4 client order ID.
 
-`enabled=false` means the H4 private loop is not configured in this process. A
-persisted state can still be returned when Shadow is enabled so an operator can
-inspect a prior halted run. `ORDER_SUBMITTED` is an acknowledgement, not fill
-proof; `ENTRY_FILL_OBSERVED` or `EXIT_FILL_OBSERVED` plus the observed position
-state is the current recovery evidence. A missing/stale unitized NAV or wallet
-reconciliation, a confirmed wallet mismatch, or drawdown at or above 35%
-returns `risk.allowsNewEntry=false`. Existing position exits remain allowed.
-This endpoint requires the control Bearer token.
+`enabled` reflects whether H4 signal execution was requested in process
+configuration. It does not describe recovery capability: `enabled=false` can
+coexist with `runtimeMode=MANAGEMENT_ONLY` when persisted exposure still needs
+reconciliation. A persisted state can also be returned while the runtime mode is
+`DISABLED` so an operator can inspect a prior halted run. `ORDER_SUBMITTED` is an
+acknowledgement, not fill proof; `ENTRY_FILL_OBSERVED` or `EXIT_FILL_OBSERVED`
+plus the observed position state is the current recovery evidence. A
+missing/stale unitized NAV or wallet reconciliation, a confirmed wallet
+mismatch, or drawdown at or above 35% returns `risk.allowsNewEntry=false`.
+Existing position exits remain allowed. This endpoint requires the control
+Bearer token.
 
 Runtime approval loss is also an entry gate, not permission to abandon an
 existing position. A process with no prior live state remains private-read
@@ -102,6 +112,10 @@ It recovers persisted pending orders and manages a position only when the
 persisted side and quantity prove ownership. With no prior live state it makes
 no private exchange read; if persisted work exists but private credentials are
 missing, startup fails instead of silently abandoning the position.
+`enabled=true` does not by itself prove signal execution is available: operators
+and deployment automation must require `runtimeMode=SIGNAL_ENABLED` and
+`runtimeActive=true`. A management-only runtime remains available for position
+recovery but cannot satisfy a live rollout verification.
 
 ## GET /strategy/volume-confirmed-trend/exchange-contract
 

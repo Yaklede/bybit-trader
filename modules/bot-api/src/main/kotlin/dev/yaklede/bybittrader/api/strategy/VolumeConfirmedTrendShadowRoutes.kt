@@ -10,6 +10,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalRepor
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExchangeContractSnapshot
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLivePerformanceEvidence
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowReport
@@ -32,6 +33,8 @@ typealias VolumeConfirmedTrendExchangeContractProvider = suspend () -> VolumeCon
 
 data class VolumeConfirmedTrendLiveSnapshot(
     val enabled: Boolean,
+    val runtimeMode: VolumeConfirmedTrendLiveRuntimeMode,
+    val runtimeActive: Boolean,
     val state: VolumeConfirmedTrendLiveState?,
     val recentEvents: List<VolumeConfirmedTrendLiveEvent>,
     val accountSnapshot: ExecutionAccountSnapshot? = null,
@@ -151,6 +154,8 @@ data class VolumeConfirmedTrendExchangeContractInstrumentResponse(
 @Serializable
 data class VolumeConfirmedTrendLiveResponse(
     val enabled: Boolean,
+    val runtimeMode: String,
+    val runtimeActive: Boolean,
     val state: VolumeConfirmedTrendLiveStateResponse?,
     val recentEvents: List<VolumeConfirmedTrendLiveEventResponse>,
     val account: VolumeConfirmedTrendLiveAccountResponse?,
@@ -165,6 +170,8 @@ data class VolumeConfirmedTrendLiveResponse(
         fun disabled(): VolumeConfirmedTrendLiveResponse =
             VolumeConfirmedTrendLiveResponse(
                 enabled = false,
+                runtimeMode = VolumeConfirmedTrendLiveRuntimeMode.DISABLED.name,
+                runtimeActive = false,
                 state = null,
                 recentEvents = emptyList(),
                 account = null,
@@ -545,6 +552,8 @@ private fun VolumeConfirmedTrendExchangeContractSnapshot.toResponse(): VolumeCon
 private fun VolumeConfirmedTrendLiveSnapshot.toResponse(): VolumeConfirmedTrendLiveResponse =
     VolumeConfirmedTrendLiveResponse(
         enabled = enabled,
+        runtimeMode = runtimeMode.name,
+        runtimeActive = runtimeActive,
         state = state?.toResponse(),
         recentEvents = recentEvents.map(VolumeConfirmedTrendLiveEvent::toResponse),
         account = accountSnapshot?.toTrendLiveResponse(),

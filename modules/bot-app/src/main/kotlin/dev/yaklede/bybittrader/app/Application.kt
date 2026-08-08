@@ -74,6 +74,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveLoopResul
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveManagementLoop
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveManagementLoopConfig
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveService
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
@@ -662,13 +663,19 @@ fun main() {
             )
         }
     }
-    val trendLiveJob =
+    val trendLiveRuntimeMode =
         when {
-            trendLiveService == null -> {
+            trendLiveService == null -> VolumeConfirmedTrendLiveRuntimeMode.DISABLED
+            trendLiveRuntimeApproval == null -> VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY
+            else -> VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED
+        }
+    val trendLiveJob =
+        when (trendLiveRuntimeMode) {
+            VolumeConfirmedTrendLiveRuntimeMode.DISABLED -> {
                 logger.info("volume-confirmed trend live loop disabled")
                 null
             }
-            trendLiveRuntimeApproval == null -> {
+            VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY -> {
                 logger.warn(
                     "volume-confirmed trend live management-only loop enabled intervalSeconds={} persistedStatus={}",
                     config.volumeConfirmedTrendLive.reconciliationInterval.seconds,
@@ -676,7 +683,7 @@ fun main() {
                 )
                 VolumeConfirmedTrendLiveManagementLoop(
                     botStateStore = ledger,
-                    liveExecutor = trendLiveService,
+                    liveExecutor = requireNotNull(trendLiveService),
                     config =
                         VolumeConfirmedTrendLiveManagementLoopConfig(
                             interval = config.volumeConfirmedTrendLive.reconciliationInterval,
@@ -685,9 +692,9 @@ fun main() {
                     onFailure = onTrendLiveFailure,
                 ).start(trendLiveScope)
             }
-            else -> {
+            VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED -> {
                 val runtimeDefinition = requireNotNull(trendRuntimeDefinition)
-                val approval = trendLiveRuntimeApproval
+                val approval = requireNotNull(trendLiveRuntimeApproval)
                 val settings = config.volumeConfirmedTrendLive
                 logger.info(
                     "volume-confirmed trend live loop enabled approvalId={} sessionId={} intervalSeconds={} maximumSignalAgeSeconds={}",
@@ -699,7 +706,7 @@ fun main() {
                 VolumeConfirmedTrendLiveLoop(
                     shadowStore = ledger,
                     botStateStore = ledger,
-                    liveExecutor = trendLiveService,
+                    liveExecutor = requireNotNull(trendLiveService),
                     tickerProvider = marketDataSyncService::ticker,
                     config =
                         VolumeConfirmedTrendLiveLoopConfig(
@@ -811,7 +818,13 @@ fun main() {
                     "Volume-confirmed trend shadow loop is not active."
                 }
                 require(!config.volumeConfirmedTrendLive.enabled || trendLiveJob?.isActive == true) {
-                    "Volume-confirmed trend live loop is not active."
+                    "Volume-confirmed trend live signal loop is not active."
+                }
+                require(
+                    !config.volumeConfirmedTrendLive.enabled ||
+                        trendLiveRuntimeMode == VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED,
+                ) {
+                    "Volume-confirmed trend live runtime is management-only."
                 }
                 marketDataSyncService.ticker(config.marketData.symbol)
                 trendLiveService?.reconcile()
@@ -916,6 +929,8 @@ fun main() {
                             val evidence = requireNotNull(trendLiveEvidenceService).read(Instant.now(), limit)
                             VolumeConfirmedTrendLiveSnapshot(
                                 enabled = config.volumeConfirmedTrendLive.enabled,
+                                runtimeMode = trendLiveRuntimeMode,
+                                runtimeActive = trendLiveJob?.isActive == true,
                                 state =
                                     ledger.trendLiveState(
                                         runtimeDefinition.protocol.protocolId,

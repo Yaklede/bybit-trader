@@ -12,7 +12,7 @@ This is the preferred on-prem deployment path.
 - `deploy/docker/backup-runtime-state.sh`: validated pre-deploy SQLite snapshot and Shadow continuity evidence.
 - `deploy/docker/activate-runtime-release.sh`: staged activation, health/profile verification, and automatic release rollback.
 - `deploy/docker/verify-runtime-backup.sh`: isolated, network-disabled backup restore drill.
-- `deploy/docker/verify-runtime-profile.sh`: selected-profile and restarted Shadow-session verification.
+- `deploy/docker/verify-runtime-profile.sh`: selected-profile, restarted Shadow-session, and active H4 signal-runtime verification.
 
 ## Host Setup
 

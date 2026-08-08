@@ -19,6 +19,7 @@ import dev.yaklede.bybittrader.engine.execution.LivePerformanceWindow
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEventType
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLivePerformanceEvidence
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRuntimeMode
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveStatus
 import io.kotest.core.spec.style.StringSpec
@@ -56,7 +57,27 @@ class VolumeConfirmedTrendLiveRoutesTest :
 
                 response.status shouldBe HttpStatusCode.OK
                 response.bodyAsText() shouldBe
-                    """{"enabled":false,"state":null,"recentEvents":[],"account":null,"risk":null,"walletReconciliation":null,"performance":[],"recentClosedTrades":[],"recentExecutionFills":[],"recentAccountTransactions":[]}"""
+                    """{"enabled":false,"runtimeMode":"DISABLED","runtimeActive":false,"state":null,"recentEvents":[],"account":null,"risk":null,"walletReconciliation":null,"performance":[],"recentClosedTrades":[],"recentExecutionFills":[],"recentAccountTransactions":[]}"""
+            }
+        }
+
+        "management-only live status is explicit" {
+            testApplication {
+                applicationWithLiveProvider {
+                    sampleLiveSnapshot(
+                        runtimeMode = VolumeConfirmedTrendLiveRuntimeMode.MANAGEMENT_ONLY,
+                        runtimeActive = true,
+                    )
+                }
+
+                val response = client.get(LIVE_PATH) { bearerAuth(CREDENTIAL) }
+
+                response.status shouldBe HttpStatusCode.OK
+                response.bodyAsText().also { body ->
+                    body shouldContain "\"enabled\":true"
+                    body shouldContain "\"runtimeMode\":\"MANAGEMENT_ONLY\""
+                    body shouldContain "\"runtimeActive\":true"
+                }
             }
         }
 
@@ -74,6 +95,8 @@ class VolumeConfirmedTrendLiveRoutesTest :
                 requestedLimit shouldBe 7
                 response.bodyAsText().also { body ->
                     body shouldContain "\"enabled\":true"
+                    body shouldContain "\"runtimeMode\":\"SIGNAL_ENABLED\""
+                    body shouldContain "\"runtimeActive\":true"
                     body shouldContain "\"status\":\"HALTED\""
                     body shouldContain "\"approvalId\":\"approval-001\""
                     body shouldContain "\"clientOrderId\":\"vct-entry-order-001\""
@@ -124,9 +147,14 @@ private fun io.ktor.server.testing.ApplicationTestBuilder.applicationWithLivePro
     }
 }
 
-private fun sampleLiveSnapshot(): VolumeConfirmedTrendLiveSnapshot =
+private fun sampleLiveSnapshot(
+    runtimeMode: VolumeConfirmedTrendLiveRuntimeMode = VolumeConfirmedTrendLiveRuntimeMode.SIGNAL_ENABLED,
+    runtimeActive: Boolean = true,
+): VolumeConfirmedTrendLiveSnapshot =
     VolumeConfirmedTrendLiveSnapshot(
         enabled = true,
+        runtimeMode = runtimeMode,
+        runtimeActive = runtimeActive,
         state = sampleLiveState(),
         recentEvents = listOf(sampleLiveEvent()),
         accountSnapshot =

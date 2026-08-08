@@ -181,6 +181,60 @@ test("read-only TESTNET deployment passes only with a valid exchange contract", 
   assert.match(run.stdout, /readOnlyTestnet=true/);
 });
 
+test("approved H4 live deployment requires an active signal runtime", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "LIVE",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "false",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "true",
+      },
+      {
+        contract: '{"available":true,"valid":true,"failures":[]}',
+        live: '{"enabled":true,"runtimeMode":"SIGNAL_ENABLED","runtimeActive":true}',
+      },
+    );
+
+  assert.equal(run.status, 0, output(run));
+  assert.match(run.stdout, /trendLive=true/);
+});
+
+test("H4 live deployment rejects a management-only recovery runtime", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "LIVE",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "false",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "true",
+      },
+      {
+        contract: '{"available":true,"valid":true,"failures":[]}',
+        live: '{"enabled":true,"runtimeMode":"MANAGEMENT_ONLY","runtimeActive":true}',
+      },
+    );
+
+  assert.equal(run.status, 1, output(run));
+  assert.match(run.stderr, /H4 live runtime is not signal-enabled/);
+});
+
+test("H4 live deployment rejects an inactive signal runtime", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "LIVE",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "false",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "true",
+      },
+      {
+        contract: '{"available":true,"valid":true,"failures":[]}',
+        live: '{"enabled":true,"runtimeMode":"SIGNAL_ENABLED","runtimeActive":false}',
+      },
+    );
+
+  assert.equal(run.status, 1, output(run));
+  assert.match(run.stderr, /H4 live signal loop is not active/);
+});
+
 test("legacy runtime skips H4 profile verification", () => {
   const run =
     runVerifier(
@@ -221,6 +275,7 @@ function runVerifier(
 case "$*" in
   *volume-confirmed-trend/shadow*) printf '%s' "$FAKE_SHADOW_RESPONSE" ;;
   *volume-confirmed-trend/approval*) printf '%s' "$FAKE_APPROVAL_RESPONSE" ;;
+  *volume-confirmed-trend/live*) printf '%s' "$FAKE_LIVE_RESPONSE" ;;
   *volume-confirmed-trend/exchange-contract*) printf '%s' "$FAKE_CONTRACT_RESPONSE" ;;
   *) exit ${unexpectedDockerExit} ;;
 esac
@@ -249,6 +304,7 @@ esac
           PATH: `${directory}:${process.env.PATH}`,
           FAKE_SHADOW_RESPONSE: responses.shadow || "",
           FAKE_APPROVAL_RESPONSE: responses.approval || "",
+          FAKE_LIVE_RESPONSE: responses.live || "",
           FAKE_CONTRACT_RESPONSE: responses.contract || "",
         },
       },

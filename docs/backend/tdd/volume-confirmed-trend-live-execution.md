@@ -330,7 +330,8 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   영속 상태와 방향·수량이 일치하는 기존 포지션은 `TREND_APPROVAL_REVOKED_EXIT` reduce-only 주문으로
   정리한다. 승인 이력이 전혀 없는 `DISABLED` 상태에서는 개인 API를 조회하지 않는다.
 - 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.
-- `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트를 인증된 운영자에게 제공한다.
+- `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트뿐 아니라 실제 process wiring을
+  `DISABLED`, `MANAGEMENT_ONLY`, `SIGNAL_ENABLED`로 구분하고 coroutine 활성 상태를 인증된 운영자에게 제공한다.
 - 승인된 실행 중 USDT account equity를 1분 간격으로 공통 account snapshot에 저장하고, 복구에서 확인한
   모든 H4 `execId`의 가격·수량·수수료·실현 PnL을 공통 체결 원장에 중복 없이 저장한다.
 - H4 실행 경로가 기존 공격형 reconciliation loop와 격리된 상태에서도 종료손익은 1분, USDT transaction
@@ -360,7 +361,9 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   명시하며 같은 상태의 H4 반복 평가는 중복 알림을 만들지 않는다.
 - 온프레미스 배포는 단순 health 확인 뒤에도 선택한 실행 프로필을 다시 검증한다. H4 Shadow는 동결
   protocol identity와 자동·실거래 주문 권한 `false`를, read-only TESTNET과 승인된 H4 실행은 읽기 전용
-  exchange contract의 `available=true`, `valid=true`를 충족하지 못하면 배포를 실패시킨다.
+  exchange contract의 `available=true`, `valid=true`를 충족하지 못하면 배포를 실패시킨다. 승인된 H4 실행은
+  추가로 Live API의 `runtimeMode=SIGNAL_ENABLED`, `runtimeActive=true`를 요구하며 management-only 복구 상태를
+  정상 실거래 배포로 인정하지 않는다.
 - 실행 중인 SQLite는 배포 전에 online backup으로 복제하고 `PRAGMA quick_check`와 SHA-256을 남긴다.
   구버전 이미지에는 짧은 pause 동안 DB/WAL을 함께 복사하는 호환 경로를 사용하며, 재기동 뒤 기존 H4
   Shadow `sessionId`가 바뀌면 연속 관측으로 인정하지 않고 배포를 실패시킨다.
