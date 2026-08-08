@@ -35,6 +35,7 @@ class VolumeConfirmedTrendApprovalServiceTest :
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.READY_FOR_HUMAN_REVIEW
             report.closedTradeProfitFactor shouldBe 3.0
+            report.gates.map { gate -> gate.id }.toSet() shouldBe VolumeConfirmedTrendApprovalGateContract.requiredIds
             report.gates.all { it.status == VolumeConfirmedTrendApprovalGateStatus.PASS } shouldBe true
             report.readyForHumanReview shouldBe true
             report.automaticExecutionAllowed shouldBe false
@@ -47,6 +48,16 @@ class VolumeConfirmedTrendApprovalServiceTest :
 
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_SESSION_FAILED
             report.gates.single { it.id == "LIQUIDATION_COUNT" }.status shouldBe VolumeConfirmedTrendApprovalGateStatus.FAIL
+        }
+
+        "fails a session that contains more than one start event" {
+            val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
+            val duplicateStart = sessionStartEvent(state).copy(eventId = "duplicate-session-start")
+            val report = approvalService(shadowReport(state, listOf(duplicateStart, closureEvent(state, 1.0)))).evaluate()
+
+            report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_SESSION_FAILED
+            report.gates.single { it.id == "CURRENT_SESSION_START" }.status shouldBe
+                VolumeConfirmedTrendApprovalGateStatus.FAIL
         }
 
         "rejects invalid historical evidence before considering shadow performance" {
@@ -150,7 +161,32 @@ private fun shadowReport(
         protocolSha256 = state.protocolSha256,
         symbol = state.symbol,
         state = state,
-        recentEvents = events,
+        recentEvents = listOf(sessionStartEvent(state)) + events,
+    )
+
+private fun sessionStartEvent(state: VolumeConfirmedTrendShadowState): VolumeConfirmedTrendShadowEvent =
+    VolumeConfirmedTrendShadowEvent(
+        eventId = "approval-session-start",
+        sessionId = state.sessionId,
+        protocolId = state.protocolId,
+        protocolSha256 = state.protocolSha256,
+        symbol = state.symbol,
+        type = VolumeConfirmedTrendShadowEventType.SESSION_STARTED,
+        eventAt = requireNotNull(state.sessionStartedAt),
+        observedAt = requireNotNull(state.sessionStartedAt),
+        h4OpenedAt = null,
+        side = null,
+        referencePrice = 60_000.0,
+        fillPrice = null,
+        quantity = null,
+        fee = 0.0,
+        slippage = 0.0,
+        fundingPnl = 0.0,
+        grossPnl = 0.0,
+        netPnl = 0.0,
+        cash = state.cash,
+        equity = state.equity,
+        reason = "WAIT_FOR_NEXT_CONFIRMED_TRANSITION",
     )
 
 private fun closureEvent(

@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.app
 
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
@@ -51,11 +52,8 @@ fun loadVolumeConfirmedTrendLiveRuntimeApproval(
 
     validateExpectedIdentity(receipt, protocol, forwardPolicy)
     val frozenShadowState = validateShadowEvidence(shadowEvidence, receipt, report, protocol, forwardPolicy)
-    require(report.gates.isNotEmpty() && report.gates.all { it.status == VolumeConfirmedTrendApprovalGateStatus.PASS }) {
-        "Trend live approval report must contain only passing frozen gates."
-    }
-    require(!report.automaticExecutionAllowed && !report.liveExecutionAllowed) {
-        "The frozen trend approval report cannot grant automatic or live execution."
+    require(VolumeConfirmedTrendApprovalGateContract.isSatisfiedBy(report)) {
+        "Trend live approval report must contain the exact passing frozen gate set without execution permission."
     }
     requireNotNull(receipt.approvedAt).let { approvedAt ->
         require(!approvedAt.isBefore(report.evaluatedAt)) {
@@ -216,11 +214,16 @@ private fun validateShadowEvidence(
     require(!frozenState.updatedAt.isBefore(frozenState.lastObservedAt)) {
         "Trend Shadow evidence state timestamp predates its latest observation."
     }
-    val eventTypes =
-        root
-            .requiredRuntimeApprovalArray("events")
-            .map { event -> event.jsonObject.requiredRuntimeApprovalString("type") }
-    require(eventTypes.contains("SESSION_STARTED") && !eventTypes.contains("SESSION_INVALIDATED")) {
+    val events = root.requiredRuntimeApprovalArray("events").map { event -> event.jsonObject }
+    val sessionStartEvents = events.filter { event -> event.requiredRuntimeApprovalString("type") == "SESSION_STARTED" }
+    require(
+        sessionStartEvents.size == 1 &&
+            Instant.parse(sessionStartEvents.single().requiredRuntimeApprovalString("eventAt")) == frozenState.sessionStartedAt &&
+            Instant.parse(sessionStartEvents.single().requiredRuntimeApprovalString("observedAt")) == frozenState.sessionStartedAt,
+    ) {
+        "Trend Shadow evidence requires exactly one session start matching the frozen state."
+    }
+    require(events.none { event -> event.requiredRuntimeApprovalString("type") == "SESSION_INVALIDATED" }) {
         "Trend Shadow evidence does not prove one continuous session."
     }
     return frozenState

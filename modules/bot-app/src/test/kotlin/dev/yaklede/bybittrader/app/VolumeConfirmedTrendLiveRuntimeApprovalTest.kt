@@ -1,6 +1,7 @@
 package dev.yaklede.bybittrader.app
 
 import dev.yaklede.bybittrader.domain.Symbol
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExecutionContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
@@ -41,6 +42,18 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
 
         "a report with a non-passing gate cannot be approved" {
             withRuntimeApprovalFixture(reportGateStatus = "PENDING") { fixture ->
+                shouldThrow<IllegalArgumentException> { fixture.load() }
+            }
+        }
+
+        "a report that omits frozen gates cannot be approved" {
+            withRuntimeApprovalFixture(omitFrozenGates = true) { fixture ->
+                shouldThrow<IllegalArgumentException> { fixture.load() }
+            }
+        }
+
+        "frozen evidence with duplicate session starts cannot be approved" {
+            withRuntimeApprovalFixture(duplicateSessionStart = true) { fixture ->
                 shouldThrow<IllegalArgumentException> { fixture.load() }
             }
         }
@@ -103,6 +116,8 @@ private data class RuntimeApprovalFixture(
 
 private inline fun withRuntimeApprovalFixture(
     reportGateStatus: String = "PASS",
+    omitFrozenGates: Boolean = false,
+    duplicateSessionStart: Boolean = false,
     block: (RuntimeApprovalFixture) -> Unit,
 ) {
     val directory = Files.createTempDirectory("trend-live-runtime-approval-")
@@ -110,8 +125,8 @@ private inline fun withRuntimeApprovalFixture(
         val shadowPath = directory.resolve("shadow-evidence.json")
         val reportPath = directory.resolve("approval-report.json")
         val receiptPath = directory.resolve("receipt.json")
-        Files.writeString(shadowPath, shadowEvidenceJson())
-        Files.writeString(reportPath, approvalReportJson(reportGateStatus))
+        Files.writeString(shadowPath, shadowEvidenceJson(duplicateSessionStart))
+        Files.writeString(reportPath, approvalReportJson(reportGateStatus, omitFrozenGates))
         val shadowSha = Files.readAllBytes(shadowPath).sha256()
         val reportSha = Files.readAllBytes(reportPath).sha256()
         Files.writeString(receiptPath, approvalReceiptJson(shadowSha, reportSha))
@@ -130,49 +145,71 @@ private inline fun withRuntimeApprovalFixture(
     }
 }
 
-private fun shadowEvidenceJson(): String =
-    """
-    {
-      "schemaVersion": 1,
-      "generatedAt": "$REPORT_AT",
-      "policyId": "$POLICY_ID",
-      "policySha256": "$POLICY_SHA",
-      "protocolId": "$PROTOCOL_ID",
-      "candidateId": "$CANDIDATE_ID",
-      "protocolSha256": "$PROTOCOL_SHA",
-      "symbol": "BTCUSDT",
-      "state": {
-        "sessionId": "$SESSION_ID",
-        "status": "OBSERVING",
-        "sessionStartedAt": "$SESSION_STARTED_AT",
-        "lastObservedAt": "$EVIDENCE_OBSERVED_AT",
-        "updatedAt": "$EVIDENCE_OBSERVED_AT"
-      },
-      "events": [{"type": "SESSION_STARTED"}, {"type": "H4_EVALUATED"}]
-    }
-    """.trimIndent() + "\n"
+private fun shadowEvidenceJson(duplicateSessionStart: Boolean): String {
+    val events =
+        if (duplicateSessionStart) {
+            """[{"type":"SESSION_STARTED","eventAt":"$SESSION_STARTED_AT","observedAt":"$SESSION_STARTED_AT"},{"type":"SESSION_STARTED","eventAt":"$SESSION_STARTED_AT","observedAt":"$SESSION_STARTED_AT"},{"type":"H4_EVALUATED","eventAt":"$EVIDENCE_OBSERVED_AT","observedAt":"$EVIDENCE_OBSERVED_AT"}]"""
+        } else {
+            """[{"type":"SESSION_STARTED","eventAt":"$SESSION_STARTED_AT","observedAt":"$SESSION_STARTED_AT"},{"type":"H4_EVALUATED","eventAt":"$EVIDENCE_OBSERVED_AT","observedAt":"$EVIDENCE_OBSERVED_AT"}]"""
+        }
+    return """
+        {
+          "schemaVersion": 1,
+          "generatedAt": "$REPORT_AT",
+          "policyId": "$POLICY_ID",
+          "policySha256": "$POLICY_SHA",
+          "protocolId": "$PROTOCOL_ID",
+          "candidateId": "$CANDIDATE_ID",
+          "protocolSha256": "$PROTOCOL_SHA",
+          "symbol": "BTCUSDT",
+          "state": {
+            "sessionId": "$SESSION_ID",
+            "status": "OBSERVING",
+            "sessionStartedAt": "$SESSION_STARTED_AT",
+            "lastObservedAt": "$EVIDENCE_OBSERVED_AT",
+            "updatedAt": "$EVIDENCE_OBSERVED_AT"
+          },
+          "events": $events
+        }
+        """.trimIndent() + "\n"
+}
 
-private fun approvalReportJson(gateStatus: String): String =
-    """
-    {
-      "schemaVersion": 1,
-      "status": "READY_FOR_HUMAN_REVIEW",
-      "protocolId": "$PROTOCOL_ID",
-      "candidateId": "$CANDIDATE_ID",
-      "protocolSha256": "$PROTOCOL_SHA",
-      "policyId": "$POLICY_ID",
-      "policySha256": "$POLICY_SHA",
-      "evaluatedAt": "$REPORT_AT",
-      "sessionId": "$SESSION_ID",
-      "observedCalendarDays": 90.0,
-      "sessionReturnPct": 5.0,
-      "closedTradeProfitFactor": 1.5,
-      "gates": [{"id": "FRESH_SHADOW_DAYS", "status": "$gateStatus", "actual": "90", "required": ">=90", "reason": "frozen"}],
-      "readyForHumanReview": true,
-      "automaticExecutionAllowed": false,
-      "liveExecutionAllowed": false
-    }
-    """.trimIndent() + "\n"
+private fun approvalReportJson(
+    gateStatus: String,
+    omitFrozenGates: Boolean,
+): String {
+    val gateIds =
+        if (omitFrozenGates) {
+            VolumeConfirmedTrendApprovalGateContract.requiredIds.take(1)
+        } else {
+            VolumeConfirmedTrendApprovalGateContract.requiredIds
+        }
+    val gates =
+        gateIds.joinToString(",") { id ->
+            val status = if (id == "FRESH_SHADOW_DAYS") gateStatus else "PASS"
+            """{"id":"$id","status":"$status","actual":"90","required":"frozen","reason":"frozen"}"""
+        }
+    return """
+        {
+          "schemaVersion": 1,
+          "status": "READY_FOR_HUMAN_REVIEW",
+          "protocolId": "$PROTOCOL_ID",
+          "candidateId": "$CANDIDATE_ID",
+          "protocolSha256": "$PROTOCOL_SHA",
+          "policyId": "$POLICY_ID",
+          "policySha256": "$POLICY_SHA",
+          "evaluatedAt": "$REPORT_AT",
+          "sessionId": "$SESSION_ID",
+          "observedCalendarDays": 90.0,
+          "sessionReturnPct": 5.0,
+          "closedTradeProfitFactor": 1.5,
+          "gates": [$gates],
+          "readyForHumanReview": true,
+          "automaticExecutionAllowed": false,
+          "liveExecutionAllowed": false
+        }
+        """.trimIndent() + "\n"
+}
 
 private fun approvalReceiptJson(
     shadowSha: String,

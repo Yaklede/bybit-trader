@@ -52,6 +52,7 @@ enum class VolumeConfirmedTrendLiveApprovalFailure {
     RECEIPT_NOT_APPROVED,
     RECEIPT_LIVE_EXECUTION_DISABLED,
     FORWARD_REPORT_NOT_READY,
+    FORWARD_REPORT_GATES_INVALID,
     PROTOCOL_ID_MISMATCH,
     CANDIDATE_ID_MISMATCH,
     PROTOCOL_SHA256_MISMATCH,
@@ -83,6 +84,9 @@ object VolumeConfirmedTrendLiveApprovalValidator {
         }
         if (!report.readyForHumanReview || report.status != VolumeConfirmedTrendApprovalStatus.READY_FOR_HUMAN_REVIEW) {
             failures += VolumeConfirmedTrendLiveApprovalFailure.FORWARD_REPORT_NOT_READY
+        }
+        if (!VolumeConfirmedTrendApprovalGateContract.isSatisfiedBy(report)) {
+            failures += VolumeConfirmedTrendLiveApprovalFailure.FORWARD_REPORT_GATES_INVALID
         }
         if (receipt.protocolId != report.protocolId) {
             failures += VolumeConfirmedTrendLiveApprovalFailure.PROTOCOL_ID_MISMATCH

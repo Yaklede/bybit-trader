@@ -3,6 +3,7 @@ package dev.yaklede.bybittrader.app
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
@@ -73,6 +74,48 @@ class VolumeConfirmedTrendApprovalArtifactWriterTest :
                                 readyForHumanReview = false,
                             )
                         },
+                    )
+
+                shouldThrow<IllegalArgumentException> { writer.export() }
+                Files.list(output).use { entries -> entries.count() shouldBe 0L }
+            } finally {
+                output.toFile().deleteRecursively()
+            }
+        }
+
+        "ready snapshot with an incomplete frozen gate set cannot be exported" {
+            val output = Files.createTempDirectory("trend-approval-writer-incomplete-gates-test")
+            try {
+                val writer =
+                    VolumeConfirmedTrendApprovalArtifactWriter(
+                        outputDirectory = output,
+                        shadowReportProvider = { readyShadowReport() },
+                        approvalReportProvider = { readyApprovalReport().copy(gates = readyApprovalReport().gates.take(1)) },
+                    )
+
+                shouldThrow<IllegalArgumentException> { writer.export() }
+                Files.list(output).use { entries -> entries.count() shouldBe 0L }
+            } finally {
+                output.toFile().deleteRecursively()
+            }
+        }
+
+        "ready snapshot with duplicate session starts cannot be exported" {
+            val output = Files.createTempDirectory("trend-approval-writer-duplicate-start-test")
+            try {
+                val shadow = readyShadowReport()
+                val duplicate =
+                    shadow.recentEvents
+                        .single { event ->
+                            event.type == VolumeConfirmedTrendShadowEventType.SESSION_STARTED
+                        }.copy(
+                            eventId = "event-started-duplicate",
+                        )
+                val writer =
+                    VolumeConfirmedTrendApprovalArtifactWriter(
+                        outputDirectory = output,
+                        shadowReportProvider = { shadow.copy(recentEvents = shadow.recentEvents + duplicate) },
+                        approvalReportProvider = { readyApprovalReport() },
                     )
 
                 shouldThrow<IllegalArgumentException> { writer.export() }
@@ -199,15 +242,15 @@ private fun readyApprovalReport(): VolumeConfirmedTrendApprovalReport =
         sessionReturnPct = 6.0,
         closedTradeProfitFactor = 1.5,
         gates =
-            listOf(
+            VolumeConfirmedTrendApprovalGateContract.requiredIds.map { id ->
                 VolumeConfirmedTrendApprovalGate(
-                    id = "FRESH_SHADOW_DAYS",
+                    id = id,
                     status = VolumeConfirmedTrendApprovalGateStatus.PASS,
                     actual = "92.0",
                     required = ">=90.0",
                     reason = "Frozen gate passed.",
-                ),
-            ),
+                )
+            },
         readyForHumanReview = true,
     )
 

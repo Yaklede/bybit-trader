@@ -1,7 +1,7 @@
 package dev.yaklede.bybittrader.app
 
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
-import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendEmaState
@@ -130,11 +130,8 @@ class VolumeConfirmedTrendApprovalArtifactWriter(
         require(approval.status == VolumeConfirmedTrendApprovalStatus.READY_FOR_HUMAN_REVIEW && approval.readyForHumanReview) {
             "Trend approval artifacts can be exported only when every forward gate is ready for human review."
         }
-        require(!approval.automaticExecutionAllowed && !approval.liveExecutionAllowed) {
-            "Trend approval report must not grant automatic or live execution."
-        }
-        require(approval.gates.isNotEmpty() && approval.gates.all { it.status == VolumeConfirmedTrendApprovalGateStatus.PASS }) {
-            "Trend approval artifacts require every frozen gate to pass."
+        require(VolumeConfirmedTrendApprovalGateContract.isSatisfiedBy(approval)) {
+            "Trend approval artifacts require the exact frozen gate set to pass without execution permission."
         }
         require(shadow.protocolId == approval.protocolId && shadow.candidateId == approval.candidateId) {
             "Trend approval shadow and report identities do not match."
@@ -159,8 +156,14 @@ class VolumeConfirmedTrendApprovalArtifactWriter(
         ) {
             "Trend approval evidence contains duplicate event IDs."
         }
-        require(shadow.recentEvents.any { it.type == VolumeConfirmedTrendShadowEventType.SESSION_STARTED }) {
-            "Trend approval evidence is missing its session start."
+        val sessionStartEvents =
+            shadow.recentEvents.filter { event -> event.type == VolumeConfirmedTrendShadowEventType.SESSION_STARTED }
+        require(
+            sessionStartEvents.size == 1 &&
+                sessionStartEvents.single().eventAt == state.sessionStartedAt &&
+                sessionStartEvents.single().observedAt == state.sessionStartedAt,
+        ) {
+            "Trend approval evidence requires exactly one session start matching the persisted state."
         }
         require(shadow.recentEvents.none { it.type == VolumeConfirmedTrendShadowEventType.SESSION_INVALIDATED }) {
             "Trend approval evidence contains a continuity invalidation."

@@ -759,7 +759,16 @@ private fun approvalReport(): VolumeConfirmedTrendApprovalReport =
         observedCalendarDays = 90.0,
         sessionReturnPct = 5.0,
         closedTradeProfitFactor = 1.5,
-        gates = emptyList(),
+        gates =
+            VolumeConfirmedTrendApprovalGateContract.requiredIds.map { id ->
+                VolumeConfirmedTrendApprovalGate(
+                    id = id,
+                    status = VolumeConfirmedTrendApprovalGateStatus.PASS,
+                    actual = "PASS",
+                    required = "FROZEN",
+                    reason = "Frozen gate passed.",
+                )
+            },
         readyForHumanReview = true,
     )
 

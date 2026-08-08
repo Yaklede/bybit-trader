@@ -52,6 +52,22 @@ class VolumeConfirmedTrendLiveApprovalTest :
             result.failures shouldBe listOf(VolumeConfirmedTrendLiveApprovalFailure.FORWARD_REPORT_NOT_READY)
         }
 
+        "human receipt cannot approve a report that omits frozen gates" {
+            val result =
+                VolumeConfirmedTrendLiveApprovalValidator.validate(
+                    receipt = receipt(approved = true),
+                    report =
+                        report(ready = true).copy(
+                            gates = report(ready = true).gates.take(1),
+                        ),
+                    actualShadowEvidenceSha256 = EVIDENCE_SHA,
+                    actualApprovalReportSha256 = REPORT_SHA,
+                )
+
+            result.liveExecutionAllowed shouldBe false
+            result.failures shouldBe listOf(VolumeConfirmedTrendLiveApprovalFailure.FORWARD_REPORT_GATES_INVALID)
+        }
+
         "receipt is bound to its exact session and evidence files" {
             val result =
                 VolumeConfirmedTrendLiveApprovalValidator.validate(
@@ -112,7 +128,16 @@ private fun report(ready: Boolean): VolumeConfirmedTrendApprovalReport =
         observedCalendarDays = if (ready) 90.0 else 30.0,
         sessionReturnPct = 5.0,
         closedTradeProfitFactor = 1.5,
-        gates = emptyList(),
+        gates =
+            VolumeConfirmedTrendApprovalGateContract.requiredIds.map { id ->
+                VolumeConfirmedTrendApprovalGate(
+                    id = id,
+                    status = VolumeConfirmedTrendApprovalGateStatus.PASS,
+                    actual = "PASS",
+                    required = "FROZEN",
+                    reason = "Frozen gate passed.",
+                )
+            },
         readyForHumanReview = ready,
     )
 

@@ -82,6 +82,36 @@ data class VolumeConfirmedTrendApprovalReport(
     val liveExecutionAllowed: Boolean = false,
 )
 
+object VolumeConfirmedTrendApprovalGateContract {
+    val requiredIds: Set<String> =
+        linkedSetOf(
+            "EXTERNAL_VENUE_HISTORY",
+            "KOTLIN_CORE_PARITY",
+            "RUNTIME_REPLAY_PARITY",
+            "FRESH_SHADOW_DAYS",
+            "CLOSED_TRADES",
+            "EXECUTED_TRANSITIONS",
+            "SESSION_RETURN_PCT",
+            "CLOSED_TRADE_PROFIT_FACTOR",
+            "MAXIMUM_DRAWDOWN_PCT",
+            "MAXIMUM_ENTRY_EXPOSURE_FRACTION",
+            "MAXIMUM_ADVERSE_EXPOSURE_FRACTION",
+            "LIQUIDATION_COUNT",
+            "OBSERVATION_STALENESS_SECONDS",
+            "CURRENT_SESSION_START",
+            "CURRENT_SESSION_CONTINUITY",
+        )
+
+    fun isSatisfiedBy(report: VolumeConfirmedTrendApprovalReport): Boolean {
+        val gateIds = report.gates.map(VolumeConfirmedTrendApprovalGate::id)
+        return gateIds.size == requiredIds.size &&
+            gateIds.toSet() == requiredIds &&
+            report.gates.all { gate -> gate.status == VolumeConfirmedTrendApprovalGateStatus.PASS } &&
+            !report.automaticExecutionAllowed &&
+            !report.liveExecutionAllowed
+    }
+}
+
 class VolumeConfirmedTrendApprovalService(
     private val historicalEvidence: VolumeConfirmedTrendHistoricalEvidence,
     private val forwardPolicy: VolumeConfirmedTrendForwardPolicy,
@@ -167,6 +197,12 @@ class VolumeConfirmedTrendApprovalService(
                 .filter { event -> event.type == VolumeConfirmedTrendShadowEventType.POSITION_CLOSED }
                 .map(VolumeConfirmedTrendShadowEvent::netPnl)
         val profitFactor = profitFactor(closedNetPnls)
+        val sessionStartEvents =
+            currentSessionEvents.filter { event -> event.type == VolumeConfirmedTrendShadowEventType.SESSION_STARTED }
+        val hasValidSessionStart =
+            sessionStartEvents.size == 1 &&
+                sessionStartEvents.single().eventAt == sessionStartedAt &&
+                sessionStartEvents.single().observedAt == sessionStartedAt
         val continuous = currentSessionEvents.none { event -> event.type == VolumeConfirmedTrendShadowEventType.SESSION_INVALIDATED }
 
         gates += lowerBoundGate("FRESH_SHADOW_DAYS", observedDays, forwardPolicy.minimumCalendarDays.toDouble())
@@ -206,6 +242,12 @@ class VolumeConfirmedTrendApprovalService(
             )
         gates +=
             booleanGate(
+                id = "CURRENT_SESSION_START",
+                passed = hasValidSessionStart,
+                reason = "The current Shadow session must contain exactly one matching start event.",
+            )
+        gates +=
+            booleanGate(
                 id = "CURRENT_SESSION_CONTINUITY",
                 passed = continuous,
                 reason = "The current Shadow session must contain no continuity invalidation.",
@@ -218,6 +260,7 @@ class VolumeConfirmedTrendApprovalService(
                 "MAXIMUM_ENTRY_EXPOSURE_FRACTION",
                 "MAXIMUM_ADVERSE_EXPOSURE_FRACTION",
                 "LIQUIDATION_COUNT",
+                "CURRENT_SESSION_START",
                 "CURRENT_SESSION_CONTINUITY",
             )
         val hardFailure =
@@ -294,6 +337,7 @@ class VolumeConfirmedTrendApprovalService(
             "MAXIMUM_ADVERSE_EXPOSURE_FRACTION",
             "LIQUIDATION_COUNT",
             "OBSERVATION_STALENESS_SECONDS",
+            "CURRENT_SESSION_START",
             "CURRENT_SESSION_CONTINUITY",
         ).map { id ->
             VolumeConfirmedTrendApprovalGate(
