@@ -1,6 +1,8 @@
 # On-Prem GitHub Actions Deployment
 
-The deployment workflow is `.github/workflows/deploy-onprem.yml`.
+The deployment workflow is `.github/workflows/deploy-onprem.yml`. Runtime
+maintenance is split into `.github/workflows/monitor-onprem.yml` and
+`.github/workflows/backup-onprem.yml`.
 
 It uses the official `twingate/github-action@v1` action to connect a GitHub
 runner to the Twingate-protected on-prem host, builds a Docker image, uploads
@@ -125,6 +127,17 @@ override:
 - `TELEGRAM_ALERTS_ENABLED`: default `false`.
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.
+- `RUNTIME_BACKUP_RETENTION_COUNT`: default `30`; number of validated host-side
+  runtime snapshots retained by the daily backup workflow.
+
+One non-sensitive switch must be a repository-level Actions variable rather
+than an `onprem-live` Environment variable:
+
+- `ONPREM_MAINTENANCE_ENABLED`: unset or `false` by default. Set `true` only
+  after the approved runtime has been deployed and both maintenance workflows
+  have passed once by manual dispatch. GitHub evaluates the job-level safety
+  condition before Environment variables become available; see the official
+  [GitHub `vars` context reference](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#vars-context).
 
 The deploy workflow rejects `BOT_EXECUTION_LOOP_ENABLED=true` while the frozen
 forward policy has `decision.liveExecutionAllowed=false`. It also rejects a
@@ -265,6 +278,42 @@ When an H4 Shadow session already exists, the verifier also compares the
 pre-deploy session ID with the restarted process. A changed session fails the
 deployment because the fresh 90-day observation can no longer be treated as a
 continuous run.
+
+## Scheduled Runtime Maintenance
+
+`Monitor On-Prem Runtime` runs hourly and verifies the following from a GitHub
+runner connected through Twingate:
+
+- both Compose services are running;
+- the dashboard and proxied `/api/health` endpoints respond;
+- the selected runtime still matches the frozen H4 profile;
+- a Shadow runtime is in `OBSERVING` state and its approval status is either
+  `SHADOW_COLLECTING` or `READY_FOR_HUMAN_REVIEW`;
+- read-only TESTNET and approved H4 Live runtimes still satisfy the exchange
+  contract check.
+
+`Backup On-Prem Runtime` runs daily. It performs the same SQLite online backup,
+checksum validation, `PRAGMA quick_check`, isolated restore boot, Shadow evidence
+validation, and steady profile check used by deployment. It does not restart or
+modify the running containers.
+
+Both workflows are also manually dispatchable. Scheduled jobs are skipped until
+the repository-level Actions variable `ONPREM_MAINTENANCE_ENABLED=true` exists.
+On failure they post a Korean Discord alert with the GitHub Actions run URL when
+`DISCORD_WEBHOOK_URL` is configured. All three on-prem workflows use the
+`onprem-runtime-main` concurrency group and therefore execute serially.
+
+If `onprem-live` requires a human reviewer for every job, scheduled maintenance
+will wait for that reviewer and cannot provide autonomous monitoring. In that
+case, use a separate maintenance environment with the same narrowly scoped
+Twingate/SSH access and no deployment write permissions, then point the two
+maintenance workflows at it.
+
+The retained snapshots are local to `ONPREM_DEPLOY_DIR/backups`. They provide
+rollback and state-recovery evidence for application failures, but do not protect
+against physical disk or host loss. Keep encrypted off-host backups under a
+separate retention and access policy before treating the runtime as fully
+disaster-recoverable.
 
 ## Trigger
 

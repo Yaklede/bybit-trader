@@ -70,6 +70,24 @@ and all order-producing flags disabled, waits for `/health`, then removes its
 temporary container and volume. A current H4 Shadow session must also contain a
 matching checkpoint and exactly one `SESSION_STARTED` event with no invalidation.
 
+Two maintenance workflows reuse these checks without changing the running
+containers:
+
+- `Monitor On-Prem Runtime` checks both services and the steady H4 runtime every
+  hour.
+- `Backup On-Prem Runtime` creates and restore-drills a snapshot once per day.
+
+Their schedules are inert until the repository-level GitHub Actions variable
+`ONPREM_MAINTENANCE_ENABLED=true` is set. This gate cannot be environment-level
+because GitHub evaluates a job condition before loading environment variables.
+Manual dispatch remains available for an explicit smoke run. Deploy, monitoring,
+and backup share one concurrency group, so they cannot inspect or copy state
+midway through a restart.
+
+These snapshots remain on the on-prem host. They protect against application or
+deployment failure, but not loss of the host disk; an encrypted off-host copy is
+still required for host-level disaster recovery.
+
 ## GitHub Actions Deployment
 
 The on-prem GitHub Actions workflow builds the backend and dashboard Docker

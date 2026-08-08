@@ -6,6 +6,15 @@ compose_env_file="${1:-.env}"
 compose_file="${2:-compose.yaml}"
 runtime_env_file="${3:-env/bybit-trader.env}"
 continuity_snapshot_file="${4:-}"
+verification_phase="${5:-startup}"
+
+case "${verification_phase}" in
+  startup|steady) ;;
+  *)
+    printf '%s\n' "Runtime profile verification phase must be startup or steady." >&2
+    exit 1
+    ;;
+esac
 
 runtime_value() {
   key="$1"
@@ -64,6 +73,18 @@ if [ "${trend_shadow_enabled}" = "true" ]; then
     '"liveExecutionAllowed":false' \
     "H4 approval report unexpectedly allows live execution"
 
+  if [ "${verification_phase}" = "steady" ]; then
+    require_fragment "${shadow_payload}" '"status":"OBSERVING"' "H4 Shadow is not observing"
+    case "${approval_payload}" in
+      *'"status":"SHADOW_COLLECTING"'*|*'"status":"READY_FOR_HUMAN_REVIEW"'*) ;;
+      *)
+        printf '%s\n' "Runtime profile verification failed: H4 Shadow approval is not healthy." >&2
+        printf '%s\n' "${approval_payload}" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
   if [ -n "${continuity_snapshot_file}" ] && [ -f "${continuity_snapshot_file}" ]; then
     expected_session_id="$(snapshot_session_id "${continuity_snapshot_file}")"
     if [ -n "${expected_session_id}" ]; then
@@ -93,4 +114,4 @@ if [ "${trend_live_enabled}" = "true" ] || [ "${read_only_testnet_probe}" = "tru
 fi
 
 printf '%s\n' \
-  "Runtime profile verification passed: mode=${mode:-UNSET} trendShadow=${trend_shadow_enabled:-false} trendLive=${trend_live_enabled:-false} readOnlyTestnet=${read_only_testnet_probe}."
+  "Runtime profile verification passed: phase=${verification_phase} mode=${mode:-UNSET} trendShadow=${trend_shadow_enabled:-false} trendLive=${trend_live_enabled:-false} readOnlyTestnet=${read_only_testnet_probe}."

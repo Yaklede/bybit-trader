@@ -92,6 +92,53 @@ test("H4 Shadow deployment accepts the persisted session after restart", () => {
   assert.equal(run.status, 0, output(run));
 });
 
+test("steady H4 monitoring requires an observing session with a healthy approval state", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "PAPER",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+      },
+      {
+        shadow:
+          '{"enabled":true,"protocolId":"volume-confirmed-trend-ensemble-v1","state":{"sessionId":"trend-shadow-existing","status":"OBSERVING"},"recentEvents":[]}',
+        approval:
+          '{"available":true,"status":"SHADOW_COLLECTING","automaticExecutionAllowed":false,"liveExecutionAllowed":false}',
+      },
+      0,
+      null,
+      "steady",
+    );
+
+  assert.equal(run.status, 0, output(run));
+  assert.match(run.stdout, /phase=steady/);
+});
+
+test("steady H4 monitoring rejects a stale approval state", () => {
+  const run =
+    runVerifier(
+      {
+        BOT_MODE: "PAPER",
+        BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true",
+        BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false",
+      },
+      {
+        shadow:
+          '{"enabled":true,"protocolId":"volume-confirmed-trend-ensemble-v1","state":{"sessionId":"trend-shadow-existing","status":"OBSERVING"},"recentEvents":[]}',
+        approval:
+          '{"available":true,"status":"SHADOW_STALE","automaticExecutionAllowed":false,"liveExecutionAllowed":false}',
+      },
+      0,
+      null,
+      "steady",
+    );
+
+  assert.equal(run.status, 1, output(run));
+  assert.match(run.stderr, /approval is not healthy/);
+  assert.match(run.stderr, /SHADOW_STALE/);
+});
+
 test("read-only TESTNET deployment fails on an incompatible exchange contract", () => {
   const run =
     runVerifier(
@@ -156,6 +203,7 @@ function runVerifier(
   responses,
   unexpectedDockerExit = 0,
   continuitySnapshot = null,
+  verificationPhase = "startup",
 ) {
   const directory = mkdtempSync(path.join(tmpdir(), "bybit-runtime-profile-"));
   try {
@@ -191,6 +239,7 @@ esac
         "compose.yaml",
         runtimeEnvPath,
         continuitySnapshot == null ? "" : continuitySnapshotPath,
+        verificationPhase,
       ],
       {
         cwd: directory,

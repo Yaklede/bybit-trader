@@ -1,0 +1,88 @@
+name: Backup On-Prem Runtime
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: onprem-runtime-main
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # This gate must be a repository variable because job-level if runs before environment variables load.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ONPREM_MAINTENANCE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: onprem-live
+    timeout-minutes: 25
+    steps:
+      - name: Connect to Twingate
+        uses: twingate/github-action@v1
+        with:
+          service-key: ${{ secrets.TWINGATE_SERVICE_KEY }}
+
+      - name: Back up and restore-drill runtime state
+        uses: appleboy/ssh-action@v1
+        env:
+          RUNTIME_BACKUP_RETENTION_COUNT: ${{ vars.RUNTIME_BACKUP_RETENTION_COUNT || '30' }}
+        with:
+          host: ${{ secrets.ONPREM_SSH_HOST }}
+          username: ${{ secrets.ONPREM_SSH_USER }}
+          key: ${{ secrets.ONPREM_SSH_PRIVATE_KEY }}
+          "password": ${{ secrets.ONPREM_SSH_PASSWORD }}
+          port: ${{ secrets.ONPREM_SSH_PORT }}
+          fingerprint: ${{ secrets.ONPREM_SSH_FINGERPRINT }}
+          envs: RUNTIME_BACKUP_RETENTION_COUNT
+          command_timeout: 20m
+          script: |
+            set -eu
+            cd '${{ secrets.ONPREM_DEPLOY_DIR }}'
+            test -f .env
+            test -f compose.yaml
+            test -f release.env
+            test -f env/bybit-trader.env
+            test -f bin/backup-runtime-state.sh
+            test -f bin/verify-runtime-backup.sh
+            test -f bin/verify-runtime-profile.sh
+            . ./release.env
+            RUNTIME_BACKUP_SNAPSHOT="$(
+              sh bin/backup-runtime-state.sh \
+                .env \
+                compose.yaml \
+                env/bybit-trader.env \
+                backups \
+                "${BOT_IMAGE}" \
+                "${RUNTIME_BACKUP_RETENTION_COUNT}"
+            )"
+            test "${RUNTIME_BACKUP_SNAPSHOT}" != "NONE"
+            sh bin/verify-runtime-backup.sh \
+              "${RUNTIME_BACKUP_SNAPSHOT}" \
+              "${BOT_IMAGE}"
+            sh bin/verify-runtime-profile.sh \
+              .env \
+              compose.yaml \
+              env/bybit-trader.env \
+              "" \
+              steady
+
+      - name: Notify Discord on backup failure
+        if: ${{ failure() }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          set -eu
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "Discord backup alert skipped because the webhook is not configured."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PAYLOAD="$(printf '{"content":"[주의] 온프레미스 봇 상태 백업 또는 복원 검증에 실패했어요. GitHub Actions에서 원인을 확인해 주세요: %s"}' "${RUN_URL}")"
+          curl -fsS --max-time 15 \
+            -H 'Content-Type: application/json' \
+            --data "${PAYLOAD}" \
+            "${DISCORD_WEBHOOK_URL}" >/dev/null

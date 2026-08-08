@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: onprem-deploy-main
+  group: onprem-runtime-main
   cancel-in-progress: false
 
 jobs:

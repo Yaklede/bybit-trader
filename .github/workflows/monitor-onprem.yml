@@ -1,0 +1,77 @@
+name: Monitor On-Prem Runtime
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: onprem-runtime-main
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    # This gate must be a repository variable because job-level if runs before environment variables load.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ONPREM_MAINTENANCE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: onprem-live
+    timeout-minutes: 15
+    steps:
+      - name: Connect to Twingate
+        uses: twingate/github-action@v1
+        with:
+          service-key: ${{ secrets.TWINGATE_SERVICE_KEY }}
+
+      - name: Verify runtime from outside the host
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ONPREM_SSH_HOST }}
+          username: ${{ secrets.ONPREM_SSH_USER }}
+          key: ${{ secrets.ONPREM_SSH_PRIVATE_KEY }}
+          "password": ${{ secrets.ONPREM_SSH_PASSWORD }}
+          port: ${{ secrets.ONPREM_SSH_PORT }}
+          fingerprint: ${{ secrets.ONPREM_SSH_FINGERPRINT }}
+          command_timeout: 10m
+          script: |
+            set -eu
+            cd '${{ secrets.ONPREM_DEPLOY_DIR }}'
+            test -f .env
+            test -f compose.yaml
+            test -f env/bybit-trader.env
+            test -x bin/verify-runtime-profile.sh || test -f bin/verify-runtime-profile.sh
+            test -n "$(docker compose --env-file .env -f compose.yaml ps --status running -q bybit-trader)"
+            test -n "$(docker compose --env-file .env -f compose.yaml ps --status running -q bybit-trader-dashboard)"
+            . ./.env
+            PROBE_HOST="${DASHBOARD_BIND_HOST}"
+            if [ "${PROBE_HOST}" = "0.0.0.0" ]; then
+              PROBE_HOST="127.0.0.1"
+            fi
+            curl -fsS --max-time 15 "http://${PROBE_HOST}:${DASHBOARD_PORT}/" >/dev/null
+            curl -fsS --max-time 15 "http://${PROBE_HOST}:${DASHBOARD_PORT}/api/health" >/dev/null
+            sh bin/verify-runtime-profile.sh \
+              .env \
+              compose.yaml \
+              env/bybit-trader.env \
+              "" \
+              steady
+
+      - name: Notify Discord on monitoring failure
+        if: ${{ failure() }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          set -eu
+          if [ -z "${DISCORD_WEBHOOK_URL}" ]; then
+            echo "Discord monitoring alert skipped because the webhook is not configured."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PAYLOAD="$(printf '{"content":"[주의] 온프레미스 봇 외부 점검에 실패했어요. GitHub Actions에서 원인을 확인해 주세요: %s"}' "${RUN_URL}")"
+          curl -fsS --max-time 15 \
+            -H 'Content-Type: application/json' \
+            --data "${PAYLOAD}" \
+            "${DISCORD_WEBHOOK_URL}" >/dev/null
