@@ -20,6 +20,7 @@ import dev.yaklede.bybittrader.api.status.configureStatusRoutes
 import dev.yaklede.bybittrader.api.strategy.StrategyProfileService
 import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendApprovalArtifactExportProvider
 import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendApprovalReportProvider
+import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendLiveSnapshotProvider
 import dev.yaklede.bybittrader.api.strategy.VolumeConfirmedTrendShadowReportProvider
 import dev.yaklede.bybittrader.api.strategy.configureStrategyProfileRoutes
 import dev.yaklede.bybittrader.api.strategy.configureVolumeConfirmedTrendShadowRoutes
@@ -76,6 +77,7 @@ fun Application.configureApi(
     volumeConfirmedTrendShadowReportProvider: VolumeConfirmedTrendShadowReportProvider? = null,
     volumeConfirmedTrendApprovalReportProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
     volumeConfirmedTrendApprovalArtifactExportProvider: VolumeConfirmedTrendApprovalArtifactExportProvider? = null,
+    volumeConfirmedTrendLiveSnapshotProvider: VolumeConfirmedTrendLiveSnapshotProvider? = null,
     runtimeMode: String? = null,
     forwardMarketCaptureStatusService: ForwardMarketCaptureStatusService? = null,
     forwardMarketCaptureEnabled: Boolean = false,
@@ -164,6 +166,7 @@ fun Application.configureApi(
             reportProvider = volumeConfirmedTrendShadowReportProvider,
             approvalReportProvider = volumeConfirmedTrendApprovalReportProvider,
             approvalArtifactExportProvider = volumeConfirmedTrendApprovalArtifactExportProvider,
+            liveSnapshotProvider = volumeConfirmedTrendLiveSnapshotProvider,
         )
         configureOperationsSmokeRoutes(
             controlService = controlService,

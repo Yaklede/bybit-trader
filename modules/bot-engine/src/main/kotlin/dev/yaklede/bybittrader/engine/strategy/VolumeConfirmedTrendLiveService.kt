@@ -396,6 +396,7 @@ class VolumeConfirmedTrendLiveService(
                     updatedAt = now,
                 )
             }
+        if (state.samePersistedStateAs(previous)) return requireNotNull(previous)
         val event = lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.HALTED, "TREND_LIVE_NOT_APPROVED", now)
         store.commitTrendLive(state, listOf(event))
         return state
@@ -420,6 +421,14 @@ class VolumeConfirmedTrendLiveService(
                 haltedReasonCode = reasonCode,
                 updatedAt = now,
             )
+        if (state.samePersistedStateAs(previous)) {
+            return VolumeConfirmedTrendLiveEvaluationResult(
+                status = VolumeConfirmedTrendLiveEvaluationStatus.HALTED,
+                state = requireNotNull(previous),
+                plan = null,
+                contractFailures = contractFailures,
+            )
+        }
         val event = lifecycleEvent(state, VolumeConfirmedTrendLiveEventType.HALTED, reasonCode, now)
         store.commitTrendLive(state, listOf(event))
         return VolumeConfirmedTrendLiveEvaluationResult(
@@ -429,6 +438,9 @@ class VolumeConfirmedTrendLiveService(
             contractFailures = contractFailures,
         )
     }
+
+    private fun VolumeConfirmedTrendLiveState.samePersistedStateAs(previous: VolumeConfirmedTrendLiveState?): Boolean =
+        previous != null && copy(updatedAt = previous.updatedAt) == previous
 
     private fun baseState(
         previous: VolumeConfirmedTrendLiveState?,

@@ -58,6 +58,29 @@ class VolumeConfirmedTrendLiveServiceTest :
             gateway.exchangeReadCount shouldBe 0
         }
 
+        "repeated approval blocking does not append duplicate halt events" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store, approved = false)
+
+            service.reconcile()
+            service.reconcile()
+
+            store.events.map { it.type } shouldBe listOf(VolumeConfirmedTrendLiveEventType.HALTED)
+            gateway.exchangeReadCount shouldBe 0
+        }
+
+        "repeated safety halt with unchanged state is persisted once" {
+            val gateway = FakeTrendLiveGateway()
+            val store = InMemoryTrendLiveStore()
+            val service = service(gateway, store)
+
+            service.haltForSafety("TREND_TEST_HALT")
+            service.haltForSafety("TREND_TEST_HALT")
+
+            store.events.map { it.type } shouldBe listOf(VolumeConfirmedTrendLiveEventType.HALTED)
+        }
+
         "approved reconciliation initializes a flat checkpoint before the first signal" {
             val gateway = FakeTrendLiveGateway()
             val store = InMemoryTrendLiveStore()

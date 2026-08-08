@@ -2,6 +2,8 @@ package dev.yaklede.bybittrader.api.strategy
 
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGate
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalReport
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveEvent
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveState
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowEvent
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowReport
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendShadowState
@@ -16,11 +18,19 @@ import kotlinx.serialization.Serializable
 typealias VolumeConfirmedTrendShadowReportProvider = suspend (Int) -> VolumeConfirmedTrendShadowReport
 typealias VolumeConfirmedTrendApprovalReportProvider = suspend () -> VolumeConfirmedTrendApprovalReport
 typealias VolumeConfirmedTrendApprovalArtifactExportProvider = suspend () -> VolumeConfirmedTrendApprovalArtifactExportResponse
+typealias VolumeConfirmedTrendLiveSnapshotProvider = suspend (Int) -> VolumeConfirmedTrendLiveSnapshot
+
+data class VolumeConfirmedTrendLiveSnapshot(
+    val enabled: Boolean,
+    val state: VolumeConfirmedTrendLiveState?,
+    val recentEvents: List<VolumeConfirmedTrendLiveEvent>,
+)
 
 fun Route.configureVolumeConfirmedTrendShadowRoutes(
     reportProvider: VolumeConfirmedTrendShadowReportProvider?,
     approvalReportProvider: VolumeConfirmedTrendApprovalReportProvider? = null,
     approvalArtifactExportProvider: VolumeConfirmedTrendApprovalArtifactExportProvider? = null,
+    liveSnapshotProvider: VolumeConfirmedTrendLiveSnapshotProvider? = null,
 ) {
     authenticate("control") {
         get("/strategy/volume-confirmed-trend/shadow") {
@@ -45,8 +55,67 @@ fun Route.configureVolumeConfirmedTrendShadowRoutes(
                 call.respond(provider())
             }
         }
+        get("/strategy/volume-confirmed-trend/live") {
+            val rawLimit = call.request.queryParameters["limit"]
+            val limit = rawLimit?.toIntOrNull() ?: if (rawLimit == null) 50 else 0
+            require(limit in 1..100) { "Live event limit must be between 1 and 100." }
+            val snapshot = liveSnapshotProvider?.invoke(limit)
+            call.respond(snapshot?.toResponse() ?: VolumeConfirmedTrendLiveResponse.disabled())
+        }
     }
 }
+
+@Serializable
+data class VolumeConfirmedTrendLiveResponse(
+    val enabled: Boolean,
+    val state: VolumeConfirmedTrendLiveStateResponse?,
+    val recentEvents: List<VolumeConfirmedTrendLiveEventResponse>,
+) {
+    companion object {
+        fun disabled(): VolumeConfirmedTrendLiveResponse =
+            VolumeConfirmedTrendLiveResponse(
+                enabled = false,
+                state = null,
+                recentEvents = emptyList(),
+            )
+    }
+}
+
+@Serializable
+data class VolumeConfirmedTrendLiveStateResponse(
+    val protocolId: String,
+    val candidateId: String,
+    val protocolSha256: String,
+    val symbol: String,
+    val status: String,
+    val approvalId: String?,
+    val activeDecisionKey: String?,
+    val pendingTargetSide: String?,
+    val clientOrderId: String?,
+    val exchangeOrderId: String?,
+    val observedPositionSide: String?,
+    val observedPositionQuantity: String?,
+    val lastExecutionId: String?,
+    val haltedReasonCode: String?,
+    val updatedAt: String,
+)
+
+@Serializable
+data class VolumeConfirmedTrendLiveEventResponse(
+    val eventId: String,
+    val type: String,
+    val decisionKey: String?,
+    val targetSide: String?,
+    val orderSide: String?,
+    val orderQuantity: String?,
+    val referencePrice: String?,
+    val limitPrice: String?,
+    val clientOrderId: String?,
+    val exchangeOrderId: String?,
+    val executionId: String?,
+    val reasonCode: String,
+    val occurredAt: String,
+)
 
 @Serializable
 data class VolumeConfirmedTrendApprovalArtifactExportResponse(
@@ -211,6 +280,49 @@ data class VolumeConfirmedTrendShadowEventResponse(
     val equity: String,
     val reason: String,
 )
+
+private fun VolumeConfirmedTrendLiveSnapshot.toResponse(): VolumeConfirmedTrendLiveResponse =
+    VolumeConfirmedTrendLiveResponse(
+        enabled = enabled,
+        state = state?.toResponse(),
+        recentEvents = recentEvents.map(VolumeConfirmedTrendLiveEvent::toResponse),
+    )
+
+private fun VolumeConfirmedTrendLiveState.toResponse(): VolumeConfirmedTrendLiveStateResponse =
+    VolumeConfirmedTrendLiveStateResponse(
+        protocolId = protocolId,
+        candidateId = candidateId,
+        protocolSha256 = protocolSha256,
+        symbol = symbol.value,
+        status = status.name,
+        approvalId = approvalId,
+        activeDecisionKey = activeDecisionKey,
+        pendingTargetSide = pendingTargetSide?.name,
+        clientOrderId = clientOrderId,
+        exchangeOrderId = exchangeOrderId,
+        observedPositionSide = observedPositionSide?.name,
+        observedPositionQuantity = observedPositionQuantity?.toPlainString(),
+        lastExecutionId = lastExecutionId,
+        haltedReasonCode = haltedReasonCode,
+        updatedAt = updatedAt.toString(),
+    )
+
+private fun VolumeConfirmedTrendLiveEvent.toResponse(): VolumeConfirmedTrendLiveEventResponse =
+    VolumeConfirmedTrendLiveEventResponse(
+        eventId = eventId,
+        type = type.name,
+        decisionKey = decisionKey,
+        targetSide = targetSide?.name,
+        orderSide = orderSide?.name,
+        orderQuantity = orderQuantity?.toPlainString(),
+        referencePrice = referencePrice?.toPlainString(),
+        limitPrice = limitPrice?.toPlainString(),
+        clientOrderId = clientOrderId,
+        exchangeOrderId = exchangeOrderId,
+        executionId = executionId,
+        reasonCode = reasonCode,
+        occurredAt = occurredAt.toString(),
+    )
 
 private fun VolumeConfirmedTrendShadowReport.toResponse(): VolumeConfirmedTrendShadowResponse =
     VolumeConfirmedTrendShadowResponse(

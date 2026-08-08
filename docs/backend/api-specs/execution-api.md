@@ -40,6 +40,21 @@ blocking reason codes. This projection performs no Bybit request and never
 refreshes or mutates a risk baseline; the reconciliation loop owns those
 updates.
 
+## GET /strategy/volume-confirmed-trend/live
+
+Returns only the persisted H4 live checkpoint and append-only lifecycle events;
+it does not call Bybit and does not synthesize a position. Query parameter
+`limit` defaults to 50 and accepts 1-100. The response exposes the approval ID,
+active decision key, pending target side, client and exchange order IDs,
+exchange-observed position, last execution ID, halt reason, and update time.
+
+`enabled=false` means the H4 private loop is not configured in this process. A
+persisted state can still be returned when Shadow is enabled so an operator can
+inspect a prior halted run. `ORDER_SUBMITTED` is an acknowledgement, not fill
+proof; `ENTRY_FILL_OBSERVED` or `EXIT_FILL_OBSERVED` plus the observed position
+state is the current recovery evidence. This endpoint requires the control
+Bearer token.
+
 ## POST /execution/evaluate-and-submit
 
 Evaluates the runtime aggressive M5 strategy and submits a private Bybit market

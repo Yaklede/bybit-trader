@@ -1,7 +1,7 @@
 # 거래량 확인형 추세 전략 실거래 실행 기술 설계
 
 > 작성일: 2026-08-07
-> 상태: 실행 코어 구현 완료, 런타임 활성화 및 전진 승인 대기
+> 상태: 승인 기반 런타임 연결 완료, 체결·계좌 projection 및 전진 승인 대기
 > 대상 모듈: `bot-engine`, `bot-exchange-bybit`, `bot-ledger`, `bot-app`
 
 ## 1. 설계 배경 및 목적
@@ -278,6 +278,21 @@ exact-order, order history, execution, position 조회로 복구한다. 미체�
   MDD와 장애 시 수동 `FLATTEN` 정책을 live 승인 때 다시 확인해야 한다.
 - 현재 문서는 실행 구조를 준비하기 위한 설계다. 90일 Shadow 결과가 실패하면 live service를
   활성화하지 않고 후보를 폐기한다.
+
+## 11. 구현 현황
+
+2026-08-08 기준으로 다음 경로가 연결됐다.
+
+- 승인 영수증, 불변 Shadow 증거, 승인 보고서의 SHA-256과 protocol/policy/session을 앱 부팅 시 검증한다.
+- 현재 SQLite Shadow checkpoint가 승인 증거보다 과거로 롤백되지 않았고 같은 연속 세션이며, 최신성·MDD·노출·청산 및 모든 현재 forward gate를 계속 통과하는지 확인한다.
+- 위 검증은 `BybitPrivateClient` 생성보다 먼저 수행되므로 실패 시 개인 API 조회나 주문 경로가 구성되지 않는다.
+- 승인된 경우에만 `VolumeConfirmedTrendLiveLoop`를 시작하고, PAUSE 상태에서도 거래소 포지션 대사는 유지한다.
+- 동일한 승인 차단 또는 안전 중단은 상태가 바뀌지 않는 한 원장과 Discord에 반복 기록하지 않는다.
+- `GET /strategy/volume-confirmed-trend/live`에서 checkpoint와 append-only 이벤트를 인증된 운영자에게 제공한다.
+
+아직 완료되지 않은 항목은 실제 체결 상세·수수료·계좌 equity projection 연결, 장애 주입 통합 테스트,
+fresh Bybit Shadow 90일 및 별도 사람 승인이다. 따라서 기본 승인 파일과
+`BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED=false`는 유지한다.
 
 ## 11. 완료 체크리스트
 
