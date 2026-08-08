@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "resultId": "volume-confirmed-trend-ensemble-v1-live-risk-parity-result",
+  "protocol": {
+    "id": "volume-confirmed-trend-ensemble-v1",
+    "candidateId": "vcte_4h_majority_001",
+    "sha256": "6cb43d081a9f36e2a89aa723438dacf6da2906fe82e6aeb19efa067aba13fd74"
+  },
+  "sourceEvidence": {
+    "externalResultSha256": "1a4a49029e7a24020e21fb90f23490dddeb7c27a98f02a20438fd28bf9cc2cd1",
+    "databaseSha256": "9c80bd330b8edb3a3a081b88ff4493ad7e1035da2d4d807e4ff625ee844bbbb6"
+  },
+  "runtimeRiskPolicy": {
+    "maximumDailyLossFraction": 0.03,
+    "maximumAccountDrawdownFraction": 0.35,
+    "maximumConsecutiveLosses": 3,
+    "riskStateMaximumAgeSeconds": 600,
+    "walletReconciliationMaximumAgeSeconds": 600,
+    "walletReconciliationConfirmedMismatchCount": 2
+  },
+  "canonicalBaseline": {
+    "startingEquityUsdt": 660,
+    "endingEquityUsdt": 3605.34525093,
+    "netReturnPct": 446.26443196,
+    "closedTradeCount": 165
+  },
+  "audit": {
+    "projectionKind": "FROZEN_CLOSURE_PATH_COUNTERFACTUAL",
+    "livePathSimulation": false,
+    "dailyLossMeasurementKind": "CLOSED_EQUITY_VS_H4_UTC_DAY_START_PROXY",
+    "baselineTradeCount": 165,
+    "maximumObservedConsecutiveLosses": 11,
+    "firstDailyLossBreach": {
+      "tradeIndex": 1,
+      "exitAt": "2020-04-06T16:00:00.000Z",
+      "utcDayStartedAt": "2020-04-06T00:00:00.000Z",
+      "dayStartEquityUsdt": 633.80362426,
+      "closedEquityUsdt": 608.61493309,
+      "dailyLossFraction": 0.039742106562,
+      "dailyLossPct": 3.97421066
+    },
+    "firstConsecutiveLossBreach": {
+      "tradeIndex": 3,
+      "exitAt": "2020-04-12T16:00:00.000Z",
+      "lossStreak": 3,
+      "prefixEndingEquityUsdt": 573.37095348,
+      "prefixNetReturnPct": -13.12561311,
+      "remainingFrozenTrades": 162
+    },
+    "frozenPathReproducible": false,
+    "reasonCodes": [
+      "FROZEN_PATH_BREACHES_RUNTIME_DAILY_LOSS_LIMIT",
+      "FROZEN_PATH_BREACHES_RUNTIME_CONSECUTIVE_LOSS_LIMIT"
+    ],
+    "limitation": "Runtime entry blocking changes later fills and PnL, and the daily-loss comparison uses the H4 UTC day-start equity proxy. This audit proves contract divergence but does not predict the resulting Live return."
+  },
+  "status": "FAIL",
+  "decision": {
+    "riskPolicyParityPassed": false,
+    "automaticExecutionAllowed": false,
+    "liveExecutionAllowed": false,
+    "reasonCodes": [
+      "FROZEN_PATH_BREACHES_RUNTIME_DAILY_LOSS_LIMIT",
+      "FROZEN_PATH_BREACHES_RUNTIME_CONSECUTIVE_LOSS_LIMIT"
+    ]
+  }
+}

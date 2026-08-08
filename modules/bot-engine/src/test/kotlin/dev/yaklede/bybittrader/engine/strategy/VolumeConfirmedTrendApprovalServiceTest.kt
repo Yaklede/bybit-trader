@@ -112,6 +112,21 @@ class VolumeConfirmedTrendApprovalServiceTest :
             report.status shouldBe VolumeConfirmedTrendApprovalStatus.HISTORICAL_EVIDENCE_REJECTED
             report.readyForHumanReview shouldBe false
         }
+
+        "blocks human review while Live risk policy parity is unresolved" {
+            val evidence = historicalEvidence().copy(liveRiskPolicyParityPassed = false)
+            val state = approvalState(sessionDays = 91, closedTrades = 5, executedTransitions = 6)
+            val report =
+                approvalService(
+                    shadowReport(state, consistentEvents(state, listOf(3.0, -1.0, 2.0, -1.0, 1.0))),
+                    evidence,
+                ).evaluate()
+
+            report.status shouldBe VolumeConfirmedTrendApprovalStatus.RUNTIME_PARITY_REQUIRED
+            report.gates.single { it.id == "LIVE_RISK_POLICY_PARITY" }.status shouldBe
+                VolumeConfirmedTrendApprovalGateStatus.FAIL
+            report.readyForHumanReview shouldBe false
+        }
     })
 
 private fun approvalService(
@@ -148,9 +163,11 @@ private fun historicalEvidence(): VolumeConfirmedTrendHistoricalEvidence =
         externalResultSha256 = "b".repeat(64),
         kotlinCoreParityResultSha256 = "c".repeat(64),
         runtimeReplayParityResultSha256 = "d".repeat(64),
+        liveRiskPolicyParityResultSha256 = "e".repeat(64),
         externalVenuePassed = true,
         kotlinCoreParityPassed = true,
         runtimeReplayParityPassed = true,
+        liveRiskPolicyParityPassed = true,
     )
 
 private fun approvalState(

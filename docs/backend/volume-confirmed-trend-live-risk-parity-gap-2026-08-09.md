@@ -40,7 +40,11 @@ Source:
 ```bash
 node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
   --maximum-daily-loss-fraction=0.03 \
-  --maximum-consecutive-losses=3
+  --maximum-account-drawdown-fraction=0.35 \
+  --maximum-consecutive-losses=3 \
+  --risk-state-maximum-age-seconds=600 \
+  --wallet-reconciliation-maximum-age-seconds=600 \
+  --wallet-reconciliation-confirmed-mismatch-count=2
 ```
 
 660 USDT, 기본 비용 1배 재생 결과:
@@ -66,7 +70,23 @@ node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
 446.26% 누적 수익 경로를 현재 계약으로 재현할 수 없다.
 
 생성되는 `build/research/volume-confirmed-trend-live-risk-parity-audit.json`은 이 한계를
-`livePathSimulation=false`로 명시하며 최종 판정을 `BLOCK_LIVE_EXECUTION`으로 기록한다.
+`livePathSimulation=false`로 명시하며 `status=FAIL`, `riskPolicyParityPassed=false`로 기록한다.
+
+## 기계적 차단
+
+재생 결과는
+`config/volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json`에 결정적으로 동결했다.
+승인 로더는 이 파일의 SHA-256, protocol SHA, 외부 결과 SHA, 원본 DB SHA와 baseline 핵심 지표를 모두
+검증한다. 현재 artifact의 `riskPolicyParityPassed=false`는 승인 보고서의 필수
+`LIVE_RISK_POLICY_PARITY` 게이트를 `FAIL`로 만들고 상위 상태를 `RUNTIME_PARITY_REQUIRED`로 유지한다.
+동결 위험 계약에는 일 손실, 계좌 MDD, 연속 손실, 위험 상태 freshness, 지갑 대사 freshness와 불일치
+확정 횟수를 함께 기록한다. 앱은 환경 설정에서 계산한 실제 H4 위험 정책과 이 계약을 필드별로 대조하며,
+하나라도 다르면 artifact가 향후 `PASS`가 되더라도 필수 게이트를 다시 실패시킨다.
+
+따라서 90일 Shadow 정량 조건을 모두 충족하거나 승인 영수증만 `APPROVED`로 바꿔도 Live 실행은 열리지
+않는다. 현재 보고서와 필수 게이트를 다시 검증하는 시작 경로가 실패하며, 같은 artifact는 Docker 이미지와
+온프레미스 배포 패키지에도 포함된다. A/B 결정 후 새 위험 정책 검증이 실제로 통과하고 동결 artifact와
+코드 fingerprint를 함께 갱신해야만 이 게이트를 `PASS`로 바꿀 수 있다.
 
 ## 코드 위치
 
@@ -75,6 +95,7 @@ node scripts/volume-confirmed-trend-live-risk-parity-audit.mjs \
 - 신규 진입 차단 판정: `ExecutionRiskCircuitBreaker.evaluate`
 - 동결 역사 재생: `volume-confirmed-trend-research.mjs`
 - 위험 패리티 진단: `volume-confirmed-trend-live-risk-parity-audit.mjs`
+- 동결 위험 패리티 결과: `volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json`
 - 기존 설계 선언: `volume-confirmed-trend-live-execution.md`
 
 ## 원인
@@ -114,6 +135,7 @@ Kotlin/Node 패리티에 포함되지 않았다. MDD 35%와 지갑/원장 freshn
 ## 완료 조건
 
 - [ ] Human owner가 A 또는 B를 명시적으로 선택한다.
+- [x] 미해결 상태를 필수 승인 게이트로 연결해 영수증만으로 우회할 수 없게 한다.
 - [ ] 선택한 위험 정책이 protocol/approval fingerprint에 포함된다.
 - [ ] 백테스트와 Live 위험 상태 전이가 동일하다는 회귀 테스트가 통과한다.
 - [ ] 외부/비용 스트레스와 runtime parity가 다시 통과한다.

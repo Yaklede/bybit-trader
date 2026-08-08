@@ -33,3 +33,17 @@ internal fun ExecutionSettings.toVolumeConfirmedTrendLiveRiskPolicy(
 
 internal fun ExecutionSettings.volumeConfirmedTrendLiveWalletTolerance(): BigDecimal =
     minOf(walletReconciliationTolerance, BigDecimal("0.01"))
+
+internal fun VolumeConfirmedTrendLiveRiskPolicy.matchesFrozenApprovalPolicy(frozen: VolumeConfirmedTrendLiveRiskPolicy): Boolean =
+    maximumDailyLossFraction.compareTo(frozen.maximumDailyLossFraction) == 0 &&
+        maximumAccountDrawdownFraction.compareTo(frozen.maximumAccountDrawdownFraction) == 0 &&
+        maximumConsecutiveLosses == frozen.maximumConsecutiveLosses &&
+        riskStateMaximumAge == frozen.riskStateMaximumAge &&
+        walletReconciliationMaximumAge == frozen.walletReconciliationMaximumAge &&
+        walletReconciliationConfirmedMismatchCount == frozen.walletReconciliationConfirmedMismatchCount
+
+internal fun verifiedVolumeConfirmedTrendLiveRiskPolicyParity(
+    artifactPassed: Boolean,
+    runtime: VolumeConfirmedTrendLiveRiskPolicy,
+    frozen: VolumeConfirmedTrendLiveRiskPolicy,
+): Boolean = artifactPassed && runtime.matchesFrozenApprovalPolicy(frozen)

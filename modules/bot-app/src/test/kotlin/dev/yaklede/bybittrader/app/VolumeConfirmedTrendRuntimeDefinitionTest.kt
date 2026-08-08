@@ -1,11 +1,15 @@
 package dev.yaklede.bybittrader.app
 
 import dev.yaklede.bybittrader.domain.Side
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalService
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 
 class VolumeConfirmedTrendRuntimeDefinitionTest :
     StringSpec({
@@ -67,9 +71,35 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
             approval.historicalEvidence.externalVenuePassed shouldBe true
             approval.historicalEvidence.kotlinCoreParityPassed shouldBe true
             approval.historicalEvidence.runtimeReplayParityPassed shouldBe true
+            approval.historicalEvidence.liveRiskPolicyParityPassed shouldBe false
+            approval.liveRiskPolicy.maximumDailyLossFraction.toPlainString() shouldBe "0.03"
+            approval.liveRiskPolicy.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.35"
+            approval.liveRiskPolicy.maximumConsecutiveLosses shouldBe 3
+            approval.liveRiskPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(10)
+            approval.liveRiskPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(10)
+            approval.liveRiskPolicy.walletReconciliationConfirmedMismatchCount shouldBe 2
             approval.forwardPolicy.minimumCalendarDays shouldBe 90
             approval.forwardPolicy.minimumClosedTrades shouldBe 5
             approval.forwardPolicy.maximumDrawdownPct shouldBe 35.0
+        }
+
+        "repository Live risk evidence blocks approval before Shadow gates" {
+            val approval =
+                loadVolumeConfirmedTrendApprovalDefinition(
+                    protocolPath = trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"),
+                )
+            val report =
+                VolumeConfirmedTrendApprovalService(
+                    historicalEvidence = approval.historicalEvidence,
+                    forwardPolicy = approval.forwardPolicy,
+                    shadowReportProvider = { null },
+                ).evaluate()
+
+            report.status shouldBe VolumeConfirmedTrendApprovalStatus.RUNTIME_PARITY_REQUIRED
+            report.gates.single { it.id == "LIVE_RISK_POLICY_PARITY" }.status shouldBe
+                VolumeConfirmedTrendApprovalGateStatus.FAIL
+            report.readyForHumanReview shouldBe false
+            report.liveExecutionAllowed shouldBe false
         }
 
         "rejects modified runtime parity evidence" {
@@ -83,6 +113,22 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
                     runtimeParityResultPath = temporary,
                 )
             }.message shouldBe "Frozen trend runtime parity result fingerprint mismatch."
+        }
+
+        "rejects modified Live risk parity evidence" {
+            val temporary = Files.createTempFile("trend-live-risk-parity-tampered", ".json")
+            val source =
+                Files.readString(
+                    trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json"),
+                )
+            Files.writeString(temporary, source.replace("\"maximumConsecutiveLosses\": 3", "\"maximumConsecutiveLosses\": 4"))
+
+            shouldThrow<IllegalArgumentException> {
+                loadVolumeConfirmedTrendApprovalDefinition(
+                    protocolPath = trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"),
+                    liveRiskParityResultPath = temporary,
+                )
+            }.message shouldBe "Frozen trend live risk parity result fingerprint mismatch."
         }
     })
 

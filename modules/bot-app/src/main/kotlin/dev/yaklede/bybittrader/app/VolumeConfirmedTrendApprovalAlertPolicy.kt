@@ -106,6 +106,7 @@ private fun VolumeConfirmedTrendApprovalGate.operatorLabel(): String =
         "EXTERNAL_VENUE_HISTORY" -> "외부 거래소 이력"
         "KOTLIN_CORE_PARITY" -> "계산 코어 일치"
         "RUNTIME_REPLAY_PARITY" -> "실행 결과 일치"
+        "LIVE_RISK_POLICY_PARITY" -> "실거래 위험 정책 일치"
         "FRESH_SHADOW_DAYS" -> "연속 관측 기간"
         "CLOSED_TRADES" -> "종료 거래 수"
         "EXECUTED_TRANSITIONS" -> "포지션 전환 수"

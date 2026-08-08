@@ -183,6 +183,17 @@ class AppConfigTest :
             frozenPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(10)
             frozenPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(10)
             frozenPolicy.walletReconciliationConfirmedMismatchCount shouldBe 2
+            frozenPolicy.matchesFrozenApprovalPolicy(frozenPolicy) shouldBe true
+            verifiedVolumeConfirmedTrendLiveRiskPolicyParity(
+                artifactPassed = false,
+                runtime = frozenPolicy,
+                frozen = frozenPolicy,
+            ) shouldBe false
+            verifiedVolumeConfirmedTrendLiveRiskPolicyParity(
+                artifactPassed = true,
+                runtime = frozenPolicy,
+                frozen = frozenPolicy,
+            ) shouldBe true
             looseSettings.volumeConfirmedTrendLiveWalletTolerance().toPlainString() shouldBe "0.01"
 
             val stricterSettings =
@@ -206,6 +217,12 @@ class AppConfigTest :
             stricterPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(2)
             stricterPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(3)
             stricterPolicy.walletReconciliationConfirmedMismatchCount shouldBe 1
+            stricterPolicy.matchesFrozenApprovalPolicy(frozenPolicy) shouldBe false
+            verifiedVolumeConfirmedTrendLiveRiskPolicyParity(
+                artifactPassed = true,
+                runtime = stricterPolicy,
+                frozen = frozenPolicy,
+            ) shouldBe false
             stricterSettings.volumeConfirmedTrendLiveWalletTolerance().toPlainString() shouldBe "0.005"
         }
 

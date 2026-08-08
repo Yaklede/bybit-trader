@@ -69,10 +69,18 @@ test("risk parity CLI requires explicit runtime loss limits", () => {
   assert.throws(() => parseArgs([]), /maximum-daily-loss-fraction/);
   const options = parseArgs([
     "--maximum-daily-loss-fraction=0.03",
+    "--maximum-account-drawdown-fraction=0.35",
     "--maximum-consecutive-losses=3",
+    "--risk-state-maximum-age-seconds=600",
+    "--wallet-reconciliation-maximum-age-seconds=600",
+    "--wallet-reconciliation-confirmed-mismatch-count=2",
   ]);
   assert.equal(options.maximumDailyLossFraction, 0.03);
+  assert.equal(options.maximumAccountDrawdownFraction, 0.35);
   assert.equal(options.maximumConsecutiveLosses, 3);
+  assert.equal(options.riskStateMaximumAgeSeconds, 600);
+  assert.equal(options.walletReconciliationMaximumAgeSeconds, 600);
+  assert.equal(options.walletReconciliationConfirmedMismatchCount, 2);
 });
 
 function fixtureRun(netPnls) {

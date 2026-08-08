@@ -2,6 +2,7 @@ package dev.yaklede.bybittrader.app
 
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendHistoricalEvidence
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -19,6 +21,12 @@ import java.time.Duration
 data class VolumeConfirmedTrendApprovalDefinition(
     val historicalEvidence: VolumeConfirmedTrendHistoricalEvidence,
     val forwardPolicy: VolumeConfirmedTrendForwardPolicy,
+    val liveRiskPolicy: VolumeConfirmedTrendLiveRiskPolicy,
+)
+
+private data class LiveRiskPolicyParityEvidence(
+    val passed: Boolean,
+    val policy: VolumeConfirmedTrendLiveRiskPolicy,
 )
 
 fun loadVolumeConfirmedTrendApprovalDefinition(
@@ -26,6 +34,8 @@ fun loadVolumeConfirmedTrendApprovalDefinition(
     externalResultPath: Path = protocolPath.resolveSibling("volume-confirmed-trend-ensemble-v1-external-result.json"),
     kotlinParityResultPath: Path = protocolPath.resolveSibling("volume-confirmed-trend-ensemble-v1-kotlin-parity-result.json"),
     runtimeParityResultPath: Path = protocolPath.resolveSibling("volume-confirmed-trend-ensemble-v1-runtime-parity-result.json"),
+    liveRiskParityResultPath: Path =
+        protocolPath.resolveSibling("volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json"),
     forwardPolicyPath: Path = protocolPath.resolveSibling("volume-confirmed-trend-ensemble-v1-forward-policy.json"),
 ): VolumeConfirmedTrendApprovalDefinition {
     val protocol = loadVolumeConfirmedTrendProtocolDefinition(protocolPath)
@@ -37,8 +47,27 @@ fun loadVolumeConfirmedTrendApprovalDefinition(
     validateKotlinParity(kotlinParity, protocol, external)
     val runtimeParity = runtimeParityResultPath.readFrozenJson(FROZEN_TREND_RUNTIME_PARITY_RESULT_SHA256, "runtime parity result")
     validateRuntimeParity(runtimeParity, protocol, externalResultPath)
+    val liveRiskParity =
+        liveRiskParityResultPath.readFrozenJson(
+            FROZEN_TREND_LIVE_RISK_PARITY_RESULT_SHA256,
+            "live risk parity result",
+        )
+    val liveRiskPolicyParity =
+        validateLiveRiskPolicyParity(
+            root = liveRiskParity,
+            protocol = protocol,
+            external = external,
+            externalResultPath = externalResultPath,
+        )
     val forwardPolicy = forwardPolicyPath.readFrozenJson(FROZEN_TREND_FORWARD_POLICY_SHA256, "forward policy")
     val policy = validateAndMapForwardPolicy(forwardPolicy, protocol, forwardPolicyPath)
+    require(
+        liveRiskPolicyParity.policy.maximumAccountDrawdownFraction.compareTo(
+            BigDecimal.valueOf(policy.maximumDrawdownPct).movePointLeft(2),
+        ) == 0,
+    ) {
+        "Frozen trend Live risk policy drawdown does not match the forward approval policy."
+    }
     return VolumeConfirmedTrendApprovalDefinition(
         historicalEvidence =
             VolumeConfirmedTrendHistoricalEvidence(
@@ -48,12 +77,68 @@ fun loadVolumeConfirmedTrendApprovalDefinition(
                 externalResultSha256 = externalResultPath.sha256(),
                 kotlinCoreParityResultSha256 = kotlinParityResultPath.sha256(),
                 runtimeReplayParityResultSha256 = runtimeParityResultPath.sha256(),
+                liveRiskPolicyParityResultSha256 = liveRiskParityResultPath.sha256(),
                 externalVenuePassed = true,
                 kotlinCoreParityPassed = true,
                 runtimeReplayParityPassed = true,
+                liveRiskPolicyParityPassed = liveRiskPolicyParity.passed,
             ),
         forwardPolicy = policy,
+        liveRiskPolicy = liveRiskPolicyParity.policy,
     )
+}
+
+private fun validateLiveRiskPolicyParity(
+    root: JsonObject,
+    protocol: VolumeConfirmedTrendProtocolDefinition,
+    external: JsonObject,
+    externalResultPath: Path,
+): LiveRiskPolicyParityEvidence {
+    require(root.requiredApprovalInt("schemaVersion") == 1) { "Unsupported frozen trend live risk parity schema." }
+    val artifactProtocol = root.requiredApprovalObject("protocol")
+    require(artifactProtocol.requiredApprovalString("id") == protocol.protocolId)
+    require(artifactProtocol.requiredApprovalString("candidateId") == protocol.candidateId)
+    require(artifactProtocol.requiredApprovalString("sha256") == protocol.protocolSha256)
+    val source = root.requiredApprovalObject("sourceEvidence")
+    require(source.requiredApprovalString("externalResultSha256") == externalResultPath.sha256())
+    require(
+        source.requiredApprovalString("databaseSha256") ==
+            external.requiredApprovalObject("acquisitionEvidence").requiredApprovalString("databaseSha256"),
+    )
+    val baseline = root.requiredApprovalObject("canonicalBaseline")
+    val externalMetrics = external.requiredApprovalObject("canonicalMetrics")
+    val externalBaseline = externalMetrics.requiredApprovalObject("baseline")
+    require(baseline.requiredApprovalDouble("startingEquityUsdt") == externalMetrics.requiredApprovalDouble("startingEquityUsdt"))
+    require(baseline.requiredApprovalDouble("endingEquityUsdt") == externalBaseline.requiredApprovalDouble("endingEquityUsdt"))
+    require(baseline.requiredApprovalDouble("netReturnPct") == externalBaseline.requiredApprovalDouble("netReturnPct"))
+    require(baseline.requiredApprovalInt("closedTradeCount") == externalBaseline.requiredApprovalInt("closedTradeCount"))
+    val risk = root.requiredApprovalObject("runtimeRiskPolicy")
+    val policy =
+        VolumeConfirmedTrendLiveRiskPolicy(
+            maximumDailyLossFraction = risk.requiredApprovalDecimal("maximumDailyLossFraction"),
+            maximumAccountDrawdownFraction = risk.requiredApprovalDecimal("maximumAccountDrawdownFraction"),
+            maximumConsecutiveLosses = risk.requiredApprovalInt("maximumConsecutiveLosses"),
+            riskStateMaximumAge = Duration.ofSeconds(risk.requiredApprovalInt("riskStateMaximumAgeSeconds").toLong()),
+            walletReconciliationMaximumAge =
+                Duration.ofSeconds(risk.requiredApprovalInt("walletReconciliationMaximumAgeSeconds").toLong()),
+            walletReconciliationConfirmedMismatchCount =
+                risk.requiredApprovalInt("walletReconciliationConfirmedMismatchCount"),
+        )
+    val audit = root.requiredApprovalObject("audit")
+    require(audit.requiredApprovalString("projectionKind") == "FROZEN_CLOSURE_PATH_COUNTERFACTUAL")
+    require(!audit.requiredApprovalBoolean("livePathSimulation"))
+    val frozenPathReproducible = audit.requiredApprovalBoolean("frozenPathReproducible")
+    val decision = root.requiredApprovalObject("decision")
+    val parityPassed = decision.requiredApprovalBoolean("riskPolicyParityPassed")
+    require(parityPassed == frozenPathReproducible)
+    require(root.requiredApprovalString("status") == if (parityPassed) "PASS" else "FAIL")
+    require(!decision.requiredApprovalBoolean("automaticExecutionAllowed"))
+    require(!decision.requiredApprovalBoolean("liveExecutionAllowed"))
+    val auditReasons = audit.requiredApprovalArray("reasonCodes").map { value -> value.jsonPrimitive.content }
+    val decisionReasons = decision.requiredApprovalArray("reasonCodes").map { value -> value.jsonPrimitive.content }
+    require(auditReasons == decisionReasons)
+    require(parityPassed || auditReasons.isNotEmpty())
+    return LiveRiskPolicyParityEvidence(parityPassed, policy)
 }
 
 private fun validateExternalEvidence(
@@ -215,6 +300,8 @@ private fun JsonObject.requiredApprovalInt(name: String): Int = getValue(name).j
 
 private fun JsonObject.requiredApprovalDouble(name: String): Double = getValue(name).jsonPrimitive.double
 
+private fun JsonObject.requiredApprovalDecimal(name: String): BigDecimal = getValue(name).jsonPrimitive.content.toBigDecimal()
+
 private fun JsonObject.requiredApprovalBoolean(name: String): Boolean = getValue(name).jsonPrimitive.boolean
 
 private fun Path.sha256(): String = Files.readAllBytes(this).sha256()
@@ -228,4 +315,6 @@ private fun ByteArray.sha256(): String =
 private const val FROZEN_TREND_EXTERNAL_RESULT_SHA256 = "1a4a49029e7a24020e21fb90f23490dddeb7c27a98f02a20438fd28bf9cc2cd1"
 private const val FROZEN_TREND_KOTLIN_PARITY_RESULT_SHA256 = "5174139b607139cc664fad861bcea313cc9408dd454e7e44b739d7057c1bdf8f"
 private const val FROZEN_TREND_RUNTIME_PARITY_RESULT_SHA256 = "8421a3df1bd06f19eebcc0d0dd183faf6f74fbf54a2b28b66bf55f5f0c637a70"
+private const val FROZEN_TREND_LIVE_RISK_PARITY_RESULT_SHA256 =
+    "3073eadc11f7fd05eb351897185879b6735276a420c11e55fd00d5f56c7fbe2f"
 private const val FROZEN_TREND_FORWARD_POLICY_SHA256 = "5ea2185fe9f4299f656ca89848a5ffd77acb578954517cd22432e5b4d64dc62b"

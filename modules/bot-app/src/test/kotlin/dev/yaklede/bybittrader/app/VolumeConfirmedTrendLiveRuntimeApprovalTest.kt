@@ -3,6 +3,8 @@ package dev.yaklede.bybittrader.app
 import dev.yaklede.bybittrader.domain.Side
 import dev.yaklede.bybittrader.domain.Symbol
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateContract
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalGateStatus
+import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendApprovalStatus
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendExecutionContract
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendForwardPolicy
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendIndicatorState
@@ -101,6 +103,36 @@ class VolumeConfirmedTrendLiveRuntimeApprovalTest :
                     forwardPolicy = policy(),
                     now = Instant.parse(APPROVED_AT),
                 )
+            }
+        }
+
+        "an approved receipt cannot bypass a current Live risk parity failure" {
+            withRuntimeApprovalFixture { fixture ->
+                val approval = fixture.load()
+                val currentReport =
+                    approval.report.copy(
+                        status = VolumeConfirmedTrendApprovalStatus.RUNTIME_PARITY_REQUIRED,
+                        gates =
+                            approval.report.gates.map { gate ->
+                                if (gate.id == "LIVE_RISK_POLICY_PARITY") {
+                                    gate.copy(status = VolumeConfirmedTrendApprovalGateStatus.FAIL, actual = "false")
+                                } else {
+                                    gate
+                                }
+                            },
+                        readyForHumanReview = false,
+                    )
+
+                shouldThrow<IllegalArgumentException> {
+                    validateVolumeConfirmedTrendLiveCurrentShadow(
+                        approval = approval,
+                        currentState = currentShadowState(),
+                        currentReport = currentReport,
+                        protocol = protocol(),
+                        forwardPolicy = policy(),
+                        now = Instant.parse(APPROVED_AT),
+                    )
+                }.message shouldBe "Current trend Shadow report no longer passes every forward gate."
             }
         }
 

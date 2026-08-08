@@ -24,12 +24,41 @@ export function parseArgs(argv) {
     values.set(name, rest.join("="));
   }
   const maximumDailyLossFraction = Number(values.get("maximum-daily-loss-fraction"));
+  const maximumAccountDrawdownFraction = Number(values.get("maximum-account-drawdown-fraction"));
   const maximumConsecutiveLosses = Number(values.get("maximum-consecutive-losses"));
+  const riskStateMaximumAgeSeconds = Number(values.get("risk-state-maximum-age-seconds"));
+  const walletReconciliationMaximumAgeSeconds = Number(
+    values.get("wallet-reconciliation-maximum-age-seconds"),
+  );
+  const walletReconciliationConfirmedMismatchCount = Number(
+    values.get("wallet-reconciliation-confirmed-mismatch-count"),
+  );
   if (!Number.isFinite(maximumDailyLossFraction)) {
     throw new Error("--maximum-daily-loss-fraction is required.");
   }
   if (!Number.isInteger(maximumConsecutiveLosses)) {
     throw new Error("--maximum-consecutive-losses is required.");
+  }
+  if (!Number.isFinite(maximumAccountDrawdownFraction)) {
+    throw new Error("--maximum-account-drawdown-fraction is required.");
+  }
+  if (!Number.isInteger(riskStateMaximumAgeSeconds)) {
+    throw new Error("--risk-state-maximum-age-seconds is required.");
+  }
+  if (!Number.isInteger(walletReconciliationMaximumAgeSeconds)) {
+    throw new Error("--wallet-reconciliation-maximum-age-seconds is required.");
+  }
+  if (!Number.isInteger(walletReconciliationConfirmedMismatchCount)) {
+    throw new Error("--wallet-reconciliation-confirmed-mismatch-count is required.");
+  }
+  if (maximumAccountDrawdownFraction <= 0 || maximumAccountDrawdownFraction > 1) {
+    throw new Error("--maximum-account-drawdown-fraction must be in (0, 1].");
+  }
+  if (riskStateMaximumAgeSeconds <= 0 || walletReconciliationMaximumAgeSeconds <= 0) {
+    throw new Error("Risk and wallet maximum ages must be positive seconds.");
+  }
+  if (walletReconciliationConfirmedMismatchCount <= 0) {
+    throw new Error("--wallet-reconciliation-confirmed-mismatch-count must be positive.");
   }
   return {
     protocol: resolve(values.get("protocol") ?? "config/volume-confirmed-trend-ensemble-v1.json"),
@@ -41,16 +70,22 @@ export function parseArgs(argv) {
       values.get("out") ?? "build/research/volume-confirmed-trend-live-risk-parity-audit.json",
     ),
     maximumDailyLossFraction,
+    maximumAccountDrawdownFraction,
     maximumConsecutiveLosses,
+    riskStateMaximumAgeSeconds,
+    walletReconciliationMaximumAgeSeconds,
+    walletReconciliationConfirmedMismatchCount,
   };
 }
 
 export async function runRiskParityAudit(options) {
   const protocolBytes = await readFile(options.protocol);
   const protocol = validateTrendProtocol(JSON.parse(protocolBytes));
-  const externalResult = JSON.parse(await readFile(options.externalResult, "utf8"));
+  const externalResultBytes = await readFile(options.externalResult);
+  const externalResult = JSON.parse(externalResultBytes.toString("utf8"));
   const databaseBytes = await readFile(options.db);
   const protocolSha256 = sha256(protocolBytes);
+  const externalResultSha256 = sha256(externalResultBytes);
   const databaseSha256 = sha256(databaseBytes);
   requireEqual(protocolSha256, externalResult.protocol?.sha256, "protocol SHA-256");
   requireEqual(databaseSha256, externalResult.acquisitionEvidence?.databaseSha256, "database SHA-256");
@@ -97,20 +132,23 @@ export async function runRiskParityAudit(options) {
   });
   return {
     schemaVersion: 1,
-    auditId: `${protocol.protocolId}-live-risk-parity-audit`,
-    generatedAt: new Date().toISOString(),
-    protocolId: protocol.protocolId,
-    candidateId: protocol.candidateId,
+    resultId: `${protocol.protocolId}-live-risk-parity-result`,
+    protocol: {
+      id: protocol.protocolId,
+      candidateId: protocol.candidateId,
+      sha256: protocolSha256,
+    },
     sourceEvidence: {
-      protocolPath: options.protocol,
-      protocolSha256,
-      externalResultPath: options.externalResult,
-      databasePath: options.db,
+      externalResultSha256,
       databaseSha256,
     },
     runtimeRiskPolicy: {
       maximumDailyLossFraction: options.maximumDailyLossFraction,
+      maximumAccountDrawdownFraction: options.maximumAccountDrawdownFraction,
       maximumConsecutiveLosses: options.maximumConsecutiveLosses,
+      riskStateMaximumAgeSeconds: options.riskStateMaximumAgeSeconds,
+      walletReconciliationMaximumAgeSeconds: options.walletReconciliationMaximumAgeSeconds,
+      walletReconciliationConfirmedMismatchCount: options.walletReconciliationConfirmedMismatchCount,
     },
     canonicalBaseline: {
       startingEquityUsdt: run.startingEquityUsdt,
@@ -119,7 +157,13 @@ export async function runRiskParityAudit(options) {
       closedTradeCount: run.closedTradeCount,
     },
     audit,
-    decision: audit.frozenPathReproducible ? "RISK_POLICY_PARITY_CONFIRMED" : "BLOCK_LIVE_EXECUTION",
+    status: audit.frozenPathReproducible ? "PASS" : "FAIL",
+    decision: {
+      riskPolicyParityPassed: audit.frozenPathReproducible,
+      automaticExecutionAllowed: false,
+      liveExecutionAllowed: false,
+      reasonCodes: audit.reasonCodes,
+    },
   };
 }
 

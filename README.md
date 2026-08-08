@@ -42,13 +42,19 @@ Initial public repository placeholder for a Bybit trading automation project.
 > `0.0734%`, conservative intrabar MDD `30.58%`, win rate `26.06%`, and
 > Profit Factor `1.73`. Double costs remained positive. Node/Kotlin core
 > parity and persisted Shadow runtime replay both passed with zero mismatch.
-> This is historical evidence, not a forward profitability claim. The status
-> is `SHADOW_COLLECTING`; automatic and live execution remain disabled until a
-> continuous fresh Bybit Shadow session reaches the frozen 90-day, trade,
-> transition, return, Profit Factor, drawdown, exposure, staleness, and zero
-> liquidation gates, followed by explicit human review. See the
+> This is historical evidence, not a forward profitability claim. A later
+> audit proved that the Live-only 3% daily-loss and three-consecutive-loss
+> entry blocks are absent from the frozen replay; the first frozen closure
+> already breaches the daily proxy and the first three closures are losses.
+> The current approval status is therefore `RUNTIME_PARITY_REQUIRED`, with the
+> mandatory `LIVE_RISK_POLICY_PARITY` gate failed. A 90-day Shadow session or
+> an edited approval receipt cannot bypass it. Automatic and live execution
+> remain disabled until the risk policy is either removed from v1 or included
+> in a new fully revalidated protocol, followed by fresh Shadow evidence and
+> explicit human review. See the
 > [external result](docs/backend/volume-confirmed-trend-ensemble-v1-external-result-2026-08-07.md),
 > [runtime parity report](docs/backend/volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md),
+> [Live risk parity report](docs/backend/volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md),
 > and [container smoke report](docs/backend/volume-confirmed-trend-ensemble-v1-container-smoke-2026-08-07.md).
 >
 > **Event-flow program closed (2026-08-06):** six predeclared continuation and

@@ -11,9 +11,11 @@ data class VolumeConfirmedTrendHistoricalEvidence(
     val externalResultSha256: String,
     val kotlinCoreParityResultSha256: String,
     val runtimeReplayParityResultSha256: String,
+    val liveRiskPolicyParityResultSha256: String,
     val externalVenuePassed: Boolean,
     val kotlinCoreParityPassed: Boolean,
     val runtimeReplayParityPassed: Boolean,
+    val liveRiskPolicyParityPassed: Boolean,
 )
 
 data class VolumeConfirmedTrendForwardPolicy(
@@ -93,6 +95,7 @@ object VolumeConfirmedTrendApprovalGateContract {
             "EXTERNAL_VENUE_HISTORY",
             "KOTLIN_CORE_PARITY",
             "RUNTIME_REPLAY_PARITY",
+            "LIVE_RISK_POLICY_PARITY",
             "FRESH_SHADOW_DAYS",
             "CLOSED_TRADES",
             "EXECUTED_TRANSITIONS",
@@ -157,6 +160,12 @@ class VolumeConfirmedTrendApprovalService(
                 id = "RUNTIME_REPLAY_PARITY",
                 passed = historicalEvidence.runtimeReplayParityPassed,
                 reason = "Historical and persisted Shadow execution traces must match.",
+            )
+        gates +=
+            booleanGate(
+                id = "LIVE_RISK_POLICY_PARITY",
+                passed = historicalEvidence.liveRiskPolicyParityPassed,
+                reason = "Frozen validation and Live entry-risk state transitions must match.",
             )
 
         if (shadowReport == null) {
@@ -320,6 +329,7 @@ class VolumeConfirmedTrendApprovalService(
             !historicalEvidence.externalVenuePassed || !historicalEvidence.kotlinCoreParityPassed ->
                 VolumeConfirmedTrendApprovalStatus.HISTORICAL_EVIDENCE_REJECTED
             !historicalEvidence.runtimeReplayParityPassed -> VolumeConfirmedTrendApprovalStatus.RUNTIME_PARITY_REQUIRED
+            !historicalEvidence.liveRiskPolicyParityPassed -> VolumeConfirmedTrendApprovalStatus.RUNTIME_PARITY_REQUIRED
             else -> null
         }
 

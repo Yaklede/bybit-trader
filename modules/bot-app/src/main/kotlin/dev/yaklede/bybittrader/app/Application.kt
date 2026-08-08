@@ -236,9 +236,30 @@ fun main() {
         loadVolumeConfirmedTrendApprovalDefinition(
             protocolPath = Path.of(config.volumeConfirmedTrendShadow.protocolPath),
         )
+    val trendLiveRiskPolicy =
+        config.execution.toVolumeConfirmedTrendLiveRiskPolicy(
+            approvalMaximumDrawdownFraction =
+                BigDecimal
+                    .valueOf(trendApprovalDefinition.forwardPolicy.maximumDrawdownPct)
+                    .movePointLeft(2),
+        )
+    val liveRiskPolicyMatchesFrozenEvidence =
+        trendLiveRiskPolicy.matchesFrozenApprovalPolicy(trendApprovalDefinition.liveRiskPolicy)
+    val trendHistoricalEvidence =
+        trendApprovalDefinition.historicalEvidence.copy(
+            liveRiskPolicyParityPassed =
+                verifiedVolumeConfirmedTrendLiveRiskPolicyParity(
+                    artifactPassed = trendApprovalDefinition.historicalEvidence.liveRiskPolicyParityPassed,
+                    runtime = trendLiveRiskPolicy,
+                    frozen = trendApprovalDefinition.liveRiskPolicy,
+                ),
+        )
+    if (!liveRiskPolicyMatchesFrozenEvidence) {
+        logger.warn("volume-confirmed trend runtime risk policy does not match frozen approval evidence")
+    }
     val trendApprovalService =
         VolumeConfirmedTrendApprovalService(
-            historicalEvidence = trendApprovalDefinition.historicalEvidence,
+            historicalEvidence = trendHistoricalEvidence,
             forwardPolicy = trendApprovalDefinition.forwardPolicy,
             shadowReportProvider = { trendShadowService?.report(100_000) },
         )
@@ -251,7 +272,7 @@ fun main() {
         }
     logger.info(
         "volume-confirmed trend approval evidence loaded protocolId={} policyId={} automaticExecution=false liveExecution=false",
-        trendApprovalDefinition.historicalEvidence.protocolId,
+        trendHistoricalEvidence.protocolId,
         trendApprovalDefinition.forwardPolicy.policyId,
     )
     val trendLiveRuntimeApprovalAttempt =
@@ -590,13 +611,6 @@ fun main() {
             protocolId = trendProtocolDefinition.protocolId,
             protocolSha256 = trendProtocolDefinition.protocolSha256,
             symbol = trendProtocolDefinition.symbol,
-        )
-    val trendLiveRiskPolicy =
-        config.execution.toVolumeConfirmedTrendLiveRiskPolicy(
-            approvalMaximumDrawdownFraction =
-                BigDecimal
-                    .valueOf(trendApprovalDefinition.forwardPolicy.maximumDrawdownPct)
-                    .movePointLeft(2),
         )
     val trendLiveEvidenceService =
         VolumeConfirmedTrendLiveEvidenceService(

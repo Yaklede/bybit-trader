@@ -473,10 +473,17 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
 외부 재생은 첫 종료 거래에서 H4 UTC 일 시작 equity 대비 `3.97421066%` 손실 프록시를 기록하고,
 첫 세 거래가 연속 손실이며 최대 연속 손실은 11건이다. 현재 Live 정책은 첫 반전부터 진입 시각을 바꿀
 수 있고, 동일한 첫 세 종료가 발생하면 자동 복구가 불가능하므로 동결 수익 경로를 재현하지 못한다.
-진단 CLI는 동결 protocol·DB SHA 및 승인 지표를 대조하고 `BLOCK_LIVE_EXECUTION`을 반환한다. Human owner가
+진단 CLI는 동결 protocol·DB SHA 및 승인 지표를 대조하고 `riskPolicyParityPassed=false`를 반환한다. Human owner가
 해당 제한을 H4 v1에서 명시적으로 비활성화할지, 새 protocol에 포함해 전체 재검증할지 선택하기 전까지
 완료로 보지 않는다. 상세 근거는
 `volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md`에 기록했다.
+
+실패 결과는 결정적 config artifact로 동결해 승인 서비스의 필수 `LIVE_RISK_POLICY_PARITY` 게이트에
+연결했다. 현재 게이트는 `FAIL`, 승인 상태는 `RUNTIME_PARITY_REQUIRED`이므로 Shadow의 나머지 조건과 사람
+승인 영수증이 갖춰져도 Live 시작 검증을 통과할 수 없다. Docker 이미지와 온프레미스 배포 패키지도 같은
+artifact를 포함하며, 변조된 artifact는 고정 SHA 검증에서 앱 시작 전에 거부된다. 배포 환경에서 계산한
+일 손실·MDD·연속 손실·위험 상태 및 지갑 대사 freshness 계약도 artifact 값과 필드별로 같아야 하므로,
+검증되지 않은 더 엄격한 설정이나 완화된 설정 모두 승인 증거를 재사용할 수 없다.
 
 그 밖에 아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다.
@@ -492,6 +499,7 @@ fresh Bybit Shadow 90일 및 별도 사람 승인이다.
 - [x] 순수 target planner와 결정적 테스트를 구현한다.
 - [x] Live store와 fault-injection 테스트를 구현한다.
 - [x] Bybit account mode/instrument 및 exact-order adapter를 구현한다.
+- [x] 미해결 Live 위험 정책 패리티를 필수 fail-closed 승인 게이트로 연결한다.
 - [ ] Live 전용 일 손실·연속 손실 정책의 제거 또는 protocol 포함을 결정하고 다시 패리티 검증한다.
 - [ ] 90일 Shadow와 사람 승인 후에만 TESTNET/LIVE 경로를 활성화한다.
 
