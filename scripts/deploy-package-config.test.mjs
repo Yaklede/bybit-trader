@@ -61,6 +61,16 @@ test("on-prem deployment packages and runs profile-specific post-deploy verifica
   );
 });
 
+test("on-prem deployment is a dry-run unless host deployment is explicitly selected", () => {
+  assert.match(workflow, /deploy:[\s\S]*type: boolean[\s\S]*default: false/);
+  assert.match(workflow, /name: Validate on-prem connection secrets\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
+  assert.match(workflow, /name: Connect to Twingate\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
+  assert.match(workflow, /name: Prepare remote Docker directories\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
+  assert.match(workflow, /name: Upload Docker deployment package\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
+  assert.match(workflow, /name: Load images and restart compose services\n\s+if: \$\{\{ inputs\.deploy == true \}\}/);
+  assert.match(workflow, /name: Report dry-run result\n\s+if: \$\{\{ inputs\.deploy != true \}\}/);
+});
+
 test("runtime image includes sqlite tooling for consistent deploy backups", () => {
   const dockerfile = fs.readFileSync("Dockerfile", "utf8");
   assert.match(dockerfile, /apt-get install -y --no-install-recommends curl ca-certificates sqlite3/);

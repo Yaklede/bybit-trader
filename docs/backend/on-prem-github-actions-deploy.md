@@ -326,7 +326,12 @@ disaster-recoverable.
 
 ## Trigger
 
-The workflow is currently `workflow_dispatch` only so it will not fail on pushes
-before Twingate and SSH secrets are installed. After the deployment secrets are
-configured and a Docker deploy succeeds, add a guarded `push` trigger if fully
-automatic main-branch deployment is desired.
+The workflow is `workflow_dispatch` only. Its `deploy` input defaults to `false`.
+That default builds both images and validates the generated runtime environment,
+but skips connection-secret validation, Twingate, SCP, SSH, and Compose restart.
+Select `deploy=true` only after the dry-run passes and a host change is explicitly
+approved.
+
+No push trigger should be added while the frozen strategy still requires human
+review. A later automatic deployment policy must retain the approval fingerprint
+gate and an explicit protected-environment review.
