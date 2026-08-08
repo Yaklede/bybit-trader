@@ -4,11 +4,13 @@ The deployment workflow is `.github/workflows/deploy-onprem.yml`. Runtime
 maintenance is split into `.github/workflows/monitor-onprem.yml` and
 `.github/workflows/backup-onprem.yml`.
 
-It uses the official `twingate/github-action@v1` action to connect a GitHub
-runner to the Twingate-protected on-prem host, builds a Docker image, uploads
-the image tarball and Compose files with `appleboy/scp-action@v1`, runs remote
-Docker commands with `appleboy/ssh-action@v1`, and restarts the service with
-Docker Compose.
+It uses the Twingate GitHub Action to connect a GitHub runner to the
+Twingate-protected on-prem host, builds a Docker image, uploads the image
+tarball and Compose files with the appleboy SCP Action, runs remote Docker
+commands with the appleboy SSH Action, and restarts the service with Docker
+Compose. Every external Action reference is pinned to an immutable 40-character
+commit SHA. The adjacent version comment is informational; Dependabot tracks
+GitHub Actions weekly and proposes reviewed SHA updates.
 
 ## Required GitHub Environment
 
@@ -187,14 +189,18 @@ deployment values only.
 
 ## Workflow Actions
 
-- `twingate/github-action@v1`: attaches the GitHub runner to the private
+- `twingate/github-action`: attaches the GitHub runner to the private
   Twingate network with `TWINGATE_SERVICE_KEY`.
-- `appleboy/scp-action@v1`: uploads `deploy-package` contents to
+- `appleboy/scp-action`: uploads `deploy-package` contents to
   `ONPREM_DEPLOY_DIR/.deploy-staging-<GitHub run ID>`.
-- `appleboy/ssh-action@v1`: invokes the staged
+- `appleboy/ssh-action`: invokes the staged
   `bin/activate-runtime-release.sh`, which loads images, validates a pre-deploy
   state backup, activates the candidate, checks the dashboard and `/health`, and
   runs `bin/verify-runtime-profile.sh`.
+
+All workflows declare top-level `contents: read` permissions. The contract test
+`scripts/github-actions-security.test.mjs` rejects mutable Action refs or a
+workflow that omits this least-privilege boundary.
 
 Before restart, `bin/backup-runtime-state.sh` writes a consistent SQLite backup
 to `ONPREM_DEPLOY_DIR/backups/<UTC timestamp>` and retains the latest 14

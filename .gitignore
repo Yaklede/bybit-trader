@@ -12,6 +12,7 @@ config/application.prod.conf
 
 # Build outputs
 .gradle/
+.gradle-local/
 .kotlin/
 build/
 out/

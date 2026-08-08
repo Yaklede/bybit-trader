@@ -36,8 +36,8 @@ test("scheduled maintenance remains opt-in while manual dispatch stays available
 });
 
 test("external monitor checks both services and requires a steady frozen profile", () => {
-  assert.match(monitorWorkflow, /twingate\/github-action@v1/);
-  assert.match(monitorWorkflow, /appleboy\/ssh-action@v1/);
+  assert.match(monitorWorkflow, /twingate\/github-action@[0-9a-f]{40}/);
+  assert.match(monitorWorkflow, /appleboy\/ssh-action@[0-9a-f]{40}/);
   assert.match(monitorWorkflow, /ps --status running -q bybit-trader\)/);
   assert.match(monitorWorkflow, /ps --status running -q bybit-trader-dashboard\)/);
   assert.match(monitorWorkflow, /\/api\/health/);

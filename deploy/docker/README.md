@@ -117,8 +117,9 @@ The on-prem GitHub Actions workflow first runs every Node research and deploymen
 contract test, then builds the backend and dashboard Docker images. The backend
 Docker build also runs the complete Gradle test, lint, and build gate. It saves
 both images as tarballs, connects to the private host through Twingate, uploads
-the package with `appleboy/scp-action@v1`, and restarts the containers with
-`appleboy/ssh-action@v1`.
+the package with the SHA-pinned appleboy SCP Action, and restarts the containers
+with the SHA-pinned appleboy SSH Action. Every workflow has read-only repository
+permissions, and Dependabot proposes weekly updates for the pinned Action SHAs.
 
 Required GitHub Environment secrets are documented in
 `docs/backend/on-prem-github-actions-deploy.md`. Keep Bybit keys, alert tokens,

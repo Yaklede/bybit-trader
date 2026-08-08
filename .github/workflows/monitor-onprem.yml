@@ -52,12 +52,12 @@ jobs:
           esac
 
       - name: Connect to Twingate
-        uses: twingate/github-action@v1
+        uses: twingate/github-action@f1e69fc5af67b737d8597b759e5c607f567e77f2 # v1
         with:
           service-key: ${{ secrets.TWINGATE_SERVICE_KEY }}
 
       - name: Verify runtime from outside the host
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.ONPREM_SSH_HOST }}
           username: ${{ secrets.ONPREM_SSH_USER }}
