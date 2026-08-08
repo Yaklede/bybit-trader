@@ -37,13 +37,10 @@ Required runtime secrets:
 
 - `BOT_CONTROL_TOKEN`: private API control token for status/control/backtest
   endpoints.
-- `BYBIT_API_KEY`: Bybit API key. Required only outside isolated `PAPER` mode.
-- `BYBIT_API_SECRET`: Bybit API secret. Required only outside isolated `PAPER`
-  mode.
 
-In `PAPER` mode, the workflow writes both Bybit credentials as empty values to
-the remote runtime env even when the GitHub secrets exist. This keeps the
-forward Shadow container unable to submit a private order.
+The Shadow workflow does not read `BYBIT_API_KEY` or `BYBIT_API_SECRET`. It
+writes both fields as empty values, so credentials already stored in the GitHub
+Environment cannot enter the runtime package.
 
 Optional runtime secrets:
 
@@ -51,15 +48,11 @@ Optional runtime secrets:
 - `DISCORD_WEBHOOK_URL`: required only when `DISCORD_ALERTS_ENABLED=true`.
 
 Runtime variables can be set in the GitHub Environment Variables tab. The
-workflow has safe defaults for all of these, so only set values you want to
-override:
+following values affect the deployed Shadow runtime:
 
-- `BOT_MODE`: default `PAPER`. Use `TESTNET` with testnet keys only for private
-  exchange contract testing.
 - `BOT_API_HOST`: default `0.0.0.0`.
 - `BOT_API_PORT`: default `8080`.
 - `BOT_DATABASE_PATH`: default `/data/bybit-trader.sqlite`.
-- `BOT_SYMBOL`: default `BTCUSDT`.
 - `BOT_TIMEFRAMES`: default `M1,M5,M15`.
 - `BOT_VOLUME_FLOW_COMPOSITE_CONFIG_PATH`: defaults to the packaged
   `volume-flow-composite-current.json` file under the container config mount.
@@ -68,65 +61,19 @@ override:
 - `BOT_FORWARD_MARKET_CAPTURE_ENABLED`: default `false`. Set `true` to record
   public order-book, taker-trade, and liquidation data for future research
   only. This does not submit orders or change the active strategy.
-- `BYBIT_PUBLIC_WEBSOCKET_URL`: optional. Defaults by `BOT_MODE` to Bybit's
-  public linear WebSocket URL.
+- `BYBIT_PUBLIC_WEBSOCKET_URL`: optional. Defaults to Bybit's production public
+  linear WebSocket URL.
 - `BOT_FORWARD_ORDER_BOOK_DEPTH`: default `50`, valid range `1` to `50`.
 - `BOT_FORWARD_RAW_ARCHIVE_ENABLED`: defaults to the forward-capture setting.
   When enabled, public WebSocket payloads and quality metadata are written to
   sealed minute gzip NDJSON segments.
 - `BOT_FORWARD_RAW_ARCHIVE_PATH`: default `/data/market-events`. Only sealed
   `.ndjson.gz` files are complete; `.part` files indicate an interrupted segment.
-- `BYBIT_PRIVATE_BASE_URL`: defaults from `BOT_MODE`: `https://api.bybit.com`
-  for `LIVE`, `https://api-testnet.bybit.com` for `TESTNET`.
-- `BYBIT_PRIVATE_WEBSOCKET_URL`: optional. Defaults to
-  `wss://stream.bybit.com/v5/private` for `LIVE` and
-  `wss://stream-testnet.bybit.com/v5/private` for `TESTNET`.
-- `BYBIT_RECV_WINDOW_MILLIS`: default `5000`.
-- `BYBIT_POSITION_IDX`: default `0`.
-- `BOT_PRIVATE_EXECUTION_ENABLED`: default `false`.
-- `BOT_PRIVATE_EXECUTION_STREAM_ENABLED`: defaults to the private execution
-  setting, which is `false`. Private execution and order updates persist fills,
-  classify IOC terminal states, and wake reconciliation immediately; REST
-  remains the recovery path.
-- `BOT_EXECUTION_LOOP_ENABLED`: default `false`.
-- `BOT_EXECUTION_RECONCILIATION_ENABLED`: deployment default `false`; when
-  explicitly enabled outside `PAPER`, it observes private
-  order, position, fill, and closed-PnL state without enabling automatic entry.
-- `BOT_EXECUTION_RECONCILIATION_INTERVAL_SECONDS`: default `60`.
-- `BOT_EXECUTION_WALLET_RECONCILIATION_ENABLED`: default `true`; automatic
-  entries require a fresh matched USDT wallet/transaction-log state.
-- `BOT_EXECUTION_WALLET_RECONCILIATION_TOLERANCE`: default `0.01` USDT.
-- `BOT_EXECUTION_WALLET_RECONCILIATION_MAX_AGE_SECONDS`: default `180`.
-- `BOT_EXECUTION_WALLET_RECONCILIATION_CONFIRMED_MISMATCHES`: default `3`.
-- `BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE`: default `false`. This legacy
-  override is limited to future unverified TESTNET candidates. It cannot enable
-  the rejected `absa_final_us_v1` profile, and LIVE requires a verified profile.
-- `BOT_EXECUTION_TIMEFRAME`: default `M5`.
-- `BOT_EXECUTION_CANDLE_LIMIT`: default `18000`.
-- `BOT_EXECUTION_SYNC_LIMIT`: default `1000`.
-- `BOT_EXECUTION_ALERT_BATCH_LIMIT`: default `100`.
-- `BOT_EXECUTION_INTERVAL_SECONDS`: default `300`.
-- `BOT_EXECUTION_ACCOUNT_EQUITY`: default `660`.
-- `BOT_EXECUTION_USE_LIVE_EQUITY`: default `true`.
-- `BOT_EXECUTION_RISK_FRACTION`: default `0.055`.
-- `BOT_EXECUTION_FEE_RATE`: default `0.0006`.
-- `BOT_EXECUTION_SLIPPAGE_BUFFER_RATE`: default `0.0002`.
-- `BOT_EXECUTION_QTY_STEP`: default `0.001`.
-- `BOT_EXECUTION_MIN_QTY`: default `0.001`.
-- `BOT_EXECUTION_MAX_QTY`: unset by default.
-- `BOT_EXECUTION_MAX_NOTIONAL`: default `100` during live observation.
-- `BOT_EXECUTION_LEVERAGE`: default `15`.
-- `BOT_EXECUTION_PRICE_TICK`: default `0.1` for BTCUSDT protection-price normalization.
-- `BOT_EXECUTION_PROTECTION_GRACE_SECONDS`: default `120`; an automatic
-  position whose actual-fill TP/SL cannot be verified by this deadline is
-  submitted for reduce-only closure. Manual and smoke-test positions are not
-  included in this automatic fail-closed rule.
-- `BOT_EXECUTION_MAX_ENTRY_DELAY_SECONDS`: default `30`; an automatic signal is
-  rejected after this many seconds from the closed-candle boundary. Missing the
-  latest closed candle is rejected independently of this setting.
-- `BOT_EXECUTION_MAX_ACTUAL_RISK_OVERRUN_FRACTION`: default `0.05`; a position
-  whose actual-fill cost-adjusted risk exceeds the persisted budget by more than
-  this fraction is submitted for reduce-only closure.
+- Legacy Paper, maker, and private-execution tuning values may remain in the
+  Environment for compatibility with older deployments, but cannot activate a
+  loop in this workflow. The generated profile fixes `BOT_MODE=PAPER`,
+  `BOT_SYMBOL=BTCUSDT`, live equity disabled, leverage `1`, and every private or
+  order-producing flag to `false`.
 - `TELEGRAM_ALERTS_ENABLED`: default `false`.
 - `TELEGRAM_CHAT_ID`: unset by default.
 - `DISCORD_ALERTS_ENABLED`: default `false`.
@@ -142,28 +89,20 @@ than an `onprem-live` Environment variable:
   condition before Environment variables become available; see the official
   [GitHub `vars` context reference](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#vars-context).
 
-The deploy workflow rejects `BOT_EXECUTION_LOOP_ENABLED=true` while the frozen
-forward policy has `decision.liveExecutionAllowed=false`. It also rejects a
-trend Shadow deployment if Paper execution, maker Shadow, private execution, or
-private reconciliation is enabled in the same runtime.
+The deploy workflow is frozen in source to `BOT_MODE=PAPER`, H4 trend Shadow
+enabled, and every Paper, maker, private, automatic-execution, and private
+reconciliation loop disabled. It does not read the corresponding mutable GitHub
+Environment variables and does not inject Bybit private credentials into the
+runtime package. TESTNET and LIVE require a separate reviewed workflow after
+forward evidence and human approval are frozen.
 
 ## Frozen Trend Shadow Rollout
 
 The current candidate is not approved for automatic orders. Its next required
 gate is one continuous 90-day forward observation using public Bybit data only.
-Set the `onprem-live` Environment variables to this isolated configuration
-before dispatching the workflow:
-
-```bash
-gh variable set BOT_MODE --env onprem-live --body PAPER
-gh variable set BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED --env onprem-live --body true
-gh variable set BOT_PAPER_LOOP_ENABLED --env onprem-live --body false
-gh variable set BOT_MAKER_SHADOW_ENABLED --env onprem-live --body false
-gh variable set BOT_PRIVATE_EXECUTION_ENABLED --env onprem-live --body false
-gh variable set BOT_PRIVATE_EXECUTION_STREAM_ENABLED --env onprem-live --body false
-gh variable set BOT_EXECUTION_LOOP_ENABLED --env onprem-live --body false
-gh variable set BOT_EXECUTION_RECONCILIATION_ENABLED --env onprem-live --body false
-```
+`Deploy Trend Shadow On-Prem` generates that isolated profile directly from the
+reviewed workflow. Stale `BOT_MODE`, private-execution, legacy-loop, leverage,
+or live-equity variables in `onprem-live` cannot change the generated profile.
 
 The deployment package includes the frozen protocol, bootstrap, external
 validation, Kotlin parity, runtime parity, and forward-policy JSON files. The
@@ -215,8 +154,11 @@ Templates:
 ## Runtime Env Generation
 
 The workflow generates the application runtime env beneath the configured
-deploy directory from the `onprem-live` GitHub Environment secrets and
-variables on every deploy. Keep `.env.example` as the local shape reference:
+deploy directory on every deploy. Only operational values such as API binding,
+control token, alert configuration, and optional public market capture remain
+configurable. Strategy mode, H4 evidence settings, private keys, order flags,
+and leverage are frozen to the non-ordering Shadow profile. Keep `.env.example`
+as the local shape reference:
 
 ```bash
 cp .env.example .env
@@ -228,9 +170,6 @@ variables:
 
 ```bash
 gh secret set BOT_CONTROL_TOKEN --env onprem-live
-gh secret set BYBIT_API_KEY --env onprem-live
-gh secret set BYBIT_API_SECRET --env onprem-live
-gh variable set BOT_EXECUTION_MAX_NOTIONAL --env onprem-live --body 100
 # Optional forward-only research collection
 gh variable set BOT_FORWARD_MARKET_CAPTURE_ENABLED --env onprem-live --body true
 gh variable set BOT_FORWARD_ORDER_BOOK_DEPTH --env onprem-live --body 50

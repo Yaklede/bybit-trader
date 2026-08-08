@@ -81,17 +81,59 @@ test("runtime image includes sqlite tooling for consistent deploy backups", () =
   assert.match(ciWorkflow, /BOT_PRIVATE_EXECUTION_ENABLED=false/);
 });
 
-test("on-prem deployment defaults cannot enable private execution", () => {
-  assert.match(workflow, /BOT_MODE: \$\{\{ vars\.BOT_MODE \|\| 'PAPER' \}\}/);
-  assert.match(workflow, /BOT_PRIVATE_EXECUTION_ENABLED: \$\{\{ vars\.BOT_PRIVATE_EXECUTION_ENABLED \|\| 'false' \}\}/);
-  assert.match(workflow, /BOT_EXECUTION_LOOP_ENABLED: \$\{\{ vars\.BOT_EXECUTION_LOOP_ENABLED \|\| 'false' \}\}/);
-  assert.match(workflow, /BOT_EXECUTION_RECONCILIATION_ENABLED: \$\{\{ vars\.BOT_EXECUTION_RECONCILIATION_ENABLED \|\| 'false' \}\}/);
-  assert.match(workflow, /BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: \$\{\{ vars\.BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED \|\| 'false' \}\}/);
+test("on-prem deployment is frozen to public-data-only trend Shadow", () => {
+  const envBlock = workflow.match(/- name: Build runtime env file[\s\S]*?\n\s+run: \|/)?.[0];
+  assert.ok(envBlock, "Build runtime env file step must exist");
+  assert.match(workflow, /^name: Deploy Trend Shadow On-Prem$/m);
+  assert.match(envBlock, /^\s+BOT_MODE: PAPER$/m);
+  assert.match(envBlock, /^\s+BOT_SYMBOL: BTCUSDT$/m);
+  assert.match(envBlock, /^\s+BOT_PAPER_LOOP_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_MAKER_SHADOW_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED: "true"$/m);
+  assert.match(envBlock, /^\s+BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_PRIVATE_EXECUTION_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_PRIVATE_EXECUTION_STREAM_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_EXECUTION_LOOP_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_EXECUTION_RECONCILIATION_ENABLED: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_EXECUTION_USE_LIVE_EQUITY: "false"$/m);
+  assert.match(envBlock, /^\s+BOT_EXECUTION_LEVERAGE: "1"$/m);
+  assert.match(envBlock, /^\s+"BYBIT_API_KEY": ""$/m);
+  assert.match(envBlock, /^\s+"BYBIT_API_SECRET": ""$/m);
+  assert.doesNotMatch(
+    envBlock,
+    /vars\.(BOT_MODE|BOT_SYMBOL|BOT_PAPER_LOOP_ENABLED|BOT_MAKER_SHADOW_ENABLED|BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED|BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED|BOT_PRIVATE_EXECUTION_ENABLED|BOT_PRIVATE_EXECUTION_STREAM_ENABLED|BOT_EXECUTION_LOOP_ENABLED|BOT_EXECUTION_RECONCILIATION_ENABLED|BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE)/,
+  );
+  assert.doesNotMatch(envBlock, /secrets\.(BYBIT_API_KEY|BYBIT_API_SECRET)/);
   assert.match(workflow, /policy\.decision\?\.liveExecutionAllowed !== true/);
   assert.match(workflow, /Automatic execution is blocked/);
   assert.match(workflow, /packaged human approval receipt is incomplete or not approved/);
   assert.match(workflow, /process\.env\.BYBIT_API_KEY = ""/);
   assert.match(workflow, /Trend Shadow requires an isolated PAPER runtime/);
+});
+
+test("checked-in runtime examples default to the same non-ordering Shadow profile", () => {
+  for (const file of [
+    ".env.example",
+    "deploy/docker/env/bybit-trader.env.example",
+    "deploy/systemd/bybit-trader.env.example",
+  ]) {
+    const values = parseEnvFile(fs.readFileSync(file, "utf8"));
+    assert.equal(values.BOT_MODE, "PAPER", file);
+    assert.equal(values.BOT_PAPER_LOOP_ENABLED, "false", file);
+    assert.equal(values.BOT_MAKER_SHADOW_ENABLED, "false", file);
+    assert.equal(values.BOT_VOLUME_CONFIRMED_TREND_SHADOW_ENABLED, "true", file);
+    assert.equal(values.BOT_VOLUME_CONFIRMED_TREND_LIVE_ENABLED, "false", file);
+    assert.equal(values.BYBIT_API_KEY, "", file);
+    assert.equal(values.BYBIT_API_SECRET, "", file);
+    assert.equal(values.BOT_PRIVATE_EXECUTION_ENABLED, "false", file);
+    assert.equal(values.BOT_PRIVATE_EXECUTION_STREAM_ENABLED, "false", file);
+    assert.equal(values.BOT_EXECUTION_LOOP_ENABLED, "false", file);
+    assert.equal(values.BOT_EXECUTION_RECONCILIATION_ENABLED, "false", file);
+    assert.equal(values.BOT_EXECUTION_ALLOW_UNVERIFIED_PROFILE, "false", file);
+    assert.equal(values.BOT_EXECUTION_USE_LIVE_EQUITY, "false", file);
+    assert.equal(values.BOT_EXECUTION_LEVERAGE, "1", file);
+  }
 });
 
 test("PAPER runtime generation strips private exchange credentials", () => {
@@ -217,6 +259,19 @@ test("trend live execution preserves an explicitly approved isolated runtime", (
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseEnvFile(source) {
+  return Object.fromEntries(
+    source
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line.includes("="))
+      .map((line) => {
+        const separator = line.indexOf("=");
+        return [line.slice(0, separator), line.slice(separator + 1)];
+      }),
+  );
 }
 
 function extractRuntimeEnvScript(source) {

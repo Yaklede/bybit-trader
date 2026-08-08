@@ -26,14 +26,23 @@ For manual host setup, copy these files to the host:
 
 ```bash
 cp compose.yaml /opt/bybit-trader/compose.yaml
-cp config/volume-flow-composite-current.json /opt/bybit-trader/config/
+cp \
+  config/volume-flow-composite-current.json \
+  config/volume-confirmed-trend-ensemble-v1.json \
+  config/volume-confirmed-trend-ensemble-v1-bootstrap.json \
+  config/volume-confirmed-trend-ensemble-v1-external-result.json \
+  config/volume-confirmed-trend-ensemble-v1-kotlin-parity-result.json \
+  config/volume-confirmed-trend-ensemble-v1-runtime-parity-result.json \
+  config/volume-confirmed-trend-ensemble-v1-forward-policy.json \
+  config/volume-confirmed-trend-live-approval.json \
+  /opt/bybit-trader/config/
 cp deploy/docker/env/bybit-trader.env.example /opt/bybit-trader/env/bybit-trader.env
 ```
 
-For GitHub Actions deployment, use `.env.example` as the local reference and
-configure matching values in the `onprem-live` GitHub Environment secrets and
-variables. The workflow generates the host runtime env file. Do not commit the
-real local `.env` file.
+For GitHub Actions deployment, use `.env.example` as the local reference. The
+workflow freezes the generated runtime to public-data-only H4 Shadow and ignores
+stale mutable LIVE/execution variables. It never injects Bybit private keys.
+Do not commit the real local `.env` file.
 
 ## Local Build And Run
 
@@ -100,14 +109,12 @@ Required GitHub Environment secrets are documented in
 and `BOT_CONTROL_TOKEN` only in the ignored local `.env` file or GitHub
 Environment secrets, not in the repository.
 
-## Live Startup Sequence
+## Current Startup Sequence
 
-1. Start with `BOT_EXECUTION_LOOP_ENABLED=false` and
-   `BOT_EXECUTION_RECONCILIATION_ENABLED=true`.
-2. Run `/execution/evaluate-and-submit` once with a small
-   `BOT_EXECUTION_MAX_NOTIONAL`.
-3. Run `/execution/reconcile`.
-4. Confirm the background reconciliation loop records Bybit order, TP/SL,
-   position, closure, and alert behavior.
-5. Do not enable `BOT_EXECUTION_LOOP_ENABLED` for the current rejected
-   aggressive profile. A replacement must pass its runtime replay gate first.
+1. Run the deployment workflow with `deploy=false` and confirm the dry-run.
+2. After explicit host-change approval, rerun it with `deploy=true`.
+3. Confirm the H4 status is `OBSERVING` and approval is
+   `SHADOW_COLLECTING` or `READY_FOR_HUMAN_REVIEW`.
+4. Manually run monitoring and backup once before enabling their schedules.
+5. Do not create a TESTNET/LIVE deployment workflow until the continuous
+   forward gate and explicit human approval are frozen.

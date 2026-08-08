@@ -221,12 +221,12 @@ fetches missing M5 history before evaluation. The rejected
 for audit comparison only. Run `node scripts/bot-preflight.mjs` before on-prem
 deployment.
 
-For Docker live execution, use `BOT_MODE=LIVE`, set `BYBIT_API_KEY` and
-`BYBIT_API_SECRET`, and enable `BOT_PRIVATE_EXECUTION_ENABLED`. Keep
-`BOT_EXECUTION_LOOP_ENABLED=false` and
-`BOT_EXECUTION_RECONCILIATION_ENABLED=true` during manual live observation. A
-future automatic profile also requires its own replay gate; the current profile
-is blocked by default.
+The checked-in `.env.example` and on-prem deployment workflow run only the
+public-data H4 Shadow profile. They intentionally leave Bybit private keys empty
+and every order-producing path disabled. TESTNET/LIVE requires a separate
+reviewed deployment workflow after continuous forward evidence and explicit
+human approval are frozen; editing the example file alone is not an approval
+path.
 
 Docker build:
 
