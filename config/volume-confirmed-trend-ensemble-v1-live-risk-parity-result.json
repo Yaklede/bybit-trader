@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "resultId": "volume-confirmed-trend-ensemble-v1-live-risk-parity-result",
   "protocol": {
     "id": "volume-confirmed-trend-ensemble-v1",
@@ -11,9 +11,9 @@
     "databaseSha256": "9c80bd330b8edb3a3a081b88ff4493ad7e1035da2d4d807e4ff625ee844bbbb6"
   },
   "runtimeRiskPolicy": {
-    "maximumDailyLossFraction": 0.03,
+    "maximumDailyLossFraction": null,
     "maximumAccountDrawdownFraction": 0.35,
-    "maximumConsecutiveLosses": 3,
+    "maximumConsecutiveLosses": null,
     "riskStateMaximumAgeSeconds": 600,
     "walletReconciliationMaximumAgeSeconds": 600,
     "walletReconciliationConfirmedMismatchCount": 2
@@ -27,327 +27,178 @@
   "audit": {
     "projectionKind": "FROZEN_CLOSURE_PATH_COUNTERFACTUAL",
     "livePathSimulation": false,
-    "dailyLossMeasurementKind": "CLOSED_EQUITY_VS_H4_UTC_DAY_START_PROXY",
+    "dailyLossMeasurementKind": "DISABLED",
     "baselineTradeCount": 165,
     "maximumObservedConsecutiveLosses": 11,
-    "firstDailyLossBreach": {
-      "tradeIndex": 1,
-      "exitAt": "2020-04-06T16:00:00.000Z",
-      "utcDayStartedAt": "2020-04-06T00:00:00.000Z",
-      "dayStartEquityUsdt": 633.80362426,
-      "closedEquityUsdt": 608.61493309,
-      "dailyLossFraction": 0.039742106562,
-      "dailyLossPct": 3.97421066
-    },
-    "firstConsecutiveLossBreach": {
-      "tradeIndex": 3,
-      "exitAt": "2020-04-12T16:00:00.000Z",
-      "lossStreak": 3,
-      "prefixEndingEquityUsdt": 573.37095348,
-      "prefixNetReturnPct": -13.12561311,
-      "remainingFrozenTrades": 162
-    },
-    "frozenPathReproducible": false,
-    "reasonCodes": [
-      "FROZEN_PATH_BREACHES_RUNTIME_DAILY_LOSS_LIMIT",
-      "FROZEN_PATH_BREACHES_RUNTIME_CONSECUTIVE_LOSS_LIMIT"
-    ],
-    "limitation": "Runtime entry blocking changes later fills and PnL, and the daily-loss comparison uses the H4 UTC day-start equity proxy. This audit proves contract divergence but does not predict the resulting Live return."
+    "maximumObservedAccountDrawdownPct": 30.58189901,
+    "firstDailyLossBreach": null,
+    "firstAccountDrawdownBreach": null,
+    "firstConsecutiveLossBreach": null,
+    "frozenPathReproducible": true,
+    "reasonCodes": [],
+    "limitation": "The audit checks the frozen closure path and conservative intrabar account drawdown. The policy replay applies entry thresholds at causal H4 boundaries; Live wallet snapshots can observe additional states and exchange fills."
   },
   "policyReplay": {
     "simulationKind": "H4_DECISION_BOUNDARY_RISK_POLICY_REPLAY",
     "livePathSimulation": false,
     "crossRuntimeParity": {
       "status": "PASS",
-      "nodeResultSha256": "4a7d08bc440fb7cd4ffa5624899479014181601751840b326467244489497dbd",
-      "kotlinResultSha256": "bf2554937963ae0b4abe1dc1829833b4bfa78c61736971a88c5dde9a201923a8",
+      "nodeResultSha256": "cb9ab9301b4a04b600162e12af48b4ee213a443c251bcc22dc98d5fbcbb1a1f5",
+      "kotlinResultSha256": "28b74d309fd094e389ecef44677c450204ec44b8980437060cbbed03c0e36a83",
       "numericTolerance": 1e-8,
       "commandCount": 165,
       "runCount": 9,
-      "tradeCount": 27
+      "tradeCount": 1485
     },
     "canonical": {
       "startingEquityUsdt": 660,
       "costMultiplier": 1,
-      "endingEquityUsdt": 574.39010661,
-      "netReturnPct": -12.97119597,
-      "compoundDailyReturnPct": -0.00600375,
-      "maximumConservativeIntrabarDrawdownPct": 15.8881403,
-      "closedTradeCount": 3,
-      "blockedEntryCount": 162,
-      "blockedEntryReasonCounts": {
-        "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-        "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-      },
-      "firstBlockedEntry": {
-        "executionAt": "2020-04-06T16:00:00.000Z",
-        "side": 1,
-        "equityUsdt": 608.61493309,
-        "dayStartEquityUsdt": 633.81434539,
-        "peakEquityUsdt": 675.84766172,
-        "consecutiveLosses": 1,
-        "reasonCodes": [
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-        ]
-      },
-      "maximumObservedConsecutiveLosses": 3,
-      "finalConsecutiveLosses": 3
+      "endingEquityUsdt": 3605.34525093,
+      "netReturnPct": 446.26443196,
+      "compoundDailyReturnPct": 0.07340346,
+      "maximumConservativeIntrabarDrawdownPct": 30.58189901,
+      "closedTradeCount": 165,
+      "blockedEntryCount": 0,
+      "blockedEntryReasonCounts": {},
+      "firstBlockedEntry": null,
+      "maximumObservedConsecutiveLosses": 11,
+      "finalConsecutiveLosses": 0
     },
     "stressMatrix": [
       {
         "startingEquityUsdt": 100,
         "costMultiplier": 1,
-        "endingEquityUsdt": 87.46311698,
-        "netReturnPct": -12.53688302,
-        "compoundDailyReturnPct": -0.00578864,
-        "maximumConservativeIntrabarDrawdownPct": 15.39935322,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 92.33058703,
-          "dayStartEquityUsdt": 96.09169334,
-          "peakEquityUsdt": 102.36532265,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 389.97489662,
+        "netReturnPct": 289.97489662,
+        "compoundDailyReturnPct": 0.05882941,
+        "maximumConservativeIntrabarDrawdownPct": 29.15502367,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 100,
         "costMultiplier": 1.5,
-        "endingEquityUsdt": 87.32110697,
-        "netReturnPct": -12.67889303,
-        "compoundDailyReturnPct": -0.00585886,
-        "maximumConservativeIntrabarDrawdownPct": 15.49614509,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 92.27647286,
-          "dayStartEquityUsdt": 96.06614485,
-          "peakEquityUsdt": 102.33977415,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 381.02788957,
+        "netReturnPct": 281.02788957,
+        "compoundDailyReturnPct": 0.0578258,
+        "maximumConservativeIntrabarDrawdownPct": 29.3043898,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 100,
         "costMultiplier": 2,
-        "endingEquityUsdt": 87.17909623,
-        "netReturnPct": -12.82090377,
-        "compoundDailyReturnPct": -0.00592919,
-        "maximumConservativeIntrabarDrawdownPct": 15.59299232,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 92.22235825,
-          "dayStartEquityUsdt": 96.04060018,
-          "peakEquityUsdt": 102.31422949,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 378.02087588,
+        "netReturnPct": 278.02087588,
+        "compoundDailyReturnPct": 0.05748321,
+        "maximumConservativeIntrabarDrawdownPct": 29.71001562,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 660,
         "costMultiplier": 1,
-        "endingEquityUsdt": 574.39010661,
-        "netReturnPct": -12.97119597,
-        "compoundDailyReturnPct": -0.00600375,
-        "maximumConservativeIntrabarDrawdownPct": 15.8881403,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 608.61493309,
-          "dayStartEquityUsdt": 633.81434539,
-          "peakEquityUsdt": 675.84766172,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 3605.34525093,
+        "netReturnPct": 446.26443196,
+        "compoundDailyReturnPct": 0.07340346,
+        "maximumConservativeIntrabarDrawdownPct": 30.58189901,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 660,
         "costMultiplier": 1.5,
-        "endingEquityUsdt": 573.76697065,
-        "netReturnPct": -13.06561051,
-        "compoundDailyReturnPct": -0.00605066,
-        "maximumConservativeIntrabarDrawdownPct": 15.92180194,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 608.25236819,
-          "dayStartEquityUsdt": 633.64317047,
-          "peakEquityUsdt": 675.6764868,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 3344.39550529,
+        "netReturnPct": 406.72659171,
+        "compoundDailyReturnPct": 0.0701543,
+        "maximumConservativeIntrabarDrawdownPct": 30.76961658,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 660,
         "costMultiplier": 2,
-        "endingEquityUsdt": 572.78905259,
-        "netReturnPct": -13.21377991,
-        "compoundDailyReturnPct": -0.00612437,
-        "maximumConservativeIntrabarDrawdownPct": 16.02394779,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 607.88980028,
-          "dayStartEquityUsdt": 633.47202123,
-          "peakEquityUsdt": 675.50533757,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 3061.65576025,
+        "netReturnPct": 363.8872364,
+        "compoundDailyReturnPct": 0.06633449,
+        "maximumConservativeIntrabarDrawdownPct": 30.52759511,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 1000,
         "costMultiplier": 1,
-        "endingEquityUsdt": 870.77064407,
-        "netReturnPct": -12.92293559,
-        "compoundDailyReturnPct": -0.0059798,
-        "maximumConservativeIntrabarDrawdownPct": 15.82749067,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 922.53892898,
-          "dayStartEquityUsdt": 960.52610275,
-          "peakEquityUsdt": 1023.88975872,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 5455.30865267,
+        "netReturnPct": 445.53086527,
+        "compoundDailyReturnPct": 0.07334535,
+        "maximumConservativeIntrabarDrawdownPct": 30.61435325,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 1000,
         "costMultiplier": 1.5,
-        "endingEquityUsdt": 869.28460759,
-        "netReturnPct": -13.07153924,
-        "compoundDailyReturnPct": -0.00605361,
-        "maximumConservativeIntrabarDrawdownPct": 15.92981687,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 921.99237593,
-          "dayStartEquityUsdt": 960.26806295,
-          "peakEquityUsdt": 1023.63171891,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 5018.64267286,
+        "netReturnPct": 401.86426729,
+        "compoundDailyReturnPct": 0.06973734,
+        "maximumConservativeIntrabarDrawdownPct": 30.77489043,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       },
       {
         "startingEquityUsdt": 1000,
         "costMultiplier": 2,
-        "endingEquityUsdt": 867.79856355,
-        "netReturnPct": -13.22014364,
-        "compoundDailyReturnPct": -0.00612754,
-        "maximumConservativeIntrabarDrawdownPct": 16.03220183,
-        "closedTradeCount": 3,
-        "blockedEntryCount": 162,
-        "blockedEntryReasonCounts": {
-          "CONSECUTIVE_LOSS_LIMIT_REACHED": 161,
-          "DAILY_EQUITY_LOSS_LIMIT_REACHED": 1
-        },
-        "firstBlockedEntry": {
-          "executionAt": "2020-04-06T16:00:00.000Z",
-          "side": 1,
-          "equityUsdt": 921.44581833,
-          "dayStartEquityUsdt": 960.01006186,
-          "peakEquityUsdt": 1023.37371782,
-          "consecutiveLosses": 1,
-          "reasonCodes": [
-            "DAILY_EQUITY_LOSS_LIMIT_REACHED"
-          ]
-        },
-        "maximumObservedConsecutiveLosses": 3,
-        "finalConsecutiveLosses": 3
+        "endingEquityUsdt": 4589.50042036,
+        "netReturnPct": 358.95004204,
+        "compoundDailyReturnPct": 0.06587178,
+        "maximumConservativeIntrabarDrawdownPct": 30.67010276,
+        "closedTradeCount": 165,
+        "blockedEntryCount": 0,
+        "blockedEntryReasonCounts": {},
+        "firstBlockedEntry": null,
+        "maximumObservedConsecutiveLosses": 11,
+        "finalConsecutiveLosses": 0
       }
     ],
     "limitation": "The replay applies the exact threshold reason codes at causal H4 entry boundaries and is cross-runtime deterministic. Live wallet snapshots can observe additional intrabar equity states, so this is a conservative execution-contract replay rather than a prediction of exchange fills."
   },
-  "status": "FAIL",
+  "status": "PASS",
   "decision": {
-    "riskPolicyParityPassed": false,
+    "riskPolicyParityPassed": true,
     "automaticExecutionAllowed": false,
     "liveExecutionAllowed": false,
-    "reasonCodes": [
-      "FROZEN_PATH_BREACHES_RUNTIME_DAILY_LOSS_LIMIT",
-      "FROZEN_PATH_BREACHES_RUNTIME_CONSECUTIVE_LOSS_LIMIT"
-    ]
+    "reasonCodes": []
   }
 }

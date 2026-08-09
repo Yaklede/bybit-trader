@@ -9,6 +9,7 @@ test("risk parity audit identifies the first daily and permanent loss-streak div
   const audit = auditFrozenTrendRiskPolicy({
     run,
     maximumDailyLossFraction: 0.03,
+    maximumAccountDrawdownFraction: 0.35,
     maximumConsecutiveLosses: 3,
   });
 
@@ -43,6 +44,7 @@ test("profitable closure resets the consecutive loss counter", () => {
   const audit = auditFrozenTrendRiskPolicy({
     run: fixtureRun([-1, -1, 3, -1, -1]),
     maximumDailyLossFraction: 1,
+    maximumAccountDrawdownFraction: 0.35,
     maximumConsecutiveLosses: 3,
   });
 
@@ -59,10 +61,29 @@ test("risk parity audit fails closed on missing UTC day-start equity", () => {
     () => auditFrozenTrendRiskPolicy({
       run,
       maximumDailyLossFraction: 0.03,
+      maximumAccountDrawdownFraction: 0.35,
       maximumConsecutiveLosses: 3,
     }),
     /no positive UTC day-start equity/,
   );
+});
+
+test("A policy reproduces the frozen path with only the 35% drawdown blocker", () => {
+  const audit = auditFrozenTrendRiskPolicy({
+    run: fixtureRun([-10, -5, -5, 20]),
+    maximumDailyLossFraction: null,
+    maximumAccountDrawdownFraction: 0.35,
+    maximumConsecutiveLosses: null,
+  });
+
+  assert.equal(audit.dailyLossMeasurementKind, "DISABLED");
+  assert.equal(audit.maximumObservedConsecutiveLosses, 3);
+  assert.equal(audit.maximumObservedAccountDrawdownPct, 20);
+  assert.equal(audit.firstDailyLossBreach, null);
+  assert.equal(audit.firstAccountDrawdownBreach, null);
+  assert.equal(audit.firstConsecutiveLossBreach, null);
+  assert.equal(audit.frozenPathReproducible, true);
+  assert.deepEqual(audit.reasonCodes, []);
 });
 
 test("risk parity CLI requires explicit runtime loss limits", () => {
@@ -81,16 +102,39 @@ test("risk parity CLI requires explicit runtime loss limits", () => {
   assert.equal(options.riskStateMaximumAgeSeconds, 600);
   assert.equal(options.walletReconciliationMaximumAgeSeconds, 600);
   assert.equal(options.walletReconciliationConfirmedMismatchCount, 2);
+
+  const disabled = parseArgs([
+    "--maximum-daily-loss-fraction=disabled",
+    "--maximum-account-drawdown-fraction=0.35",
+    "--maximum-consecutive-losses=disabled",
+    "--risk-state-maximum-age-seconds=600",
+    "--wallet-reconciliation-maximum-age-seconds=600",
+    "--wallet-reconciliation-confirmed-mismatch-count=2",
+  ]);
+  assert.equal(disabled.maximumDailyLossFraction, null);
+  assert.equal(disabled.maximumConsecutiveLosses, null);
 });
 
 function fixtureRun(netPnls) {
   const dayStartedAt = Date.UTC(2026, 0, 1);
+  let equity = 100;
+  let peakEquity = 100;
+  const equityCurve = [{ at: dayStartedAt, equity: 100, accountDrawdownFraction: 0 }];
+  netPnls.forEach((netPnl, index) => {
+    equity += netPnl;
+    peakEquity = Math.max(peakEquity, equity);
+    equityCurve.push({
+      at: dayStartedAt + (index + 1) * 4 * 60 * 60 * 1_000,
+      equity,
+      accountDrawdownFraction: Math.max(0, (peakEquity - equity) / peakEquity),
+    });
+  });
   return {
     startingEquityUsdt: 100,
     trades: netPnls.map((netPnl, index) => ({
       netPnl,
       exitAt: new Date(dayStartedAt + (index + 1) * 4 * 60 * 60 * 1_000).toISOString(),
     })),
-    equityCurve: [{ at: dayStartedAt, equity: 100 }],
+    equityCurve,
   };
 }

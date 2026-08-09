@@ -31,9 +31,9 @@ function parseArgs(argv) {
   const riskPolicy = riskValues[0] == null
     ? null
     : {
-        maximumDailyLossFraction: Number(riskValues[0]),
+        maximumDailyLossFraction: optionalRiskLimit(riskValues[0]),
         maximumAccountDrawdownFraction: Number(riskValues[1]),
-        maximumConsecutiveLosses: Number(riskValues[2]),
+        maximumConsecutiveLosses: optionalRiskLimit(riskValues[2]),
       };
   return {
     protocol: resolve(values.get("protocol") ?? "config/volume-confirmed-trend-ensemble-v1.json"),
@@ -41,6 +41,10 @@ function parseArgs(argv) {
     out: resolve(values.get("out") ?? "build/research/volume-confirmed-trend-node-parity.json"),
     riskPolicy,
   };
+}
+
+function optionalRiskLimit(value) {
+  return value === "disabled" ? null : Number(value);
 }
 
 export async function buildNodeParity(options) {

@@ -402,19 +402,25 @@ data class VolumeConfirmedTrendTrade(
 )
 
 data class VolumeConfirmedTrendSimulationRiskPolicy(
-    val maximumDailyLossFraction: Double,
+    val maximumDailyLossFraction: Double?,
     val maximumAccountDrawdownFraction: Double,
-    val maximumConsecutiveLosses: Int,
+    val maximumConsecutiveLosses: Int?,
 ) {
     init {
-        require(maximumDailyLossFraction > 0.0 && maximumDailyLossFraction <= 1.0) {
-            "Trend simulation daily loss fraction must be in (0, 1]."
+        require(
+            maximumDailyLossFraction == null ||
+                (
+                    maximumDailyLossFraction > 0.0 &&
+                        maximumDailyLossFraction <= 1.0
+                ),
+        ) {
+            "Trend simulation daily loss fraction must be disabled or in (0, 1]."
         }
         require(maximumAccountDrawdownFraction > 0.0 && maximumAccountDrawdownFraction <= 1.0) {
             "Trend simulation account drawdown fraction must be in (0, 1]."
         }
-        require(maximumConsecutiveLosses > 0) {
-            "Trend simulation consecutive loss limit must be positive."
+        require(maximumConsecutiveLosses == null || maximumConsecutiveLosses > 0) {
+            "Trend simulation consecutive loss limit must be disabled or positive."
         }
     }
 }
@@ -648,7 +654,7 @@ private fun VolumeConfirmedTrendSimulationRiskPolicy.reasonCodes(
         peak = BigDecimal.valueOf(peakEquity),
         latest = BigDecimal.valueOf(latestEquity),
         consecutiveLosses = consecutiveLosses,
-        maximumDailyLossFraction = BigDecimal.valueOf(maximumDailyLossFraction),
+        maximumDailyLossFraction = maximumDailyLossFraction?.let(BigDecimal::valueOf),
         maximumAccountDrawdownFraction = BigDecimal.valueOf(maximumAccountDrawdownFraction),
         maximumConsecutiveLosses = maximumConsecutiveLosses,
     )

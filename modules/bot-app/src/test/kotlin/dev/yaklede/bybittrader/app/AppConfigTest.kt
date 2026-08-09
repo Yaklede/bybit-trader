@@ -157,7 +157,7 @@ class AppConfigTest :
             config.bybitPrivate.privateExecutionStreamEnabled shouldBe false
         }
 
-        "trend live risk policy keeps the stricter operational and frozen limits" {
+        "trend live A policy disables daily and consecutive limits while retaining operational guards" {
             val looseSettings =
                 AppConfig
                     .fromEnvironment(emptyMap())
@@ -177,9 +177,9 @@ class AppConfigTest :
                     approvalMaximumDrawdownFraction = BigDecimal("0.35"),
                 )
 
-            frozenPolicy.maximumDailyLossFraction.toPlainString() shouldBe "0.03"
+            frozenPolicy.maximumDailyLossFraction shouldBe null
             frozenPolicy.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.35"
-            frozenPolicy.maximumConsecutiveLosses shouldBe 3
+            frozenPolicy.maximumConsecutiveLosses shouldBe null
             frozenPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(10)
             frozenPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(10)
             frozenPolicy.walletReconciliationConfirmedMismatchCount shouldBe 2
@@ -211,9 +211,9 @@ class AppConfigTest :
                     approvalMaximumDrawdownFraction = BigDecimal("0.15"),
                 )
 
-            stricterPolicy.maximumDailyLossFraction.toPlainString() shouldBe "0.02"
+            stricterPolicy.maximumDailyLossFraction shouldBe null
             stricterPolicy.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.15"
-            stricterPolicy.maximumConsecutiveLosses shouldBe 2
+            stricterPolicy.maximumConsecutiveLosses shouldBe null
             stricterPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(2)
             stricterPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(3)
             stricterPolicy.walletReconciliationConfirmedMismatchCount shouldBe 1

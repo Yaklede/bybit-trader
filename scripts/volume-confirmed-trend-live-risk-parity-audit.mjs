@@ -24,9 +24,15 @@ export function parseArgs(argv) {
     const [name, ...rest] = argument.slice(2).split("=");
     values.set(name, rest.join("="));
   }
-  const maximumDailyLossFraction = Number(values.get("maximum-daily-loss-fraction"));
+  const maximumDailyLossFraction = optionalRiskLimit(
+    values.get("maximum-daily-loss-fraction"),
+    "--maximum-daily-loss-fraction",
+  );
   const maximumAccountDrawdownFraction = Number(values.get("maximum-account-drawdown-fraction"));
-  const maximumConsecutiveLosses = Number(values.get("maximum-consecutive-losses"));
+  const maximumConsecutiveLosses = optionalRiskLimit(
+    values.get("maximum-consecutive-losses"),
+    "--maximum-consecutive-losses",
+  );
   const riskStateMaximumAgeSeconds = Number(values.get("risk-state-maximum-age-seconds"));
   const walletReconciliationMaximumAgeSeconds = Number(
     values.get("wallet-reconciliation-maximum-age-seconds"),
@@ -34,11 +40,8 @@ export function parseArgs(argv) {
   const walletReconciliationConfirmedMismatchCount = Number(
     values.get("wallet-reconciliation-confirmed-mismatch-count"),
   );
-  if (!Number.isFinite(maximumDailyLossFraction)) {
-    throw new Error("--maximum-daily-loss-fraction is required.");
-  }
-  if (!Number.isInteger(maximumConsecutiveLosses)) {
-    throw new Error("--maximum-consecutive-losses is required.");
+  if (maximumConsecutiveLosses != null && !Number.isInteger(maximumConsecutiveLosses)) {
+    throw new Error("--maximum-consecutive-losses must be disabled or an integer.");
   }
   if (!Number.isFinite(maximumAccountDrawdownFraction)) {
     throw new Error("--maximum-account-drawdown-fraction is required.");
@@ -83,6 +86,11 @@ export function parseArgs(argv) {
     walletReconciliationMaximumAgeSeconds,
     walletReconciliationConfirmedMismatchCount,
   };
+}
+
+function optionalRiskLimit(value, name) {
+  if (value == null) throw new Error(`${name} is required.`);
+  return value === "disabled" ? null : Number(value);
 }
 
 export async function runRiskParityAudit(options) {
@@ -145,6 +153,7 @@ export async function runRiskParityAudit(options) {
   const audit = auditFrozenTrendRiskPolicy({
     run,
     maximumDailyLossFraction: options.maximumDailyLossFraction,
+    maximumAccountDrawdownFraction: options.maximumAccountDrawdownFraction,
     maximumConsecutiveLosses: options.maximumConsecutiveLosses,
   });
   const riskPolicy = {
@@ -187,7 +196,7 @@ export async function runRiskParityAudit(options) {
       "The replay applies the exact threshold reason codes at causal H4 entry boundaries and is cross-runtime deterministic. Live wallet snapshots can observe additional intrabar equity states, so this is a conservative execution-contract replay rather than a prediction of exchange fills.",
   };
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     resultId: `${protocol.protocolId}-live-risk-parity-result`,
     protocol: {
       id: protocol.protocolId,

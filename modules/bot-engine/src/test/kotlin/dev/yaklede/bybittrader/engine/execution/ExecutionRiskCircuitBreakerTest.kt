@@ -105,6 +105,43 @@ class ExecutionRiskCircuitBreakerTest :
             ).allowsEntry shouldBe true
         }
 
+        "disabled daily and consecutive limits retain freshness and account drawdown blocking" {
+            val now = Instant.parse("2026-08-06T12:00:00Z")
+            val policyState =
+                riskState(
+                    peakEquity = "100",
+                    dayStartEquity = "90",
+                    latestEquity = "75",
+                    consecutiveLosses = 99,
+                    updatedAt = now,
+                )
+            val allowed =
+                ExecutionRiskCircuitBreaker.evaluate(
+                    state = policyState,
+                    now = now,
+                    maximumAge = Duration.ofMinutes(10),
+                    maximumDailyLossFraction = null,
+                    maximumAccountDrawdownFraction = BigDecimal("0.35"),
+                    maximumConsecutiveLosses = null,
+                )
+            allowed.allowsEntry shouldBe true
+
+            val drawdownBlocked =
+                ExecutionRiskCircuitBreaker.evaluate(
+                    state =
+                        policyState.copy(
+                            latestEquity = BigDecimal("64"),
+                            latestUnitizedNav = BigDecimal("64"),
+                        ),
+                    now = now,
+                    maximumAge = Duration.ofMinutes(10),
+                    maximumDailyLossFraction = null,
+                    maximumAccountDrawdownFraction = BigDecimal("0.35"),
+                    maximumConsecutiveLosses = null,
+                )
+            drawdownBlocked.reasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
+        }
+
         "unitizes deposits and withdrawals without changing strategy nav" {
             val baselineAt = Instant.parse("2026-08-06T00:00:00Z")
             val baseline =

@@ -1099,11 +1099,7 @@ class SqlDelightLedgerTest :
                     policy = VolumeConfirmedTrendLiveRiskPolicy(),
                 )
 
-            current.reasonCodes shouldBe
-                listOf(
-                    "DAILY_EQUITY_LOSS_LIMIT_REACHED",
-                    "ACCOUNT_DRAWDOWN_LIMIT_REACHED",
-                )
+            current.reasonCodes shouldBe listOf("ACCOUNT_DRAWDOWN_LIMIT_REACHED")
             current.state?.navStatus shouldBe ExecutionRiskNavStatus.READY
             current.state?.latestUnitizedNav shouldBe
                 BigDecimal("400.00").divide(BigDecimal("666.24"), MathContext.DECIMAL128)

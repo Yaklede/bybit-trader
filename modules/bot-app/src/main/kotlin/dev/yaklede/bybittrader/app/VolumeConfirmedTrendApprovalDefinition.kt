@@ -5,6 +5,7 @@ import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendHistoricalEvi
 import dev.yaklede.bybittrader.engine.strategy.VolumeConfirmedTrendLiveRiskPolicy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
@@ -94,7 +95,7 @@ private fun validateLiveRiskPolicyParity(
     external: JsonObject,
     externalResultPath: Path,
 ): LiveRiskPolicyParityEvidence {
-    require(root.requiredApprovalInt("schemaVersion") == 1) { "Unsupported frozen trend live risk parity schema." }
+    require(root.requiredApprovalInt("schemaVersion") == 2) { "Unsupported frozen trend live risk parity schema." }
     val artifactProtocol = root.requiredApprovalObject("protocol")
     require(artifactProtocol.requiredApprovalString("id") == protocol.protocolId)
     require(artifactProtocol.requiredApprovalString("candidateId") == protocol.candidateId)
@@ -115,18 +116,31 @@ private fun validateLiveRiskPolicyParity(
     val risk = root.requiredApprovalObject("runtimeRiskPolicy")
     val policy =
         VolumeConfirmedTrendLiveRiskPolicy(
-            maximumDailyLossFraction = risk.requiredApprovalDecimal("maximumDailyLossFraction"),
+            maximumDailyLossFraction = risk.requiredNullableApprovalDecimal("maximumDailyLossFraction"),
             maximumAccountDrawdownFraction = risk.requiredApprovalDecimal("maximumAccountDrawdownFraction"),
-            maximumConsecutiveLosses = risk.requiredApprovalInt("maximumConsecutiveLosses"),
+            maximumConsecutiveLosses = risk.requiredNullableApprovalInt("maximumConsecutiveLosses"),
             riskStateMaximumAge = Duration.ofSeconds(risk.requiredApprovalInt("riskStateMaximumAgeSeconds").toLong()),
             walletReconciliationMaximumAge =
                 Duration.ofSeconds(risk.requiredApprovalInt("walletReconciliationMaximumAgeSeconds").toLong()),
             walletReconciliationConfirmedMismatchCount =
                 risk.requiredApprovalInt("walletReconciliationConfirmedMismatchCount"),
         )
+    require(policy.maximumDailyLossFraction == null) { "Frozen trend Live daily loss limit must be disabled." }
+    require(policy.maximumConsecutiveLosses == null) {
+        "Frozen trend Live consecutive loss limit must be disabled."
+    }
     val audit = root.requiredApprovalObject("audit")
     require(audit.requiredApprovalString("projectionKind") == "FROZEN_CLOSURE_PATH_COUNTERFACTUAL")
     require(!audit.requiredApprovalBoolean("livePathSimulation"))
+    require(audit.requiredApprovalString("dailyLossMeasurementKind") == "DISABLED")
+    require(audit.requiredApprovalInt("baselineTradeCount") == baseline.requiredApprovalInt("closedTradeCount"))
+    require(
+        audit.requiredApprovalDouble("maximumObservedAccountDrawdownPct") <=
+            policy.maximumAccountDrawdownFraction.movePointRight(2).toDouble(),
+    )
+    audit.requireApprovalNull("firstDailyLossBreach")
+    audit.requireApprovalNull("firstAccountDrawdownBreach")
+    audit.requireApprovalNull("firstConsecutiveLossBreach")
     val frozenPathReproducible = audit.requiredApprovalBoolean("frozenPathReproducible")
     val decision = root.requiredApprovalObject("decision")
     val parityPassed = decision.requiredApprovalBoolean("riskPolicyParityPassed")
@@ -141,6 +155,7 @@ private fun validateLiveRiskPolicyParity(
     validateLiveRiskPolicyReplay(
         replay = root.requiredApprovalObject("policyReplay"),
         baseline = baseline,
+        audit = audit,
         policy = policy,
     )
     return LiveRiskPolicyParityEvidence(parityPassed, policy)
@@ -149,6 +164,7 @@ private fun validateLiveRiskPolicyParity(
 private fun validateLiveRiskPolicyReplay(
     replay: JsonObject,
     baseline: JsonObject,
+    audit: JsonObject,
     policy: VolumeConfirmedTrendLiveRiskPolicy,
 ) {
     require(replay.requiredApprovalString("simulationKind") == "H4_DECISION_BOUNDARY_RISK_POLICY_REPLAY")
@@ -166,25 +182,49 @@ private fun validateLiveRiskPolicyReplay(
     val canonical = replay.requiredApprovalObject("canonical")
     require(canonical.requiredApprovalDouble("startingEquityUsdt") == baseline.requiredApprovalDouble("startingEquityUsdt"))
     require(canonical.requiredApprovalDouble("costMultiplier") == 1.0)
-    require(canonical.requiredApprovalDouble("endingEquityUsdt") > 0.0)
-    require(canonical.requiredApprovalDouble("netReturnPct") < 0.0)
+    require(canonical.requiredApprovalDouble("endingEquityUsdt") == baseline.requiredApprovalDouble("endingEquityUsdt"))
+    require(canonical.requiredApprovalDouble("netReturnPct") == baseline.requiredApprovalDouble("netReturnPct"))
+    require(
+        canonical.requiredApprovalDouble("maximumConservativeIntrabarDrawdownPct") <=
+            policy.maximumAccountDrawdownFraction.movePointRight(2).toDouble(),
+    )
     val canonicalClosedTrades = canonical.requiredApprovalInt("closedTradeCount")
     val canonicalBlockedEntries = canonical.requiredApprovalInt("blockedEntryCount")
     require(canonicalClosedTrades + canonicalBlockedEntries == commandCount)
+    require(canonicalClosedTrades == baseline.requiredApprovalInt("closedTradeCount"))
+    require(canonicalBlockedEntries == 0)
     val blockedReasons = canonical.requiredApprovalObject("blockedEntryReasonCounts")
-    require(blockedReasons.requiredApprovalInt("DAILY_EQUITY_LOSS_LIMIT_REACHED") > 0)
-    require(blockedReasons.requiredApprovalInt("CONSECUTIVE_LOSS_LIMIT_REACHED") > 0)
-    require(canonical.requiredApprovalInt("maximumObservedConsecutiveLosses") == policy.maximumConsecutiveLosses)
-    require(canonical.requiredApprovalInt("finalConsecutiveLosses") == policy.maximumConsecutiveLosses)
+    require(blockedReasons.isEmpty())
+    canonical.requireApprovalNull("firstBlockedEntry")
+    require(canonical.requiredApprovalInt("maximumObservedConsecutiveLosses") >= 0)
+    require(
+        canonical.requiredApprovalInt("finalConsecutiveLosses") <=
+            canonical.requiredApprovalInt("maximumObservedConsecutiveLosses"),
+    )
+    require(
+        audit.requiredApprovalDouble("maximumObservedAccountDrawdownPct") ==
+            canonical.requiredApprovalDouble("maximumConservativeIntrabarDrawdownPct"),
+    )
+    require(
+        audit.requiredApprovalInt("maximumObservedConsecutiveLosses") ==
+            canonical.requiredApprovalInt("maximumObservedConsecutiveLosses"),
+    )
 
     val stressMatrix = replay.requiredApprovalArray("stressMatrix").map { value -> value.jsonObject }
     require(stressMatrix.size == runCount)
     require(stressMatrix.sumOf { run -> run.requiredApprovalInt("closedTradeCount") } == tradeCount)
-    require(
-        stressMatrix.all { run ->
-            run.requiredApprovalInt("closedTradeCount") + run.requiredApprovalInt("blockedEntryCount") == commandCount
-        },
-    )
+    require(tradeCount == commandCount * runCount)
+    stressMatrix.forEach { run ->
+        require(
+            run.requiredApprovalInt("closedTradeCount") == commandCount &&
+                run.requiredApprovalInt("blockedEntryCount") == 0 &&
+                run.requiredApprovalObject("blockedEntryReasonCounts").isEmpty() &&
+                run.requiredApprovalDouble("endingEquityUsdt") > run.requiredApprovalDouble("startingEquityUsdt") &&
+                run.requiredApprovalDouble("maximumConservativeIntrabarDrawdownPct") <=
+                policy.maximumAccountDrawdownFraction.movePointRight(2).toDouble(),
+        )
+        run.requireApprovalNull("firstBlockedEntry")
+    }
 }
 
 private fun validateExternalEvidence(
@@ -348,6 +388,16 @@ private fun JsonObject.requiredApprovalDouble(name: String): Double = getValue(n
 
 private fun JsonObject.requiredApprovalDecimal(name: String): BigDecimal = getValue(name).jsonPrimitive.content.toBigDecimal()
 
+private fun JsonObject.requiredNullableApprovalDecimal(name: String): BigDecimal? =
+    getValue(name).let { value -> if (value is JsonNull) null else value.jsonPrimitive.content.toBigDecimal() }
+
+private fun JsonObject.requiredNullableApprovalInt(name: String): Int? =
+    getValue(name).let { value -> if (value is JsonNull) null else value.jsonPrimitive.int }
+
+private fun JsonObject.requireApprovalNull(name: String) {
+    require(getValue(name) is JsonNull) { "Frozen trend $name must be null." }
+}
+
 private fun JsonObject.requiredApprovalBoolean(name: String): Boolean = getValue(name).jsonPrimitive.boolean
 
 private fun Path.sha256(): String = Files.readAllBytes(this).sha256()
@@ -364,5 +414,5 @@ private const val FROZEN_TREND_EXTERNAL_RESULT_SHA256 = "1a4a49029e7a24020e21fb9
 private const val FROZEN_TREND_KOTLIN_PARITY_RESULT_SHA256 = "5174139b607139cc664fad861bcea313cc9408dd454e7e44b739d7057c1bdf8f"
 private const val FROZEN_TREND_RUNTIME_PARITY_RESULT_SHA256 = "8421a3df1bd06f19eebcc0d0dd183faf6f74fbf54a2b28b66bf55f5f0c637a70"
 private const val FROZEN_TREND_LIVE_RISK_PARITY_RESULT_SHA256 =
-    "367f6579566ebea561854e39bb2465b43fcd421aeb42af361e479abcea584767"
+    "f5ce32043a0017199fa156b6ab6bc13e8a1a3a115c087b867677bc2fad592887"
 private const val FROZEN_TREND_FORWARD_POLICY_SHA256 = "5ea2185fe9f4299f656ca89848a5ffd77acb578954517cd22432e5b4d64dc62b"

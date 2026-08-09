@@ -361,6 +361,7 @@ export function simulateTrendRun({
 
     const openEquity = markEquity(bar.open);
     let conservativeAdverseEquity = openEquity;
+    let conservativeIntrabarDrawdownFraction = 0;
     if (position != null) {
       const favorablePrice = position.side > 0 ? bar.high : bar.low;
       const adversePrice = position.side > 0 ? bar.low : bar.high;
@@ -371,28 +372,39 @@ export function simulateTrendRun({
       if (conservativeAdverseEquity <= 0) liquidationCount += 1;
       const exposure = position.quantity * bar.open / Math.max(conservativeAdverseEquity, 1e-12);
       maximumAdverseExposureFraction = Math.max(maximumAdverseExposureFraction, exposure);
+      conservativeIntrabarDrawdownFraction = peakEquity <= 0
+        ? 1
+        : Math.max(0, (peakEquity - conservativeAdverseEquity) / peakEquity);
       maximumConservativeIntrabarDrawdownPct = Math.max(
         maximumConservativeIntrabarDrawdownPct,
-        peakEquity <= 0 ? 100 : ((peakEquity - conservativeAdverseEquity) / peakEquity) * 100,
+        conservativeIntrabarDrawdownFraction * 100,
       );
     }
     const closeEquity = markEquity(bar.close);
     peakEquity = Math.max(peakEquity, closeEquity);
     riskPeakEquity = Math.max(riskPeakEquity, closeEquity);
+    const closeDrawdownFraction = lossFraction(peakEquity, closeEquity);
     maximumCloseDrawdownPct = Math.max(
       maximumCloseDrawdownPct,
-      peakEquity <= 0 ? 100 : ((peakEquity - closeEquity) / peakEquity) * 100,
+      closeDrawdownFraction * 100,
     );
     equityCurve.push({
       at: bar.openedAt + H4_MILLIS,
       equity: closeEquity,
       conservativeAdverseEquity,
+      accountDrawdownFraction: Math.max(conservativeIntrabarDrawdownFraction, closeDrawdownFraction),
     });
   });
 
   const finalBar = bars.at(-1);
   closePosition(finalBar.close, finalBar.openedAt + H4_MILLIS, "EVIDENCE_END");
-  if (equityCurve.length > 0) equityCurve.at(-1).equity = cash;
+  if (equityCurve.length > 0) {
+    equityCurve.at(-1).equity = cash;
+    equityCurve.at(-1).accountDrawdownFraction = Math.max(
+      equityCurve.at(-1).accountDrawdownFraction,
+      lossFraction(peakEquity, cash),
+    );
+  }
   const evaluationStartAt = firstActiveAt ?? bars[0].openedAt;
   const evaluationEndAt = finalBar.openedAt + H4_MILLIS;
   const years = (evaluationEndAt - evaluationStartAt) / YEAR_MILLIS;
@@ -448,16 +460,18 @@ export function simulateTrendRun({
 }
 
 function validateTrendSimulationRiskPolicy(riskPolicy) {
-  if (!Number.isFinite(riskPolicy.maximumDailyLossFraction) ||
-      riskPolicy.maximumDailyLossFraction <= 0 || riskPolicy.maximumDailyLossFraction > 1) {
-    throw new Error("Trend simulation daily loss fraction must be in (0, 1].");
+  if (riskPolicy.maximumDailyLossFraction != null &&
+      (!Number.isFinite(riskPolicy.maximumDailyLossFraction) ||
+       riskPolicy.maximumDailyLossFraction <= 0 || riskPolicy.maximumDailyLossFraction > 1)) {
+    throw new Error("Trend simulation daily loss fraction must be disabled or in (0, 1].");
   }
   if (!Number.isFinite(riskPolicy.maximumAccountDrawdownFraction) ||
       riskPolicy.maximumAccountDrawdownFraction <= 0 || riskPolicy.maximumAccountDrawdownFraction > 1) {
     throw new Error("Trend simulation account drawdown fraction must be in (0, 1].");
   }
-  if (!Number.isInteger(riskPolicy.maximumConsecutiveLosses) || riskPolicy.maximumConsecutiveLosses < 1) {
-    throw new Error("Trend simulation consecutive loss limit must be a positive integer.");
+  if (riskPolicy.maximumConsecutiveLosses != null &&
+      (!Number.isInteger(riskPolicy.maximumConsecutiveLosses) || riskPolicy.maximumConsecutiveLosses < 1)) {
+    throw new Error("Trend simulation consecutive loss limit must be disabled or a positive integer.");
   }
 }
 
@@ -469,13 +483,15 @@ function trendSimulationRiskReasonCodes({
   consecutiveLosses,
 }) {
   const reasons = [];
-  if (lossFraction(dayStartEquity, latestEquity) >= riskPolicy.maximumDailyLossFraction) {
+  if (riskPolicy.maximumDailyLossFraction != null &&
+      lossFraction(dayStartEquity, latestEquity) >= riskPolicy.maximumDailyLossFraction) {
     reasons.push("DAILY_EQUITY_LOSS_LIMIT_REACHED");
   }
   if (lossFraction(peakEquity, latestEquity) >= riskPolicy.maximumAccountDrawdownFraction) {
     reasons.push("ACCOUNT_DRAWDOWN_LIMIT_REACHED");
   }
-  if (consecutiveLosses >= riskPolicy.maximumConsecutiveLosses) {
+  if (riskPolicy.maximumConsecutiveLosses != null &&
+      consecutiveLosses >= riskPolicy.maximumConsecutiveLosses) {
     reasons.push("CONSECUTIVE_LOSS_LIMIT_REACHED");
   }
   return reasons;

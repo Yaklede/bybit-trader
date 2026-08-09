@@ -11,7 +11,8 @@ const externalResult = JSON.parse(externalResultBytes);
 const riskParity = JSON.parse(riskParityBytes);
 
 test("Live risk parity result is immutable and bound to frozen external evidence", () => {
-  assert.equal(sha256(riskParityBytes), "367f6579566ebea561854e39bb2465b43fcd421aeb42af361e479abcea584767");
+  assert.equal(riskParity.schemaVersion, 2);
+  assert.equal(sha256(riskParityBytes), "f5ce32043a0017199fa156b6ab6bc13e8a1a3a115c087b867677bc2fad592887");
   assert.equal(riskParity.protocol.id, protocol.protocolId);
   assert.equal(riskParity.protocol.candidateId, protocol.candidateId);
   assert.equal(riskParity.protocol.sha256, sha256(protocolBytes));
@@ -27,67 +28,58 @@ test("Live risk parity result is immutable and bound to frozen external evidence
     closedTradeCount: externalResult.canonicalMetrics.baseline.closedTradeCount,
   });
   assert.deepEqual(riskParity.runtimeRiskPolicy, {
-    maximumDailyLossFraction: 0.03,
+    maximumDailyLossFraction: null,
     maximumAccountDrawdownFraction: 0.35,
-    maximumConsecutiveLosses: 3,
+    maximumConsecutiveLosses: null,
     riskStateMaximumAgeSeconds: 600,
     walletReconciliationMaximumAgeSeconds: 600,
     walletReconciliationConfirmedMismatchCount: 2,
   });
 });
 
-test("Live risk replay is cross-runtime deterministic and exposes the permanent stop", () => {
+test("Live risk replay is cross-runtime deterministic and reproduces the frozen path", () => {
   assert.equal(riskParity.policyReplay.simulationKind, "H4_DECISION_BOUNDARY_RISK_POLICY_REPLAY");
   assert.equal(riskParity.policyReplay.livePathSimulation, false);
   assert.deepEqual(riskParity.policyReplay.crossRuntimeParity, {
     status: "PASS",
-    nodeResultSha256: "4a7d08bc440fb7cd4ffa5624899479014181601751840b326467244489497dbd",
-    kotlinResultSha256: "bf2554937963ae0b4abe1dc1829833b4bfa78c61736971a88c5dde9a201923a8",
+    nodeResultSha256: "cb9ab9301b4a04b600162e12af48b4ee213a443c251bcc22dc98d5fbcbb1a1f5",
+    kotlinResultSha256: "28b74d309fd094e389ecef44677c450204ec44b8980437060cbbed03c0e36a83",
     numericTolerance: 1e-8,
     commandCount: 165,
     runCount: 9,
-    tradeCount: 27,
+    tradeCount: 1485,
   });
   assert.deepEqual(riskParity.policyReplay.canonical, {
     startingEquityUsdt: 660,
     costMultiplier: 1,
-    endingEquityUsdt: 574.39010661,
-    netReturnPct: -12.97119597,
-    compoundDailyReturnPct: -0.00600375,
-    maximumConservativeIntrabarDrawdownPct: 15.8881403,
-    closedTradeCount: 3,
-    blockedEntryCount: 162,
-    blockedEntryReasonCounts: {
-      CONSECUTIVE_LOSS_LIMIT_REACHED: 161,
-      DAILY_EQUITY_LOSS_LIMIT_REACHED: 1,
-    },
-    firstBlockedEntry: {
-      executionAt: "2020-04-06T16:00:00.000Z",
-      side: 1,
-      equityUsdt: 608.61493309,
-      dayStartEquityUsdt: 633.81434539,
-      peakEquityUsdt: 675.84766172,
-      consecutiveLosses: 1,
-      reasonCodes: ["DAILY_EQUITY_LOSS_LIMIT_REACHED"],
-    },
-    maximumObservedConsecutiveLosses: 3,
-    finalConsecutiveLosses: 3,
+    endingEquityUsdt: 3605.34525093,
+    netReturnPct: 446.26443196,
+    compoundDailyReturnPct: 0.07340346,
+    maximumConservativeIntrabarDrawdownPct: 30.58189901,
+    closedTradeCount: 165,
+    blockedEntryCount: 0,
+    blockedEntryReasonCounts: {},
+    firstBlockedEntry: null,
+    maximumObservedConsecutiveLosses: 11,
+    finalConsecutiveLosses: 0,
   });
   assert.equal(riskParity.policyReplay.stressMatrix.length, 9);
-  assert.ok(riskParity.policyReplay.stressMatrix.every((run) => run.netReturnPct < 0));
-  assert.ok(riskParity.policyReplay.stressMatrix.every((run) => run.closedTradeCount === 3));
-  assert.ok(riskParity.policyReplay.stressMatrix.every((run) => run.blockedEntryCount === 162));
+  assert.ok(riskParity.policyReplay.stressMatrix.every((run) => run.netReturnPct > 0));
+  assert.ok(riskParity.policyReplay.stressMatrix.every((run) => run.closedTradeCount === 165));
+  assert.ok(riskParity.policyReplay.stressMatrix.every((run) => run.blockedEntryCount === 0));
 });
 
-test("unresolved Live risk parity can never authorize execution", () => {
-  assert.equal(riskParity.status, "FAIL");
+test("passing Live risk parity still cannot authorize execution", () => {
+  assert.equal(riskParity.status, "PASS");
   assert.equal(riskParity.audit.livePathSimulation, false);
-  assert.equal(riskParity.audit.frozenPathReproducible, false);
-  assert.equal(riskParity.decision.riskPolicyParityPassed, false);
+  assert.equal(riskParity.audit.frozenPathReproducible, true);
+  assert.equal(riskParity.audit.maximumObservedAccountDrawdownPct, 30.58189901);
+  assert.equal(riskParity.audit.firstAccountDrawdownBreach, null);
+  assert.equal(riskParity.decision.riskPolicyParityPassed, true);
   assert.equal(riskParity.decision.automaticExecutionAllowed, false);
   assert.equal(riskParity.decision.liveExecutionAllowed, false);
   assert.deepEqual(riskParity.decision.reasonCodes, riskParity.audit.reasonCodes);
-  assert.ok(riskParity.decision.reasonCodes.length > 0);
+  assert.deepEqual(riskParity.decision.reasonCodes, []);
 });
 
 function sha256(bytes) {

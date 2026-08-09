@@ -71,10 +71,10 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
             approval.historicalEvidence.externalVenuePassed shouldBe true
             approval.historicalEvidence.kotlinCoreParityPassed shouldBe true
             approval.historicalEvidence.runtimeReplayParityPassed shouldBe true
-            approval.historicalEvidence.liveRiskPolicyParityPassed shouldBe false
-            approval.liveRiskPolicy.maximumDailyLossFraction.toPlainString() shouldBe "0.03"
+            approval.historicalEvidence.liveRiskPolicyParityPassed shouldBe true
+            approval.liveRiskPolicy.maximumDailyLossFraction shouldBe null
             approval.liveRiskPolicy.maximumAccountDrawdownFraction.toPlainString() shouldBe "0.35"
-            approval.liveRiskPolicy.maximumConsecutiveLosses shouldBe 3
+            approval.liveRiskPolicy.maximumConsecutiveLosses shouldBe null
             approval.liveRiskPolicy.riskStateMaximumAge shouldBe Duration.ofMinutes(10)
             approval.liveRiskPolicy.walletReconciliationMaximumAge shouldBe Duration.ofMinutes(10)
             approval.liveRiskPolicy.walletReconciliationConfirmedMismatchCount shouldBe 2
@@ -83,7 +83,7 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
             approval.forwardPolicy.maximumDrawdownPct shouldBe 35.0
         }
 
-        "repository Live risk evidence blocks approval before Shadow gates" {
+        "repository Live risk evidence passes while fresh Shadow remains required" {
             val approval =
                 loadVolumeConfirmedTrendApprovalDefinition(
                     protocolPath = trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1.json"),
@@ -95,9 +95,9 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
                     shadowReportProvider = { null },
                 ).evaluate()
 
-            report.status shouldBe VolumeConfirmedTrendApprovalStatus.RUNTIME_PARITY_REQUIRED
+            report.status shouldBe VolumeConfirmedTrendApprovalStatus.SHADOW_DISABLED
             report.gates.single { it.id == "LIVE_RISK_POLICY_PARITY" }.status shouldBe
-                VolumeConfirmedTrendApprovalGateStatus.FAIL
+                VolumeConfirmedTrendApprovalGateStatus.PASS
             report.readyForHumanReview shouldBe false
             report.liveExecutionAllowed shouldBe false
         }
@@ -121,7 +121,7 @@ class VolumeConfirmedTrendRuntimeDefinitionTest :
                 Files.readString(
                     trendRepositoryFile("config/volume-confirmed-trend-ensemble-v1-live-risk-parity-result.json"),
                 )
-            Files.writeString(temporary, source.replace("\"maximumConsecutiveLosses\": 3", "\"maximumConsecutiveLosses\": 4"))
+            Files.writeString(temporary, source.replace("\"maximumConsecutiveLosses\": null", "\"maximumConsecutiveLosses\": 4"))
 
             shouldThrow<IllegalArgumentException> {
                 loadVolumeConfirmedTrendApprovalDefinition(

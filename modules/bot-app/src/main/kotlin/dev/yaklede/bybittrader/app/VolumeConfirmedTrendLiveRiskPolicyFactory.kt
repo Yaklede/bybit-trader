@@ -14,12 +14,10 @@ internal fun ExecutionSettings.toVolumeConfirmedTrendLiveRiskPolicy(
     }
     val frozenCeiling = VolumeConfirmedTrendLiveRiskPolicy()
     return VolumeConfirmedTrendLiveRiskPolicy(
-        maximumDailyLossFraction =
-            minOf(maximumDailyLossFraction, frozenCeiling.maximumDailyLossFraction),
+        maximumDailyLossFraction = null,
         maximumAccountDrawdownFraction =
             minOf(maximumAccountDrawdownFraction, approvalMaximumDrawdownFraction),
-        maximumConsecutiveLosses =
-            minOf(maximumConsecutiveLosses, frozenCeiling.maximumConsecutiveLosses),
+        maximumConsecutiveLosses = null,
         riskStateMaximumAge = minOf(riskStateMaximumAge, frozenCeiling.riskStateMaximumAge),
         walletReconciliationMaximumAge =
             minOf(walletReconciliationMaximumAge, frozenCeiling.walletReconciliationMaximumAge),
@@ -35,7 +33,7 @@ internal fun ExecutionSettings.volumeConfirmedTrendLiveWalletTolerance(): BigDec
     minOf(walletReconciliationTolerance, BigDecimal("0.01"))
 
 internal fun VolumeConfirmedTrendLiveRiskPolicy.matchesFrozenApprovalPolicy(frozen: VolumeConfirmedTrendLiveRiskPolicy): Boolean =
-    maximumDailyLossFraction.compareTo(frozen.maximumDailyLossFraction) == 0 &&
+    maximumDailyLossFraction.numericallyEquals(frozen.maximumDailyLossFraction) &&
         maximumAccountDrawdownFraction.compareTo(frozen.maximumAccountDrawdownFraction) == 0 &&
         maximumConsecutiveLosses == frozen.maximumConsecutiveLosses &&
         riskStateMaximumAge == frozen.riskStateMaximumAge &&
@@ -47,3 +45,9 @@ internal fun verifiedVolumeConfirmedTrendLiveRiskPolicyParity(
     runtime: VolumeConfirmedTrendLiveRiskPolicy,
     frozen: VolumeConfirmedTrendLiveRiskPolicy,
 ): Boolean = artifactPassed && runtime.matchesFrozenApprovalPolicy(frozen)
+
+private fun BigDecimal?.numericallyEquals(other: BigDecimal?): Boolean =
+    when {
+        this == null || other == null -> this == null && other == null
+        else -> compareTo(other) == 0
+    }

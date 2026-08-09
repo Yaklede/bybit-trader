@@ -141,11 +141,27 @@ internal object ExecutionRiskCircuitBreaker {
         state: ExecutionRiskState?,
         now: Instant,
         maximumAge: Duration,
-        maximumDailyLossFraction: BigDecimal,
+        maximumDailyLossFraction: BigDecimal?,
         maximumAccountDrawdownFraction: BigDecimal,
-        maximumConsecutiveLosses: Int,
+        maximumConsecutiveLosses: Int?,
         useUnitizedNav: Boolean = true,
     ): ExecutionRiskDecision {
+        require(!maximumAge.isNegative && !maximumAge.isZero) { "Risk state maximum age must be positive." }
+        require(
+            maximumDailyLossFraction == null ||
+                (
+                    maximumDailyLossFraction > BigDecimal.ZERO &&
+                        maximumDailyLossFraction <= BigDecimal.ONE
+                ),
+        ) {
+            "Maximum daily loss fraction must be disabled or in (0, 1]."
+        }
+        require(maximumAccountDrawdownFraction > BigDecimal.ZERO && maximumAccountDrawdownFraction <= BigDecimal.ONE) {
+            "Maximum account drawdown fraction must be in (0, 1]."
+        }
+        require(maximumConsecutiveLosses == null || maximumConsecutiveLosses in 1..100) {
+            "Maximum consecutive losses must be disabled or between 1 and 100."
+        }
         if (state == null) return ExecutionRiskDecision(listOf("RISK_STATE_UNAVAILABLE"))
         if (state.updatedAt.isAfter(now.plus(CLOCK_SKEW_TOLERANCE))) {
             return ExecutionRiskDecision(listOf("RISK_STATE_CLOCK_SKEW"))
@@ -266,16 +282,19 @@ internal object ExecutionRiskThresholdEvaluator {
         peak: BigDecimal,
         latest: BigDecimal,
         consecutiveLosses: Int,
-        maximumDailyLossFraction: BigDecimal,
+        maximumDailyLossFraction: BigDecimal?,
         maximumAccountDrawdownFraction: BigDecimal,
-        maximumConsecutiveLosses: Int,
+        maximumConsecutiveLosses: Int?,
     ): List<String> =
         buildList {
-            if (lossFraction(dayStart, latest) >= maximumDailyLossFraction) {
+            if (
+                maximumDailyLossFraction != null &&
+                lossFraction(dayStart, latest) >= maximumDailyLossFraction
+            ) {
                 add("DAILY_EQUITY_LOSS_LIMIT_REACHED")
             }
             addAll(accountDrawdownReasonCodes(peak, latest, maximumAccountDrawdownFraction))
-            if (consecutiveLosses >= maximumConsecutiveLosses) {
+            if (maximumConsecutiveLosses != null && consecutiveLosses >= maximumConsecutiveLosses) {
                 add("CONSECUTIVE_LOSS_LIMIT_REACHED")
             }
         }

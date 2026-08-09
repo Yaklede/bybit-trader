@@ -210,11 +210,15 @@ private fun Map<String, String>.simulationRiskPolicy(): VolumeConfirmedTrendSimu
     }
     if (daily == null) return null
     return VolumeConfirmedTrendSimulationRiskPolicy(
-        maximumDailyLossFraction = daily.toDouble(),
+        maximumDailyLossFraction = daily.optionalRiskLimitDouble(),
         maximumAccountDrawdownFraction = requireNotNull(drawdown).toDouble(),
-        maximumConsecutiveLosses = requireNotNull(consecutive).toInt(),
+        maximumConsecutiveLosses = requireNotNull(consecutive).optionalRiskLimitInt(),
     )
 }
+
+private fun String.optionalRiskLimitDouble(): Double? = takeUnless { it == "disabled" }?.toDouble()
+
+private fun String.optionalRiskLimitInt(): Int? = takeUnless { it == "disabled" }?.toInt()
 
 private fun JsonObject.requiredObject(name: String): JsonObject = getValue(name).jsonObject
 
@@ -324,9 +328,9 @@ private data class VolumeConfirmedTrendParityRun(
 
 @Serializable
 private data class VolumeConfirmedTrendParityRiskPolicy(
-    val maximumDailyLossFraction: Double,
+    val maximumDailyLossFraction: Double?,
     val maximumAccountDrawdownFraction: Double,
-    val maximumConsecutiveLosses: Int,
+    val maximumConsecutiveLosses: Int?,
 )
 
 @Serializable
