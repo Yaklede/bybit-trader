@@ -42,20 +42,20 @@ Initial public repository placeholder for a Bybit trading automation project.
 > `0.0734%`, conservative intrabar MDD `30.58%`, win rate `26.06%`, and
 > Profit Factor `1.73`. Double costs remained positive. Node/Kotlin core
 > parity and persisted Shadow runtime replay both passed with zero mismatch.
-> This is historical evidence, not a forward profitability claim. A later
-> audit proved that the Live-only 3% daily-loss and three-consecutive-loss
-> entry blocks are absent from the frozen replay; the first frozen closure
-> already breaches the daily proxy and the first three closures are losses.
-> A Node/Kotlin decision-boundary replay then applied those Live limits across
-> all nine capital/cost combinations with zero mismatch. The canonical 660
-> USDT run stopped after three trades, blocked 162 of 165 entries, and ended at
-> 574.39 USDT (`-12.97%`).
-> The current approval status is therefore `RUNTIME_PARITY_REQUIRED`, with the
-> mandatory `LIVE_RISK_POLICY_PARITY` gate failed. A 90-day Shadow session or
-> an edited approval receipt cannot bypass it. Automatic and live execution
-> remain disabled until the risk policy is either removed from v1 or included
-> in a new fully revalidated protocol, followed by fresh Shadow evidence and
-> explicit human review. See the
+> This is historical evidence, not a forward profitability claim. A subsequent
+> audit found that generic Live-only 3% daily-loss and three-consecutive-loss
+> entry blocks stopped the frozen strategy after three trades. The human owner
+> selected policy A on 2026-08-09: those two limits are now explicitly disabled
+> for H4 v1 only, while the 35% account MDD, risk-state freshness, wallet
+> reconciliation, accounting, inventory, and order-ownership fail-closed guards
+> remain active. The A-policy Node/Kotlin replay matched all 165 commands across
+> nine capital/cost combinations (`1,485` closed trades, zero blocked entries).
+> The canonical 660 USDT path again ended at 3,605.35 USDT (`+446.26%`) with
+> conservative intrabar MDD `30.58%`, below the retained 35% limit.
+> `LIVE_RISK_POLICY_PARITY` now passes, but automatic and live execution remain
+> disabled. A fresh continuous 90-day Shadow session, every forward gate, an
+> explicit human approval receipt, and the remaining TESTNET exchange check are
+> still required. See the
 > [external result](docs/backend/volume-confirmed-trend-ensemble-v1-external-result-2026-08-07.md),
 > [runtime parity report](docs/backend/volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md),
 > [Live risk parity report](docs/backend/volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md),

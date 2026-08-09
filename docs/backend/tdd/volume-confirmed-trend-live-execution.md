@@ -470,27 +470,23 @@ order ID 자체가 충돌하면 다른 주문을 취소할 수 있으므로 자�
   실행해 Docker/SQLite/schema/startup 계약 변화가 온프레미스 배포 전에 드러나게 한다.
 
 추가 감사에서 Live H4 경로에만 `일 손실 3%`와 `3연속 손실` 차단이 연결된 패리티 결함을 확인했다.
-외부 재생은 첫 종료 거래에서 H4 UTC 일 시작 equity 대비 `3.97421066%` 손실 프록시를 기록하고,
-첫 세 거래가 연속 손실이며 최대 연속 손실은 11건이다. 현재 Live 정책은 첫 반전부터 진입 시각을 바꿀
-수 있고, 동일한 첫 세 종료가 발생하면 자동 복구가 불가능하므로 동결 수익 경로를 재현하지 못한다.
-진단 CLI는 동결 protocol·DB SHA 및 승인 지표를 대조하고 `riskPolicyParityPassed=false`를 반환한다. Human owner가
-해당 제한을 H4 v1에서 명시적으로 비활성화할지, 새 protocol에 포함해 전체 재검증할지 선택하기 전까지
-완료로 보지 않는다. 상세 근거는
-`volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md`에 기록했다.
+해결 전 정책은 660 USDT 기준 세 건만 종료하고 162개 진입을 차단해 `574.39010661 USDT`,
+`-12.97119597%`로 끝났으며, 연속 손실 차단은 승리 거래를 실행하지 못해 자동 복구할 수 없었다.
 
-추가 결정 경계 재생은 Node와 Kotlin 모두에서 일 손실 3%, MDD 35%, 3연속 손실을 적용했다. 두 런타임은
-165개 명령과 9개 자본·비용 조합 전체에서 `1e-8` 오차 안으로 일치했다. 660 USDT 기본 비용 결과는
-3건 종료 후 162개 진입이 차단되고 574.39010661 USDT, -12.97119597%로 끝났다. Kotlin 역사 시뮬레이터와
-Live 회로차단기는 `ExecutionRiskThresholdEvaluator`를 공유해 임계값 계산과 사유 코드가 분기되지 않는다.
-다만 실제 wallet snapshot은 H4 내부 상태를 더 관측할 수 있으므로 이 결과는 거래소 체결 예측이 아니라
-위험 정책을 포함한 H4 결정 경계 계약 재생이다.
+Human owner는 2026-08-09 A안을 선택했다. H4 v1에서 일 손실과 연속 손실 임계값은 `null`로 명시해
+비활성화하고, MDD 35%, 위험 상태 freshness, 지갑 대사 freshness·불일치, 원장·재고·주문 소유권
+fail-closed 검사는 유지한다. 일반 M5 실행 설정의 3%·3회 제한은 변경하지 않는다.
 
-실패 결과는 결정적 config artifact로 동결해 승인 서비스의 필수 `LIVE_RISK_POLICY_PARITY` 게이트에
-연결했다. 현재 게이트는 `FAIL`, 승인 상태는 `RUNTIME_PARITY_REQUIRED`이므로 Shadow의 나머지 조건과 사람
-승인 영수증이 갖춰져도 Live 시작 검증을 통과할 수 없다. Docker 이미지와 온프레미스 배포 패키지도 같은
-artifact를 포함하며, 변조된 artifact는 고정 SHA 검증에서 앱 시작 전에 거부된다. 배포 환경에서 계산한
-일 손실·MDD·연속 손실·위험 상태 및 지갑 대사 freshness 계약도 artifact 값과 필드별로 같아야 하므로,
-검증되지 않은 더 엄격한 설정이나 완화된 설정 모두 승인 증거를 재사용할 수 없다.
+A 정책 결정 경계 재생은 Node와 Kotlin에서 165개 명령과 9개 자본·비용 조합 전체를 `1e-8` 오차 안으로
+일치시켰다. 전체 종료 거래는 `1,485`건이고 차단 진입은 0건이다. 660 USDT 기본 비용 결과는 동결 외부
+결과와 동일한 `3,605.34525093 USDT`, `+446.26443196%`, 일복리 `0.07340346%`이며 보수적 intrabar
+MDD `30.58189901%`로 유지된 35% 한도 이내다. 비용 2배 및 100/660/1,000 USDT의 모든 조합도 양수다.
+
+통과 결과는 결정적 config artifact로 동결해 승인 서비스의 필수 `LIVE_RISK_POLICY_PARITY` 게이트에
+연결했다. artifact는 계속 `automaticExecutionAllowed=false`, `liveExecutionAllowed=false`를 선언한다.
+Docker 이미지와 온프레미스 배포 패키지도 같은 artifact를 포함하며, 변조 또는 런타임 정책 불일치는 고정
+SHA와 필드 대조에서 앱 시작 전에 거부된다. 실제 wallet snapshot은 H4 내부 상태와 거래소 체결을 더
+관측할 수 있으므로 역사 패리티 통과가 전진 수익이나 실거래 승인을 뜻하지는 않는다.
 
 그 밖에 아직 완료되지 않은 항목은 실제 Bybit TESTNET 최소 주문,
 fresh Bybit Shadow 90일 및 별도 사람 승인이다.
@@ -508,7 +504,7 @@ fresh Bybit Shadow 90일 및 별도 사람 승인이다.
 - [x] Bybit account mode/instrument 및 exact-order adapter를 구현한다.
 - [x] 미해결 Live 위험 정책 패리티를 필수 fail-closed 승인 게이트로 연결한다.
 - [x] 현재 Live 임계값을 Node/Kotlin 역사 재생에 적용하고 공통 임계값 코드와 parity를 검증한다.
-- [ ] Live 전용 일 손실·연속 손실 정책의 제거 또는 protocol 포함을 결정하고 다시 패리티 검증한다.
+- [x] A안을 선택해 H4 v1의 일 손실·연속 손실 차단을 명시적으로 비활성화하고 다시 패리티 검증한다.
 - [ ] 90일 Shadow와 사람 승인 후에만 TESTNET/LIVE 경로를 활성화한다.
 
 ## 12. 공식 계약 근거

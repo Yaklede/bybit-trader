@@ -28,7 +28,7 @@
 | Volume-confirmed trend runtime parity | [volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md](volume-confirmed-trend-ensemble-v1-runtime-parity-2026-08-07.md) | 역사 어댑터와 영속 Shadow 런타임의 전체 재생 패리티 및 전진 기준 |
 | Volume-confirmed trend container smoke | [volume-confirmed-trend-ensemble-v1-container-smoke-2026-08-07.md](volume-confirmed-trend-ensemble-v1-container-smoke-2026-08-07.md) | 주문을 차단한 컨테이너에서 public-data Shadow, API, 대시보드를 검증한 결과 |
 | Volume-confirmed trend live execution TDD | [tdd/volume-confirmed-trend-live-execution.md](tdd/volume-confirmed-trend-live-execution.md) | 승인 후 H4 목표 포지션을 실제 주문으로 전환할 상태 머신·원장·복구 설계 |
-| Volume-confirmed trend live risk parity | [volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md](volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md) | 동결 백테스트에 없는 Live 일 손실·연속 손실 정책의 재현 불가 근거와 선택지 |
+| Volume-confirmed trend live risk parity | [volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md](volume-confirmed-trend-live-risk-parity-gap-2026-08-09.md) | Live 위험 정책 결함, A안 선택, MDD-only H4 정책의 Node/Kotlin 재검증 결과 |
 | Volume-impact state development | [volume-impact-state-development-protocol-2026-08-06.md](volume-impact-state-development-protocol-2026-08-06.md) | 거래량-가격충격 지속형·소진 반전형의 인과적 M15→M5→M1 nested walk-forward 계약 |
 | Volume-impact state result | [volume-impact-state-development-result-2026-08-06.md](volume-impact-state-development-result-2026-08-06.md) | 24개 사전 고정 후보의 탈락 결과와 다음 독립 가설 근거 |
 | Volume-structure development v2 | [volume-structure-development-v2-protocol-2026-08-06.md](volume-structure-development-v2-protocol-2026-08-06.md) | 돌파 재시험 지속형과 2봉 군집 소진 반전형의 사전 고정 개발 계약 |
