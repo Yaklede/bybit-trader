@@ -1,9 +1,0 @@
-{
-  "name": "opendock-creative-gen-ultrawork-quality-gate",
-  "description": "Run the Creative Generation Ultrawork harness before final generated-asset handoff.",
-  "events": [
-    "Stop"
-  ],
-  "command": "node .opendock/harness/opendock__creative-gen-ultrawork/check.mjs",
-  "manualFallback": "If hooks are not active, run `node .opendock/harness/opendock__creative-gen-ultrawork/check.mjs` manually before final response."
-}
