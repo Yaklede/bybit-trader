@@ -52,7 +52,7 @@ jobs:
           esac
 
       - name: Connect to Twingate
-        uses: twingate/github-action@f1e69fc5af67b737d8597b759e5c607f567e77f2 # v1
+        uses: twingate/github-action@bede1f6fb178083ee011815d1223e20df4fed7f7 # v1
         with:
           service-key: ${{ secrets.TWINGATE_SERVICE_KEY }}
 
