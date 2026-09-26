@@ -1,26 +1,16 @@
 .DS_Store
 
-# Local secrets and runtime configuration
+# Local secrets
 .env
 .env.*
-!.env.example
-deploy/docker/env/*.env
-!deploy/docker/env/*.env.example
 *.local
-config/application.local.conf
-config/application.prod.conf
 
-# Build outputs
-.gradle/
-.gradle-local/
-.kotlin/
+# Build outputs and local research inputs
+target/
 build/
-out/
-dist/
-node_modules/
-
-# Runtime data
 data/
+__pycache__/
+*.pyc
 *.db
 *.sqlite
 *.sqlite3
@@ -29,13 +19,3 @@ data/
 # IDE metadata
 .idea/
 *.iml
-.DS_Store
-
-# oh-my-agent runtime (local artifacts — do not commit)
-.antigravitycli/
-.agents/results/
-.agents/state/
-.agents/backup/
-.migration-backup/
-.playwright-mcp/
-.serena/memories/
